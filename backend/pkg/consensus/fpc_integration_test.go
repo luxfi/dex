@@ -98,7 +98,11 @@ func TestFPCConsensusRounds(t *testing.T) {
 		Size:  1.0,
 	}
 	
-	vertex, err := dob.AddOrder(order)
+	_, err = dob.AddOrder(order)
+	require.NoError(t, err)
+	
+	// Add order again to test voting
+	_, err = dob.AddOrder(order)
 	require.NoError(t, err)
 	
 	// Simulate voting rounds
@@ -446,9 +450,4 @@ func TestQuantumCertificateValidation(t *testing.T) {
 }
 
 // BLSAggregateSignature is a type alias for testing
-type BLSAggregateSignature = BLSSignature
-
-// BLSSignature is a mock type for testing
-type BLSSignature struct {
-	data []byte
-}
+type BLSAggregateSignature = Signature

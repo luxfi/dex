@@ -8,21 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/consensus/protocol/quasar"
-	"github.com/luxfi/ids"
+	"github.com/luxfi/dex/backend/pkg/lx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestQuasarInitialization tests Quasar dual-certificate protocol initialization
 func TestQuasarInitialization(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   15,
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	require.NotNil(t, q)
 	
@@ -31,7 +30,7 @@ func TestQuasarInitialization(t *testing.T) {
 	assert.Equal(t, 20, q.SkipThreshold())
 	
 	// Initialize with genesis
-	genesisID := ids.GenerateTestID()
+	genesisID := GenerateTestID()
 	err = q.Initialize(genesisID)
 	assert.NoError(t, err)
 	
@@ -42,19 +41,19 @@ func TestQuasarInitialization(t *testing.T) {
 
 // TestQuasarCertificateTracking tests tracking items for certificate generation
 func TestQuasarCertificateTracking(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   10,
 		SkipThreshold:   15,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Track multiple items
-	itemIDs := make([]ids.ID, 5)
+	itemIDs := make([]ID, 5)
 	for i := range itemIDs {
-		itemIDs[i] = ids.GenerateTestID()
+		itemIDs[i] = GenerateTestID()
 		err := q.Track(itemIDs[i])
 		assert.NoError(t, err)
 	}
@@ -71,24 +70,24 @@ func TestQuasarCertificateTracking(t *testing.T) {
 	assert.Equal(t, 5, q.CertificateCount())
 }
 
-// TestQuasarDualCertificates tests regular and skip certificates
-func TestQuasarDualCertificates(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+// TestQuasarDualCertificatesBasic tests regular and skip certificates
+func TestQuasarDualCertificatesBasic(t *testing.T) {
+	config := QuasarConfig{
 		CertThreshold:   5,
 		SkipThreshold:   10,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Initialize with genesis
-	genesisID := ids.GenerateTestID()
+	genesisID := GenerateTestID()
 	err = q.Initialize(genesisID)
 	require.NoError(t, err)
 	
 	// Track an item
-	itemID := ids.GenerateTestID()
+	itemID := GenerateTestID()
 	err = q.Track(itemID)
 	assert.NoError(t, err)
 	
@@ -110,13 +109,13 @@ func TestQuasarDualCertificates(t *testing.T) {
 
 // TestQuasarConcurrentOperations tests concurrent certificate operations
 func TestQuasarConcurrentOperations(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   10,
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Concurrent tracking and certificate generation
@@ -128,7 +127,7 @@ func TestQuasarConcurrentOperations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			
-			itemID := ids.GenerateTestID()
+			itemID := GenerateTestID()
 			
 			// Track item
 			err := q.Track(itemID)
@@ -152,13 +151,13 @@ func TestQuasarConcurrentOperations(t *testing.T) {
 
 // TestQuasarHealthCheck tests Quasar health monitoring
 func TestQuasarHealthCheck(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   15,
 		SkipThreshold:   25,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Health check should pass
@@ -301,19 +300,19 @@ func TestQuasarSkipCertificateFastPath(t *testing.T) {
 
 // TestQuasarCertificateProof tests certificate proof structure
 func TestQuasarCertificateProof(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   10,
 		SkipThreshold:   15,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Create a chain of items
-	var itemIDs []ids.ID
+	var itemIDs []ID
 	for i := 0; i < 5; i++ {
-		id := ids.GenerateTestID()
+		id := GenerateTestID()
 		itemIDs = append(itemIDs, id)
 		
 		err := q.Track(id)
@@ -338,18 +337,18 @@ func TestQuasarCertificateProof(t *testing.T) {
 
 // BenchmarkQuasarCertificateGeneration benchmarks certificate generation
 func BenchmarkQuasarCertificateGeneration(b *testing.B) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   15,
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, _ := quasar.NewQuasar(config)
+	q, _ := NewQuasar(config)
 	
 	// Pre-track items
-	itemIDs := make([]ids.ID, b.N)
+	itemIDs := make([]ID, b.N)
 	for i := range itemIDs {
-		itemIDs[i] = ids.GenerateTestID()
+		itemIDs[i] = GenerateTestID()
 		_ = q.Track(itemIDs[i])
 	}
 	
@@ -361,17 +360,17 @@ func BenchmarkQuasarCertificateGeneration(b *testing.B) {
 
 // BenchmarkQuasarConcurrentCertificates benchmarks concurrent certificate operations
 func BenchmarkQuasarConcurrentCertificates(b *testing.B) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   10,
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, _ := quasar.NewQuasar(config)
+	q, _ := NewQuasar(config)
 	
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			itemID := ids.GenerateTestID()
+			itemID := GenerateTestID()
 			_ = q.Track(itemID)
 			_, _ = q.GenerateCertificate(itemID)
 		}
@@ -380,19 +379,19 @@ func BenchmarkQuasarConcurrentCertificates(b *testing.B) {
 
 // TestQuasarCertificateRetrieval tests retrieving certificates
 func TestQuasarCertificateRetrieval(t *testing.T) {
-	config := quasar.QuasarConfig[ids.ID]{
+	config := QuasarConfig{
 		CertThreshold:   8,
 		SkipThreshold:   12,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
 	
-	q, err := quasar.NewQuasar(config)
+	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	
 	// Generate some certificates
-	var generatedCerts []*quasar.Certificate[ids.ID]
+	var generatedCerts []*Certificate
 	for i := 0; i < 10; i++ {
-		itemID := ids.GenerateTestID()
+		itemID := GenerateTestID()
 		err := q.Track(itemID)
 		require.NoError(t, err)
 		
@@ -410,7 +409,7 @@ func TestQuasarCertificateRetrieval(t *testing.T) {
 	}
 	
 	// Try to retrieve non-existent certificate
-	nonExistentID := ids.GenerateTestID()
+	nonExistentID := GenerateTestID()
 	_, exists := q.GetCertificate(nonExistentID)
 	assert.False(t, exists)
 }
