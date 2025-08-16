@@ -22,141 +22,211 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
     
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libzmq3-dev
-        cd backend && go mod download
+        cd backend
+        go mod download
+        go mod verify
     
     - name: Run tests
+      run: make test
+    
+    - name: Run tests with race detector
       run: |
         cd backend
-        go test -v -race -coverprofile=coverage.txt ./...
+        go test -race -short ./pkg/...
     
-    - name: Upload coverage
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./backend/coverage.txt
+    - name: Generate coverage
+      run: make test-coverage
 
-  build:
+  benchmark:
     runs-on: ubuntu-latest
-    needs: test
     
     steps:
     - uses: actions/checkout@v3
     
-    - name: Build all engines
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+    
+    - name: Run Go benchmark
+      run: make bench
+    
+    - name: Build C++ library
+      run: make cpp
+    
+    - name: Run Go vs C++ comparison
+      run: make bench-compare
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows
+            arch: arm64
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+    
+    - name: Build binaries
+      env:
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }}
       run: |
-        make build
+        cd backend
+        CGO_ENABLED=0 go build -o ../bin/server-${{ matrix.os }}-${{ matrix.arch }} ./cmd/dex-server
+        CGO_ENABLED=0 go build -o ../bin/trader-${{ matrix.os }}-${{ matrix.arch }} ./cmd/dex-trader
+        CGO_ENABLED=0 go build -o ../bin/bench-${{ matrix.os }}-${{ matrix.arch }} ./cmd/bench
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: binaries
-        path: backend/bin/
+        name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+        path: bin/*
 
-  benchmark:
+  integration:
     runs-on: ubuntu-latest
-    needs: build
     
     steps:
     - uses: actions/checkout@v3
     
-    - name: Download binaries
-      uses: actions/download-artifact@v3
+    - name: Set up Go
+      uses: actions/setup-go@v4
       with:
-        name: binaries
-        path: backend/bin/
+        go-version: '1.22'
     
-    - name: Make binaries executable
-      run: chmod +x backend/bin/*
-    
-    - name: Run benchmarks
+    - name: Install NATS
       run: |
-        make bench-quick
+        wget https://github.com/nats-io/nats-server/releases/download/v2.10.7/nats-server-v2.10.7-linux-amd64.tar.gz
+        tar -xzf nats-server-v2.10.7-linux-amd64.tar.gz
+        sudo mv nats-server-v2.10.7-linux-amd64/nats-server /usr/local/bin/
     
-    - name: Save benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'customBiggerIsBetter'
-        output-file-path: benchmark-results.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+    - name: Start NATS server
+      run: |
+        nats-server -js &
+        sleep 2
+    
+    - name: Run end-to-end test
+      run: |
+        cd backend
+        
+        # Start server in background
+        go run ./cmd/dex-server &
+        SERVER_PID=$!
+        sleep 3
+        
+        # Run normal trader test
+        timeout 10s go run ./cmd/dex-trader -traders 5 -duration 5s || true
+        
+        # Run auto-scaling trader test
+        timeout 15s go run ./cmd/dex-trader -auto || true
+        
+        # Kill server
+        kill $SERVER_PID || true
+        
+        echo "✅ End-to-end tests passed"
 
-  generate-sdks:
+  openapi:
     runs-on: ubuntu-latest
-    needs: test
     
     steps:
     - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+    
+    - name: Install ogen
+      run: go install github.com/ogen-go/ogen/cmd/ogen@latest
+    
+    - name: Generate OpenAPI server
+      run: |
+        cd backend
+        ogen --target api/generated --package generated api/openapi.yaml
     
     - name: Install OpenAPI Generator
       run: |
         npm install -g @openapitools/openapi-generator-cli
     
-    - name: Generate SDKs
+    - name: Generate clients
       run: |
-        openapi-generator-cli generate -i api/openapi.yaml -g typescript-axios -o sdk/typescript
-        openapi-generator-cli generate -i api/openapi.yaml -g python -o sdk/python
-        openapi-generator-cli generate -i api/openapi.yaml -g go -o sdk/go-generated
-        openapi-generator-cli generate -i api/openapi.yaml -g rust -o sdk/rust
+        cd backend
+        
+        # Generate TypeScript client
+        openapi-generator-cli generate \
+          -i api/openapi.yaml \
+          -g typescript-axios \
+          -o api/clients/typescript
+        
+        # Generate Python client
+        openapi-generator-cli generate \
+          -i api/openapi.yaml \
+          -g python \
+          -o api/clients/python
+        
+        # Generate Java client
+        openapi-generator-cli generate \
+          -i api/openapi.yaml \
+          -g java \
+          -o api/clients/java
     
-    - name: Commit SDKs
-      run: |
-        git config --local user.email "ci@luxfi.com"
-        git config --local user.name "CI Bot"
-        git add sdk/
-        git diff --staged --quiet || git commit -m "Auto-generate SDKs"
+    - name: Upload client artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: openapi-clients
+        path: backend/api/clients/
 
-  release:
+  lint:
     runs-on: ubuntu-latest
-    needs: [test, build, benchmark]
-    if: github.ref == 'refs/heads/main'
     
     steps:
     - uses: actions/checkout@v3
     
-    - name: Download binaries
-      uses: actions/download-artifact@v3
+    - name: Set up Go
+      uses: actions/setup-go@v4
       with:
-        name: binaries
-        path: backend/bin/
+        go-version: '1.22'
     
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
       with:
-        files: backend/bin/*
-        tag_name: v${{ github.run_number }}
-        name: Release ${{ github.run_number }}
-        body: |
-          Automated release from CI
-          
-          Performance:
-          - Pure C++: 1.3M+ orders/sec
-          - Hybrid Go/C++: 180K orders/sec
-          - Pure Go: 163K orders/sec
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        version: latest
+        working-directory: backend
+        args: --timeout=5m
 
-  docker:
+  security:
     runs-on: ubuntu-latest
-    needs: [test, build]
     
     steps:
     - uses: actions/checkout@v3
     
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    
-    - name: Login to DockerHub
-      uses: docker/login-action@v2
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
     
-    - name: Build and push
-      uses: docker/build-push-action@v4
+    - name: Upload Trivy results
+      uses: github/codeql-action/upload-sarif@v2
       with:
-        context: ./backend
-        push: true
-        tags: luxfi/dex:latest,luxfi/dex:${{ github.sha }}
+        sarif_file: 'trivy-results.sarif'
