@@ -283,10 +283,10 @@ install: hybrid-build
 	@cp $(BIN_DIR)/* /usr/local/bin/
 	@echo "Installation complete"
 
-# ZeroMQ network benchmarks
+# LX network benchmarks
 .PHONY: zmq-build
 zmq-build:
-	@echo "Building ZeroMQ benchmark tools..."
+	@echo "Building LX benchmark tools..."
 	@mkdir -p $(BIN_DIR)
 	go get github.com/pebbe/zmq4
 	go build -o $(BIN_DIR)/zmq-exchange ./cmd/zmq-exchange
@@ -315,16 +315,16 @@ bench-ultra: fix-build
 	@echo "=== ULTRA FIX ENGINE BENCHMARK ==="
 	@$(BIN_DIR)/ultra-fix-engine 10 || echo "Note: Run as root for huge pages support on Linux"
 
-# Run local ZeroMQ benchmark
+# Run local LX benchmark
 .PHONY: bench-zmq-local
 bench-zmq-local: zmq-build
-	@echo "=== ZeroMQ LOCAL Network Benchmark ==="
+	@echo "=== LX LOCAL Network Benchmark ==="
 	@$(BIN_DIR)/zmq-benchmark -mode local -traders 100 -rate 1000 -duration 30s
 
-# Show instructions for distributed ZeroMQ benchmark
+# Show instructions for distributed LX benchmark
 .PHONY: bench-zmq-dist
 bench-zmq-dist: zmq-build
-	@echo "=== ZeroMQ DISTRIBUTED Network Benchmark ==="
+	@echo "=== LX DISTRIBUTED Network Benchmark ==="
 	@$(BIN_DIR)/zmq-benchmark -mode manual -traders 1000 -rate 1000 -duration 60s
 
 # Network saturation test
@@ -354,7 +354,7 @@ help:
 	@echo "  cex-build    - Build pure C++ CEX backend"
 	@echo "  bench-tools  - Build all benchmark tools"
 	@echo "  bench-servers - Build all server versions for benchmarking"
-	@echo "  zmq-build    - Build ZeroMQ network tools"
+	@echo "  zmq-build    - Build LX network tools"
 	@echo ""
 	@echo "Benchmark Targets:"
 	@echo "  bench-quick  - Quick benchmark (1000 traders, 30s)"
@@ -364,7 +364,7 @@ help:
 	@echo "  bench-report - Generate performance report"
 	@echo ""
 	@echo "Network Benchmark Targets:"
-	@echo "  bench-zmq-local - Test ZeroMQ locally"
+	@echo "  bench-zmq-local - Test LX locally"
 	@echo "  bench-zmq-dist  - Instructions for distributed test"
 	@echo "  bench-network   - Network saturation test (10Gbps)"
 	@echo ""

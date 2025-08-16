@@ -1,8 +1,8 @@
-# 🌐 Network Benchmarking Guide - ZeroMQ Distributed Trading
+# 🌐 Network Benchmarking Guide - LX Distributed Trading
 
 ## Overview
 
-Test real network performance on your 10Gbps network using ZeroMQ for ultra-fast message passing between trading nodes and exchange servers.
+Test real network performance on your 10Gbps network using LX for ultra-fast message passing between trading nodes and exchange servers.
 
 ## Quick Start
 
@@ -36,7 +36,7 @@ make bench-network
                                                │                 │
 ┌─────────────────┐                            │    Exchange     │
 │  Trader Node 2  │◄──────────────────────────►│     Server      │
-│  (zmq-trader)   │          ZeroMQ            │  (zmq-exchange) │
+│  (zmq-trader)   │          LX            │  (zmq-exchange) │
 └─────────────────┘          PUSH/PULL         │                 │
                                                │                 │
 ┌─────────────────┐                            │                 │
@@ -153,7 +153,7 @@ To saturate 10Gbps network:
 # Monitor network usage
 iftop -i eth0
 
-# Monitor ZeroMQ stats
+# Monitor LX stats
 ./zmq-exchange -bind 'tcp://*:5555' -stats-port 8080
 
 # Check in browser

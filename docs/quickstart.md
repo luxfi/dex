@@ -8,7 +8,7 @@ make all
 ```
 
 This will:
-1. Build all engines (Go, C++, Hybrid, ZeroMQ, FIX)
+1. Build all engines (Go, C++, Hybrid, LX, FIX)
 2. Run tests
 3. Execute quick benchmark
 4. Show best performance results
@@ -46,7 +46,7 @@ make fix-demo      # See FIX messages in action
 
 ### Trading Clients
 - **C++ FIX Trader**: High-performance FIX client
-- **ZeroMQ Trader**: Network benchmarking client
+- **LX Trader**: Network benchmarking client
 - **Mega Traders**: Massive concurrent load testing
 
 ### Tools
