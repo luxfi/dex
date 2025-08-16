@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/luxexchange/engine/backend/pkg/engine"
-	"github.com/luxexchange/engine/backend/pkg/orderbook"
-	pb "github.com/luxexchange/engine/backend/pkg/proto/engine"
+	"github.com/luxfi/dex/backend/pkg/engine"
+	"github.com/luxfi/dex/backend/pkg/orderbook"
+	pb "github.com/luxfi/dex/backend/pkg/proto/engine"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"

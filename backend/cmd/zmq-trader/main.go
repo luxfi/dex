@@ -161,6 +161,6 @@ func main() {
     
     if finalSent > 0 {
         fmt.Printf("Average Message Size: %d bytes\n", finalBytes/finalSent)
-        fmt.Printf("Average Latency: %.2f ms (estimated)\n", float64(*traders)/float64(finalSent/totalElapsed)*1000)
+        fmt.Printf("Average Latency: %.2f ms (estimated)\n", float64(*traders)/(float64(finalSent)/totalElapsed)*1000)
     }
 }

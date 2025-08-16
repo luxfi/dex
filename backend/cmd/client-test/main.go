@@ -7,10 +7,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/luxexchange/engine/backend/pkg/client"
-	"github.com/luxexchange/engine/backend/pkg/engine"
-	"github.com/luxexchange/engine/backend/pkg/orderbook"
-	pb "github.com/luxexchange/engine/backend/pkg/proto/engine"
+	"github.com/luxfi/dex/backend/pkg/client"
+	"github.com/luxfi/dex/backend/pkg/engine"
+	"github.com/luxfi/dex/backend/pkg/orderbook"
+	pb "github.com/luxfi/dex/backend/pkg/proto/engine"
 )
 
 var (

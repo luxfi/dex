@@ -294,6 +294,17 @@ zmq-build:
 	go build -o $(BIN_DIR)/zmq-benchmark ./cmd/zmq-benchmark
 	@echo "ZMQ tools built successfully"
 
+# FIX protocol tools
+.PHONY: fix-build
+fix-build:
+	@echo "Building FIX protocol tools..."
+	@mkdir -p $(BIN_DIR)
+	# Build FIX message generator
+	go build -o $(BIN_DIR)/fix-generator ./cmd/fix-generator
+	# Build C++ FIX trader
+	$(CXX) $(CXXFLAGS) -pthread cpp/fix_trader.cpp -o $(BIN_DIR)/fix-trader
+	@echo "FIX tools built successfully"
+
 # Run local ZeroMQ benchmark
 .PHONY: bench-zmq-local
 bench-zmq-local: zmq-build
