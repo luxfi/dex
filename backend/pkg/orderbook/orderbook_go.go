@@ -27,6 +27,10 @@ func NewGoOrderBook(config Config) *GoOrderBook {
 
 // AddOrder adds an order to the book
 func (ob *GoOrderBook) AddOrder(order *Order) uint64 {
+	if order == nil || order.Quantity <= 0 || order.Price < 0 {
+		return 0
+	}
+
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
@@ -195,14 +199,20 @@ func (ob *GoOrderBook) GetDepth(levels int) *Depth {
 	// Aggregate bids by price
 	bidLevels := make(map[float64]float64)
 	for _, id := range ob.bids {
-		order := ob.orders[id]
+		order, exists := ob.orders[id]
+		if !exists || order == nil {
+			continue
+		}
 		bidLevels[order.Price] += order.Quantity
 	}
 
 	// Aggregate asks by price
 	askLevels := make(map[float64]float64)
 	for _, id := range ob.asks {
-		order := ob.orders[id]
+		order, exists := ob.orders[id]
+		if !exists || order == nil {
+			continue
+		}
 		askLevels[order.Price] += order.Quantity
 	}
 
@@ -233,12 +243,19 @@ func (ob *GoOrderBook) GetVolume() uint64 {
 
 // Helper methods for maintaining sorted order
 func (ob *GoOrderBook) insertBid(orderID uint64) {
-	order := ob.orders[orderID]
+	order, exists := ob.orders[orderID]
+	if !exists || order == nil {
+		return
+	}
 
 	// Find insertion point (descending price order)
 	pos := 0
 	for pos < len(ob.bids) {
-		if ob.orders[ob.bids[pos]].Price < order.Price {
+		bidOrder, exists := ob.orders[ob.bids[pos]]
+		if !exists || bidOrder == nil {
+			continue
+		}
+		if bidOrder.Price < order.Price {
 			break
 		}
 		pos++
@@ -251,12 +268,19 @@ func (ob *GoOrderBook) insertBid(orderID uint64) {
 }
 
 func (ob *GoOrderBook) insertAsk(orderID uint64) {
-	order := ob.orders[orderID]
+	order, exists := ob.orders[orderID]
+	if !exists || order == nil {
+		return
+	}
 
 	// Find insertion point (ascending price order)
 	pos := 0
 	for pos < len(ob.asks) {
-		if ob.orders[ob.asks[pos]].Price > order.Price {
+		askOrder, exists := ob.orders[ob.asks[pos]]
+		if !exists || askOrder == nil {
+			continue
+		}
+		if askOrder.Price > order.Price {
 			break
 		}
 		pos++

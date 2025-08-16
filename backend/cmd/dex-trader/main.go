@@ -1,197 +1,297 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"math/rand"
-	"net/http"
-	"runtime"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
-type Order struct {
-	Symbol   string  `json:"symbol"`
-	Side     string  `json:"side"`
-	Price    float64 `json:"price"`
-	Quantity float64 `json:"quantity"`
+type DexTrader struct {
+	nc          *nats.Conn
+	id          string
+	serverFound bool
+	orders      int64
+	errors      int64
 }
 
-var (
-	totalOrders    int64
-	totalErrors    int64
-	totalBatches   int64
-	totalRejected  int64
-)
-
 func main() {
-	serverURL := flag.String("server", "http://localhost:8080", "Server URL")
-	workersPerCore := flag.Int("workers", 10, "Workers per CPU core")
-	batchSize := flag.Int("batch", 1000, "Orders per batch")
-	duration := flag.Duration("duration", 20*time.Second, "Test duration")
+	natsURL := flag.String("nats", "", "NATS URL (empty = auto-discover)")
+	traders := flag.Int("traders", 10, "Number of traders")
+	rate := flag.Int("rate", 1000, "Orders/sec per trader")
+	duration := flag.Duration("duration", 30*time.Second, "Duration")
+	autoScale := flag.Bool("auto", false, "Auto-scale to find max throughput")
 	flag.Parse()
 
-	numCPU := runtime.NumCPU()
-	runtime.GOMAXPROCS(numCPU)
-	numWorkers := numCPU * *workersPerCore
+	hostname, _ := os.Hostname()
+	id := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 
-	log.Printf("⚡ DEX TRADER - High Performance Mode")
-	log.Printf("⚡ CPU Cores: %d", numCPU)
-	log.Printf("⚡ Workers: %d (%d per core)", numWorkers, *workersPerCore)
-	log.Printf("⚡ Batch Size: %d orders", *batchSize)
-	log.Printf("⚡ Target: %d orders/batch × %d workers", *batchSize, numWorkers)
-	log.Printf("⚡ Server: %s", *serverURL)
+	// Check if auto-scale mode
+	if *autoScale {
+		log.Printf("🚀 DEX Auto-Scaling Trader")
+		log.Printf("📍 ID: %s", id)
+		log.Printf("🎯 Finding maximum throughput...")
+		runAutoScale(*natsURL, *traders, *rate, *duration)
+		return
+	}
 
-	// Test server
-	resp, err := http.Get(*serverURL + "/health")
+	log.Printf("💹 DEX Trader starting")
+	log.Printf("📍 ID: %s", id)
+	log.Printf("📊 Config: %d traders @ %d orders/sec", *traders, *rate)
+
+	// Auto-discover NATS
+	if *natsURL == "" {
+		*natsURL = discoverNATS()
+	}
+
+	// Connect to NATS
+	nc, err := nats.Connect(*natsURL)
 	if err != nil {
-		log.Fatalf("❌ Server not reachable: %v", err)
+		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
-	resp.Body.Close()
+	defer nc.Close()
 
-	// Shared HTTP client with massive connection pool
-	client := &http.Client{
-		Transport: &http.Transport{
-			MaxIdleConns:        numWorkers * 10,
-			MaxIdleConnsPerHost: numWorkers * 10,
-			MaxConnsPerHost:     numWorkers * 10,
-			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  true,
-		},
-		Timeout: 10 * time.Second,
+	trader := &DexTrader{
+		nc: nc,
+		id: id,
 	}
 
-	// Generate batch data once
-	orders := generateBatch(*batchSize)
-	batchData, _ := json.Marshal(orders)
+	// Listen for server announcements
+	nc.Subscribe("dex.announce", func(m *nats.Msg) {
+		var ann struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		}
+		if json.Unmarshal(m.Data, &ann) == nil && ann.Type == "dex-server" {
+			if !trader.serverFound {
+				trader.serverFound = true
+				log.Printf("🔍 Found DEX server: %s", ann.ID)
+			}
+		}
+	})
 
+	// Wait for server discovery
+	log.Println("⏳ Waiting for DEX server...")
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second)
+		if trader.serverFound {
+			break
+		}
+	}
+
+	if !trader.serverFound {
+		log.Fatal("❌ No DEX server found")
+	}
+
+	// Start trading
+	log.Printf("📈 Starting %d traders", *traders)
 	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-
 	startTime := time.Now()
-	stopTime := startTime.Add(*duration)
 
-	// Launch workers
-	for i := 0; i < numWorkers; i++ {
-		go hammerWorker(i, client, *serverURL, batchData, stopTime, &wg)
+	for i := 0; i < *traders; i++ {
+		wg.Add(1)
+		go func(tid int) {
+			defer wg.Done()
+			trader.runTrader(tid, *rate, *duration)
+		}(i)
 	}
 
 	// Stats printer
-	go printStats(startTime)
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		lastOrders := int64(0)
+		
+		for range ticker.C {
+			orders := atomic.LoadInt64(&trader.orders)
+			errors := atomic.LoadInt64(&trader.errors)
+			delta := orders - lastOrders
+			log.Printf("📊 Orders: %d | Rate: %d/sec | Errors: %d", 
+				orders, delta, errors)
+			lastOrders = orders
+		}
+	}()
 
-	// Wait for completion
 	wg.Wait()
-
-	// Final results
+	
+	// Final stats
 	elapsed := time.Since(startTime).Seconds()
-	finalOrders := atomic.LoadInt64(&totalOrders)
-	finalErrors := atomic.LoadInt64(&totalErrors)
-	finalBatches := atomic.LoadInt64(&totalBatches)
-	finalRejected := atomic.LoadInt64(&totalRejected)
-
-	fmt.Println("\n" + "============================================================")
-	fmt.Println("⚡ DEX TRADER RESULTS")
-	fmt.Println("============================================================")
-	fmt.Printf("Duration: %.1f seconds\n", elapsed)
-	fmt.Printf("Batches Sent: %d\n", finalBatches)
-	fmt.Printf("Orders Accepted: %d\n", finalOrders)
-	fmt.Printf("Orders Rejected: %d\n", finalRejected)
-	fmt.Printf("Network Errors: %d\n", finalErrors)
-	fmt.Printf("Success Rate: %.1f%%\n", float64(finalOrders)*100/float64(finalOrders+finalRejected+finalErrors))
-	fmt.Printf("\n📊 THROUGHPUT:\n")
-	fmt.Printf("  %.0f orders/sec\n", float64(finalOrders)/elapsed)
-	fmt.Printf("  %.0f batches/sec\n", float64(finalBatches)/elapsed)
-	fmt.Printf("  %.0f orders/sec/core\n", float64(finalOrders)/elapsed/float64(numCPU))
-	
-	rate := float64(finalOrders) / elapsed
-	fmt.Printf("\n🏆 Performance: ")
-	switch {
-	case rate >= 1000000:
-		fmt.Println("🌟 LEGENDARY (1M+ orders/sec)")
-	case rate >= 500000:
-		fmt.Println("💎 DIAMOND (500K+ orders/sec)")
-	case rate >= 100000:
-		fmt.Println("🥇 GOLD (100K+ orders/sec)")
-	case rate >= 50000:
-		fmt.Println("🥈 SILVER (50K+ orders/sec)")
-	case rate >= 10000:
-		fmt.Println("🥉 BRONZE (10K+ orders/sec)")
-	default:
-		fmt.Printf("%.0f orders/sec\n", rate)
-	}
+	finalOrders := atomic.LoadInt64(&trader.orders)
+	log.Printf("✅ Complete: %d orders in %.1fs = %.0f orders/sec", 
+		finalOrders, elapsed, float64(finalOrders)/elapsed)
 }
 
-func hammerWorker(id int, client *http.Client, serverURL string, batchData []byte, stopTime time.Time, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	url := serverURL + "/orders/batch"
+func (t *DexTrader) runTrader(tid int, rate int, duration time.Duration) {
+	orderID := uint64(tid * 1000000)
+	endTime := time.Now().Add(duration)
+	sleepNs := time.Duration(1000000000 / rate)
 	
-	for time.Now().Before(stopTime) {
-		// Fire request
-		resp, err := client.Post(url, "application/json", bytes.NewReader(batchData))
+	for time.Now().Before(endTime) {
+		orderID++
+		
+		order := fmt.Sprintf(`{"id":%d,"symbol":"BTC/USD","side":"buy","price":50000,"qty":1}`, orderID)
+		
+		msg, err := t.nc.Request("dex.orders", []byte(order), 100*time.Millisecond)
 		if err != nil {
-			atomic.AddInt64(&totalErrors, 1)
-			continue
-		}
-
-		// Read response
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		atomic.AddInt64(&totalBatches, 1)
-
-		// Parse result
-		var result map[string]interface{}
-		if json.Unmarshal(body, &result) == nil {
-			if accepted, ok := result["accepted"].(float64); ok {
-				atomic.AddInt64(&totalOrders, int64(accepted))
-			}
-			if rejected, ok := result["rejected"].(float64); ok {
-				atomic.AddInt64(&totalRejected, int64(rejected))
-			}
+			atomic.AddInt64(&t.errors, 1)
+		} else if msg != nil {
+			atomic.AddInt64(&t.orders, 1)
 		}
 		
-		// No delay - hammer continuously
-	}
-}
-
-func generateBatch(size int) []Order {
-	orders := make([]Order, size)
-	for i := 0; i < size; i++ {
-		orders[i] = Order{
-			Symbol:   "BTC/USD",
-			Side:     []string{"buy", "sell"}[rand.Intn(2)],
-			Price:    50000 + rand.Float64()*10000,
-			Quantity: rand.Float64() * 10,
+		if rate < 10000 {
+			time.Sleep(sleepNs)
 		}
 	}
-	return orders
 }
 
-func printStats(startTime time.Time) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	lastOrders := int64(0)
+func discoverNATS() string {
+	locations := []string{
+		"nats://localhost:4222",
+		"nats://127.0.0.1:4222",
+		"nats://nats:4222",
+	}
 	
-	for range ticker.C {
-		orders := atomic.LoadInt64(&totalOrders)
-		batches := atomic.LoadInt64(&totalBatches)
-		rejected := atomic.LoadInt64(&totalRejected)
-		errors := atomic.LoadInt64(&totalErrors)
-		
-		delta := orders - lastOrders
-		elapsed := time.Since(startTime).Seconds()
-		avgRate := float64(orders) / elapsed
-		
-		fmt.Printf("\r🔨 Orders: %d | Rate: %d/sec | Avg: %.0f/sec | Batches: %d | Rejected: %d | Errors: %d",
-			orders, delta, avgRate, batches, rejected, errors)
-		
-		lastOrders = orders
+	for _, loc := range locations {
+		nc, err := nats.Connect(loc, nats.Timeout(1*time.Second))
+		if err == nil {
+			nc.Close()
+			log.Printf("✅ Found NATS at %s", loc)
+			return loc
+		}
 	}
+	
+	return nats.DefaultURL
+}
+
+func runAutoScale(natsURL string, maxTraders int, targetRate int, maxDuration time.Duration) {
+	// Auto-discover NATS
+	if natsURL == "" {
+		natsURL = discoverNATS()
+	}
+
+	// Connect to NATS
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to NATS: %v", err)
+	}
+	defer nc.Close()
+
+	// Wait for server
+	waitForServer(nc)
+
+	// Find optimal configuration
+	currentTraders := 1
+	bestTraders := 1
+	bestRate := float64(0)
+	
+	for currentTraders <= maxTraders {
+		log.Printf("\n🧪 Testing with %d traders...", currentTraders)
+		
+		rate := testConfiguration(nc, currentTraders, targetRate, 10*time.Second)
+		log.Printf("📈 Rate: %.0f orders/sec", rate)
+		
+		if rate > bestRate {
+			bestRate = rate
+			bestTraders = currentTraders
+			log.Printf("✅ New best: %d traders = %.0f orders/sec", bestTraders, rate)
+		} else if rate < bestRate*0.95 {
+			log.Printf("📉 Performance degraded, stopping")
+			break
+		}
+		
+		// Scale up
+		if currentTraders < 10 {
+			currentTraders *= 2
+		} else {
+			currentTraders += 10
+		}
+		
+		if currentTraders > maxTraders {
+			break
+		}
+	}
+	
+	log.Printf("\n🏆 OPTIMAL: %d traders = %.0f orders/sec", bestTraders, bestRate)
+	
+	// Run optimal configuration
+	log.Printf("🚀 Running optimal configuration for %v...", maxDuration)
+	testConfiguration(nc, bestTraders, targetRate, maxDuration)
+}
+
+func waitForServer(nc *nats.Conn) {
+	serverFound := false
+	
+	nc.Subscribe("dex.announce", func(m *nats.Msg) {
+		var ann struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		}
+		if json.Unmarshal(m.Data, &ann) == nil && ann.Type == "dex-server" {
+			if !serverFound {
+				serverFound = true
+				log.Printf("🔍 Found DEX server: %s", ann.ID)
+			}
+		}
+	})
+
+	log.Println("⏳ Waiting for DEX server...")
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second)
+		if serverFound {
+			return
+		}
+	}
+	
+	log.Println("⚠️ No server found, continuing...")
+}
+
+func testConfiguration(nc *nats.Conn, numTraders int, targetRate int, duration time.Duration) float64 {
+	var orders int64
+	var wg sync.WaitGroup
+	
+	start := time.Now()
+	ctx := make(chan bool)
+	
+	for i := 0; i < numTraders; i++ {
+		wg.Add(1)
+		go func(tid int) {
+			defer wg.Done()
+			
+			sleepDuration := time.Second / time.Duration(targetRate)
+			orderID := uint64(tid * 1000000)
+			
+			for {
+				select {
+				case <-ctx:
+					return
+				default:
+					orderID++
+					order := fmt.Sprintf(`{"id":%d,"symbol":"BTC/USD","side":"buy","price":50000,"qty":1}`, orderID)
+					
+					if _, err := nc.Request("dex.orders", []byte(order), 10*time.Millisecond); err == nil {
+						atomic.AddInt64(&orders, 1)
+					}
+					
+					if targetRate > 0 && targetRate < 100000 {
+						time.Sleep(sleepDuration)
+					}
+				}
+			}
+		}(i)
+	}
+	
+	time.Sleep(duration)
+	close(ctx)
+	wg.Wait()
+	
+	elapsed := time.Since(start).Seconds()
+	finalOrders := atomic.LoadInt64(&orders)
+	
+	return float64(finalOrders) / elapsed
 }
