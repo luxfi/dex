@@ -22,11 +22,11 @@ var (
 )
 
 type OrderBookUpdate struct {
-	Type   string      `json:"type"`
-	Symbol string      `json:"symbol"`
-	Bids   []PriceLevel `json:"bids"`
-	Asks   []PriceLevel `json:"asks"`
-	Timestamp int64    `json:"timestamp"`
+	Type      string       `json:"type"`
+	Symbol    string       `json:"symbol"`
+	Bids      []PriceLevel `json:"bids"`
+	Asks      []PriceLevel `json:"asks"`
+	Timestamp int64        `json:"timestamp"`
 }
 
 type PriceLevel struct {
@@ -157,7 +157,7 @@ func main() {
 
 	log.Printf("WebSocket server starting on http://localhost:%d", *wsPort)
 	log.Printf("Connecting to gRPC server at %s", *grpcEndpoint)
-	
+
 	if err := http.ListenAndServe(":8081", nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

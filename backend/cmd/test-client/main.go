@@ -28,11 +28,11 @@ func main() {
 	// Test 1: Submit Buy Order
 	fmt.Println("TEST 1: Submit Buy Order")
 	buyOrder, err := client.SubmitOrder(ctx, &pb.SubmitOrderRequest{
-		Symbol:   "BTC-USD",
-		Side:     pb.OrderSide_ORDER_SIDE_BUY,
-		Type:     pb.OrderType_ORDER_TYPE_LIMIT,
-		Quantity: 1.0,
-		Price:    42000.0,
+		Symbol:        "BTC-USD",
+		Side:          pb.OrderSide_ORDER_SIDE_BUY,
+		Type:          pb.OrderType_ORDER_TYPE_LIMIT,
+		Quantity:      1.0,
+		Price:         42000.0,
 		ClientOrderId: "test-buy-001",
 	})
 	if err != nil {
@@ -44,11 +44,11 @@ func main() {
 	// Test 2: Submit Sell Order
 	fmt.Println("\nTEST 2: Submit Sell Order")
 	sellOrder, err := client.SubmitOrder(ctx, &pb.SubmitOrderRequest{
-		Symbol:   "BTC-USD",
-		Side:     pb.OrderSide_ORDER_SIDE_SELL,
-		Type:     pb.OrderType_ORDER_TYPE_LIMIT,
-		Quantity: 1.0,
-		Price:    43000.0,
+		Symbol:        "BTC-USD",
+		Side:          pb.OrderSide_ORDER_SIDE_SELL,
+		Type:          pb.OrderType_ORDER_TYPE_LIMIT,
+		Quantity:      1.0,
+		Price:         43000.0,
 		ClientOrderId: "test-sell-001",
 	})
 	if err != nil {
@@ -111,7 +111,7 @@ func main() {
 					return
 				}
 				updates++
-				fmt.Printf("✅ Order book update %d: %s, Bids=%d, Asks=%d\n", 
+				fmt.Printf("✅ Order book update %d: %s, Bids=%d, Asks=%d\n",
 					updates, update.Symbol, len(update.BidUpdates), len(update.AskUpdates))
 				if updates >= 3 {
 					return
@@ -127,11 +127,11 @@ func main() {
 	successCount := 0
 	for i := 0; i < 100; i++ {
 		_, err := client.SubmitOrder(ctx, &pb.SubmitOrderRequest{
-			Symbol:   "ETH-USD",
-			Side:     pb.OrderSide(i%2 + 1), // Alternate buy/sell
-			Type:     pb.OrderType_ORDER_TYPE_LIMIT,
-			Quantity: 0.1,
-			Price:    2000.0 + float64(i),
+			Symbol:        "ETH-USD",
+			Side:          pb.OrderSide(i%2 + 1), // Alternate buy/sell
+			Type:          pb.OrderType_ORDER_TYPE_LIMIT,
+			Quantity:      0.1,
+			Price:         2000.0 + float64(i),
 			ClientOrderId: fmt.Sprintf("load-test-%03d", i),
 		})
 		if err == nil {

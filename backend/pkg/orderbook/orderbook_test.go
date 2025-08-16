@@ -10,7 +10,7 @@ func TestOrderBook(t *testing.T) {
 		Symbol:         "TEST",
 		Implementation: ImplGo,
 	})
-	
+
 	// Add buy order
 	buyOrder := &Order{
 		ID:       1,
@@ -20,7 +20,7 @@ func TestOrderBook(t *testing.T) {
 		Quantity: 10.0,
 	}
 	ob.AddOrder(buyOrder)
-	
+
 	// Add sell order
 	sellOrder := &Order{
 		ID:       2,
@@ -30,18 +30,18 @@ func TestOrderBook(t *testing.T) {
 		Quantity: 10.0,
 	}
 	ob.AddOrder(sellOrder)
-	
+
 	// Get best bid/ask
 	bestBid := ob.GetBestBid()
 	if bestBid != 100.0 {
 		t.Errorf("Expected best bid 100.0, got %v", bestBid)
 	}
-	
+
 	bestAsk := ob.GetBestAsk()
 	if bestAsk != 101.0 {
 		t.Errorf("Expected best ask 101.0, got %v", bestAsk)
 	}
-	
+
 	// Test matching
 	matchBuy := &Order{
 		ID:       3,
@@ -51,7 +51,7 @@ func TestOrderBook(t *testing.T) {
 		Quantity: 5.0,
 	}
 	ob.AddOrder(matchBuy)
-	
+
 	// Should have executed trade
 	trades := ob.MatchOrders()
 	if len(trades) == 0 {
@@ -64,7 +64,7 @@ func BenchmarkOrderBookAddOrder(b *testing.B) {
 		Symbol:         "BENCH",
 		Implementation: ImplGo,
 	})
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		order := &Order{
@@ -83,7 +83,7 @@ func BenchmarkOrderBookMatch(b *testing.B) {
 		Symbol:         "BENCH",
 		Implementation: ImplGo,
 	})
-	
+
 	// Pre-populate order book
 	for i := 0; i < 1000; i++ {
 		order := &Order{
@@ -95,7 +95,7 @@ func BenchmarkOrderBookMatch(b *testing.B) {
 		}
 		ob.AddOrder(order)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ob.MatchOrders()

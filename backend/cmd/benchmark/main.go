@@ -18,26 +18,26 @@ import (
 
 // Sample FIX message data structure
 type FIXMessage struct {
-	MsgType      string
-	Symbol       string
-	OrderID      string
-	Side         string
-	OrderType    string
-	Price        float64
-	Quantity     float64
-	Timestamp    time.Time
+	MsgType   string
+	Symbol    string
+	OrderID   string
+	Side      string
+	OrderType string
+	Price     float64
+	Quantity  float64
+	Timestamp time.Time
 }
 
 // BenchmarkResult holds the results of a benchmark run
 type BenchmarkResult struct {
-	EngineName       string
+	EngineName        string
 	MessagesProcessed int
-	OrdersCreated    int
-	TradesExecuted   int
-	Duration         time.Duration
-	Throughput       float64 // messages per second
-	AvgLatency       time.Duration
-	P99Latency       time.Duration
+	OrdersCreated     int
+	TradesExecuted    int
+	Duration          time.Duration
+	Throughput        float64 // messages per second
+	AvgLatency        time.Duration
+	P99Latency        time.Duration
 }
 
 func main() {
@@ -132,13 +132,13 @@ func benchmarkEngine(name string, impl orderbook.Implementation, messages []FIXM
 			switch msg.MsgType {
 			case "D": // New Order Single
 				order := &orderbook.Order{
-					ID:       uint64(i),
-					Symbol:   msg.Symbol,
-					Price:    msg.Price,
-					Quantity: msg.Quantity,
-					Side:     parseSide(msg.Side),
-					Type:     parseOrderType(msg.OrderType),
-					Status:   orderbook.Pending,
+					ID:        uint64(i),
+					Symbol:    msg.Symbol,
+					Price:     msg.Price,
+					Quantity:  msg.Quantity,
+					Side:      parseSide(msg.Side),
+					Type:      parseOrderType(msg.OrderType),
+					Status:    orderbook.Pending,
 					Timestamp: msg.Timestamp,
 				}
 
@@ -172,7 +172,7 @@ func benchmarkEngine(name string, impl orderbook.Implementation, messages []FIXM
 		totalTrades += tradesExecuted
 
 		if verbose {
-			fmt.Printf("  Orders: %d, Trades: %d, Duration: %v\n", 
+			fmt.Printf("  Orders: %d, Trades: %d, Duration: %v\n",
 				ordersCreated, tradesExecuted, iterDuration)
 		}
 	}
@@ -180,7 +180,7 @@ func benchmarkEngine(name string, impl orderbook.Implementation, messages []FIXM
 	// Calculate statistics
 	avgDuration := totalDuration / time.Duration(iterations)
 	throughput := float64(len(messages)) / avgDuration.Seconds()
-	
+
 	avgLatency := time.Duration(0)
 	if len(latencies) > 0 {
 		var total time.Duration
@@ -207,7 +207,7 @@ func benchmarkEngine(name string, impl orderbook.Implementation, messages []FIXM
 
 func downloadFIXData(url string) ([]FIXMessage, error) {
 	fmt.Printf("Downloading FIX data from %s...\n", url)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -247,7 +247,7 @@ func loadFIXData(filename string) ([]FIXMessage, error) {
 		if strings.Contains(firstLine, ",") {
 			// CSV format
 			reader := csv.NewReader(file)
-			
+
 			// Skip header
 			if _, err := reader.Read(); err != nil {
 				return nil, err
@@ -297,7 +297,7 @@ func loadFIXData(filename string) ([]FIXMessage, error) {
 func parseFIXMessage(line string) *FIXMessage {
 	// Simple FIX parser for common fields
 	fields := strings.Split(line, string(byte(1))) // SOH separator
-	
+
 	msg := &FIXMessage{
 		Timestamp: time.Now(),
 	}
@@ -340,10 +340,10 @@ func parseFIXMessage(line string) *FIXMessage {
 
 func generateSyntheticFIXData(count int) []FIXMessage {
 	fmt.Printf("Generating %d synthetic FIX messages...\n", count)
-	
+
 	messages := make([]FIXMessage, count)
 	basePrice := 50000.0 // BTC price
-	
+
 	for i := 0; i < count; i++ {
 		// Mix of order types
 		msgType := "D" // New Order
@@ -355,10 +355,10 @@ func generateSyntheticFIXData(count int) []FIXMessage {
 
 		// Randomize price around base
 		spread := 100.0
-		price := basePrice + (float64(i%100) - 50) * spread / 50
-		
+		price := basePrice + (float64(i%100)-50)*spread/50
+
 		// Randomize quantity
-		quantity := float64(1 + i%10) * 0.1
+		quantity := float64(1+i%10) * 0.1
 
 		// Alternate sides
 		side := "1" // Buy
@@ -414,7 +414,7 @@ func printResults(results []BenchmarkResult) {
 	fmt.Println("╔═══════════════════╦════════════════╦═══════════╦═══════════╦════════════╦════════════╦════════════╗")
 	fmt.Println("║ Engine            ║ Messages/sec   ║ Orders    ║ Trades    ║ Avg Latency║ P99 Latency║ Duration   ║")
 	fmt.Println("╠═══════════════════╬════════════════╬═══════════╬═══════════╬════════════╬════════════╬════════════╣")
-	
+
 	for _, r := range results {
 		fmt.Printf("║ %-17s ║ %14.0f ║ %9d ║ %9d ║ %10v ║ %10v ║ %10v ║\n",
 			r.EngineName,
@@ -426,7 +426,7 @@ func printResults(results []BenchmarkResult) {
 			r.Duration,
 		)
 	}
-	
+
 	fmt.Println("╚═══════════════════╩════════════════╩═══════════╩═══════════╩════════════╩════════════╩════════════╝")
 
 	// Find winner

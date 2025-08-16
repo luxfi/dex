@@ -1,15 +1,22 @@
-// Ultra-Fast Lock-Free FIX Engine - Target: 10M msgs/sec
+// Ultra-Fast Lock-Free FIX Engine
 #include <iostream>
 #include <atomic>
 #include <thread>
 #include <vector>
 #include <chrono>
 #include <cstring>
-#include <immintrin.h>  // For SIMD
-#include <numa.h>       // For NUMA awareness
+#include <iomanip>
 #include <sched.h>      // For CPU affinity
 #include <sys/mman.h>   // For huge pages
 #include <unistd.h>
+
+#ifdef __x86_64__
+#include <immintrin.h>  // For SIMD on x86
+#endif
+
+#ifdef __aarch64__
+#include <arm_neon.h>   // For NEON SIMD on ARM
+#endif
 
 // Configuration for 10M msgs/sec
 constexpr size_t RING_BUFFER_SIZE = 1 << 24;  // 16M entries
@@ -33,7 +40,8 @@ private:
     
 public:
     LockFreeRingBuffer() : mask(RING_BUFFER_SIZE - 1) {
-        // Allocate using huge pages for better TLB performance
+        // Allocate using huge pages for better TLB performance (Linux only)
+#ifdef __linux__
         buffer = (T*)mmap(nullptr, sizeof(T) * RING_BUFFER_SIZE,
                          PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
@@ -41,14 +49,22 @@ public:
         if (buffer == MAP_FAILED) {
             buffer = new T[RING_BUFFER_SIZE];
         }
+#else
+        // Standard allocation for macOS/other platforms
+        buffer = new T[RING_BUFFER_SIZE];
+#endif
     }
     
     ~LockFreeRingBuffer() {
+#ifdef __linux__
         if (buffer != MAP_FAILED) {
             munmap(buffer, sizeof(T) * RING_BUFFER_SIZE);
         } else {
             delete[] buffer;
         }
+#else
+        delete[] buffer;
+#endif
     }
     
     bool push(const T& item) {
@@ -84,35 +100,46 @@ struct alignas(CACHE_LINE_SIZE) FastFIXMessage {
     uint64_t timestamp;
     char data[MAX_MESSAGE_SIZE - 16];
     
-    // SIMD-optimized checksum calculation
+    // Optimized checksum calculation
     inline uint32_t calculate_checksum_simd() const {
-        __m256i sum = _mm256_setzero_si256();
-        const __m256i* ptr = reinterpret_cast<const __m256i*>(data);
+        uint32_t sum = 0;
         
-        for (size_t i = 0; i < length / 32; ++i) {
-            sum = _mm256_add_epi8(sum, _mm256_loadu_si256(ptr + i));
+#ifdef __aarch64__
+        // ARM NEON optimization
+        if (length >= 16) {
+            uint8x16_t vsum = vdupq_n_u8(0);
+            const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
+            
+            for (size_t i = 0; i < length / 16; ++i) {
+                uint8x16_t chunk = vld1q_u8(ptr + i * 16);
+                vsum = vaddq_u8(vsum, chunk);
+            }
+            
+            // Horizontal sum
+            uint8_t temp[16];
+            vst1q_u8(temp, vsum);
+            for (int i = 0; i < 16; ++i) {
+                sum += temp[i];
+            }
+            
+            // Handle remaining bytes
+            for (size_t i = (length / 16) * 16; i < length; ++i) {
+                sum += static_cast<uint8_t>(data[i]);
+            }
+        } else {
+            // Fallback for small messages
+            for (size_t i = 0; i < length; ++i) {
+                sum += static_cast<uint8_t>(data[i]);
+            }
         }
-        
-        // Horizontal sum
-        __m128i sum128 = _mm_add_epi8(
-            _mm256_extracti128_si256(sum, 0),
-            _mm256_extracti128_si256(sum, 1)
-        );
-        
-        uint8_t result[16];
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(result), sum128);
-        
-        uint32_t final_sum = 0;
-        for (int i = 0; i < 16; ++i) {
-            final_sum += result[i];
+#else
+        // Generic fallback
+        for (size_t i = 0; i < length; ++i) {
+            sum += static_cast<uint8_t>(data[i]);
         }
+#endif
         
-        // Handle remaining bytes
-        for (size_t i = (length / 32) * 32; i < length; ++i) {
-            final_sum += static_cast<uint8_t>(data[i]);
-        }
-        
-        return final_sum % 256;
+        return sum % 256;
     }
 };
 
@@ -156,11 +183,13 @@ private:
     std::thread worker;
     
     void process_messages() {
-        // Pin thread to CPU core
+        // CPU affinity (Linux only)
+#ifdef __linux__
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(shard_id % std::thread::hardware_concurrency(), &cpuset);
         pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+#endif
         
         FastFIXMessage* msg;
         while (running.load(std::memory_order_relaxed)) {
@@ -170,7 +199,13 @@ private:
                 processed.fetch_add(1, std::memory_order_relaxed);
             } else {
                 // Spin-wait for ultra-low latency
+#ifdef __x86_64__
                 __builtin_ia32_pause();
+#elif defined(__aarch64__)
+                __asm__ __volatile__("yield");
+#else
+                std::this_thread::yield();
+#endif
             }
         }
     }
@@ -223,7 +258,7 @@ public:
         
         // Zero-copy message setup
         msg->length = length;
-        msg->timestamp = __rdtsc(); // CPU timestamp counter
+        msg->timestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
         memcpy(msg->data, fix_data, length);
         msg->checksum = msg->calculate_checksum_simd();
         
@@ -255,7 +290,6 @@ public:
 // Benchmark harness
 void run_ultra_benchmark(int duration_sec) {
     std::cout << "🚀 Ultra FIX Engine Benchmark\n";
-    std::cout << "Target: 10,000,000 msgs/sec\n";
     std::cout << "Shards: " << NUM_SHARDS << "\n";
     std::cout << "Ring Buffer: " << (RING_BUFFER_SIZE / 1024 / 1024) << "M entries\n";
     std::cout << "Duration: " << duration_sec << " seconds\n";
@@ -279,11 +313,13 @@ void run_ultra_benchmark(int duration_sec) {
     
     for (int i = 0; i < num_producers; ++i) {
         producers.emplace_back([&, i]() {
-            // Pin to CPU
+            // CPU affinity (Linux only)
+#ifdef __linux__
             cpu_set_t cpuset;
             CPU_ZERO(&cpuset);
             CPU_SET(i, &cpuset);
             pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+#endif
             
             uint64_t local_sent = 0;
             char local_msg[256];
@@ -374,9 +410,11 @@ int main(int argc, char* argv[]) {
         duration = std::atoi(argv[1]);
     }
     
-    // Enable huge pages
+    // Enable huge pages (Linux only)
+#ifdef __linux__
     std::cout << "Configuring system for maximum performance...\n";
     system("echo 1024 > /proc/sys/vm/nr_hugepages 2>/dev/null");
+#endif
     
     run_ultra_benchmark(duration);
     

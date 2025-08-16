@@ -24,19 +24,19 @@ var (
 )
 
 type BenchResult struct {
-	Engine       string
-	Traders      int
-	Duration     time.Duration
-	Orders       int64
-	Throughput   float64
-	AvgLatency   time.Duration
-	P50Latency   time.Duration
-	P95Latency   time.Duration
-	P99Latency   time.Duration
-	MaxLatency   time.Duration
-	ErrorRate    float64
-	CPUUsage     float64
-	MemoryMB     float64
+	Engine     string
+	Traders    int
+	Duration   time.Duration
+	Orders     int64
+	Throughput float64
+	AvgLatency time.Duration
+	P50Latency time.Duration
+	P95Latency time.Duration
+	P99Latency time.Duration
+	MaxLatency time.Duration
+	ErrorRate  float64
+	CPUUsage   float64
+	MemoryMB   float64
 }
 
 type LatencyTracker struct {
@@ -53,17 +53,17 @@ func (lt *LatencyTracker) Add(ns int64) {
 func (lt *LatencyTracker) GetPercentile(p float64) time.Duration {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
-	
+
 	if len(lt.samples) == 0 {
 		return 0
 	}
-	
+
 	// Simple percentile calculation (not optimal but works)
 	index := int(float64(len(lt.samples)) * p / 100.0)
 	if index >= len(lt.samples) {
 		index = len(lt.samples) - 1
 	}
-	
+
 	return time.Duration(lt.samples[index])
 }
 
@@ -84,7 +84,7 @@ func getEndpoint(engine string) string {
 
 func runBenchmark(engine string, numTraders int, testDuration time.Duration) *BenchResult {
 	endpoint := getEndpoint(engine)
-	
+
 	// Create connection pool
 	connPool := make([]*grpc.ClientConn, 20)
 	for i := range connPool {
@@ -99,30 +99,30 @@ func runBenchmark(engine string, numTraders int, testDuration time.Duration) *Be
 		defer conn.Close()
 		connPool[i] = conn
 	}
-	
+
 	// Metrics
 	var totalOrders int64
 	var totalErrors int64
 	latencyTracker := &LatencyTracker{}
-	
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
-	
+
 	// Start time
 	startTime := time.Now()
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	startMem := memStats.Alloc
-	
+
 	// Worker function
 	worker := func(workerID int, wg *sync.WaitGroup) {
 		defer wg.Done()
-		
+
 		client := pb.NewEngineServiceClient(connPool[workerID%len(connPool)])
 		ticker := time.NewTicker(time.Millisecond * 10) // 100 orders/sec per worker
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -137,10 +137,10 @@ func runBenchmark(engine string, numTraders int, testDuration time.Duration) *Be
 					Price:         40000.0 + float64(workerID%100),
 					ClientOrderId: fmt.Sprintf("bench-%d-%d", workerID, time.Now().UnixNano()),
 				})
-				
+
 				latency := time.Since(start).Nanoseconds()
 				latencyTracker.Add(latency)
-				
+
 				if err != nil {
 					atomic.AddInt64(&totalErrors, 1)
 				} else {
@@ -149,25 +149,25 @@ func runBenchmark(engine string, numTraders int, testDuration time.Duration) *Be
 			}
 		}
 	}
-	
+
 	// Start workers
 	var wg sync.WaitGroup
 	for i := 0; i < numTraders; i++ {
 		wg.Add(1)
 		go worker(i, &wg)
 	}
-	
+
 	// Wait for completion
 	wg.Wait()
-	
+
 	// Calculate results
 	elapsed := time.Since(startTime)
 	orders := atomic.LoadInt64(&totalOrders)
 	errors := atomic.LoadInt64(&totalErrors)
-	
+
 	runtime.ReadMemStats(&memStats)
 	memUsed := float64(memStats.Alloc-startMem) / 1024 / 1024
-	
+
 	// Calculate latencies
 	avgLatency := time.Duration(0)
 	if len(latencyTracker.samples) > 0 {
@@ -177,7 +177,7 @@ func runBenchmark(engine string, numTraders int, testDuration time.Duration) *Be
 		}
 		avgLatency = time.Duration(sum / int64(len(latencyTracker.samples)))
 	}
-	
+
 	return &BenchResult{
 		Engine:     engine,
 		Traders:    numTraders,
@@ -196,36 +196,36 @@ func runBenchmark(engine string, numTraders int, testDuration time.Duration) *Be
 
 func findMaxThroughput(engine string) *BenchResult {
 	fmt.Printf("\n=== Finding Maximum Throughput for %s Engine ===\n", engine)
-	
+
 	var bestResult *BenchResult
 	maxThroughput := 0.0
-	
+
 	// Binary search for maximum sustainable throughput
 	low := 100
 	high := *maxTraders
-	
+
 	for low <= high {
 		traders := (low + high) / 2
-		
+
 		fmt.Printf("Testing with %d traders...\n", traders)
-		
+
 		// Warmup
 		fmt.Printf("  Warming up for %v...\n", *warmup)
 		_ = runBenchmark(engine, traders, *warmup)
-		
+
 		// Actual test
 		fmt.Printf("  Running benchmark for %v...\n", *duration)
 		result := runBenchmark(engine, traders, *duration)
-		
+
 		if result == nil {
 			fmt.Printf("  Failed to connect\n")
 			high = traders - 1
 			continue
 		}
-		
+
 		fmt.Printf("  Throughput: %.0f orders/sec, Error Rate: %.2f%%, Avg Latency: %v\n",
 			result.Throughput, result.ErrorRate, result.AvgLatency)
-		
+
 		// Check if this is sustainable (low error rate, reasonable latency)
 		if result.ErrorRate < 1.0 && result.P99Latency < 100*time.Millisecond {
 			if result.Throughput > maxThroughput {
@@ -237,47 +237,47 @@ func findMaxThroughput(engine string) *BenchResult {
 			high = traders - *step
 		}
 	}
-	
+
 	return bestResult
 }
 
 func main() {
 	flag.Parse()
-	
+
 	fmt.Println("=== LX ENGINE MAXIMUM PERFORMANCE BENCHMARK ===")
 	fmt.Printf("Target: %s\n", *target)
 	fmt.Printf("Duration: %v per test\n", *duration)
 	fmt.Printf("Max Traders: %d\n", *maxTraders)
 	fmt.Println()
-	
+
 	engines := []string{*target}
 	if *target == "all" {
 		engines = []string{"go", "hybrid", "cpp", "ts"}
 	}
-	
+
 	results := make([]*BenchResult, 0)
-	
+
 	for _, engine := range engines {
 		result := findMaxThroughput(engine)
 		if result != nil {
 			results = append(results, result)
 		}
 	}
-	
+
 	// Print comparison table
 	fmt.Println("\n=== MAXIMUM PERFORMANCE COMPARISON ===")
 	fmt.Println("┌─────────┬──────────┬────────────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────┐")
 	fmt.Println("│ Engine  │ Traders  │ Throughput │ Avg Latency  │ P50 Latency  │ P95 Latency  │ P99 Latency  │ Error Rate │")
 	fmt.Println("├─────────┼──────────┼────────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────┤")
-	
+
 	for _, r := range results {
 		fmt.Printf("│ %-7s │ %8d │ %10.0f │ %12v │ %12v │ %12v │ %12v │ %9.2f%% │\n",
-			r.Engine, r.Traders, r.Throughput, 
+			r.Engine, r.Traders, r.Throughput,
 			r.AvgLatency, r.P50Latency, r.P95Latency, r.P99Latency,
 			r.ErrorRate)
 	}
 	fmt.Println("└─────────┴──────────┴────────────┴──────────────┴──────────────┴──────────────┴──────────────┴────────────┘")
-	
+
 	// Find winner
 	if len(results) > 1 {
 		var winner *BenchResult
@@ -286,10 +286,10 @@ func main() {
 				winner = r
 			}
 		}
-		
+
 		fmt.Printf("\n🏆 WINNER: %s Engine with %.0f orders/sec using %d traders\n",
 			winner.Engine, winner.Throughput, winner.Traders)
-		
+
 		// Calculate relative performance
 		fmt.Println("\n📊 Relative Performance:")
 		for _, r := range results {
@@ -297,17 +297,17 @@ func main() {
 			fmt.Printf("  %s: %.1f%% of maximum\n", r.Engine, pct)
 		}
 	}
-	
+
 	// System limits analysis
 	fmt.Println("\n🔬 System Analysis:")
 	fmt.Printf("  CPU Cores: %d\n", runtime.NumCPU())
 	fmt.Printf("  GOMAXPROCS: %d\n", runtime.GOMAXPROCS(0))
-	
+
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	fmt.Printf("  Memory Allocated: %.2f MB\n", float64(m.Alloc)/1024/1024)
 	fmt.Printf("  Total Memory: %.2f MB\n", float64(m.Sys)/1024/1024)
-	
+
 	// Theoretical maximum
 	if len(results) > 0 {
 		best := results[0]
@@ -315,7 +315,7 @@ func main() {
 		efficiency := best.Throughput / theoretical * 100
 		fmt.Printf("\n  Theoretical Max: %.0f orders/sec\n", theoretical)
 		fmt.Printf("  Achieved: %.0f orders/sec (%.1f%% efficiency)\n", best.Throughput, efficiency)
-		
+
 		// Bottleneck analysis
 		fmt.Println("\n🔍 Bottleneck Analysis:")
 		if best.P99Latency > 50*time.Millisecond {

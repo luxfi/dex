@@ -30,7 +30,7 @@ func main() {
 
 	// Create gRPC-Gateway mux
 	mux := runtime.NewServeMux()
-	
+
 	// Register gRPC service handler
 	// TODO: Add HTTP annotations to proto file for gRPC-Gateway
 	_ = mux
@@ -59,7 +59,7 @@ func main() {
 
 	log.Printf("LX Gateway listening on http://localhost:%d", *httpPort)
 	log.Printf("Proxying to gRPC server at %s", *grpcEndpoint)
-	
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Failed to serve: %v", err)
 	}
@@ -70,12 +70,12 @@ func allowCORS(h http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		h.ServeHTTP(w, r)
 	})
 }

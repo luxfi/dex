@@ -31,16 +31,16 @@ var (
 
 type Router struct {
 	pb.UnimplementedEngineServiceServer
-	clients map[string]pb.EngineServiceClient
-	conns   map[string]*grpc.ClientConn
-	mu      sync.RWMutex
+	clients       map[string]pb.EngineServiceClient
+	conns         map[string]*grpc.ClientConn
+	mu            sync.RWMutex
 	defaultEngine string
 }
 
 func NewRouter() (*Router, error) {
 	r := &Router{
-		clients: make(map[string]pb.EngineServiceClient),
-		conns:   make(map[string]*grpc.ClientConn),
+		clients:       make(map[string]pb.EngineServiceClient),
+		conns:         make(map[string]*grpc.ClientConn),
 		defaultEngine: *defaultEngine,
 	}
 
@@ -55,13 +55,13 @@ func NewRouter() (*Router, error) {
 		if endpoint == "" {
 			continue
 		}
-		
+
 		conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Printf("Warning: Failed to connect to %s engine at %s: %v", name, endpoint, err)
 			continue
 		}
-		
+
 		r.conns[name] = conn
 		r.clients[name] = pb.NewEngineServiceClient(conn)
 		log.Printf("Connected to %s engine at %s", name, endpoint)
@@ -101,7 +101,7 @@ func (r *Router) SubmitOrder(ctx context.Context, req *pb.SubmitOrderRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return client.SubmitOrder(ctx, req)
 }
 
@@ -111,7 +111,7 @@ func (r *Router) CancelOrder(ctx context.Context, req *pb.CancelOrderRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return client.CancelOrder(ctx, req)
 }
 
@@ -121,7 +121,7 @@ func (r *Router) GetOrderBook(ctx context.Context, req *pb.GetOrderBookRequest) 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return client.GetOrderBook(ctx, req)
 }
 
@@ -131,13 +131,13 @@ func (r *Router) StreamOrderBook(req *pb.StreamOrderBookRequest, stream pb.Engin
 	if err != nil {
 		return err
 	}
-	
+
 	// Create client stream
 	clientStream, err := client.StreamOrderBook(stream.Context(), req)
 	if err != nil {
 		return err
 	}
-	
+
 	// Proxy messages
 	for {
 		msg, err := clientStream.Recv()
@@ -153,7 +153,7 @@ func (r *Router) StreamOrderBook(req *pb.StreamOrderBookRequest, stream pb.Engin
 func (r *Router) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	for name, conn := range r.conns {
 		conn.Close()
 		log.Printf("Closed connection to %s engine", name)
@@ -182,7 +182,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterEngineServiceServer(grpcServer, router)
-	
+
 	// Register health check
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
@@ -191,7 +191,7 @@ func main() {
 	// Handle shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	
+
 	go func() {
 		<-sigChan
 		log.Println("Shutting down router...")
@@ -201,7 +201,7 @@ func main() {
 	log.Printf("LX Router listening on %v", lis.Addr())
 	log.Printf("Default engine: %s", router.defaultEngine)
 	log.Printf("Available engines: %s", strings.Join(getKeys(router.clients), ", "))
-	
+
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}

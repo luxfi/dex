@@ -7,7 +7,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	
+
 	"github.com/luxfi/dex/backend/pkg/engine"
 	pb "github.com/luxfi/dex/backend/pkg/proto/engine"
 )
@@ -55,7 +55,7 @@ func NewLXClient(config ClientConfig) (*LXClient, error) {
 
 	case ModeRemote:
 		// Connect to remote engine
-		conn, err := grpc.Dial(config.ServerAddress, 
+		conn, err := grpc.Dial(config.ServerAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to remote engine: %w", err)
@@ -72,9 +72,9 @@ func NewLXClient(config ClientConfig) (*LXClient, error) {
 			}
 			client.local = eng
 		}
-		
+
 		// Always create remote as fallback
-		conn, err := grpc.Dial(config.ServerAddress, 
+		conn, err := grpc.Dial(config.ServerAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			// In hybrid mode, remote failure is not fatal if we have local

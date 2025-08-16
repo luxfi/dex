@@ -804,7 +804,7 @@ const file_proto_lx_engine_proto_rawDesc = "" +
 	"\vSubmitOrder\x12 .lx.engine.v1.SubmitOrderRequest\x1a!.lx.engine.v1.SubmitOrderResponse\x12R\n" +
 	"\vCancelOrder\x12 .lx.engine.v1.CancelOrderRequest\x1a!.lx.engine.v1.CancelOrderResponse\x12U\n" +
 	"\fGetOrderBook\x12!.lx.engine.v1.GetOrderBookRequest\x1a\".lx.engine.v1.GetOrderBookResponse\x12X\n" +
-	"\x0fStreamOrderBook\x12$.lx.engine.v1.StreamOrderBookRequest\x1a\x1d.lx.engine.v1.OrderBookUpdate0\x01B8Z6github.com/luxfi/dex/backend/pkg/proto/engineb\x06proto3"
+	"\x0fStreamOrderBook\x12$.lx.engine.v1.StreamOrderBookRequest\x1a\x1d.lx.engine.v1.OrderBookUpdate0\x01B8Z6github.com/luxexchange/engine/backend/pkg/proto/engineb\x06proto3"
 
 var (
 	file_proto_lx_engine_proto_rawDescOnce sync.Once

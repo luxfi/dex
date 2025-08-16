@@ -37,7 +37,7 @@ type TraderStats struct {
 func (s *TraderStats) RecordLatency(ns int64) {
 	atomic.AddInt64(&s.latencySum, ns)
 	atomic.AddInt64(&s.latencyCount, 1)
-	
+
 	// Update max
 	for {
 		old := atomic.LoadInt64(&s.maxLatency)
@@ -45,7 +45,7 @@ func (s *TraderStats) RecordLatency(ns int64) {
 			break
 		}
 	}
-	
+
 	// Update min
 	for {
 		old := atomic.LoadInt64(&s.minLatency)
@@ -78,14 +78,14 @@ type Trader struct {
 func (t *Trader) Run(ctx context.Context, ordersPerSecond int) {
 	ticker := time.NewTicker(time.Second / time.Duration(ordersPerSecond))
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			t.submitOrder(ctx)
-			
+
 			// Occasionally cancel orders (10% chance)
 			if t.rng.Float64() < 0.1 {
 				t.cancelRandomOrder(ctx)
@@ -99,7 +99,7 @@ func (t *Trader) submitOrder(ctx context.Context) {
 	if t.rng.Float64() > 0.5 {
 		side = pb.OrderSide_ORDER_SIDE_SELL
 	}
-	
+
 	// Price around market (40k for BTC, scaled for others)
 	basePrice := 40000.0
 	if t.symbol == "ETH-USD" {
@@ -111,10 +111,10 @@ func (t *Trader) submitOrder(ctx context.Context) {
 	} else if t.symbol == "LUX-USD" {
 		basePrice = 1.0
 	}
-	
+
 	price := basePrice * (0.95 + t.rng.Float64()*0.1) // ±5% from base
-	quantity := 0.001 + t.rng.Float64()*0.999        // 0.001 to 1.0
-	
+	quantity := 0.001 + t.rng.Float64()*0.999         // 0.001 to 1.0
+
 	start := time.Now()
 	_, err := t.client.SubmitOrder(ctx, &pb.SubmitOrderRequest{
 		Symbol:        t.symbol,
@@ -126,7 +126,7 @@ func (t *Trader) submitOrder(ctx context.Context) {
 	})
 	latency := time.Since(start).Nanoseconds()
 	t.stats.RecordLatency(latency)
-	
+
 	if err != nil {
 		atomic.AddInt64(&t.stats.errors, 1)
 	} else {
@@ -143,7 +143,7 @@ func (t *Trader) cancelRandomOrder(ctx context.Context) {
 	})
 	latency := time.Since(start).Nanoseconds()
 	t.stats.RecordLatency(latency)
-	
+
 	if err == nil {
 		atomic.AddInt64(&t.stats.cancelled, 1)
 	}
@@ -151,24 +151,24 @@ func (t *Trader) cancelRandomOrder(ctx context.Context) {
 
 func main() {
 	flag.Parse()
-	
+
 	// Parse symbols
 	symbolList := []string{"BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "LUX-USD"}
-	
+
 	endpoint := *grpcEndpoint
 	if *useHybrid {
 		endpoint = "localhost:50052"
 	}
-	
+
 	fmt.Println("=== MEGA TRADER SIMULATION ===")
 	fmt.Printf("Endpoint: %s\n", endpoint)
 	fmt.Printf("Traders: %d\n", *numTraders)
 	fmt.Printf("Orders/sec/trader: %d\n", *ordersPerSec)
-	fmt.Printf("Total rate: %d orders/sec\n", *numTraders * *ordersPerSec)
+	fmt.Printf("Total rate: %d orders/sec\n", *numTraders**ordersPerSec)
 	fmt.Printf("Duration: %v\n", *duration)
 	fmt.Printf("Symbols: %v\n", symbolList)
 	fmt.Println()
-	
+
 	// Create shared connection pool
 	conns := make([]*grpc.ClientConn, 10) // 10 connections shared among traders
 	for i := range conns {
@@ -182,11 +182,11 @@ func main() {
 		defer conn.Close()
 		conns[i] = conn
 	}
-	
+
 	// Create traders
 	stats := &TraderStats{minLatency: int64(time.Hour)}
 	traders := make([]*Trader, *numTraders)
-	
+
 	for i := 0; i < *numTraders; i++ {
 		traders[i] = &Trader{
 			id:     i,
@@ -196,23 +196,23 @@ func main() {
 			symbol: symbolList[i%len(symbolList)],
 		}
 	}
-	
+
 	// Start monitoring
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)
 	defer cancel()
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Monitor goroutine
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		
+
 		lastSubmitted := int64(0)
 		lastTime := time.Now()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -224,14 +224,14 @@ func main() {
 				avgLatency := stats.AverageLatency()
 				maxLatency := time.Duration(atomic.LoadInt64(&stats.maxLatency))
 				minLatency := time.Duration(atomic.LoadInt64(&stats.minLatency))
-				
+
 				// Calculate rate
 				now := time.Now()
 				elapsed := now.Sub(lastTime).Seconds()
 				rate := float64(submitted-lastSubmitted) / elapsed
 				lastSubmitted = submitted
 				lastTime = now
-				
+
 				fmt.Printf("[%s] Orders: %d | Rate: %.0f/s | Cancelled: %d | Errors: %d | Latency: avg=%v min=%v max=%v\n",
 					now.Format("15:04:05"),
 					submitted, rate, cancelled, errors,
@@ -239,11 +239,11 @@ func main() {
 			}
 		}
 	}()
-	
+
 	// Start all traders
 	fmt.Printf("Starting %d traders...\n", *numTraders)
 	start := time.Now()
-	
+
 	for _, trader := range traders {
 		wg.Add(1)
 		go func(t *Trader) {
@@ -251,10 +251,10 @@ func main() {
 			t.Run(ctx, *ordersPerSec)
 		}(trader)
 	}
-	
+
 	// Wait for completion
 	wg.Wait()
-	
+
 	// Final stats
 	elapsed := time.Since(start)
 	submitted := atomic.LoadInt64(&stats.submitted)
@@ -263,7 +263,7 @@ func main() {
 	avgLatency := stats.AverageLatency()
 	maxLatency := time.Duration(atomic.LoadInt64(&stats.maxLatency))
 	minLatency := time.Duration(atomic.LoadInt64(&stats.minLatency))
-	
+
 	fmt.Println("\n=== FINAL RESULTS ===")
 	fmt.Printf("Duration: %v\n", elapsed)
 	fmt.Printf("Total Orders: %d\n", submitted)
@@ -271,13 +271,13 @@ func main() {
 	fmt.Printf("Errors: %d (%.2f%%)\n", errors, float64(errors)*100/float64(submitted+errors))
 	fmt.Printf("Throughput: %.0f orders/second\n", float64(submitted)/elapsed.Seconds())
 	fmt.Printf("Latency: avg=%v min=%v max=%v\n", avgLatency, minLatency, maxLatency)
-	
+
 	if float64(errors)*100/float64(submitted+errors) > 1 {
 		fmt.Printf("\n⚠️  Warning: Error rate above 1%%\n")
 	} else {
 		fmt.Printf("\n✅ Test completed successfully\n")
 	}
-	
+
 	// Calculate theoretical max
 	theoretical := float64(*numTraders) * float64(*ordersPerSec) * elapsed.Seconds()
 	efficiency := float64(submitted) / theoretical * 100
