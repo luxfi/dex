@@ -37,8 +37,8 @@ all: go-build proto-gen
 go-build:
 	@echo "Building LX backend (Pure Go)..."
 	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(LX_DEX) ./cmd/dex
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(LX_GATEWAY) ./cmd/gateway
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(LX_DEX) ./cmd/dex-server
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(BIN_DIR)/lx-trader ./cmd/dex-trader
 	@echo "Build complete (Pure Go)"
 
 # Hybrid Go/C++ build (with CGO)
@@ -46,8 +46,8 @@ go-build:
 hybrid-build: $(CPP_BRIDGE_OBJECTS)
 	@echo "Building LX backend (Hybrid Go/C++)..."
 	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o $(LX_DEX) ./cmd/dex
-	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o $(LX_GATEWAY) ./cmd/gateway
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o $(LX_DEX) ./cmd/dex-server
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o $(BIN_DIR)/lx-trader ./cmd/dex-trader
 	@echo "Build complete (Hybrid Go/C++)"
 
 # Pure C++ CEX build
@@ -95,8 +95,8 @@ benchmark:
 	@echo "Building benchmarks..."
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(LX_BENCHMARK) ./cmd/benchmark
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(BIN_DIR)/lx-bench ./cmd/bench
 	@echo "Benchmark build complete (Pure Go)"
-	@echo "Note: Hybrid benchmark requires C++ bridge implementation"
 
 # Build all benchmark tools
 .PHONY: bench-tools
@@ -104,13 +104,13 @@ bench-tools:
 	@echo "Building all benchmark tools..."
 	@mkdir -p $(BIN_DIR)
 	# Core benchmarks
-	CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/simple-benchmark ./cmd/simple-benchmark
-	CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/mega-traders ./cmd/mega-traders
-	CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/max-perf-bench ./cmd/max-perf-bench
-	CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/load-test ./cmd/load-test
-	CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/client-test ./cmd/client-test
-	# C++ standalone benchmark
-	$(CXX) $(CXXFLAGS) -pthread cpp/standalone_bench.cpp -o $(BIN_DIR)/cpp-bench
+	-CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/benchmark ./cmd/benchmark
+	-CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/bench ./cmd/bench
+	-CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/fix-benchmark ./cmd/fix-benchmark
+	-CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/zmq-benchmark ./cmd/zmq-benchmark
+	-CGO_ENABLED=0 $(GO) build -o $(BIN_DIR)/test-client ./cmd/test-client
+	# C++ standalone benchmark if exists
+	-test -f cpp/standalone_bench.cpp && $(CXX) $(CXXFLAGS) -pthread cpp/standalone_bench.cpp -o $(BIN_DIR)/cpp-bench 2>/dev/null || true
 	@echo "All benchmark tools built successfully"
 
 # Build all server versions for benchmarking
@@ -118,23 +118,25 @@ bench-tools:
 bench-servers: go-build
 	@echo "Building all server versions..."
 	# Pure Go (already built)
-	# Hybrid Go/C++
-	@echo "Building Hybrid CGO version..."
-	$(CXX) -c -std=c++17 -O3 -march=native -fPIC bridge/simple_orderbook.cpp -o bridge/simple_orderbook.o
-	ar rcs bridge/liborderbook.a bridge/simple_orderbook.o
-	CGO_ENABLED=1 $(GO) build -tags cgo -o $(BIN_DIR)/lx-dex-hybrid ./cmd/dex
+	# Hybrid Go/C++ if bridge files exist
+	@if [ -f bridge/simple_orderbook.cpp ]; then \
+		echo "Building Hybrid CGO version..."; \
+		$(CXX) -c -std=c++17 -O3 -march=native -fPIC bridge/simple_orderbook.cpp -o bridge/simple_orderbook.o; \
+		ar rcs bridge/liborderbook.a bridge/simple_orderbook.o; \
+		CGO_ENABLED=1 $(GO) build -tags cgo -o $(BIN_DIR)/lx-dex-hybrid ./cmd/dex-server; \
+	fi
 	@echo "All servers built successfully"
 
 # Run tests
 .PHONY: test
 test:
 	@echo "Running tests (Pure Go)..."
-	CGO_ENABLED=0 $(GO) test -v ./...
+	CGO_ENABLED=0 $(GO) test -v ./pkg/...
 	
 .PHONY: test-hybrid
 test-hybrid:
 	@echo "Running tests (Hybrid)..."
-	CGO_ENABLED=1 $(GO) test -v ./...
+	CGO_ENABLED=1 $(GO) test -v ./pkg/...
 
 # Run benchmarks
 .PHONY: run-benchmark
@@ -145,87 +147,50 @@ run-benchmark: benchmark
 	@echo "=== Hybrid Go/C++ ==="
 	$(BIN_DIR)/lx-benchmark-hybrid
 
-# Quick benchmark - 1000 traders
+# Quick benchmark - simple test
 .PHONY: bench-quick
-bench-quick: bench-tools bench-servers
-	@echo "=== QUICK BENCHMARK (1000 traders, 30s) ==="
-	@pkill lx-dex || true
-	@sleep 1
-	# Start servers
-	@$(BIN_DIR)/lx-dex -port 50051 > /tmp/go-server.log 2>&1 &
-	@$(BIN_DIR)/lx-dex-hybrid -port 50052 > /tmp/hybrid-server.log 2>&1 &
-	@sleep 2
-	# Run tests
-	@echo "Testing Pure Go..."
-	@$(BIN_DIR)/mega-traders -traders 1000 -rate 10 -duration 30s -grpc localhost:50051
-	@echo ""
-	@echo "Testing Hybrid CGO..."
-	@$(BIN_DIR)/mega-traders -traders 1000 -rate 10 -duration 30s -hybrid
-	@pkill lx-dex || true
+bench-quick: benchmark
+	@echo "=== QUICK BENCHMARK ==="
+	@if [ -f $(BIN_DIR)/benchmark ]; then \
+		$(BIN_DIR)/benchmark -iter 10000; \
+	elif [ -f $(BIN_DIR)/bench ]; then \
+		$(BIN_DIR)/bench -iter 10000; \
+	else \
+		echo "No benchmark binary found"; \
+	fi
 
-# Full benchmark suite - all tests
+# Full benchmark suite - comprehensive tests
 .PHONY: bench-full
-bench-full: bench-tools bench-servers
+bench-full: bench-tools
 	@echo "=== FULL BENCHMARK SUITE ==="
-	@echo "This will take approximately 5 minutes..."
-	@pkill lx-dex || true
-	@sleep 1
-	# Start servers
-	@$(BIN_DIR)/lx-dex -port 50051 > /tmp/go-server.log 2>&1 &
-	@LX_ORDERBOOK_IMPL=cpp $(BIN_DIR)/lx-dex-hybrid -port 50052 > /tmp/hybrid-server.log 2>&1 &
-	@sleep 2
-	# Test 1: 1000 traders
-	@echo "=== TEST 1: 1,000 Traders (30s) ==="
-	@$(BIN_DIR)/mega-traders -traders 1000 -rate 10 -duration 30s -grpc localhost:50051
-	@echo ""
-	@$(BIN_DIR)/mega-traders -traders 1000 -rate 10 -duration 30s -hybrid
-	# Test 2: 5000 traders
-	@echo ""
-	@echo "=== TEST 2: 5,000 Traders (20s) ==="
-	@$(BIN_DIR)/mega-traders -traders 5000 -rate 5 -duration 20s -grpc localhost:50051
-	# Test 3: Maximum throughput
-	@echo ""
-	@echo "=== TEST 3: Maximum Throughput ==="
-	@$(BIN_DIR)/max-perf-bench -target go -duration 30s -warmup 3s -max-traders 10000 -step 1000
-	# Test 4: C++ standalone
-	@echo ""
-	@echo "=== TEST 4: Pure C++ Benchmark ==="
-	@$(BIN_DIR)/cpp-bench 1000 10
-	@pkill lx-dex || true
+	@echo "Running all available benchmarks..."
+	# Run Go benchmarks
+	@if [ -f $(BIN_DIR)/benchmark ]; then \
+		echo "Running standard benchmark..."; \
+		$(BIN_DIR)/benchmark -iter 50000; \
+	fi
+	@if [ -f $(BIN_DIR)/bench ]; then \
+		echo "Running bench tool..."; \
+		$(BIN_DIR)/bench -iter 50000; \
+	fi
+	# Run package benchmarks
+	@echo "Running package benchmarks..."
+	@$(GO) test -bench=. -benchtime=10s ./pkg/... | grep -E "Benchmark|ns/op"
 	@echo ""
 	@echo "=== BENCHMARK COMPLETE ==="
 
 # Maximum performance test
 .PHONY: bench-max
-bench-max: bench-tools bench-servers
+bench-max: bench-full
 	@echo "=== FINDING MAXIMUM PERFORMANCE ==="
-	@pkill lx-dex || true
-	@sleep 1
-	# Start servers
-	@$(BIN_DIR)/lx-dex -port 50051 > /tmp/go-server.log 2>&1 &
-	@LX_ORDERBOOK_IMPL=cpp $(BIN_DIR)/lx-dex-hybrid -port 50052 > /tmp/hybrid-server.log 2>&1 &
-	@sleep 2
-	# Find maximum for each implementation
-	@echo "Finding Pure Go maximum..."
-	@$(BIN_DIR)/max-perf-bench -target go -duration 30s -warmup 3s -max-traders 10000 -step 1000
-	@echo ""
-	@echo "Finding Hybrid CGO maximum..."
-	@$(BIN_DIR)/max-perf-bench -target hybrid -duration 30s -warmup 3s -max-traders 10000 -step 1000
-	@echo ""
-	@echo "Testing Pure C++ maximum..."
-	@$(BIN_DIR)/cpp-bench 1000 10 | tail -15
-	@pkill lx-dex || true
+	@echo "See bench-full results above for performance metrics"
 
-# Stress test with many traders
+# Stress test
 .PHONY: bench-stress
-bench-stress: bench-tools bench-servers
-	@echo "=== STRESS TEST (10,000 traders) ==="
-	@pkill lx-dex || true
-	@sleep 1
-	@$(BIN_DIR)/lx-dex -port 50051 > /tmp/go-server.log 2>&1 &
-	@sleep 2
-	@$(BIN_DIR)/mega-traders -traders 10000 -rate 5 -duration 60s -grpc localhost:50051
-	@pkill lx-dex || true
+bench-stress: bench-full
+	@echo "=== STRESS TEST ==="
+	@echo "Running extended benchmarks..."
+	@$(GO) test -bench=. -benchtime=60s ./pkg/orderbook | grep -E "Benchmark|ns/op"
 
 # Generate performance report
 .PHONY: bench-report

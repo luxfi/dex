@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.22']
+        go-version: ['1.22', '1.23']
     
     steps:
     - uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Run Go benchmark
       run: |
@@ -94,7 +94,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Build binaries
       env:
@@ -121,7 +121,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Install NATS
       run: |
@@ -163,7 +163,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Install ogen
       run: go install github.com/ogen-go/ogen/cmd/ogen@latest
@@ -214,7 +214,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v3

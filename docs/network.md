@@ -1,231 +1,188 @@
-# 🌐 Network Benchmarking Guide - LX Distributed Trading
+# 🌐 Multi-Node Trading Setup Guide
 
 ## Overview
+The DEX system can run distributed across multiple machines. Traders connect to the server via HTTP (currently), making it easy to scale horizontally.
 
-Test real network performance on your 10Gbps network using LX for ultra-fast message passing between trading nodes and exchange servers.
+## Current Architecture (HTTP)
+- **Server**: Listens on port 8080 (HTTP)
+- **Traders**: Connect via `-server` flag
+- **Protocol**: JSON over HTTP (simple but works)
 
-## Quick Start
+## 🚀 How to Run on Multiple Nodes
 
-### Local Test (Same Machine)
+### Node 1 - Start Server
 ```bash
-cd /Users/z/work/lx/engine/backend
-make bench-zmq-local
+# On your server machine (e.g., 192.168.1.100)
+make turbo-server
+
+# Or manually:
+backend/bin/turbo-dex -port 8080 -workers 40 -shards 80
 ```
 
-### Distributed Test (Multiple Machines)
+### Node 2+ - Start Traders
 ```bash
-# Get instructions
-make bench-zmq-dist
-
-# Or run manually - see below
+# On trader machines
+backend/bin/dex-trader \
+  -server http://192.168.1.100:8080 \
+  -workers 10 \
+  -batch 1000 \
+  -duration 60s
 ```
 
-### Network Saturation Test
+## 📡 Network Discovery Options
+
+### 1. Manual Configuration (Current)
+Traders connect using the `-server` flag:
 ```bash
-# Test how many orders/sec to saturate 10Gbps
-make bench-network
+# Each trader specifies the server
+dex-trader -server http://server-ip:8080
 ```
 
-## Architecture
-
-```
-┌─────────────────┐      10Gbps Network      ┌─────────────────┐
-│  Trader Node 1  │◄──────────────────────────►│                 │
-│  (zmq-trader)   │                            │                 │
-└─────────────────┘                            │                 │
-                                               │                 │
-┌─────────────────┐                            │    Exchange     │
-│  Trader Node 2  │◄──────────────────────────►│     Server      │
-│  (zmq-trader)   │          LX            │  (zmq-exchange) │
-└─────────────────┘          PUSH/PULL         │                 │
-                                               │                 │
-┌─────────────────┐                            │                 │
-│  Trader Node N  │◄──────────────────────────►│                 │
-│  (zmq-trader)   │                            └─────────────────┘
-└─────────────────┘
-```
-
-## Distributed Deployment
-
-### Step 1: Build on All Nodes
+### 2. Environment Variable
+Set server location via environment:
 ```bash
-# On each machine
-cd /Users/z/work/lx/engine/backend
-go get github.com/pebbe/zmq4
-go build -o zmq-exchange ./cmd/zmq-exchange
-go build -o zmq-trader ./cmd/zmq-trader
+export DEX_SERVER=http://192.168.1.100:8080
+make dex-trader
 ```
 
-### Step 2: Start Exchange Server
+### 3. DNS/Service Discovery
+Use a hostname instead of IP:
 ```bash
-# On exchange node (e.g., 10.0.0.10)
-./zmq-exchange -bind 'tcp://*:5555'
+# Set up DNS entry: dex-server.local -> 192.168.1.100
+dex-trader -server http://dex-server.local:8080
 ```
 
-### Step 3: Start Trader Nodes
+## 🔥 Maximum Performance Setup
+
+### Server Machine (Beefy Box)
 ```bash
-# On trader node 1 (e.g., 10.0.0.11)
-./zmq-trader -server 'tcp://10.0.0.10:5555' -traders 1000 -rate 100 -duration 60s
-
-# On trader node 2 (e.g., 10.0.0.12)
-./zmq-trader -server 'tcp://10.0.0.10:5555' -traders 1000 -rate 100 -duration 60s
-
-# On trader node 3 (e.g., 10.0.0.13)
-./zmq-trader -server 'tcp://10.0.0.10:5555' -traders 1000 -rate 100 -duration 60s
+# Start TURBO server with max settings
+backend/bin/turbo-dex \
+  -port 8080 \
+  -workers 100 \
+  -shards 200 \
+  -buffer 10000000
 ```
 
-## Network Tuning
-
-### Linux TCP Buffer Tuning
+### Trader Machines (Multiple)
 ```bash
-# Run on all nodes for maximum performance
-sudo sysctl -w net.core.rmem_max=134217728
-sudo sysctl -w net.core.wmem_max=134217728
-sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 134217728'
-sudo sysctl -w net.ipv4.tcp_wmem='4096 65536 134217728'
-sudo sysctl -w net.core.netdev_max_backlog=30000
-sudo sysctl -w net.ipv4.tcp_congestion_control=htcp
-sudo sysctl -w net.ipv4.tcp_mtu_probing=1
+# Machine 1
+backend/bin/dex-trader -server http://server:8080 -workers 20 -batch 1000
+
+# Machine 2
+backend/bin/dex-trader -server http://server:8080 -workers 20 -batch 1000
+
+# Machine 3
+backend/bin/dex-trader -server http://server:8080 -workers 20 -batch 1000
+
+# ... etc
 ```
 
-### macOS Tuning
+## 📊 Performance Expectations
+
+### Single Machine
+- **Server + 1 Trader**: ~30K orders/sec
+- **Bottleneck**: HTTP overhead, context switching
+
+### Multi-Machine
+- **1 Server + 5 Traders**: ~150K orders/sec
+- **1 Server + 10 Traders**: ~300K orders/sec
+- **Bottleneck**: Network bandwidth, server CPU
+
+## 🚀 Future: NATS/gRPC/LX
+
+For higher performance, we could add:
+
+### Option 1: NATS
+```go
+// Server publishes to NATS
+nc.Publish("orders", orderData)
+
+// Traders subscribe
+nc.Subscribe("orders", func(msg *nats.Msg) {
+    // Process order
+})
+```
+
+### Option 2: gRPC Streaming
+```go
+// Bidirectional streaming for orders
+stream, _ := client.OrderStream(ctx)
+stream.Send(&Order{...})
+```
+
+### Option 3: LX (Already partially implemented)
 ```bash
-# Increase socket buffer sizes
-sudo sysctl -w kern.ipc.maxsockbuf=16777216
-sudo sysctl -w net.inet.tcp.sendspace=1048576
-sudo sysctl -w net.inet.tcp.recvspace=1048576
+make zmq-server  # Start ZMQ exchange
+make zmq-trader  # Start ZMQ traders
 ```
 
-## Performance Expectations
+## 🔧 Quick Test Commands
 
-### Message Size vs Throughput (10Gbps)
-
-| Message Size | Theoretical Max | Realistic | Orders/sec |
-|--------------|----------------|-----------|------------|
-| 50 bytes | 25M msgs/sec | 10M msgs/sec | 10M |
-| 100 bytes | 12.5M msgs/sec | 5M msgs/sec | 5M |
-| 200 bytes | 6.25M msgs/sec | 2.5M msgs/sec | 2.5M |
-| 500 bytes | 2.5M msgs/sec | 1M msgs/sec | 1M |
-| 1KB | 1.25M msgs/sec | 500K msgs/sec | 500K |
-
-### Scaling Guidelines
-
-To saturate 10Gbps network:
-
-1. **Small Messages (100 bytes)**
-   - Need ~50,000 concurrent traders
-   - Each doing 100 orders/sec
-   - Total: 5M orders/sec
-
-2. **Medium Messages (500 bytes)**
-   - Need ~10,000 concurrent traders  
-   - Each doing 100 orders/sec
-   - Total: 1M orders/sec
-
-3. **With Batching**
-   - Batch 10 orders per message
-   - Need only 5,000 traders
-   - Can reach 5M logical orders/sec
-
-## Advanced Configurations
-
-### Multiple Exchange Servers (Sharding)
+### Test on Same Machine
 ```bash
-# Exchange 1 - handles BTC, ETH
-./zmq-exchange -bind 'tcp://*:5555' -symbols BTC,ETH
+# Terminal 1
+make turbo-server
 
-# Exchange 2 - handles SOL, AVAX
-./zmq-exchange -bind 'tcp://*:5556' -symbols SOL,AVAX
-
-# Traders connect to appropriate exchange
-./zmq-trader -server 'tcp://10.0.0.10:5555' -symbols BTC,ETH
-./zmq-trader -server 'tcp://10.0.0.10:5556' -symbols SOL,AVAX
+# Terminal 2
+make dex-trader
 ```
 
-### Message Batching
+### Test Across Network
 ```bash
-# Enable batching for higher throughput
-./zmq-trader -server 'tcp://10.0.0.10:5555' -batch 10 -batch-timeout 1ms
+# Server (192.168.1.100)
+make turbo-server
+
+# Client (any machine)
+backend/bin/dex-trader -server http://192.168.1.100:8080
 ```
 
-### Monitoring
+### Benchmark Multiple Traders
 ```bash
-# Monitor network usage
-iftop -i eth0
+# Start server
+make turbo-server
 
-# Monitor LX stats
-./zmq-exchange -bind 'tcp://*:5555' -stats-port 8080
-
-# Check in browser
-curl http://localhost:8080/stats
+# Start 5 traders in parallel (different terminals or machines)
+for i in {1..5}; do
+  backend/bin/dex-trader -server http://localhost:8080 &
+done
 ```
 
-## Benchmarking Checklist
+## 📈 Monitoring
 
-- [ ] Build ZMQ tools on all nodes
-- [ ] Tune TCP buffers on all nodes
-- [ ] Start exchange server
-- [ ] Start trader nodes
-- [ ] Monitor network usage (should see ~10Gbps)
-- [ ] Monitor CPU usage (should not be bottleneck)
-- [ ] Check error rates (should be <0.1%)
-- [ ] Test different message sizes
-- [ ] Test with batching
-- [ ] Test with multiple exchanges
+While running distributed:
+```bash
+# Check server stats
+curl http://server:8080/stats | jq .
 
-## Troubleshooting
-
-### Low Performance (<100K msgs/sec)
-- Check TCP buffer sizes
-- Verify network is 10Gbps (not 1Gbps)
-- Check CPU usage (might be CPU bound)
-- Try fewer traders with higher rate
-
-### High Error Rate (>1%)
-- Reduce send rate
-- Increase ZMQ high water mark
-- Check network packet loss
-
-### Can't Connect
-- Check firewall rules
-- Verify IP addresses
-- Test with telnet first
-
-## Results Interpretation
-
-### Good Performance
+# Watch real-time
+watch -n 1 'curl -s http://server:8080/stats | jq .'
 ```
-📊 Orders: 5000000 | Rate: 500000/sec | Network: 95.37 MB/s (0.763 Gbps)
+
+## 🎯 Tips for Maximum Throughput
+
+1. **Use Batch Mode**: Send 1000+ orders per batch
+2. **More Workers**: Use `-workers 20` or higher
+3. **Local Network**: Keep latency < 1ms
+4. **Jumbo Frames**: Enable on network for less overhead
+5. **CPU Affinity**: Pin server/trader processes to cores
+
+## Example: 10-Node Setup
+
+```bash
+# Server (most powerful machine)
+./turbo-dex -port 8080 -workers 200 -shards 400
+
+# 9 Trader nodes (run on each)
+./dex-trader \
+  -server http://10.0.0.2:8080 \
+  -workers 20 \
+  -batch 2000 \
+  -duration 60s
 ```
-- Using 7.6% of 10Gbps
-- Room for 10x more traffic
 
-### Saturated Network
-```
-📊 Orders: 50000000 | Rate: 5000000/sec | Network: 1192.09 MB/s (9.537 Gbps)
-```
-- Using 95% of 10Gbps
-- Network is bottleneck
-- Consider compression or batching
-
-## Next Steps
-
-1. **Test with real order book processing**
-   - Replace counter with actual matching engine
-   - Measure end-to-end latency
-
-2. **Test with market data distribution**
-   - Add PUB/SUB for market data
-   - Measure fan-out performance
-
-3. **Test failover scenarios**
-   - Kill exchange, measure recovery
-   - Test with backup exchanges
-
-4. **Compare with gRPC**
-   - Run same test with gRPC
-   - Compare throughput and latency
+Expected: **500K+ orders/sec** across the cluster!
 
 ---
 
-For questions or issues, check the main README or run `make help`
+**Note**: Current implementation uses HTTP for simplicity. For production, consider NATS, gRPC, or LX for better performance and pub/sub capabilities.

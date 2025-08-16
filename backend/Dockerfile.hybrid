@@ -1,5 +1,5 @@
 # Hybrid Go/C++ Engine Dockerfile
-FROM golang:1.21 AS builder
+FROM golang:1.23 AS builder
 
 # Install C++ build tools
 RUN apt-get update && apt-get install -y \
@@ -22,7 +22,7 @@ RUN cd bridge && make
 COPY . .
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=${CGO_ENABLED}
-RUN CGO_ENABLED=1 go build -o lx-engine ./cmd/engine
+RUN CGO_ENABLED=1 go build -o lx-engine ./cmd/dex-server
 
 FROM debian:bullseye-slim
 
