@@ -1,0 +1,43 @@
+# Hybrid Go/C++ Engine Dockerfile
+FROM golang:1.21 AS builder
+
+# Install C++ build tools
+RUN apt-get update && apt-get install -y \
+    g++ \
+    cmake \
+    make \
+    libboost-all-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy and build C++ components
+COPY bridge/ ./bridge/
+COPY cpp-engine/ ./cpp-engine/
+RUN cd bridge && make
+
+# Copy Go code and build with CGO
+COPY . .
+ARG CGO_ENABLED=1
+ENV CGO_ENABLED=${CGO_ENABLED}
+RUN CGO_ENABLED=1 go build -o lx-engine ./cmd/engine
+
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install grpcurl for health checks
+RUN apt-get update && apt-get install -y curl && \
+    curl -sSL https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz | tar -xz -C /usr/local/bin
+
+WORKDIR /root/
+COPY --from=builder /app/lx-engine .
+COPY --from=builder /app/configs ./configs
+
+EXPOSE 50052
+CMD ["./lx-engine"]
