@@ -2,7 +2,6 @@ package lx
 
 import (
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -33,20 +32,20 @@ func (vm *VaultManager) CreateVault(config VaultConfig) (*Vault, error) {
 	}
 
 	vault := &Vault{
-		ID:              config.ID,
-		Name:            config.Name,
-		Description:     config.Description,
-		TotalDeposits:   big.NewInt(0),
-		TotalShares:     big.NewInt(0),
-		HighWaterMark:   big.NewInt(0),
-		Strategies:      make([]TradingStrategy, 0),
-		Performance:     NewPerformanceMetrics(),
-		Depositors:      make(map[string]*VaultPosition),
-		Config:          config,
-		State:           VaultStateActive,
-		CreatedAt:       time.Now(),
-		LastRebalance:   time.Now(),
-		PendingDeposits: make(map[string]*PendingDeposit),
+		ID:                 config.ID,
+		Name:               config.Name,
+		Description:        config.Description,
+		TotalDeposits:      big.NewInt(0),
+		TotalShares:        big.NewInt(0),
+		HighWaterMark:      big.NewInt(0),
+		Strategies:         make([]TradingStrategy, 0),
+		Performance:        NewPerformanceMetrics(),
+		Depositors:         make(map[string]*VaultPosition),
+		Config:             config,
+		State:              VaultStateActive,
+		CreatedAt:          time.Now(),
+		LastRebalance:      time.Now(),
+		PendingDeposits:    make(map[string]*PendingDeposit),
 		PendingWithdrawals: make(map[string]*PendingWithdrawal),
 	}
 
@@ -80,14 +79,14 @@ type VaultConfig struct {
 
 // VaultPosition represents a depositor's position in a vault
 type VaultPosition struct {
-	User           string
-	Shares         *big.Int  // Number of vault shares owned
-	DepositValue   *big.Int  // Original deposit value
-	CurrentValue   *big.Int  // Current value of shares
-	LockedUntil    time.Time // Lockup period end
-	LastUpdate     time.Time
-	RealizedPnL    *big.Int
-	UnrealizedPnL  *big.Int
+	User          string
+	Shares        *big.Int  // Number of vault shares owned
+	DepositValue  *big.Int  // Original deposit value
+	CurrentValue  *big.Int  // Current value of shares
+	LockedUntil   time.Time // Lockup period end
+	LastUpdate    time.Time
+	RealizedPnL   *big.Int
+	UnrealizedPnL *big.Int
 }
 
 // VaultState represents the state of a vault
@@ -165,11 +164,11 @@ func (v *Vault) Deposit(user string, amount *big.Int) (*VaultPosition, error) {
 	position, exists := v.Depositors[user]
 	if !exists {
 		position = &VaultPosition{
-			User:         user,
-			Shares:       big.NewInt(0),
-			DepositValue: big.NewInt(0),
-			CurrentValue: big.NewInt(0),
-			RealizedPnL:  big.NewInt(0),
+			User:          user,
+			Shares:        big.NewInt(0),
+			DepositValue:  big.NewInt(0),
+			CurrentValue:  big.NewInt(0),
+			RealizedPnL:   big.NewInt(0),
 			UnrealizedPnL: big.NewInt(0),
 		}
 		v.Depositors[user] = position
@@ -225,14 +224,14 @@ func (v *Vault) Withdraw(user string, shares *big.Int) (*big.Int, error) {
 	// Update position
 	position.Shares.Sub(position.Shares, shares)
 	position.CurrentValue.Sub(position.CurrentValue, amount)
-	
+
 	// Calculate realized PnL
 	proportionalDeposit := new(big.Int).Mul(position.DepositValue, shares)
 	proportionalDeposit.Div(proportionalDeposit, new(big.Int).Add(position.Shares, shares))
 	realizedPnL := new(big.Int).Sub(amount, proportionalDeposit)
 	position.RealizedPnL.Add(position.RealizedPnL, realizedPnL)
 	position.DepositValue.Sub(position.DepositValue, proportionalDeposit)
-	
+
 	position.LastUpdate = time.Now()
 
 	// Update vault totals
@@ -251,7 +250,7 @@ func (v *Vault) Withdraw(user string, shares *big.Int) (*big.Int, error) {
 func (v *Vault) applyWithdrawalFees(amount *big.Int, position *VaultPosition) *big.Int {
 	// Calculate performance
 	profit := new(big.Int).Sub(position.CurrentValue, position.DepositValue)
-	
+
 	if profit.Cmp(big.NewInt(0)) > 0 {
 		// Apply performance fee on profits
 		perfFee := new(big.Int).Mul(profit, big.NewInt(int64(v.Config.PerformanceFee*10000)))
@@ -285,13 +284,13 @@ func (v *Vault) ExecuteStrategies(market *OrderBook) []Order {
 	for _, strategy := range v.Strategies {
 		// Allocate capital to strategy
 		strategyCapital := v.allocateCapital(strategy, availableCapital)
-		
+
 		// Execute strategy
 		orders := strategy.Execute(market, strategyCapital)
-		
+
 		// Apply risk limits
 		orders = v.applyRiskLimits(orders)
-		
+
 		allOrders = append(allOrders, orders...)
 	}
 
@@ -303,7 +302,7 @@ func (v *Vault) getAvailableCapital() *big.Int {
 	// Reserve some capital for withdrawals
 	reserved := new(big.Int).Mul(v.TotalDeposits, big.NewInt(10))
 	reserved.Div(reserved, big.NewInt(100)) // 10% reserve
-	
+
 	available := new(big.Int).Sub(v.TotalDeposits, reserved)
 	if available.Cmp(big.NewInt(0)) < 0 {
 		return big.NewInt(0)
@@ -318,15 +317,15 @@ func (v *Vault) allocateCapital(strategy TradingStrategy, totalCapital *big.Int)
 	if numStrategies == 0 {
 		return big.NewInt(0)
 	}
-	
+
 	allocation := new(big.Int).Div(totalCapital, big.NewInt(int64(numStrategies)))
-	
+
 	// Apply strategy-specific limits
 	limits := strategy.GetRiskLimits()
 	if limits.MaxPositionValue != nil && allocation.Cmp(limits.MaxPositionValue) > 0 {
 		allocation = limits.MaxPositionValue
 	}
-	
+
 	return allocation
 }
 
@@ -337,17 +336,17 @@ func (v *Vault) applyRiskLimits(orders []Order) []Order {
 
 	for _, order := range orders {
 		orderValue := order.Price * order.Size
-		
+
 		// Check position limits
 		if v.Config.RiskLimits.MaxPositionSize > 0 && order.Size > v.Config.RiskLimits.MaxPositionSize {
 			continue
 		}
-		
+
 		// Check daily loss limit (simplified)
 		if totalValue+orderValue > float64(v.TotalDeposits.Int64())*v.Config.RiskLimits.MaxDrawdown {
 			continue
 		}
-		
+
 		filtered = append(filtered, order)
 		totalValue += orderValue
 	}
@@ -397,16 +396,16 @@ func (v *Vault) UpdatePerformance(currentValue *big.Int) {
 	defer v.mu.Unlock()
 
 	v.Performance.UpdatedAt = time.Now()
-	
+
 	// Calculate returns
 	if v.TotalDeposits.Cmp(big.NewInt(0)) > 0 {
 		returns := new(big.Float).SetInt(currentValue)
 		deposits := new(big.Float).SetInt(v.TotalDeposits)
 		returns.Quo(returns, deposits)
 		returns.Sub(returns, big.NewFloat(1))
-		
+
 		v.Performance.TotalReturn, _ = returns.Float64()
-		
+
 		// Update other metrics
 		v.Performance.calculateSharpe()
 		v.Performance.calculateMaxDrawdown()
@@ -431,31 +430,31 @@ type StrategyConfig struct {
 	Type       string                 `json:"type"`
 	Name       string                 `json:"name"`
 	Parameters map[string]interface{} `json:"parameters"`
-	RiskLimits RiskLimits            `json:"risk_limits"`
+	RiskLimits RiskLimits             `json:"risk_limits"`
 }
 
 // StrategyPerformance tracks strategy performance
 type StrategyPerformance struct {
-	TotalTrades    int
-	WinningTrades  int
-	LosingTrades   int
-	TotalPnL       *big.Int
-	MaxDrawdown    float64
-	SharpeRatio    float64
-	LastUpdate     time.Time
+	TotalTrades   int
+	WinningTrades int
+	LosingTrades  int
+	TotalPnL      *big.Int
+	MaxDrawdown   float64
+	SharpeRatio   float64
+	LastUpdate    time.Time
 }
 
 // Enhanced RiskLimits
 type RiskLimits struct {
-	MaxPositionSize   float64
-	MaxPositionValue  *big.Int
-	MaxLeverage       float64
-	MaxDrawdown       float64
-	DailyLossLimit    float64
-	PositionLimits    map[string]float64 // per symbol limits
-	MaxOpenPositions  int
-	MaxOrdersPerMin   int
-	RequiredMargin    float64
+	MaxPositionSize  float64
+	MaxPositionValue *big.Int
+	MaxLeverage      float64
+	MaxDrawdown      float64
+	DailyLossLimit   float64
+	PositionLimits   map[string]float64 // per symbol limits
+	MaxOpenPositions int
+	MaxOrdersPerMin  int
+	RequiredMargin   float64
 }
 
 // createStrategy creates a strategy from configuration
@@ -514,12 +513,12 @@ func NewMarketMakingStrategy(config StrategyConfig) *MarketMakingStrategy {
 	if s, ok := config.Parameters["spread"].(float64); ok {
 		spread = s
 	}
-	
+
 	depth := 5 // Default 5 levels
 	if d, ok := config.Parameters["depth"].(int); ok {
 		depth = d
 	}
-	
+
 	return &MarketMakingStrategy{
 		config:      config,
 		performance: &StrategyPerformance{TotalPnL: big.NewInt(0)},
@@ -531,19 +530,19 @@ func NewMarketMakingStrategy(config StrategyConfig) *MarketMakingStrategy {
 
 func (s *MarketMakingStrategy) Execute(market *OrderBook, capital *big.Int) []Order {
 	orders := make([]Order, 0)
-	
+
 	// Get current mid price
 	snapshot := market.GetSnapshot()
 	if len(snapshot.Bids) == 0 || len(snapshot.Asks) == 0 {
 		return orders
 	}
-	
+
 	midPrice := (snapshot.Bids[0].Price + snapshot.Asks[0].Price) / 2
-	
+
 	// Place orders on both sides
 	for i := 0; i < s.depth; i++ {
 		spreadMultiplier := float64(i+1) * s.spread
-		
+
 		// Buy order
 		buyPrice := midPrice * (1 - spreadMultiplier)
 		orders = append(orders, Order{
@@ -554,7 +553,7 @@ func (s *MarketMakingStrategy) Execute(market *OrderBook, capital *big.Int) []Or
 			Size:     s.orderSize,
 			PostOnly: true,
 		})
-		
+
 		// Sell order
 		sellPrice := midPrice * (1 + spreadMultiplier)
 		orders = append(orders, Order{
@@ -566,7 +565,7 @@ func (s *MarketMakingStrategy) Execute(market *OrderBook, capital *big.Int) []Or
 			PostOnly: true,
 		})
 	}
-	
+
 	return orders
 }
 
@@ -710,10 +709,10 @@ func (vm *VaultManager) GetVaultPerformance(id string) (*PerformanceMetrics, err
 	if err != nil {
 		return nil, err
 	}
-	
+
 	vault.mu.RLock()
 	defer vault.mu.RUnlock()
-	
+
 	return vault.Performance, nil
 }
 

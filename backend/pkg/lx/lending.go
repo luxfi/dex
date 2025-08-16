@@ -33,29 +33,29 @@ func NewLendingManager(engine *TradingEngine) *LendingManager {
 
 // Enhanced LendingPool with advanced features
 type LendingPool struct {
-	Asset              string
-	TotalSupply        *big.Int
-	TotalBorrowed      *big.Int
-	TotalReserves      *big.Int
-	SupplyAPY          float64
-	BorrowAPY          float64
-	UtilizationRate    float64
-	ReserveFactor      float64 // Protocol fee
-	LiquidationBonus   float64 // Incentive for liquidators
-	CollateralFactor   float64 // LTV ratio
-	Suppliers          map[string]*Supply
-	Borrowers          map[string]*Loan
-	InterestRateModel  InterestRateModel
-	LastUpdateTime     time.Time
-	AccruedInterest    *big.Int
-	SupplyIndex        *big.Int // For interest calculation
-	BorrowIndex        *big.Int
-	MinSupply          *big.Int
-	MaxSupply          *big.Int
-	MinBorrow          *big.Int
-	MaxBorrow          *big.Int
-	State              PoolState
-	mu                 sync.RWMutex
+	Asset             string
+	TotalSupply       *big.Int
+	TotalBorrowed     *big.Int
+	TotalReserves     *big.Int
+	SupplyAPY         float64
+	BorrowAPY         float64
+	UtilizationRate   float64
+	ReserveFactor     float64 // Protocol fee
+	LiquidationBonus  float64 // Incentive for liquidators
+	CollateralFactor  float64 // LTV ratio
+	Suppliers         map[string]*Supply
+	Borrowers         map[string]*Loan
+	InterestRateModel InterestRateModel
+	LastUpdateTime    time.Time
+	AccruedInterest   *big.Int
+	SupplyIndex       *big.Int // For interest calculation
+	BorrowIndex       *big.Int
+	MinSupply         *big.Int
+	MaxSupply         *big.Int
+	MinBorrow         *big.Int
+	MaxBorrow         *big.Int
+	State             PoolState
+	mu                sync.RWMutex
 }
 
 // PoolState represents the state of a lending pool
@@ -70,30 +70,30 @@ const (
 
 // Supply represents a supply position
 type Supply struct {
-	User              string
-	Asset             string
-	Amount            *big.Int
-	Shares            *big.Int // For interest-bearing tokens
-	SupplyTime        time.Time
-	LastUpdateTime    time.Time
-	AccruedInterest   *big.Int
-	Index             *big.Int // Interest index at supply time
+	User            string
+	Asset           string
+	Amount          *big.Int
+	Shares          *big.Int // For interest-bearing tokens
+	SupplyTime      time.Time
+	LastUpdateTime  time.Time
+	AccruedInterest *big.Int
+	Index           *big.Int // Interest index at supply time
 }
 
 // Enhanced Loan with more details
 type Loan struct {
-	Borrower          string
-	Asset             string
-	Amount            *big.Int
-	Collateral        map[string]*Collateral // Multiple collateral assets
-	BorrowTime        time.Time
-	LastUpdateTime    time.Time
-	AccruedInterest   *big.Int
-	HealthFactor      float64
-	LiquidationPrice  map[string]float64 // Per collateral asset
-	Index             *big.Int           // Interest index at borrow time
-	IsIsolated        bool
-	MaxLTV            float64
+	Borrower         string
+	Asset            string
+	Amount           *big.Int
+	Collateral       map[string]*Collateral // Multiple collateral assets
+	BorrowTime       time.Time
+	LastUpdateTime   time.Time
+	AccruedInterest  *big.Int
+	HealthFactor     float64
+	LiquidationPrice map[string]float64 // Per collateral asset
+	Index            *big.Int           // Interest index at borrow time
+	IsIsolated       bool
+	MaxLTV           float64
 }
 
 // Collateral represents collateral for a loan
@@ -136,7 +136,7 @@ type JumpRateModel struct {
 
 // InterestAccumulator tracks interest accumulation
 type InterestAccumulator struct {
-	LastAccrualTime time.Time
+	LastAccrualTime     time.Time
 	TotalSupplyInterest *big.Int
 	TotalBorrowInterest *big.Int
 }
@@ -374,11 +374,11 @@ func (lm *LendingManager) Borrow(user string, asset string, amount *big.Int, col
 	// Validate collateral
 	collateralValue := lm.calculateCollateralValue(collateralAssets)
 	borrowValue := lm.getAssetValue(asset, amount)
-	
+
 	// Check collateral ratio
 	requiredCollateral := new(big.Int).Mul(borrowValue, big.NewInt(int64(1/pool.CollateralFactor*100)))
 	requiredCollateral.Div(requiredCollateral, big.NewInt(100))
-	
+
 	if collateralValue.Cmp(requiredCollateral) < 0 {
 		return fmt.Errorf("insufficient collateral")
 	}
@@ -675,7 +675,7 @@ func (lm *LendingManager) getAssetValue(asset string, amount *big.Int) *big.Int 
 	if oracle == nil {
 		return big.NewInt(0)
 	}
-	
+
 	price := big.NewFloat(oracle.Price)
 	amountFloat := new(big.Float).SetInt(amount)
 	value := new(big.Float).Mul(price, amountFloat)
@@ -707,7 +707,7 @@ func (lm *LendingManager) calculateHealthFactor(loan *Loan) float64 {
 	healthFactor := new(big.Float).SetInt(totalCollateralValue)
 	borrowFloat := new(big.Float).SetInt(totalBorrowValue)
 	healthFactor.Quo(healthFactor, borrowFloat)
-	
+
 	result, _ := healthFactor.Float64()
 	return result
 }
@@ -715,20 +715,20 @@ func (lm *LendingManager) calculateHealthFactor(loan *Loan) float64 {
 // calculateLiquidationPrices calculates liquidation prices for each collateral
 func (lm *LendingManager) calculateLiquidationPrices(loan *Loan) map[string]float64 {
 	prices := make(map[string]float64)
-	
+
 	for asset, coll := range loan.Collateral {
 		oracle := lm.oracles[asset]
 		if oracle == nil {
 			continue
 		}
-		
+
 		// Liquidation occurs when health factor < 1
 		// Price at which: (collateral * price * factor) / debt = 1
 		currentPrice := oracle.Price
 		liquidationPrice := currentPrice * coll.CollateralFactor
 		prices[asset] = liquidationPrice
 	}
-	
+
 	return prices
 }
 
@@ -737,11 +737,11 @@ func (lm *LendingManager) calculateTotalDebt(loan *Loan, pool *LendingPool) *big
 	// Calculate accrued interest based on index
 	currentIndex := pool.BorrowIndex
 	borrowIndex := loan.Index
-	
+
 	if borrowIndex.Cmp(big.NewInt(0)) == 0 {
 		borrowIndex = big.NewInt(1e18)
 	}
-	
+
 	// debt = principal * currentIndex / borrowIndex
 	totalDebt := mulDiv(loan.Amount, currentIndex, borrowIndex)
 	return totalDebt
@@ -757,21 +757,21 @@ func (lm *LendingManager) calculateMaxLiquidation(loan *Loan, pool *LendingPool)
 // calculateCollateralToSeize calculates collateral amount to seize
 func (lm *LendingManager) calculateCollateralToSeize(debtAmount *big.Int, debtAsset, collateralAsset string, liquidationBonus float64) *big.Int {
 	debtValue := lm.getAssetValue(debtAsset, debtAmount)
-	
+
 	// Add liquidation bonus
 	seizeValue := new(big.Int).Mul(debtValue, big.NewInt(int64((1+liquidationBonus)*100)))
 	seizeValue.Div(seizeValue, big.NewInt(100))
-	
+
 	// Convert to collateral amount
 	collateralPrice := lm.oracles[collateralAsset].Price
 	if collateralPrice == 0 {
 		return big.NewInt(0)
 	}
-	
+
 	seizeAmount := new(big.Float).SetInt(seizeValue)
 	seizeAmount.Quo(seizeAmount, big.NewFloat(collateralPrice))
 	result, _ := seizeAmount.Int(nil)
-	
+
 	return result
 }
 
@@ -795,10 +795,10 @@ func (m *JumpRateModel) CalculateRates(utilization float64) (supplyAPY, borrowAP
 		excessUtil := utilization - m.OptimalUtilization
 		borrowAPY = normalRate + excessUtil*m.Slope2
 	}
-	
+
 	// Supply rate = Borrow rate * Utilization * (1 - Reserve Factor)
 	supplyAPY = borrowAPY * utilization * 0.9 // Assuming 10% reserve factor
-	
+
 	return supplyAPY, borrowAPY
 }
 
@@ -811,12 +811,12 @@ func (m *JumpRateModel) GetOptimalUtilization() float64 { return m.OptimalUtiliz
 func (lm *LendingManager) GetPool(asset string) (*LendingPool, error) {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	pool, exists := lm.pools[asset]
 	if !exists {
 		return nil, fmt.Errorf("pool not found")
 	}
-	
+
 	return pool, nil
 }
 
@@ -824,7 +824,7 @@ func (lm *LendingManager) GetPool(asset string) (*LendingPool, error) {
 func (lm *LendingManager) GetUserLoans(user string) map[string]*Loan {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	return lm.loans[user]
 }
 
@@ -832,13 +832,13 @@ func (lm *LendingManager) GetUserLoans(user string) map[string]*Loan {
 func (lm *LendingManager) GetUserSupplies(user string) map[string]*Supply {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	
+
 	supplies := make(map[string]*Supply)
 	for asset, pool := range lm.pools {
 		if supply, exists := pool.Suppliers[user]; exists {
 			supplies[asset] = supply
 		}
 	}
-	
+
 	return supplies
 }

@@ -3,7 +3,6 @@ package lx
 import (
 	"fmt"
 	"math"
-	"math/big"
 	"sync"
 	"time"
 )
@@ -29,28 +28,28 @@ func NewPerpetualManager(engine *TradingEngine) *PerpetualManager {
 
 // PerpPosition represents a perpetual position with enhanced tracking
 type PerpPosition struct {
-	Symbol           string
-	User             string
-	Size             float64   // Positive for long, negative for short
-	EntryPrice       float64
-	MarkPrice        float64
-	IndexPrice       float64
-	UnrealizedPnL    float64
-	RealizedPnL      float64
-	Margin           float64
+	Symbol            string
+	User              string
+	Size              float64 // Positive for long, negative for short
+	EntryPrice        float64
+	MarkPrice         float64
+	IndexPrice        float64
+	UnrealizedPnL     float64
+	RealizedPnL       float64
+	Margin            float64
 	MaintenanceMargin float64
-	InitialMargin    float64
-	Leverage         float64
-	LiquidationPrice float64
-	FundingPaid      float64
-	LastFundingTime  time.Time
-	OpenTime         time.Time
-	UpdateTime       time.Time
-	IsIsolated       bool
-	CrossMargin      float64
-	OrderMargin      float64 // Margin locked in open orders
-	PositionValue    float64
-	Notional         float64
+	InitialMargin     float64
+	Leverage          float64
+	LiquidationPrice  float64
+	FundingPaid       float64
+	LastFundingTime   time.Time
+	OpenTime          time.Time
+	UpdateTime        time.Time
+	IsIsolated        bool
+	CrossMargin       float64
+	OrderMargin       float64 // Margin locked in open orders
+	PositionValue     float64
+	Notional          float64
 }
 
 // Enhanced PerpetualMarket with funding mechanism
@@ -257,7 +256,7 @@ func (pm *PerpetualManager) OpenPosition(user string, symbol string, side Side, 
 // modifyPosition modifies an existing position
 func (pm *PerpetualManager) modifyPosition(position *PerpPosition, deltaSize float64, price float64, leverage float64) (*PerpPosition, error) {
 	market := pm.markets[position.Symbol]
-	
+
 	oldSize := position.Size
 	newSize := oldSize + deltaSize
 
@@ -266,7 +265,7 @@ func (pm *PerpetualManager) modifyPosition(position *PerpPosition, deltaSize flo
 		// Position reversal
 		// First close existing position
 		pm.closePositionInternal(position, math.Abs(oldSize), price)
-		
+
 		// Then open new position in opposite direction
 		if newSize != 0 {
 			side := Buy
@@ -294,7 +293,7 @@ func (pm *PerpetualManager) modifyPosition(position *PerpPosition, deltaSize flo
 	position.Size = newSize
 	position.MarkPrice = price
 	position.UpdateTime = time.Now()
-	
+
 	// Recalculate margins
 	notional := math.Abs(newSize) * price * market.ContractSize
 	position.Notional = notional
@@ -359,14 +358,14 @@ func (pm *PerpetualManager) closePositionInternal(position *PerpPosition, size f
 	if math.Abs(position.Size) < 1e-8 {
 		// Remove position
 		delete(pm.positions[position.User], position.Symbol)
-		
+
 		// Update market open interest
 		market := pm.markets[position.Symbol]
 		market.mu.Lock()
 		market.OpenInterest -= size
 		market.OpenInterestValue = market.OpenInterest * price * market.ContractSize
 		market.mu.Unlock()
-		
+
 		return position, nil
 	}
 
@@ -381,7 +380,7 @@ func (pm *PerpetualManager) closePositionInternal(position *PerpPosition, size f
 // calculatePnL calculates realized PnL for a position
 func (pm *PerpetualManager) calculatePnL(position *PerpPosition, size float64, exitPrice float64) float64 {
 	market := pm.markets[position.Symbol]
-	
+
 	if market.IsInverse {
 		// Inverse perpetual PnL calculation
 		if position.Size > 0 {
@@ -412,13 +411,13 @@ func (pm *PerpetualManager) calculateUnrealizedPnL(position *PerpPosition, markP
 func (pm *PerpetualManager) calculateLiquidationPrice(market *PerpetualMarket, position *PerpPosition) float64 {
 	// Liquidation happens when margin ratio falls below maintenance margin
 	// Margin Ratio = (Margin + Unrealized PnL) / Position Value
-	
+
 	maintenanceMarginRatio := market.MaintenanceMargin
 	margin := position.Margin
 	size := math.Abs(position.Size)
 	entryPrice := position.EntryPrice
 	contractSize := market.ContractSize
-	
+
 	if market.IsInverse {
 		// Inverse perpetual liquidation price
 		if position.Size > 0 {
@@ -432,10 +431,10 @@ func (pm *PerpetualManager) calculateLiquidationPrice(market *PerpetualMarket, p
 		// Linear perpetual liquidation price
 		if position.Size > 0 {
 			// Long position liquidates when price falls
-			return entryPrice - (margin - maintenanceMarginRatio*size*contractSize*entryPrice) / (size * contractSize)
+			return entryPrice - (margin-maintenanceMarginRatio*size*contractSize*entryPrice)/(size*contractSize)
 		} else {
 			// Short position liquidates when price rises
-			return entryPrice + (margin - maintenanceMarginRatio*size*contractSize*entryPrice) / (size * contractSize)
+			return entryPrice + (margin-maintenanceMarginRatio*size*contractSize*entryPrice)/(size*contractSize)
 		}
 	}
 }
@@ -446,27 +445,27 @@ func (pm *PerpetualManager) ProcessFunding() error {
 	defer pm.mu.Unlock()
 
 	now := time.Now()
-	
+
 	for symbol, market := range pm.markets {
 		market.mu.Lock()
-		
+
 		// Check if funding time
 		if now.Before(market.NextFundingTime) {
 			market.mu.Unlock()
 			continue
 		}
-		
+
 		// Calculate funding rate
 		fundingRate := pm.calculateFundingRate(market)
 		market.FundingRate = fundingRate
-		
+
 		// Process funding for all positions
 		for user, positions := range pm.positions {
 			if position, exists := positions[symbol]; exists {
 				fundingPayment := pm.calculateFundingPayment(position, fundingRate, market)
 				position.FundingPaid += fundingPayment
 				position.LastFundingTime = now
-				
+
 				// Deduct/add funding from/to margin
 				if position.IsIsolated {
 					position.Margin -= fundingPayment
@@ -478,7 +477,7 @@ func (pm *PerpetualManager) ProcessFunding() error {
 				}
 			}
 		}
-		
+
 		// Record funding payment
 		market.FundingHistory = append(market.FundingHistory, FundingPayment{
 			Time:       now,
@@ -486,19 +485,19 @@ func (pm *PerpetualManager) ProcessFunding() error {
 			MarkPrice:  market.MarkPrice,
 			IndexPrice: market.IndexPrice,
 		})
-		
+
 		// Limit history size
 		if len(market.FundingHistory) > 1000 {
 			market.FundingHistory = market.FundingHistory[len(market.FundingHistory)-500:]
 		}
-		
+
 		// Update funding times
 		market.LastFundingTime = now
 		market.NextFundingTime = now.Add(market.FundingInterval)
-		
+
 		market.mu.Unlock()
 	}
-	
+
 	return nil
 }
 
@@ -506,13 +505,13 @@ func (pm *PerpetualManager) ProcessFunding() error {
 func (pm *PerpetualManager) calculateFundingRate(market *PerpetualMarket) float64 {
 	// Simplified funding rate calculation
 	// Funding Rate = (Mark Price - Index Price) / Index Price / Funding Interval Count
-	
+
 	if market.IndexPrice == 0 {
 		return 0
 	}
-	
+
 	pricePremium := (market.MarkPrice - market.IndexPrice) / market.IndexPrice
-	
+
 	// Apply clamp to prevent extreme funding rates
 	maxFundingRate := 0.001 // 0.1% max funding rate
 	if pricePremium > maxFundingRate {
@@ -520,7 +519,7 @@ func (pm *PerpetualManager) calculateFundingRate(market *PerpetualMarket) float6
 	} else if pricePremium < -maxFundingRate {
 		pricePremium = -maxFundingRate
 	}
-	
+
 	// Adjust for funding interval (e.g., 8 hours = 3 times per day)
 	intervalsPerDay := 24 * time.Hour / market.FundingInterval
 	return pricePremium / float64(intervalsPerDay)
@@ -531,7 +530,7 @@ func (pm *PerpetualManager) calculateFundingPayment(position *PerpPosition, fund
 	// Funding Payment = Position Size * Contract Size * Mark Price * Funding Rate
 	// Long positions pay short positions when funding rate is positive
 	// Short positions pay long positions when funding rate is negative
-	
+
 	payment := position.Size * market.ContractSize * market.MarkPrice * fundingRate
 	return -payment // Negative because we deduct from position holder
 }
@@ -542,17 +541,17 @@ func (pm *PerpetualManager) liquidatePosition(user string, symbol string) error 
 	if !exists {
 		return fmt.Errorf("position not found")
 	}
-	
+
 	market := pm.markets[symbol]
-	
+
 	// Execute liquidation at mark price (in practice, would use liquidation engine)
 	market.mu.RLock()
 	liquidationPrice := market.MarkPrice
 	market.mu.RUnlock()
-	
+
 	// Close position
 	pm.closePositionInternal(position, math.Abs(position.Size), liquidationPrice)
-	
+
 	// Log liquidation event
 	pm.engine.logEvent(Event{
 		Type:      EventLiquidation,
@@ -562,10 +561,10 @@ func (pm *PerpetualManager) liquidatePosition(user string, symbol string) error 
 			"symbol":           symbol,
 			"size":             position.Size,
 			"liquidationPrice": liquidationPrice,
-			"loss":            position.RealizedPnL,
+			"loss":             position.RealizedPnL,
 		},
 	})
-	
+
 	return nil
 }
 
@@ -574,18 +573,18 @@ func (pm *PerpetualManager) UpdateMarkPrice(symbol string, price float64) error 
 	pm.mu.RLock()
 	market, exists := pm.markets[symbol]
 	pm.mu.RUnlock()
-	
+
 	if !exists {
 		return ErrPerpNotFound
 	}
-	
+
 	market.mu.Lock()
 	defer market.mu.Unlock()
-	
+
 	// Update price
 	oldPrice := market.MarkPrice
 	market.MarkPrice = price
-	
+
 	// Update 24h stats
 	if market.High24h < price || market.High24h == 0 {
 		market.High24h = price
@@ -593,10 +592,10 @@ func (pm *PerpetualManager) UpdateMarkPrice(symbol string, price float64) error 
 	if market.Low24h > price || market.Low24h == 0 {
 		market.Low24h = price
 	}
-	
+
 	// Check positions for liquidation
 	go pm.checkLiquidations(symbol, price)
-	
+
 	// Log price update
 	if oracle, exists := pm.oracles[symbol]; exists {
 		oracle.mu.Lock()
@@ -611,12 +610,12 @@ func (pm *PerpetualManager) UpdateMarkPrice(symbol string, price float64) error 
 		}
 		oracle.mu.Unlock()
 	}
-	
+
 	// Calculate price change percentage
 	if oldPrice > 0 {
 		_ = (price - oldPrice) / oldPrice * 100
 	}
-	
+
 	return nil
 }
 
@@ -625,15 +624,15 @@ func (pm *PerpetualManager) UpdateIndexPrice(symbol string, price float64) error
 	pm.mu.RLock()
 	market, exists := pm.markets[symbol]
 	pm.mu.RUnlock()
-	
+
 	if !exists {
 		return ErrPerpNotFound
 	}
-	
+
 	market.mu.Lock()
 	market.IndexPrice = price
 	market.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -641,19 +640,19 @@ func (pm *PerpetualManager) UpdateIndexPrice(symbol string, price float64) error
 func (pm *PerpetualManager) checkLiquidations(symbol string, markPrice float64) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	market := pm.markets[symbol]
 	if market == nil {
 		return
 	}
-	
+
 	// Check all positions for this symbol
 	for user, positions := range pm.positions {
 		if position, exists := positions[symbol]; exists {
 			// Update position mark price
 			position.MarkPrice = markPrice
 			position.UnrealizedPnL = pm.calculateUnrealizedPnL(position, markPrice)
-			
+
 			// Check liquidation condition
 			shouldLiquidate := false
 			if position.Size > 0 {
@@ -663,7 +662,7 @@ func (pm *PerpetualManager) checkLiquidations(symbol string, markPrice float64) 
 				// Short position
 				shouldLiquidate = markPrice >= position.LiquidationPrice
 			}
-			
+
 			if shouldLiquidate {
 				// Trigger liquidation
 				go pm.liquidatePosition(user, symbol)
@@ -676,16 +675,16 @@ func (pm *PerpetualManager) checkLiquidations(symbol string, markPrice float64) 
 func (pm *PerpetualManager) GetPosition(user string, symbol string) (*PerpPosition, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	if pm.positions[user] == nil {
 		return nil, fmt.Errorf("no positions for user")
 	}
-	
+
 	position, exists := pm.positions[user][symbol]
 	if !exists {
 		return nil, fmt.Errorf("position not found")
 	}
-	
+
 	return position, nil
 }
 
@@ -693,7 +692,7 @@ func (pm *PerpetualManager) GetPosition(user string, symbol string) (*PerpPositi
 func (pm *PerpetualManager) GetAllPositions(user string) map[string]*PerpPosition {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	return pm.positions[user]
 }
 
@@ -701,12 +700,12 @@ func (pm *PerpetualManager) GetAllPositions(user string) map[string]*PerpPositio
 func (pm *PerpetualManager) GetMarket(symbol string) (*PerpetualMarket, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	market, exists := pm.markets[symbol]
 	if !exists {
 		return nil, ErrPerpNotFound
 	}
-	
+
 	return market, nil
 }
 
@@ -714,7 +713,7 @@ func (pm *PerpetualManager) GetMarket(symbol string) (*PerpetualMarket, error) {
 func (pm *PerpetualManager) GetAllMarkets() map[string]*PerpetualMarket {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	markets := make(map[string]*PerpetualMarket)
 	for k, v := range pm.markets {
 		markets[k] = v
@@ -726,24 +725,24 @@ func (pm *PerpetualManager) GetAllMarkets() map[string]*PerpetualMarket {
 func (pm *PerpetualManager) AddMarginToPosition(user string, symbol string, amount float64) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	position, exists := pm.positions[user][symbol]
 	if !exists {
 		return fmt.Errorf("position not found")
 	}
-	
+
 	if !position.IsIsolated {
 		return fmt.Errorf("can only add margin to isolated positions")
 	}
-	
+
 	// Add margin
 	position.Margin += amount
 	position.UpdateTime = time.Now()
-	
+
 	// Recalculate liquidation price
 	market := pm.markets[symbol]
 	position.LiquidationPrice = pm.calculateLiquidationPrice(market, position)
-	
+
 	return nil
 }
 
@@ -751,30 +750,30 @@ func (pm *PerpetualManager) AddMarginToPosition(user string, symbol string, amou
 func (pm *PerpetualManager) RemoveMarginFromPosition(user string, symbol string, amount float64) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	position, exists := pm.positions[user][symbol]
 	if !exists {
 		return fmt.Errorf("position not found")
 	}
-	
+
 	if !position.IsIsolated {
 		return fmt.Errorf("can only remove margin from isolated positions")
 	}
-	
+
 	// Check if removal would trigger liquidation
 	newMargin := position.Margin - amount
 	if newMargin < position.MaintenanceMargin {
 		return fmt.Errorf("insufficient margin after removal")
 	}
-	
+
 	// Remove margin
 	position.Margin = newMargin
 	position.UpdateTime = time.Now()
-	
+
 	// Recalculate liquidation price
 	market := pm.markets[symbol]
 	position.LiquidationPrice = pm.calculateLiquidationPrice(market, position)
-	
+
 	return nil
 }
 
@@ -783,18 +782,18 @@ func (pm *PerpetualManager) SetLeverage(user string, symbol string, leverage flo
 	pm.mu.RLock()
 	market, exists := pm.markets[symbol]
 	pm.mu.RUnlock()
-	
+
 	if !exists {
 		return ErrPerpNotFound
 	}
-	
+
 	if leverage > market.MaxLeverage {
 		return ErrExcessiveLeverage
 	}
-	
+
 	// Store user leverage preference (would be stored in user settings)
 	// This affects future positions, not existing ones
-	
+
 	return nil
 }
 
@@ -803,18 +802,18 @@ func (pm *PerpetualManager) GetFundingHistory(symbol string, limit int) ([]Fundi
 	pm.mu.RLock()
 	market, exists := pm.markets[symbol]
 	pm.mu.RUnlock()
-	
+
 	if !exists {
 		return nil, ErrPerpNotFound
 	}
-	
+
 	market.mu.RLock()
 	defer market.mu.RUnlock()
-	
+
 	history := market.FundingHistory
 	if limit > 0 && len(history) > limit {
 		history = history[len(history)-limit:]
 	}
-	
+
 	return history, nil
 }

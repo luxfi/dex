@@ -1,0 +1,9 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/luxfi/dex/backend/pkg/lx
+cpu: Apple M1 Max
+BenchmarkAddOrder-10                     	 1503646	     12321 ns/op	     238 B/op	       2 allocs/op
+BenchmarkMatchOrders-10                  	  614331	     28591 ns/op	    1519 B/op	      31 allocs/op
+BenchmarkGetSnapshot-10                  	   77018	    157906 ns/op	   18552 B/op	      47 allocs/op
+BenchmarkConcurrentOrderProcessing-10    	 1494560	     11946 ns/op	     239 B/op	       2 allocs/op
+BenchmarkOpenPosition-10                 	
