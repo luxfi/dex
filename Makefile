@@ -35,7 +35,7 @@ help:
 	@echo "  bench-ultra  - Ultra-fast FIX engine benchmark"
 	@echo ""
 	@echo "🌐 NETWORK BENCHMARKS:"
-	@echo "  bench-zmq-local   - Local ZeroMQ test (same machine)"
+	@echo "  bench-zmq-local   - Local LX test (same machine)"
 	@echo "  bench-zmq-dist    - Distributed test instructions"
 	@echo "  bench-network     - Network saturation test (10Gbps)"
 	@echo "  bench-network-1m  - Test 1M orders/sec over network"
@@ -48,13 +48,29 @@ help:
 	@echo "  build-go     - Build pure Go engine"
 	@echo "  build-hybrid - Build hybrid Go/C++ engine"
 	@echo "  build-cpp    - Build pure C++ engine"
-	@echo "  build-zmq    - Build ZeroMQ network tools"
+	@echo "  build-zmq    - Build LX network tools"
 	@echo "  clean        - Clean all build artifacts"
 	@echo ""
 	@echo "🖥️ SERVER & CLIENT COMMANDS:"
-	@echo "  zmq-server        - Start ZeroMQ exchange server (port 5555)"
-	@echo "  zmq-trader        - Start ZeroMQ trader client"
-	@echo "  dex-server        - Start DEX server (Pure Go, port 50051)"
+	@echo "  zmq-server        - Start LX exchange server (port 5555)"
+	@echo "  zmq-trader        - Start LX trader client"
+	@echo "  dex-server        - Start DEX server (HTTP, port 8080)"
+	@echo "  dex-trader        - Start DEX trader client"
+	@echo "  turbo-server      - Start TURBO DEX server (maxed CPU)"
+	@echo "  turbo-trader      - Start TURBO trader (1 per CPU core)"
+	@echo "  turbo-bench       - Run TURBO benchmark (server + trader)"
+	@echo "  hammer            - Run HAMMER test (maximum aggression)"
+	@echo ""
+	@echo "🔌 AUTO-DISCOVERY (NATS):"
+	@echo "  nats-server       - Start NATS message broker"
+	@echo "  nats-dex          - Start DEX with NATS (auto-discoverable)"
+	@echo "  nats-trader       - Start trader with NATS (auto-finds server)"
+	@echo "  nats-bench        - Run NATS benchmark (auto-discovery)"
+	@echo "  nats-auto         - ONE COMMAND - auto-configures everything!"
+	@echo ""
+	@echo "⚡ HIGH-PERFORMANCE (C++):"
+	@echo "  zmq-cpp-trader    - C++ LX trader (ultra-fast)"
+	@echo "  zmq-cpp-bench     - Run C++ LX benchmark"
 	@echo "  dex-server-hybrid - Start DEX server (Hybrid C++, port 50051)"
 	@echo "  gateway-server    - Start Gateway server (port 8080)"
 	@echo "  fix-trader-client - Start C++ FIX trader client"
@@ -113,12 +129,12 @@ bench-ultra:
 
 .PHONY: bench-zmq-local
 bench-zmq-local:
-	@echo "🏠 Running LOCAL ZeroMQ benchmark..."
+	@echo "🏠 Running LOCAL LX benchmark..."
 	@$(MAKE) -C backend bench-zmq-local
 
 .PHONY: bench-zmq-dist
 bench-zmq-dist:
-	@echo "🌍 DISTRIBUTED ZeroMQ benchmark instructions..."
+	@echo "🌍 DISTRIBUTED LX benchmark instructions..."
 	@$(MAKE) -C backend bench-zmq-dist
 
 .PHONY: bench-network
@@ -203,7 +219,7 @@ build-cpp:
 
 .PHONY: build-zmq
 build-zmq:
-	@echo "🌐 Building ZeroMQ network tools..."
+	@echo "🌐 Building LX network tools..."
 	@$(MAKE) -C backend zmq-build
 
 .PHONY: clean
@@ -286,21 +302,27 @@ show-best:
 
 .PHONY: zmq-server
 zmq-server:
-	@echo "🚀 Starting ZeroMQ Exchange Server (port 5555)..."
+	@echo "🚀 Starting LX Exchange Server (port 5555)..."
 	@cd backend && make zmq-build
-	@backend/bin/zmq-exchange -port 5555
+	@backend/bin/zmq-exchange -bind tcp://*:5555 -workers 10 -v
 
 .PHONY: zmq-trader
 zmq-trader:
-	@echo "💹 Starting ZeroMQ Trader Client..."
+	@echo "💹 Starting LX Trader Client..."
 	@cd backend && make zmq-build
-	@backend/bin/zmq-trader -exchange tcp://localhost:5555 -id trader1 -rate 1000
+	@backend/bin/zmq-trader -server tcp://localhost:5555 -traders 100 -rate 1000 -v
 
 .PHONY: dex-server
 dex-server:
-	@echo "🏦 Starting DEX Server (Pure Go, port 50051)..."
-	@cd backend && make go-build
-	@backend/bin/lx-dex -port 50051
+	@echo "🏦 Starting Simple DEX Server (HTTP, port 8080)..."
+	@cd backend && go build -o bin/simple-dex ./cmd/simple-dex
+	@backend/bin/simple-dex -port 8080
+
+.PHONY: dex-trader
+dex-trader:
+	@echo "⚡ Starting DEX Trader (High Performance Mode)..."
+	@cd backend && go build -o bin/dex-trader ./cmd/dex-trader
+	@backend/bin/dex-trader -server http://localhost:8080 -workers 10 -batch 1000 -duration 30s
 
 .PHONY: dex-server-hybrid
 dex-server-hybrid:
@@ -331,6 +353,168 @@ mega-trader:
 	@echo "🔥 Starting Mega Trader Client (1000 traders)..."
 	@cd backend && make bench-tools
 	@backend/bin/mega-traders -traders 1000 -rate 10 -duration 30s -grpc localhost:50051
+
+.PHONY: turbo-server
+turbo-server:
+	@echo "🚀 Starting TURBO DEX Server (CPU-optimized)..."
+	@cd backend && go build -o bin/turbo-dex ./cmd/turbo-dex
+	@backend/bin/turbo-dex -port 8080
+
+.PHONY: turbo-trader
+turbo-trader:
+	@echo "⚡ Starting TURBO Trader (maxing out CPUs)..."
+	@cd backend && go build -o bin/turbo-trader ./cmd/turbo-trader
+	@backend/bin/turbo-trader -server http://localhost:8080 -traders-per-core 2 -duration 30s
+
+.PHONY: turbo-bench
+turbo-bench:
+	@echo "🔥 TURBO BENCHMARK - Maximum Performance Test"
+	@echo "=============================================="
+	@pkill turbo-dex 2>/dev/null || true
+	@pkill simple-dex 2>/dev/null || true
+	@sleep 1
+	@echo "Building TURBO components..."
+	@cd backend && go build -o bin/turbo-dex ./cmd/turbo-dex
+	@cd backend && go build -o bin/turbo-trader ./cmd/turbo-trader
+	@echo ""
+	@echo "Starting TURBO server..."
+	@backend/bin/turbo-dex -port 8080 > /tmp/turbo-server.log 2>&1 &
+	@sleep 2
+	@echo ""
+	@echo "Starting TURBO trader (maxing CPU cores)..."
+	@echo "-------------------------------------------"
+	@backend/bin/turbo-trader -server http://localhost:8080 -traders-per-core 2 -duration 20s -no-delay
+	@echo ""
+	@pkill turbo-dex 2>/dev/null || true
+	@echo "✅ TURBO benchmark complete!"
+
+.PHONY: hammer
+hammer:
+	@echo "🔨 HAMMER TEST - Maximum Aggression"
+	@echo "===================================="
+	@pkill turbo-dex 2>/dev/null || true
+	@pkill simple-dex 2>/dev/null || true
+	@sleep 1
+	@echo "Building components..."
+	@cd backend && go build -o bin/turbo-dex ./cmd/turbo-dex
+	@cd backend && go build -o bin/hammer-trader ./cmd/hammer-trader
+	@echo ""
+	@echo "Starting TURBO server with max settings..."
+	@backend/bin/turbo-dex -port 8080 -workers 40 -shards 80 -buffer 1000000 > /tmp/hammer-server.log 2>&1 &
+	@sleep 2
+	@echo ""
+	@echo "🔨 HAMMERING SERVER..."
+	@echo "----------------------"
+	@backend/bin/hammer-trader -server http://localhost:8080 -workers 10 -batch 1000 -duration 15s
+	@echo ""
+	@echo "📊 Server stats:"
+	@curl -s http://localhost:8080/stats | python3 -m json.tool | head -20 || true
+	@pkill turbo-dex 2>/dev/null || true
+	@echo ""
+	@echo "✅ HAMMER test complete!"
+
+# === NATS AUTO-DISCOVERY COMMANDS ===
+
+.PHONY: nats-server
+nats-server:
+	@echo "📡 Starting NATS server..."
+	@which nats-server > /dev/null || (echo "Installing NATS..." && go install github.com/nats-io/nats-server/v2@latest)
+	nats-server -p 4222 -m 8222
+
+.PHONY: nats-dex
+nats-dex:
+	@echo "🚀 Starting NATS DEX Server (auto-discoverable)..."
+	@cd backend && go get github.com/nats-io/nats.go
+	@cd backend && go build -o bin/nats-dex ./cmd/nats-dex
+	@backend/bin/nats-dex -nats nats://localhost:4222
+
+.PHONY: nats-trader
+nats-trader:
+	@echo "💹 Starting NATS Trader (auto-discovery)..."
+	@cd backend && go get github.com/nats-io/nats.go
+	@cd backend && go build -o bin/nats-trader ./cmd/nats-trader
+	@backend/bin/nats-trader -nats nats://localhost:4222 -traders 20 -rate 1000
+
+.PHONY: nats-bench
+nats-bench:
+	@echo "🔥 NATS Benchmark with Auto-Discovery"
+	@echo "======================================"
+	@echo "Starting NATS server..."
+	@nats-server -p 4222 > /tmp/nats.log 2>&1 &
+	@sleep 2
+	@echo "Starting NATS DEX..."
+	@cd backend && go build -o bin/nats-dex ./cmd/nats-dex
+	@backend/bin/nats-dex > /tmp/nats-dex.log 2>&1 &
+	@sleep 2
+	@echo "Starting NATS traders (auto-discovering server)..."
+	@cd backend && go build -o bin/nats-trader ./cmd/nats-trader
+	@backend/bin/nats-trader -traders 50 -rate 1000 -duration 20s
+	@pkill nats-dex || true
+	@pkill nats-server || true
+
+.PHONY: nats-auto
+nats-auto:
+	@echo "🤖 NATS AUTO - Zero Configuration!"
+	@echo "=================================="
+	@echo "This node will automatically:"
+	@echo "  • Find or start NATS"
+	@echo "  • Discover other nodes"
+	@echo "  • Decide to be server/trader/both"
+	@echo "  • Start trading!"
+	@echo ""
+	@cd backend && go get github.com/nats-io/nats.go
+	@cd backend && go build -o bin/nats-auto ./cmd/nats-auto
+	@backend/bin/nats-auto -mode auto
+
+.PHONY: hybrid-auto
+hybrid-auto:
+	@echo "⚡ HYBRID AUTO - NATS Discovery + ZeroMQ Trading!"
+	@echo "================================================="
+	@echo "Best of both worlds:"
+	@echo "  • NATS for auto-discovery and cluster management"
+	@echo "  • ZeroMQ for ultra-fast trading (80K+ orders/sec)"
+	@echo ""
+	@cd backend && go get github.com/nats-io/nats.go github.com/pebbe/zmq4
+	@cd backend && go build -o bin/hybrid-auto ./cmd/hybrid-auto
+	@backend/bin/hybrid-auto -mode auto
+
+.PHONY: turbo-hybrid
+turbo-hybrid:
+	@echo "🚀 TURBO HYBRID - NATS + C ZeroMQ + C++ Engine!"
+	@echo "================================================="
+	@echo "Maximum performance configuration:"
+	@echo "  • NATS for discovery"
+	@echo "  • C ZeroMQ for networking (CGO)"
+	@echo "  • C++ orderbook and matching engine"
+	@echo "  • Expected: 200K+ orders/sec"
+	@echo ""
+	@cd backend && make cpp-lib
+	@cd backend && go get github.com/nats-io/nats.go
+	@cd backend && go get github.com/luxfi/log github.com/luxfi/metric 2>/dev/null || true
+	@cd backend && CGO_ENABLED=1 go build -tags cgo -o bin/turbo-hybrid ./cmd/turbo-hybrid
+	@PATH=$$PATH:/Users/z/go/bin backend/bin/turbo-hybrid -mode auto
+
+# === C++ HIGH-PERFORMANCE COMMANDS ===
+
+.PHONY: zmq-cpp-trader
+zmq-cpp-trader:
+	@echo "⚡ Building C++ LX Turbo Trader..."
+	@cd backend && g++ -std=c++17 -O3 -march=native -pthread cpp/zmq_turbo_trader.cpp -lzmq -o bin/zmq-cpp-trader
+	@echo "Starting C++ trader..."
+	@backend/bin/zmq-cpp-trader tcp://localhost:5555 20 10000 30
+
+.PHONY: zmq-cpp-bench
+zmq-cpp-bench:
+	@echo "🚀 C++ LX Benchmark"
+	@echo "======================="
+	@echo "Starting ZMQ exchange..."
+	@cd backend && make zmq-build
+	@backend/bin/zmq-exchange -bind tcp://*:5555 -workers 20 > /tmp/zmq-exchange.log 2>&1 &
+	@sleep 2
+	@echo "Building and running C++ trader..."
+	@cd backend && g++ -std=c++17 -O3 -march=native -pthread cpp/zmq_turbo_trader.cpp -lzmq -o bin/zmq-cpp-trader
+	@backend/bin/zmq-cpp-trader tcp://localhost:5555 40 10000 20
+	@pkill zmq-exchange || true
 
 # Default target is all
 .DEFAULT_GOAL := all

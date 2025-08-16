@@ -1,4 +1,4 @@
-// ZeroMQ Exchange Server - Receives orders via ZMQ and processes them
+// LX Exchange Server - Receives orders via ZMQ and processes them
 package main
 
 import (

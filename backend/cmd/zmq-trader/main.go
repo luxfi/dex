@@ -1,4 +1,4 @@
-// ZeroMQ Trader - Sends orders to exchange via ZMQ
+// LX Trader - Sends orders to exchange via ZMQ
 package main
 
 import (

@@ -1,4 +1,4 @@
-// ZeroMQ Network Benchmark - Tests real network throughput
+// LX Network Benchmark - Tests real network throughput
 package main
 
 import (
@@ -19,7 +19,7 @@ func main() {
 	)
 	flag.Parse()
 
-	fmt.Println("🔬 ZeroMQ Network Benchmark")
+	fmt.Println("🔬 LX Network Benchmark")
 	fmt.Println("===========================")
 
 	switch *mode {
