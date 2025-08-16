@@ -1,0 +1,25 @@
+{
+  "name": "lx-engine-typescript",
+  "version": "1.0.0",
+  "description": "LX Trading Engine - TypeScript Implementation",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "benchmark": "node dist/benchmark.js",
+    "test": "jest",
+    "dev": "ts-node src/benchmark.ts"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.13.4",
+    "@grpc/proto-loader": "^0.7.15",
+    "csv-parse": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

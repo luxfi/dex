@@ -1,0 +1,63 @@
+version: '3.8'
+
+# Development configuration - optimized for local development
+services:
+  # Single engine for fast iteration
+  dev-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.hybrid
+      args:
+        - CGO_ENABLED=1
+    environment:
+      - CGO_ENABLED=1
+      - ENGINE_PORT=50052
+      - LOG_LEVEL=debug
+      - DEV_MODE=true
+    ports:
+      - "50052:50052"
+    volumes:
+      - ./data:/data
+      - ./configs:/configs
+      # Mount source for hot reload
+      - ./pkg:/app/pkg
+      - ./cmd:/app/cmd
+      - ./bridge:/app/bridge
+    networks:
+      - lx-network
+    command: ["go", "run", "./cmd/engine"]
+
+  # FIX replay for testing
+  fix-replay-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.replay
+    environment:
+      - REPLAY_MODE=loop
+      - REPLAY_SPEED=1x
+      - TARGET_ENGINE=dev-engine:50052
+      - DATA_DIR=/data/fix/sample
+    volumes:
+      - ./data:/data
+    networks:
+      - lx-network
+    depends_on:
+      - dev-engine
+
+  # Simple monitoring
+  prometheus-dev:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.dev.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - lx-network
+
+networks:
+  lx-network:
+    driver: bridge
