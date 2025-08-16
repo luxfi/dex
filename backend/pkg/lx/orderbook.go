@@ -4,11 +4,55 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
+	"os"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// Backend represents the available acceleration backend
+type Backend int
+
+const (
+	BackendGo Backend = iota
+	BackendCGO
+	BackendMLX
+	BackendCUDA
+)
+
+var (
+	// AutoDetect the best available backend at runtime
+	currentBackend Backend
+)
+
+func init() {
+	// Automatically detect and use the best available backend
+	currentBackend = detectBestBackend()
+}
+
+func detectBestBackend() Backend {
+	// Check for CUDA support
+	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
+		return BackendCUDA
+	}
+	
+	// Check for MLX support (Apple Silicon)
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if _, err := os.Stat("/System/Library/Frameworks/Metal.framework"); err == nil {
+			return BackendMLX
+		}
+	}
+	
+	// Check if CGO is enabled
+	if os.Getenv("CGO_ENABLED") == "1" {
+		return BackendCGO
+	}
+	
+	// Default to pure Go
+	return BackendGo
+}
 
 // OrderTree implements a price-time priority order book side with RB-tree
 type OrderTree struct {

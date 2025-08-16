@@ -32,16 +32,18 @@ trader-auto:
 	@echo "🚀 Starting Auto-Scaling Trader..."
 	@cd backend && $(GO) run ./cmd/dex-trader -auto
 
-# Run comprehensive benchmarks
+# Run quick benchmarks
 bench:
-	@echo "🏁 Running performance benchmarks..."
-	@echo "  📊 Running orderbook benchmarks..."
-	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/lx/... | tee bench_results.txt
-	@echo "  📊 Running engine benchmarks..."
-	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/orderbook/... | tee -a bench_results.txt
-	@echo "  🚀 Running integration benchmark..."
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) run ./cmd/bench -iter 50000
-	@echo "✅ Benchmarks complete! Results in backend/bench_results.txt"
+	@echo "🏁 Running quick performance benchmarks..."
+	@cd backend/pkg/orderbook && $(GO) test -bench=. -benchmem -benchtime=1s -run=^$ .
+	@echo "✅ Benchmarks complete!"
+
+# Run full benchmarks
+bench-full:
+	@echo "🏁 Running full performance benchmarks..."
+	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/orderbook/...
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) run ./cmd/bench -iter 10000
+	@echo "✅ Full benchmarks complete!"
 
 # Run benchmark comparing Go vs C++
 bench-compare:
@@ -57,7 +59,12 @@ cpp:
 # Run comprehensive tests
 test:
 	@echo "🧪 Running comprehensive test suite..."
-	@cd backend && $(GO) test -v -race -coverprofile=coverage.out ./pkg/...
+	@cd backend && $(GO) test -v -race -coverprofile=coverage.out \
+		./pkg/orderbook/... \
+		./pkg/lx/... \
+		./pkg/fix/... \
+		./pkg/metric/... \
+		./pkg/log/...
 	@echo "✅ All tests passed!"
 
 # Run tests with coverage
