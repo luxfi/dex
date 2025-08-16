@@ -32,6 +32,7 @@ help:
 	@echo "  bench-stress - Stress test with 10,000 traders"
 	@echo "  bench-report - Generate performance report"
 	@echo "  bench-cpp    - Run pure C++ standalone benchmark"
+	@echo "  bench-ultra  - Ultra-fast FIX engine benchmark"
 	@echo ""
 	@echo "🌐 NETWORK BENCHMARKS:"
 	@echo "  bench-zmq-local   - Local ZeroMQ test (same machine)"
@@ -49,6 +50,16 @@ help:
 	@echo "  build-cpp    - Build pure C++ engine"
 	@echo "  build-zmq    - Build ZeroMQ network tools"
 	@echo "  clean        - Clean all build artifacts"
+	@echo ""
+	@echo "🖥️ SERVER & CLIENT COMMANDS:"
+	@echo "  zmq-server        - Start ZeroMQ exchange server (port 5555)"
+	@echo "  zmq-trader        - Start ZeroMQ trader client"
+	@echo "  dex-server        - Start DEX server (Pure Go, port 50051)"
+	@echo "  dex-server-hybrid - Start DEX server (Hybrid C++, port 50051)"
+	@echo "  gateway-server    - Start Gateway server (port 8080)"
+	@echo "  fix-trader-client - Start C++ FIX trader client"
+	@echo "  fix-generator     - Start FIX message generator (streaming)"
+	@echo "  mega-trader       - Start mega trader client (1000 traders)"
 	@echo ""
 	@echo "🎯 RECOMMENDED WORKFLOW:"
 	@echo "  1. make build          # Build everything"
@@ -92,6 +103,11 @@ bench-report:
 bench-cpp:
 	@echo "⚡ Running Pure C++ benchmark..."
 	@cd backend && ./bin/cpp-bench 1000 10 || (echo "Building C++ benchmark..." && make bench-tools && ./bin/cpp-bench 1000 10)
+
+.PHONY: bench-ultra
+bench-ultra:
+	@echo "🚀 Running ULTRA FIX Engine benchmark..."
+	@$(MAKE) -C backend bench-ultra
 
 # === NETWORK BENCHMARKS ===
 
@@ -265,6 +281,56 @@ show-best:
 	@echo "Pure Go:         162,969 orders/sec"
 	@echo ""
 	@echo "Run 'make bench-max' to test on your system."
+
+# === SERVER & CLIENT COMMANDS ===
+
+.PHONY: zmq-server
+zmq-server:
+	@echo "🚀 Starting ZeroMQ Exchange Server (port 5555)..."
+	@cd backend && make zmq-build
+	@backend/bin/zmq-exchange -port 5555
+
+.PHONY: zmq-trader
+zmq-trader:
+	@echo "💹 Starting ZeroMQ Trader Client..."
+	@cd backend && make zmq-build
+	@backend/bin/zmq-trader -exchange tcp://localhost:5555 -id trader1 -rate 1000
+
+.PHONY: dex-server
+dex-server:
+	@echo "🏦 Starting DEX Server (Pure Go, port 50051)..."
+	@cd backend && make go-build
+	@backend/bin/lx-dex -port 50051
+
+.PHONY: dex-server-hybrid
+dex-server-hybrid:
+	@echo "⚡ Starting DEX Server (Hybrid Go/C++, port 50051)..."
+	@cd backend && make bench-servers
+	@backend/bin/lx-dex-hybrid -port 50051
+
+.PHONY: gateway-server
+gateway-server:
+	@echo "🌐 Starting Gateway Server (port 8080)..."
+	@cd backend && make go-build
+	@backend/bin/lx-gateway -port 8080
+
+.PHONY: fix-trader-client
+fix-trader-client:
+	@echo "📈 Starting C++ FIX Trader Client..."
+	@cd backend && make fix-build
+	@backend/bin/fix-trader localhost 9876 100 10
+
+.PHONY: fix-generator
+fix-generator:
+	@echo "📊 Starting FIX Message Generator (Stream Mode)..."
+	@cd backend && make fix-build
+	@backend/bin/fix-generator -mode stream -rate 1000
+
+.PHONY: mega-trader
+mega-trader:
+	@echo "🔥 Starting Mega Trader Client (1000 traders)..."
+	@cd backend && make bench-tools
+	@backend/bin/mega-traders -traders 1000 -rate 10 -duration 30s -grpc localhost:50051
 
 # Default target is all
 .DEFAULT_GOAL := all

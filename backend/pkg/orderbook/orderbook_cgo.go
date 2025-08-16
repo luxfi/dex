@@ -1,3 +1,4 @@
+//go:build cgo
 // +build cgo
 
 package orderbook
@@ -53,17 +54,17 @@ func NewCGOOrderBook(config Config) *CGOOrderBook {
 func (ob *CGOOrderBook) AddOrder(order *Order) uint64 {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	if order.ID == 0 {
 		order.ID = ob.nextID
 		ob.nextID++
 	}
-	
+
 	side := uint8(0)
 	if order.Side == Sell {
 		side = 1
 	}
-	
+
 	C.orderbook_add_order(
 		ob.handle,
 		C.uint64_t(order.ID),
@@ -71,7 +72,7 @@ func (ob *CGOOrderBook) AddOrder(order *Order) uint64 {
 		C.double(order.Quantity),
 		C.uint8_t(side),
 	)
-	
+
 	return order.ID
 }
 
@@ -79,7 +80,7 @@ func (ob *CGOOrderBook) AddOrder(order *Order) uint64 {
 func (ob *CGOOrderBook) CancelOrder(orderID uint64) bool {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	result := C.orderbook_cancel_order(ob.handle, C.uint64_t(orderID))
 	return result == 1
 }
@@ -88,17 +89,17 @@ func (ob *CGOOrderBook) CancelOrder(orderID uint64) bool {
 func (ob *CGOOrderBook) MatchOrders() []Trade {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	// Allocate space for up to 1000 trades
 	maxTrades := 1000
 	tradesC := make([]C.TradeC, maxTrades)
-	
+
 	count := int(C.orderbook_match_orders(
 		ob.handle,
 		&tradesC[0],
 		C.int(maxTrades),
 	))
-	
+
 	trades := make([]Trade, count)
 	for i := 0; i < count; i++ {
 		trades[i] = Trade{
@@ -109,7 +110,7 @@ func (ob *CGOOrderBook) MatchOrders() []Trade {
 			Quantity:    float64(tradesC[i].quantity),
 		}
 	}
-	
+
 	return trades
 }
 
@@ -117,7 +118,7 @@ func (ob *CGOOrderBook) MatchOrders() []Trade {
 func (ob *CGOOrderBook) GetBestBid() float64 {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	return float64(C.orderbook_get_best_bid(ob.handle))
 }
 
@@ -125,7 +126,7 @@ func (ob *CGOOrderBook) GetBestBid() float64 {
 func (ob *CGOOrderBook) GetBestAsk() float64 {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	return float64(C.orderbook_get_best_ask(ob.handle))
 }
 
@@ -133,11 +134,11 @@ func (ob *CGOOrderBook) GetBestAsk() float64 {
 func (ob *CGOOrderBook) GetDepth(levels int) *Depth {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	// For simplicity, just return bid/ask counts
 	bidDepth := int(C.orderbook_get_depth(ob.handle, 0))
 	askDepth := int(C.orderbook_get_depth(ob.handle, 1))
-	
+
 	return &Depth{
 		Bids: make([]PriceLevel, 0, bidDepth),
 		Asks: make([]PriceLevel, 0, askDepth),
@@ -163,7 +164,7 @@ func (ob *CGOOrderBook) GetMidPrice() float64 {
 func (ob *CGOOrderBook) GetOrderCount() int {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	bidCount := int(C.orderbook_get_depth(ob.handle, 0))
 	askCount := int(C.orderbook_get_depth(ob.handle, 1))
 	return bidCount + askCount
@@ -192,7 +193,7 @@ func (ob *CGOOrderBook) ModifyOrder(orderID uint64, price, quantity float64) boo
 func (ob *CGOOrderBook) Clear() {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	// Recreate the C++ orderbook
 	C.orderbook_destroy(ob.handle)
 	ob.handle = C.orderbook_create()
@@ -208,7 +209,7 @@ func (ob *CGOOrderBook) GetVolume() uint64 {
 func (ob *CGOOrderBook) Destroy() {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	if ob.handle != nil {
 		C.orderbook_destroy(ob.handle)
 		ob.handle = nil

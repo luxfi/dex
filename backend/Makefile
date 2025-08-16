@@ -303,7 +303,17 @@ fix-build:
 	go build -o $(BIN_DIR)/fix-generator ./cmd/fix-generator
 	# Build C++ FIX trader
 	$(CXX) $(CXXFLAGS) -pthread cpp/fix_trader.cpp -o $(BIN_DIR)/fix-trader
+	# Build Ultra-fast FIX engine
+	@echo "Building ultra-fast FIX engine..."
+	@$(CXX) $(CXXFLAGS) -pthread cpp/ultra_fix_engine_simple.cpp -o $(BIN_DIR)/ultra-fix-engine 2>/dev/null || \
+		$(CXX) -std=c++17 -O3 -pthread cpp/ultra_fix_engine_simple.cpp -o $(BIN_DIR)/ultra-fix-engine
 	@echo "FIX tools built successfully"
+
+# Ultra-fast benchmark
+.PHONY: bench-ultra
+bench-ultra: fix-build
+	@echo "=== ULTRA FIX ENGINE BENCHMARK ==="
+	@$(BIN_DIR)/ultra-fix-engine 10 || echo "Note: Run as root for huge pages support on Linux"
 
 # Run local ZeroMQ benchmark
 .PHONY: bench-zmq-local

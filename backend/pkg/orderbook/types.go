@@ -69,7 +69,7 @@ type Depth struct {
 // Config holds orderbook configuration
 type Config struct {
 	Implementation    Implementation
-	Symbol           string
+	Symbol            string
 	MaxOrdersPerLevel int
 	PricePrecision    int
 }

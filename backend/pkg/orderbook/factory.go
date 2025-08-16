@@ -18,7 +18,7 @@ func NewOrderBook(cfg Config) OrderBook {
 	if impl := os.Getenv("LX_ORDERBOOK_IMPL"); impl != "" {
 		cfg.Implementation = Implementation(impl)
 	}
-	
+
 	// The actual implementation is selected via build tags
 	// CGO builds will use NewOrderBookImpl from cpp_orderbook.go
 	// Non-CGO builds will use NewOrderBookImpl from go_orderbook.go

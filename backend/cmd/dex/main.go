@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	port     = flag.Int("port", 50051, "The server port")
-	mode     = flag.String("mode", "hybrid", "Engine mode: go, hybrid, or cpp")
+	port       = flag.Int("port", 50051, "The server port")
+	mode       = flag.String("mode", "hybrid", "Engine mode: go, hybrid, or cpp")
 	cgoEnabled = os.Getenv("CGO_ENABLED") == "1"
 )
 
@@ -50,10 +50,10 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	
+
 	// Register engine service
 	pb.RegisterEngineServiceServer(grpcServer, eng)
-	
+
 	// Register health check
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
@@ -62,7 +62,7 @@ func main() {
 	// Handle shutdown gracefully
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	
+
 	go func() {
 		<-sigChan
 		log.Println("Shutting down engine...")

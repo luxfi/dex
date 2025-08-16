@@ -33,20 +33,20 @@ func NewCppParser(maxMessageSize int) *CppParser {
 func (p *CppParser) Parse(data []byte) (*Message, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	var msgHandle C.FixMessageHandle
-	
+
 	result := C.fix_parser_parse(
 		p.handle,
 		(*C.char)(unsafe.Pointer(&data[0])),
 		C.int(len(data)),
 		&msgHandle,
 	)
-	
+
 	if !result {
 		return nil, fmt.Errorf("failed to parse FIX message")
 	}
-	
+
 	return &Message{handle: msgHandle}, nil
 }
 
@@ -54,7 +54,7 @@ func (p *CppParser) Parse(data []byte) (*Message, error) {
 func (p *CppParser) Destroy() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.handle != nil {
 		C.fix_parser_destroy(p.handle)
 		p.handle = nil
@@ -98,14 +98,14 @@ func (m *Message) GetAllFields() map[uint32]string {
 		(*C.FixField)(unsafe.Pointer(&fields[0])),
 		256,
 	))
-	
+
 	result := make(map[uint32]string)
 	for i := 0; i < count; i++ {
 		tag := uint32(fields[i].tag)
 		value := C.GoString(&fields[i].value[0])
 		result[tag] = value
 	}
-	
+
 	return result
 }
 
@@ -126,7 +126,7 @@ func NewCppBuilder() *CppBuilder {
 func (b *CppBuilder) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	C.fix_builder_reset(b.handle)
 }
 
@@ -134,10 +134,10 @@ func (b *CppBuilder) Reset() {
 func (b *CppBuilder) AddField(tag uint32, value string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	cValue := C.CString(value)
 	defer C.free(unsafe.Pointer(cValue))
-	
+
 	C.fix_builder_add_field(b.handle, C.uint32_t(tag), cValue)
 }
 
@@ -145,7 +145,7 @@ func (b *CppBuilder) AddField(tag uint32, value string) {
 func (b *CppBuilder) AddIntField(tag uint32, value int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	C.fix_builder_add_int_field(b.handle, C.uint32_t(tag), C.int(value))
 }
 
@@ -153,7 +153,7 @@ func (b *CppBuilder) AddIntField(tag uint32, value int) {
 func (b *CppBuilder) AddDoubleField(tag uint32, value float64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	C.fix_builder_add_double_field(b.handle, C.uint32_t(tag), C.double(value))
 }
 
@@ -161,18 +161,18 @@ func (b *CppBuilder) AddDoubleField(tag uint32, value float64) {
 func (b *CppBuilder) Build() ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	buffer := make([]byte, 4096)
 	size := int(C.fix_builder_build(
 		b.handle,
 		(*C.char)(unsafe.Pointer(&buffer[0])),
 		C.int(len(buffer)),
 	))
-	
+
 	if size < 0 {
 		return nil, fmt.Errorf("buffer too small for FIX message")
 	}
-	
+
 	return buffer[:size], nil
 }
 
@@ -180,7 +180,7 @@ func (b *CppBuilder) Build() ([]byte, error) {
 func (b *CppBuilder) Destroy() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	if b.handle != nil {
 		C.fix_builder_destroy(b.handle)
 		b.handle = nil
