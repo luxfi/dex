@@ -17,7 +17,7 @@ import (
 // TestBLSSignatureGeneration tests BLS signature generation and verification
 func TestBLSSignatureGeneration(t *testing.T) {
 	// Generate BLS key pair
-	secretKey, err := bls.NewSecretKey()
+	secretKey, err := NewSecretKey()
 	require.NoError(t, err)
 	require.NotNil(t, secretKey)
 	
@@ -32,12 +32,12 @@ func TestBLSSignatureGeneration(t *testing.T) {
 	require.NotNil(t, signature)
 	
 	// Verify the signature
-	valid := bls.Verify(publicKey, message, signature)
+	valid := Verify(publicKey, message, signature)
 	assert.True(t, valid)
 	
 	// Test with wrong message
 	wrongMessage := []byte("Wrong message")
-	invalidSig := bls.Verify(publicKey, wrongMessage, signature)
+	invalidSig := Verify(publicKey, wrongMessage, signature)
 	assert.False(t, invalidSig)
 }
 
