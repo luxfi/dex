@@ -47,12 +47,12 @@ func TestBLSSignatureAggregation(t *testing.T) {
 	message := []byte("Consensus message")
 	
 	// Generate multiple key pairs
-	var secretKeys []*bls.SecretKey
-	var publicKeys []*bls.PublicKey
-	var signatures []*bls.Signature
+	var secretKeys []*SecretKey
+	var publicKeys []*PublicKey
+	var signatures []*Signature
 	
 	for i := 0; i < numSigners; i++ {
-		sk, err := bls.NewSecretKey()
+		sk, err := NewSecretKey()
 		require.NoError(t, err)
 		
 		secretKeys = append(secretKeys, sk)
@@ -61,25 +61,25 @@ func TestBLSSignatureAggregation(t *testing.T) {
 	}
 	
 	// Aggregate signatures
-	aggregatedSig, err := bls.AggregateSignatures(signatures)
+	aggregatedSig, err := AggregateSignatures(signatures)
 	require.NoError(t, err)
 	require.NotNil(t, aggregatedSig)
 	
 	// Aggregate public keys
-	aggregatedPubKey, err := bls.AggregatePublicKeys(publicKeys)
+	aggregatedPubKey, err := AggregatePublicKeys(publicKeys)
 	require.NoError(t, err)
 	require.NotNil(t, aggregatedPubKey)
 	
 	// Verify aggregated signature
-	valid := bls.Verify(aggregatedPubKey, message, aggregatedSig)
+	valid := Verify(aggregatedPubKey, message, aggregatedSig)
 	assert.True(t, valid)
 }
 
 // TestRingtailSignatures tests Ringtail post-quantum signatures
 func TestRingtailSignatures(t *testing.T) {
 	// Initialize Ringtail engine
-	engine := quasar.NewRingtail()
-	err := engine.Initialize(quasar.SecurityHigh)
+	engine := NewRingtail()
+	err := engine.Initialize(SecurityHigh)
 	require.NoError(t, err)
 	
 	// Generate key pair
@@ -111,17 +111,17 @@ func TestRingtailPrecomputation(t *testing.T) {
 	_, err := rand.Read(seed)
 	require.NoError(t, err)
 	
-	sk, _, err := quasar.KeyGen(seed)
+	sk, _, err := KeyGen(seed)
 	require.NoError(t, err)
 	
 	// Precompute share
-	precomp, err := quasar.Precompute(sk)
+	precomp, err := Precompute(sk)
 	require.NoError(t, err)
 	require.NotNil(t, precomp)
 	
 	// Use precomputed share for quick signing
 	message := []byte("Quick sign message")
-	share, err := quasar.QuickSign(precomp, message)
+	share, err := QuickSign(precomp, message)
 	require.NoError(t, err)
 	require.NotNil(t, share)
 	
@@ -132,7 +132,7 @@ func TestRingtailPrecomputation(t *testing.T) {
 // TestRingtailShareAggregation tests aggregating Ringtail shares
 func TestRingtailShareAggregation(t *testing.T) {
 	numShares := 5
-	var shares []quasar.Share
+	var shares []Share
 	
 	// Generate multiple shares
 	for i := 0; i < numShares; i++ {
@@ -143,7 +143,7 @@ func TestRingtailShareAggregation(t *testing.T) {
 	}
 	
 	// Aggregate shares into certificate
-	cert, err := quasar.Aggregate(shares)
+	cert, err := Aggregate(shares)
 	require.NoError(t, err)
 	require.NotNil(t, cert)
 	
@@ -151,7 +151,7 @@ func TestRingtailShareAggregation(t *testing.T) {
 	assert.Equal(t, 32, len(cert))
 	
 	// Test with empty shares
-	emptyCert, err := quasar.Aggregate([]quasar.Share{})
+	emptyCert, err := Aggregate([]Share{})
 	assert.Error(t, err)
 	assert.Nil(t, emptyCert)
 }
@@ -159,11 +159,11 @@ func TestRingtailShareAggregation(t *testing.T) {
 // TestHybridSignatures tests hybrid Ringtail+BLS signatures
 func TestHybridSignatures(t *testing.T) {
 	// Initialize both signature schemes
-	blsKey, err := bls.NewSecretKey()
+	blsKey, err := NewSecretKey()
 	require.NoError(t, err)
 	
-	ringtailEngine := quasar.NewRingtail()
-	err = ringtailEngine.Initialize(quasar.SecurityHigh)
+	ringtailEngine := NewRingtail()
+	err = ringtailEngine.Initialize(SecurityHigh)
 	require.NoError(t, err)
 	
 	ringtailSK, ringtailPK, err := ringtailEngine.GenerateKeyPair()
@@ -179,8 +179,8 @@ func TestHybridSignatures(t *testing.T) {
 	
 	// Create hybrid signature structure
 	type HybridSignature struct {
-		BLS      *bls.Signature
-		Ringtail quasar.Signature
+		BLS      *Signature
+		Ringtail []byte
 	}
 	
 	hybridSig := HybridSignature{
@@ -189,7 +189,7 @@ func TestHybridSignatures(t *testing.T) {
 	}
 	
 	// Verify both signatures
-	blsValid := bls.Verify(blsKey.PublicKey(), message, hybridSig.BLS)
+	blsValid := Verify(blsKey.PublicKey(), message, hybridSig.BLS)
 	assert.True(t, blsValid)
 	
 	ringtailValid := ringtailEngine.Verify(message, hybridSig.Ringtail, ringtailPK)
@@ -254,7 +254,7 @@ func TestCertificateMessageGeneration(t *testing.T) {
 		NodeID:    "node1",
 		Height:    1,
 		Timestamp: timestamp,
-		Parents:   []ids.ID{{1, 2, 3}},
+		Parents:   []ID{{1, 2, 3}},
 	}
 	
 	vertex2 := &OrderVertex{
@@ -262,7 +262,7 @@ func TestCertificateMessageGeneration(t *testing.T) {
 		NodeID:    "node1",
 		Height:    1,
 		Timestamp: timestamp,
-		Parents:   []ids.ID{{1, 2, 3}},
+		Parents:   []ID{{1, 2, 3}},
 	}
 	
 	// Generate messages
@@ -324,16 +324,16 @@ func TestQuantumFinalityCheck(t *testing.T) {
 func TestSecurityLevels(t *testing.T) {
 	testCases := []struct {
 		name  string
-		level quasar.SecurityLevel
+		level SecurityLevel
 	}{
-		{"Low Security", quasar.SecurityLow},
-		{"Medium Security", quasar.SecurityMedium},
-		{"High Security", quasar.SecurityHigh},
+		{"Low Security", SecurityLow},
+		{"Medium Security", SecurityMedium},
+		{"High Security", SecurityHigh},
 	}
 	
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			engine := quasar.NewRingtail()
+			engine := NewRingtail()
 			err := engine.Initialize(tc.level)
 			assert.NoError(t, err)
 			
@@ -356,7 +356,7 @@ func TestSecurityLevels(t *testing.T) {
 
 // BenchmarkBLSSignature benchmarks BLS signature operations
 func BenchmarkBLSSignature(b *testing.B) {
-	sk, _ := bls.NewSecretKey()
+	sk, _ := NewSecretKey()
 	message := []byte("Benchmark message")
 	
 	b.ResetTimer()
@@ -367,8 +367,8 @@ func BenchmarkBLSSignature(b *testing.B) {
 
 // BenchmarkRingtailSignature benchmarks Ringtail signature operations
 func BenchmarkRingtailSignature(b *testing.B) {
-	engine := quasar.NewRingtail()
-	_ = engine.Initialize(quasar.SecurityHigh)
+	engine := NewRingtail()
+	_ = engine.Initialize(SecurityHigh)
 	sk, _, _ := engine.GenerateKeyPair()
 	message := []byte("Benchmark message")
 	
