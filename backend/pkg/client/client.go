@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	
-	"github.com/luxexchange/engine/backend/pkg/engine"
-	pb "github.com/luxexchange/engine/backend/pkg/proto/engine"
+	"github.com/luxfi/dex/backend/pkg/engine"
+	pb "github.com/luxfi/dex/backend/pkg/proto/engine"
 )
 
 // Mode specifies how the client connects to the engine

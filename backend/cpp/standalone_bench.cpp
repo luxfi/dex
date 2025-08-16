@@ -76,7 +76,7 @@ public:
     }
 };
 
-void runBenchmark(int num_threads, int orders_per_thread, int duration_sec) {
+void runBenchmark(int num_threads, int /* orders_per_thread */, int duration_sec) {
     FastOrderBook book;
     std::atomic<uint64_t> total_orders{0};
     std::atomic<bool> stop{false};

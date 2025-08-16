@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 	
-	"github.com/luxexchange/engine/backend/pkg/orderbook"
-	pb "github.com/luxexchange/engine/backend/pkg/proto/engine"
+	"github.com/luxfi/dex/backend/pkg/orderbook"
+	pb "github.com/luxfi/dex/backend/pkg/proto/engine"
 )
 
 // LXEngine is the high-performance matching engine for LX

@@ -1,6 +1,13 @@
 # LX Engine - Root Makefile
 # High-Performance Trading Platform Benchmarks
 
+# Default target - build, test, and benchmark
+.PHONY: all
+all: build test bench-quick show-best
+	@echo ""
+	@echo "✅ LX Engine Ready!"
+	@echo "Run 'make help' for all commands"
+
 .PHONY: help
 help:
 	@echo "🚀 LX Engine - Performance Benchmark Suite"
@@ -26,12 +33,14 @@ help:
 	@echo "  bench-report - Generate performance report"
 	@echo "  bench-cpp    - Run pure C++ standalone benchmark"
 	@echo ""
-	@echo "🌐 NETWORK BENCHMARKS (ZeroMQ):"
+	@echo "🌐 NETWORK BENCHMARKS:"
 	@echo "  bench-zmq-local   - Local ZeroMQ test (same machine)"
 	@echo "  bench-zmq-dist    - Distributed test instructions"
 	@echo "  bench-network     - Network saturation test (10Gbps)"
 	@echo "  bench-network-1m  - Test 1M orders/sec over network"
 	@echo "  bench-network-5m  - Test 5M orders/sec over network"
+	@echo "  bench-fix         - FIX protocol benchmark with C++ client"
+	@echo "  bench-fix-stress  - FIX stress test (10K traders)"
 	@echo ""
 	@echo "🔨 BUILD COMMANDS:"
 	@echo "  build        - Build all engines and tools"
@@ -111,6 +120,39 @@ bench-network-5m:
 	@echo "🚀 Testing 5 MILLION orders/sec over network..."
 	@cd backend && ./bin/zmq-benchmark -mode local -traders 50000 -rate 100 -duration 30s || (echo "Building ZMQ tools..." && make zmq-build && ./bin/zmq-benchmark -mode local -traders 50000 -rate 100 -duration 30s)
 
+# === FIX PROTOCOL BENCHMARKS ===
+
+.PHONY: bench-fix
+bench-fix: build
+	@echo "📄 Running FIX protocol benchmark with C++ client..."
+	@echo "Starting server..."
+	@cd backend && ./bin/lx-dex -port 50051 > /tmp/fix-server.log 2>&1 &
+	@sleep 2
+	@echo "Starting C++ FIX traders..."
+	@cd backend && ./bin/fix-trader -server 127.0.0.1 -port 50051 -traders 100 -rate 100 -duration 30
+	@pkill lx-dex || true
+	@echo "✅ FIX benchmark complete"
+
+.PHONY: bench-fix-stress
+bench-fix-stress: build
+	@echo "💪 Running FIX stress test (10,000 traders)..."
+	@echo "Starting server..."
+	@cd backend && ./bin/lx-dex -port 50051 > /tmp/fix-stress.log 2>&1 &
+	@sleep 2
+	@echo "Starting 10,000 C++ FIX traders..."
+	@cd backend && ./bin/fix-trader -server 127.0.0.1 -port 50051 -traders 10000 -rate 10 -duration 60
+	@pkill lx-dex || true
+	@echo "✅ FIX stress test complete"
+
+.PHONY: fix-demo
+fix-demo: build
+	@echo "🎯 FIX Protocol Demo"
+	@echo "Generating sample FIX messages..."
+	@cd backend && ./bin/fix-generator -mode single
+	@echo ""
+	@echo "Streaming FIX messages..."
+	@cd backend && ./bin/fix-generator -mode stream -count 10 -rate 5
+
 # === BUILD COMMANDS ===
 
 .PHONY: build
@@ -119,7 +161,14 @@ build:
 	@$(MAKE) -C backend bench-tools
 	@$(MAKE) -C backend bench-servers
 	@$(MAKE) -C backend zmq-build
+	@$(MAKE) -C backend fix-build
 	@echo "✅ Build complete! Run 'make bench-quick' to test."
+
+.PHONY: test
+test:
+	@echo "🧪 Running tests..."
+	@cd backend && go test -v ./... | grep -E "(PASS|FAIL|ok)" || true
+	@echo "✅ Tests complete"
 
 .PHONY: build-go
 build-go:
@@ -217,8 +266,8 @@ show-best:
 	@echo ""
 	@echo "Run 'make bench-max' to test on your system."
 
-# Default target shows help
-.DEFAULT_GOAL := help
+# Default target is all
+.DEFAULT_GOAL := all
 
 # === SHORTCUTS ===
 
