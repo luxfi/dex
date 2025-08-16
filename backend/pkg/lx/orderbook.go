@@ -12,9 +12,9 @@ import (
 
 // OrderTree implements a price-time priority order book side with RB-tree
 type OrderTree struct {
-	side       Side
+	side        Side
 	priceLevels map[string]*PriceLevel // price -> level
-	priceHeap   PriceHeap             // Min/Max heap for best prices
+	priceHeap   PriceHeap              // Min/Max heap for best prices
 	orders      map[uint64]*Order
 	mu          sync.RWMutex
 	sequence    uint64
@@ -31,15 +31,15 @@ type PriceLevel struct {
 
 // Trade represents an executed trade
 type Trade struct {
-	ID         uint64
-	Price      float64
-	Size       float64
-	BuyOrder   *Order
-	SellOrder  *Order
-	Timestamp  time.Time
-	TakerSide  Side
-	MatchType  string // "full", "partial"
-	Fee        float64
+	ID        uint64
+	Price     float64
+	Size      float64
+	BuyOrder  *Order
+	SellOrder *Order
+	Timestamp time.Time
+	TakerSide Side
+	MatchType string // "full", "partial"
+	Fee       float64
 }
 
 // Side represents order side
@@ -94,7 +94,7 @@ func NewOrderTree(side Side) *OrderTree {
 		priceLevels: make(map[string]*PriceLevel),
 		orders:      make(map[uint64]*Order),
 	}
-	
+
 	// Initialize heap based on side
 	if side == Buy {
 		tree.priceHeap = &MaxPriceHeap{}
@@ -102,7 +102,7 @@ func NewOrderTree(side Side) *OrderTree {
 		tree.priceHeap = &MinPriceHeap{}
 	}
 	heap.Init(tree.priceHeap)
-	
+
 	return tree
 }
 
@@ -118,8 +118,8 @@ func (book *OrderBook) AddOrder(order *Order) uint64 {
 	}
 
 	// Generate order ID
-	book.LastTradeID++
-	order.ID = book.LastTradeID
+	book.LastOrderID++
+	order.ID = book.LastOrderID
 	order.Status = Open
 	order.Timestamp = time.Now()
 
@@ -169,7 +169,7 @@ func (book *OrderBook) MatchOrders() []Trade {
 	defer book.mu.Unlock()
 
 	trades := make([]Trade, 0)
-	
+
 	for {
 		// Get best bid and ask
 		bestBid := book.Bids.getBestOrder()
@@ -200,14 +200,17 @@ func (book *OrderBook) MatchOrders() []Trade {
 		bidRemaining := bestBid.Size - bestBid.Filled
 		askRemaining := bestAsk.Size - bestAsk.Filled
 		tradeSize := math.Min(bidRemaining, askRemaining)
-		
+
 		// Determine trade price (price-time priority)
+		// The trade executes at the price of the order that was in the book first (maker)
 		var tradePrice float64
 		var takerSide Side
 		if bestBid.Timestamp.Before(bestAsk.Timestamp) {
+			// Bid was first (maker), ask is taker
 			tradePrice = bestBid.Price
 			takerSide = Sell
 		} else {
+			// Ask was first (maker), bid is taker
 			tradePrice = bestAsk.Price
 			takerSide = Buy
 		}
@@ -274,7 +277,7 @@ func (tree *OrderTree) addOrder(order *Order) {
 	defer tree.mu.Unlock()
 
 	priceKey := fmt.Sprintf("%.8f", order.Price)
-	
+
 	// Get or create price level
 	level, exists := tree.priceLevels[priceKey]
 	if !exists {
@@ -335,7 +338,7 @@ func (tree *OrderTree) getBestOrder() *Order {
 	for tree.priceHeap.Len() > 0 {
 		price := tree.priceHeap.Peek()
 		priceKey := fmt.Sprintf("%.8f", price)
-		
+
 		level, exists := tree.priceLevels[priceKey]
 		if !exists {
 			// Stale price, remove it
@@ -352,7 +355,7 @@ func (tree *OrderTree) getBestOrder() *Order {
 			}
 		}
 		level.mu.RUnlock()
-		
+
 		// No valid orders at this level
 		heap.Pop(tree.priceHeap)
 	}
@@ -554,7 +557,7 @@ func (tree *OrderTree) getL4Levels() []L4Level {
 	defer tree.mu.RUnlock()
 
 	levels := make([]L4Level, 0)
-	
+
 	// Get all prices and sort
 	prices := make([]float64, 0, len(tree.priceLevels))
 	for _, level := range tree.priceLevels {
@@ -603,7 +606,7 @@ type MinPriceHeap []float64
 func (h MinPriceHeap) Len() int           { return len(h) }
 func (h MinPriceHeap) Less(i, j int) bool { return h[i] < h[j] }
 func (h MinPriceHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h MinPriceHeap) Peek() float64      { 
+func (h MinPriceHeap) Peek() float64 {
 	if len(h) > 0 {
 		return h[0]
 	}
@@ -627,7 +630,7 @@ type MaxPriceHeap []float64
 func (h MaxPriceHeap) Len() int           { return len(h) }
 func (h MaxPriceHeap) Less(i, j int) bool { return h[i] > h[j] }
 func (h MaxPriceHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h MaxPriceHeap) Peek() float64      { 
+func (h MaxPriceHeap) Peek() float64 {
 	if len(h) > 0 {
 		return h[0]
 	}

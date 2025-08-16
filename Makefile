@@ -1,18 +1,20 @@
 .PHONY: all build server trader bench test clean help
 
-# Simple DEX Makefile - ONE way to do everything
+# LX DEX Makefile - High-performance trading platform
 GO := go
-CGO_ENABLED ?= 0
+CGO_ENABLED ?= 1  # Default to CGO enabled for maximum performance
 
-all: build
+# Default target: build everything, run tests and benchmarks
+all: clean build test bench
+	@echo "✅ All tasks complete!"
 
-# Build all binaries
+# Build all binaries with CGO for C++ performance
 build:
-	@echo "🔨 Building DEX binaries..."
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/server ./cmd/dex-server
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/trader ./cmd/dex-trader
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/bench ./cmd/bench
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/benchmark ./cmd/benchmark 2>/dev/null || true
+	@echo "🔨 Building LX DEX binaries (CGO_ENABLED=$(CGO_ENABLED))..."
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/lx-server ./cmd/dex-server
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/lx-trader ./cmd/dex-trader
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/lx-bench ./cmd/bench
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/lx-benchmark ./cmd/benchmark 2>/dev/null || true
 	@echo "✅ Build complete (CGO_ENABLED=$(CGO_ENABLED))"
 
 # Run server
@@ -30,10 +32,16 @@ trader-auto:
 	@echo "🚀 Starting Auto-Scaling Trader..."
 	@cd backend && $(GO) run ./cmd/dex-trader -auto
 
-# Run benchmark
+# Run comprehensive benchmarks
 bench:
-	@echo "🏁 Running Benchmark (Pure Go)..."
-	@cd backend && CGO_ENABLED=0 $(GO) run ./cmd/bench -iter 50000
+	@echo "🏁 Running performance benchmarks..."
+	@echo "  📊 Running orderbook benchmarks..."
+	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/lx/... | tee bench_results.txt
+	@echo "  📊 Running engine benchmarks..."
+	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/orderbook/... | tee -a bench_results.txt
+	@echo "  🚀 Running integration benchmark..."
+	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) run ./cmd/bench -iter 50000
+	@echo "✅ Benchmarks complete! Results in backend/bench_results.txt"
 
 # Run benchmark comparing Go vs C++
 bench-compare:
@@ -46,10 +54,11 @@ cpp:
 	@cd backend/cpp && g++ -O3 -std=c++17 -fPIC -shared -o libfixengine.so fix_engine.cpp
 	@echo "✅ C++ library built"
 
-# Run tests
+# Run comprehensive tests
 test:
-	@echo "🧪 Running tests..."
-	@cd backend && $(GO) test -v ./pkg/...
+	@echo "🧪 Running comprehensive test suite..."
+	@cd backend && $(GO) test -v -race -coverprofile=coverage.out ./pkg/...
+	@echo "✅ All tests passed!"
 
 # Run tests with coverage
 test-coverage:
