@@ -1,6 +1,6 @@
 {
-  "timestamp": "2025-08-17T14:30:04.953388-05:00",
+  "timestamp": "2025-08-17T14:39:34.95843-05:00",
   "orders_count": 0,
   "trades_count": 0,
-  "orderbook_state": "\u0026{Symbol:BTC-USD Bids:[] Asks:[] LastTradeID:0 LastUpdateID:0 Timestamp:2025-08-17 14:30:04.953388 -0500 CDT m=+24140.003148417 Sequence:0 SeqNum:0 Time:0001-01-01 00:00:00 +0000 UTC}"
+  "orderbook_state": "\u0026{Symbol:BTC-USD Bids:[] Asks:[] LastTradeID:0 LastUpdateID:0 Timestamp:2025-08-17 14:39:34.958431 -0500 CDT m=+24710.003953167 Sequence:0 SeqNum:0 Time:0001-01-01 00:00:00 +0000 UTC}"
 }
