@@ -10,8 +10,9 @@ type TradingEngine struct {
 	OrderBooks     map[string]*OrderBook
 	PerpManager    *PerpetualManager
 	VaultManager   *VaultManager
-	LendingManager *LendingManager
+	LendingPool    *LendingPool
 	Events         chan Event
+	Orders         map[uint64]*Order // Track all orders
 	mu             sync.RWMutex
 }
 
@@ -22,72 +23,18 @@ type EngineConfig struct {
 	EnableLending bool
 }
 
-// Order represents a trading order
-type Order struct {
-	ID         uint64
-	Symbol     string
-	Side       Side
-	Type       OrderType
-	Price      float64
-	Size       float64
-	Filled     float64
-	Status     OrderStatus
-	User       string
-	ClientID   string
-	Timestamp  time.Time
-	PostOnly   bool
-	ReduceOnly bool
-	IOC        bool // Immediate or Cancel
-	FOK        bool // Fill or Kill
-}
+// Order is defined in orderbook.go
 
-// OrderType represents the type of order
-type OrderType int
+// OrderType is defined in types_common.go
 
-const (
-	Market OrderType = iota
-	Limit
-	Stop
-	StopLimit
-	TrailingStop
-)
+// OrderBook is defined in orderbook.go
 
-// OrderBook represents a trading pair's order book
-type OrderBook struct {
-	Symbol       string
-	Bids         *OrderTree
-	Asks         *OrderTree
-	Trades       []Trade
-	Orders       map[uint64]*Order
-	UserOrders   map[string][]uint64
-	LastTradeID  uint64
-	LastOrderID  uint64
-	mu           sync.RWMutex
-}
+// Event - defined in types_common.go
 
-// Event represents a system event
-type Event struct {
-	Type      EventType
-	Timestamp time.Time
-	Data      map[string]interface{}
-}
+// EventType - defined in types_common.go
 
-// EventType represents the type of event
-type EventType int
-
-const (
-	EventTrade EventType = iota
-	EventOrderPlaced
-	EventOrderCancelled
-	EventOrderModified
-	EventLiquidation
-	EventFunding
-	EventLending
-	EventBorrowing
-)
-
-// PriceOracle represents a price oracle
-type PriceOracle struct {
+// PriceOracleData represents price oracle data
+type PriceOracleData struct {
 	Symbol       string
 	Source       string
 	Price        float64
@@ -136,6 +83,7 @@ type L4BookSnapshot struct {
 func NewTradingEngine(config EngineConfig) *TradingEngine {
 	engine := &TradingEngine{
 		OrderBooks: make(map[string]*OrderBook),
+		Orders:     make(map[uint64]*Order),
 		Events:     make(chan Event, 10000),
 	}
 
@@ -146,7 +94,7 @@ func NewTradingEngine(config EngineConfig) *TradingEngine {
 		engine.VaultManager = NewVaultManager(engine)
 	}
 	if config.EnableLending {
-		engine.LendingManager = NewLendingManager(engine)
+		engine.LendingPool = NewLendingPool()
 	}
 
 	return engine
@@ -190,4 +138,36 @@ func (engine *TradingEngine) logEvent(event Event) {
 	default:
 		// Event channel full, drop event
 	}
+}
+
+// GetUserOrders returns all orders for a user
+func (e *TradingEngine) GetUserOrders(userID string) []*Order {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	
+	orders := make([]*Order, 0)
+	for _, order := range e.Orders {
+		if order.User == userID {
+			orders = append(orders, order)
+		}
+	}
+	return orders
+}
+
+// CreateOrderBook creates a new order book for a symbol
+func (e *TradingEngine) CreateOrderBook(symbol string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
+	if _, exists := e.OrderBooks[symbol]; !exists {
+		e.OrderBooks[symbol] = NewOrderBook(symbol)
+	}
+}
+
+// GetOrderBook returns the order book for a symbol
+func (e *TradingEngine) GetOrderBook(symbol string) *OrderBook {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	
+	return e.OrderBooks[symbol]
 }

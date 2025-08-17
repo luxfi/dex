@@ -137,11 +137,8 @@ func (pm *PerpetualManager) CreateMarket(config PerpMarketConfig) (*PerpetualMar
 	}
 
 	// Initialize oracle
-	oracle := &PriceOracle{
-		Symbol:       config.Symbol,
-		Source:       config.OracleSource,
-		PriceHistory: make([]PricePoint, 0, 10000),
-	}
+	oracle := NewPriceOracle()
+	// Store the oracle for this market
 	pm.oracles[config.Symbol] = oracle
 
 	pm.markets[config.Symbol] = market
@@ -596,20 +593,8 @@ func (pm *PerpetualManager) UpdateMarkPrice(symbol string, price float64) error 
 	// Check positions for liquidation
 	go pm.checkLiquidations(symbol, price)
 
-	// Log price update
-	if oracle, exists := pm.oracles[symbol]; exists {
-		oracle.mu.Lock()
-		oracle.Price = price
-		oracle.LastUpdate = time.Now()
-		oracle.PriceHistory = append(oracle.PriceHistory, PricePoint{
-			Price:     price,
-			Timestamp: time.Now(),
-		})
-		if len(oracle.PriceHistory) > 10000 {
-			oracle.PriceHistory = oracle.PriceHistory[5000:]
-		}
-		oracle.mu.Unlock()
-	}
+	// Log price update - oracle already manages its own price history internally
+	// The PriceOracle.updateCurrentPrice method handles history management
 
 	// Calculate price change percentage
 	if oldPrice > 0 {

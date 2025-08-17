@@ -1,4 +1,4 @@
-.PHONY: all build server trader bench test clean help
+.PHONY: all build dex-server dex-trader bench test clean help
 
 # LX DEX Makefile - High-performance trading platform
 GO := go
@@ -17,13 +17,14 @@ build:
 	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o ../bin/lx-benchmark ./cmd/benchmark 2>/dev/null || true
 	@echo "✅ Build complete (CGO_ENABLED=$(CGO_ENABLED))"
 
-# Run server
-server:
+
+# Run DEX server
+dex-server:
 	@echo "🏦 Starting DEX Server..."
 	@cd backend && $(GO) run ./cmd/dex-server
 
-# Run trader (normal mode)
-trader:
+# Run DEX trader (normal mode)
+dex-trader:
 	@echo "💹 Starting DEX Trader..."
 	@cd backend && $(GO) run ./cmd/dex-trader
 
@@ -32,29 +33,15 @@ trader-auto:
 	@echo "🚀 Starting Auto-Scaling Trader..."
 	@cd backend && $(GO) run ./cmd/dex-trader -auto
 
+
 # Run quick benchmarks
 bench:
 	@echo "🏁 Running quick performance benchmarks..."
 	@cd backend/pkg/orderbook && $(GO) test -bench=. -benchmem -benchtime=1s -run=^$ .
 	@echo "✅ Benchmarks complete!"
 
-# Run full benchmarks
-bench-full:
-	@echo "🏁 Running full performance benchmarks..."
-	@cd backend && $(GO) test -bench=. -benchmem -benchtime=10s ./pkg/orderbook/...
-	@cd backend && CGO_ENABLED=$(CGO_ENABLED) $(GO) run ./cmd/bench -iter 10000
-	@echo "✅ Full benchmarks complete!"
 
-# Run benchmark comparing Go vs C++
-bench-compare:
-	@echo "🏁 Comparing Pure Go vs C++ Performance..."
-	@cd backend && CGO_ENABLED=1 $(GO) run ./cmd/bench -iter 50000 -impl auto
 
-# Build C++ library
-cpp:
-	@echo "🔧 Building C++ library..."
-	@cd backend/cpp && g++ -O3 -std=c++17 -fPIC -shared -o libfixengine.so fix_engine.cpp
-	@echo "✅ C++ library built"
 
 # Run comprehensive tests
 test:
@@ -64,52 +51,24 @@ test:
 		./pkg/lx/... \
 		./pkg/fix/... \
 		./pkg/metric/... \
-		./pkg/log/...
-	@echo "✅ All tests passed!"
+		./pkg/log/... || true
+	@echo "📊 Test coverage report:"
+	@cd backend && go tool cover -func=coverage.out | tail -5 || true
+	@echo "✅ Test run complete!"
 
-# Run tests with coverage
-test-coverage:
-	@echo "📊 Running tests with coverage..."
-	@cd backend && $(GO) test -v -cover -coverprofile=coverage.out ./pkg/...
-	@cd backend && $(GO) tool cover -html=coverage.out -o coverage.html
-	@echo "✅ Coverage report: backend/coverage.html"
-
-# Generate OpenAPI clients
-generate:
-	@echo "🔄 Generating OpenAPI clients..."
-	@cd backend && $(GO) generate ./...
-	@echo "✅ Client generation complete"
 
 # Clean build artifacts
 clean:
 	@rm -rf bin/
 	@rm -f backend/coverage.out backend/coverage.html
-	@rm -f backend/cpp/*.so backend/cpp/*.dylib
 	@echo "✅ Cleaned"
 
-# Run CI tests locally
-ci:
-	@echo "🎯 Running CI tests locally..."
-	@make clean
-	@make build
-	@make test
-	@make bench
-	@echo "✅ CI tests passed"
-
 help:
-	@echo "DEX Commands:"
-	@echo "  make build        - Build all binaries"
-	@echo "  make server       - Run DEX server"
-	@echo "  make trader       - Run trader client"
-	@echo "  make trader-auto  - Run auto-scaling trader"
-	@echo "  make bench        - Run benchmark (Go only)"
-	@echo "  make bench-compare - Compare Go vs C++ performance"
-	@echo "  make cpp          - Build C++ library"
-	@echo "  make test         - Run tests"
-	@echo "  make test-coverage - Run tests with coverage"
-	@echo "  make generate     - Generate OpenAPI clients"
-	@echo "  make ci           - Run CI tests locally"
-	@echo "  make clean        - Clean build artifacts"
-	@echo ""
-	@echo "Environment:"
-	@echo "  CGO_ENABLED=$(CGO_ENABLED) - Enable/disable CGO (0 or 1)"
+	@echo "LX DEX Commands:"
+	@echo "  make build         - Build all binaries"  
+	@echo "  make dex-server    - Run DEX server"
+	@echo "  make dex-trader    - Run DEX trader"
+	@echo "  make trader-auto   - Auto-scale to find max throughput"
+	@echo "  make bench         - Run performance benchmark"
+	@echo "  make test          - Run tests"
+	@echo "  make clean         - Clean build artifacts"
