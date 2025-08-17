@@ -443,8 +443,13 @@ func TestPricePriority(t *testing.T) {
 	}
 
 	// Should match with buyer2 (best price)
-	if trades[0].BuyOrder.User != "buyer2" {
-		t.Errorf("Expected trade with buyer2, got %s", trades[0].BuyOrder.User)
+	// Trade.BuyOrder is interface{}, need to assert type
+	if buyOrder, ok := trades[0].BuyOrder.(*Order); ok {
+		if buyOrder.User != "buyer2" {
+			t.Errorf("Expected trade with buyer2, got %s", buyOrder.User)
+		}
+	} else {
+		t.Errorf("BuyOrder is not *Order type")
 	}
 }
 
@@ -492,8 +497,13 @@ func TestTimePriority(t *testing.T) {
 	}
 
 	// Should match with buyer1 (earlier order)
-	if trades[0].BuyOrder.User != "buyer1" {
-		t.Errorf("Expected trade with buyer1 (FIFO), got %s", trades[0].BuyOrder.User)
+	// Type assertion for interface{} field
+	if buyOrder, ok := trades[0].BuyOrder.(*Order); ok {
+		if buyOrder.User != "buyer1" {
+			t.Errorf("Expected trade with buyer1 (FIFO), got %s", buyOrder.User)
+		}
+	} else {
+		t.Errorf("BuyOrder is not *Order type")
 	}
 }
 

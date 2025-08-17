@@ -75,6 +75,8 @@ type VaultConfig struct {
 	RiskLimits        RiskLimits
 	AllowedAssets     []string
 	RebalanceInterval time.Duration
+	InsuranceCoverage *big.Int
+	RecoveryAddresses []string
 }
 
 // VaultPosition represents a depositor's position in a vault
