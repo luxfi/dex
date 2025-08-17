@@ -38,7 +38,7 @@ DAG_NETWORK := $(BIN_DIR)/dag-network
 FPC_NETWORK := $(BIN_DIR)/fpc-network
 
 # C++ source files
-CPP_BRIDGE_SOURCES := $(BRIDGE_DIR)/orderbook_bridge.cpp $(BRIDGE_DIR)/fix_bridge.cpp
+CPP_BRIDGE_SOURCES := $(BRIDGE_DIR)/orderbook_bridge.cpp $(BRIDGE_DIR)/fix_bridge.cpp $(BRIDGE_DIR)/ultra_matcher_bridge.cpp
 CPP_BRIDGE_OBJECTS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(notdir $(CPP_BRIDGE_SOURCES)))
 
 # Default target - builds everything needed for development
