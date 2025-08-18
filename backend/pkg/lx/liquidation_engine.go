@@ -12,102 +12,102 @@ import (
 // LiquidationEngine manages position liquidations and insurance fund
 type LiquidationEngine struct {
 	// Core components
-	InsuranceFund       *InsuranceFund
-	LiquidationQueue    *LiquidationQueue
-	AutoDeleveraging    *AutoDeleveragingEngine
-	SocializedLoss      *SocializedLossEngine
-	
+	InsuranceFund    *InsuranceFund
+	LiquidationQueue *LiquidationQueue
+	AutoDeleveraging *AutoDeleveragingEngine
+	SocializedLoss   *SocializedLossEngine
+
 	// Liquidation parameters
-	MaintenanceMargin   map[string]float64 // Per-asset maintenance margin
-	LiquidationFee      float64            // Fee charged on liquidation
-	InsuranceFundFee    float64            // Portion of fees going to insurance fund
-	
+	MaintenanceMargin map[string]float64 // Per-asset maintenance margin
+	LiquidationFee    float64            // Fee charged on liquidation
+	InsuranceFundFee  float64            // Portion of fees going to insurance fund
+
 	// Liquidators
-	Liquidators         map[string]*Liquidator
-	LiquidatorRewards   map[string]*big.Int
-	
+	Liquidators       map[string]*Liquidator
+	LiquidatorRewards map[string]*big.Int
+
 	// Performance tracking
-	TotalLiquidations   uint64
-	TotalLiquidated     *big.Int
-	LiquidationMetrics  *LiquidationMetrics
-	
+	TotalLiquidations  uint64
+	TotalLiquidated    *big.Int
+	LiquidationMetrics *LiquidationMetrics
+
 	// Risk management
-	RiskEngine          *RiskEngine
-	CircuitBreaker      *CircuitBreaker
-	EmergencyMode       bool
-	
-	mu                  sync.RWMutex
+	RiskEngine     *RiskEngine
+	CircuitBreaker *CircuitBreaker
+	EmergencyMode  bool
+
+	mu sync.RWMutex
 }
 
 // InsuranceFund manages the insurance fund for covering losses
 type InsuranceFund struct {
 	// Fund balances
-	Balance             map[string]*big.Int // Per-asset balances
-	TotalValueUSD       *big.Int
-	
+	Balance       map[string]*big.Int // Per-asset balances
+	TotalValueUSD *big.Int
+
 	// Fund parameters
-	TargetSize          *big.Int
-	MinimumSize         *big.Int
-	MaxDrawdown         float64
-	
+	TargetSize  *big.Int
+	MinimumSize *big.Int
+	MaxDrawdown float64
+
 	// Fund operations
-	Contributions       []*FundContribution
-	Withdrawals         []*FundWithdrawal
-	LossCoverage        []*LossCoverageEvent
-	
+	Contributions []*FundContribution
+	Withdrawals   []*FundWithdrawal
+	LossCoverage  []*LossCoverageEvent
+
 	// Performance
-	HighWaterMark       *big.Int
-	CurrentDrawdown     float64
-	APY                 float64
-	
+	HighWaterMark   *big.Int
+	CurrentDrawdown float64
+	APY             float64
+
 	// Governance
-	FundManagers        []string
-	WithdrawalRules     *WithdrawalRules
-	
-	LastUpdate          time.Time
-	mu                  sync.RWMutex
+	FundManagers    []string
+	WithdrawalRules *WithdrawalRules
+
+	LastUpdate time.Time
+	mu         sync.RWMutex
 }
 
 // LiquidationQueue manages pending liquidations
 type LiquidationQueue struct {
 	// Queue structure
-	HighPriority        []*LiquidationOrder
-	MediumPriority      []*LiquidationOrder
-	LowPriority         []*LiquidationOrder
-	
+	HighPriority   []*LiquidationOrder
+	MediumPriority []*LiquidationOrder
+	LowPriority    []*LiquidationOrder
+
 	// Processing
-	ProcessingOrders    map[string]*LiquidationOrder
-	CompletedOrders     map[string]*LiquidationOrder
-	FailedOrders        map[string]*LiquidationOrder
-	
+	ProcessingOrders map[string]*LiquidationOrder
+	CompletedOrders  map[string]*LiquidationOrder
+	FailedOrders     map[string]*LiquidationOrder
+
 	// Configuration
-	MaxQueueSize        int
-	ProcessingInterval  time.Duration
-	RetryAttempts       int
-	
-	mu                  sync.RWMutex
+	MaxQueueSize       int
+	ProcessingInterval time.Duration
+	RetryAttempts      int
+
+	mu sync.RWMutex
 }
 
 // LiquidationOrder represents a liquidation order
 type LiquidationOrder struct {
-	OrderID             string
-	PositionID          string
-	UserID              string
-	Symbol              string
-	Side                Side
-	Size                float64
-	MarkPrice           float64
-	LiquidationPrice    float64
-	CollateralValue     *big.Int
-	Loss                *big.Int
-	Priority            LiquidationPriority
-	Status              LiquidationOrderStatus
-	CreatedAt           time.Time
-	ProcessedAt         *time.Time
-	LiquidatorID        string
-	ExecutionPrice      float64
-	LiquidationFee      *big.Int
-	InsuranceFundClaim  *big.Int
+	OrderID            string
+	PositionID         string
+	UserID             string
+	Symbol             string
+	Side               Side
+	Size               float64
+	MarkPrice          float64
+	LiquidationPrice   float64
+	CollateralValue    *big.Int
+	Loss               *big.Int
+	Priority           LiquidationPriority
+	Status             LiquidationOrderStatus
+	CreatedAt          time.Time
+	ProcessedAt        *time.Time
+	LiquidatorID       string
+	ExecutionPrice     float64
+	LiquidationFee     *big.Int
+	InsuranceFundClaim *big.Int
 }
 
 // LiquidationPriority defines liquidation priority levels
@@ -133,16 +133,16 @@ const (
 
 // Liquidator represents a liquidation participant
 type Liquidator struct {
-	LiquidatorID        string
-	Balance             *big.Int
-	ActiveLiquidations  []*LiquidationOrder
-	CompletedCount      uint64
-	TotalProfit         *big.Int
-	SuccessRate         float64
-	AverageFillTime     time.Duration
-	Reputation          float64
-	Tier                LiquidatorTier
-	LastActive          time.Time
+	LiquidatorID       string
+	Balance            *big.Int
+	ActiveLiquidations []*LiquidationOrder
+	CompletedCount     uint64
+	TotalProfit        *big.Int
+	SuccessRate        float64
+	AverageFillTime    time.Duration
+	Reputation         float64
+	Tier               LiquidatorTier
+	LastActive         time.Time
 }
 
 // LiquidatorTier represents liquidator tiers
@@ -159,28 +159,28 @@ const (
 // AutoDeleveragingEngine handles auto-deleveraging
 type AutoDeleveragingEngine struct {
 	// ADL queue
-	ADLQueue            map[string][]*ADLCandidate
-	
+	ADLQueue map[string][]*ADLCandidate
+
 	// ADL parameters
-	ADLThreshold        float64 // Insurance fund depletion threshold
-	MaxADLPercentage    float64 // Maximum position reduction
-	
+	ADLThreshold     float64 // Insurance fund depletion threshold
+	MaxADLPercentage float64 // Maximum position reduction
+
 	// ADL history
-	ADLEvents           []*ADLEvent
-	TotalADLVolume      *big.Int
-	
-	mu                  sync.RWMutex
+	ADLEvents      []*ADLEvent
+	TotalADLVolume *big.Int
+
+	mu sync.RWMutex
 }
 
 // ADLCandidate represents a position eligible for auto-deleveraging
 type ADLCandidate struct {
-	PositionID          string
-	UserID              string
-	PnLRanking          float64 // Profit ranking for ADL priority
-	PositionSize        float64
-	UnrealizedPnL       *big.Int
-	Leverage            float64
-	ADLPriority         int
+	PositionID    string
+	UserID        string
+	PnLRanking    float64 // Profit ranking for ADL priority
+	PositionSize  float64
+	UnrealizedPnL *big.Int
+	Leverage      float64
+	ADLPriority   int
 }
 
 // ADLEvent represents an auto-deleveraging event
@@ -207,39 +207,39 @@ type ADLAffectedPosition struct {
 // SocializedLossEngine handles socialized losses
 type SocializedLossEngine struct {
 	// Loss distribution
-	PendingLosses       map[string]*SocializedLoss
-	DistributedLosses   map[string]*SocializedLoss
-	
+	PendingLosses     map[string]*SocializedLoss
+	DistributedLosses map[string]*SocializedLoss
+
 	// Parameters
-	LossThreshold       *big.Int // Minimum loss to trigger socialization
-	MaxLossPerUser      float64  // Maximum loss percentage per user
-	
+	LossThreshold  *big.Int // Minimum loss to trigger socialization
+	MaxLossPerUser float64  // Maximum loss percentage per user
+
 	// History
-	LossHistory         []*SocializedLossEvent
-	TotalSocialized     *big.Int
-	
-	mu                  sync.RWMutex
+	LossHistory     []*SocializedLossEvent
+	TotalSocialized *big.Int
+
+	mu sync.RWMutex
 }
 
 // SocializedLoss represents a socialized loss
 type SocializedLoss struct {
-	LossID              string
-	TotalLoss           *big.Int
-	AffectedAsset       string
-	DistributionMethod  string
-	AffectedUsers       map[string]*UserLossShare
-	Timestamp           time.Time
-	Status              SocializedLossStatus
+	LossID             string
+	TotalLoss          *big.Int
+	AffectedAsset      string
+	DistributionMethod string
+	AffectedUsers      map[string]*UserLossShare
+	Timestamp          time.Time
+	Status             SocializedLossStatus
 }
 
 // UserLossShare represents a user's share of socialized loss
 type UserLossShare struct {
-	UserID              string
-	PositionSize        float64
-	LossAmount          *big.Int
-	Percentage          float64
-	Compensated         bool
-	CompensationAmount  *big.Int
+	UserID             string
+	PositionSize       float64
+	LossAmount         *big.Int
+	Percentage         float64
+	Compensated        bool
+	CompensationAmount *big.Int
 }
 
 // SocializedLossStatus represents the status of socialized loss
@@ -254,36 +254,36 @@ const (
 
 // LiquidationMetrics tracks liquidation performance
 type LiquidationMetrics struct {
-	TotalLiquidations   uint64
+	TotalLiquidations      uint64
 	SuccessfulLiquidations uint64
-	FailedLiquidations  uint64
-	PartialLiquidations uint64
-	TotalVolume         *big.Int
-	AverageLoss         *big.Int
-	MaxLoss             *big.Int
-	InsuranceFundUsage  *big.Int
-	ADLTriggers         uint64
-	SocializedLosses    uint64
-	LastUpdate          time.Time
+	FailedLiquidations     uint64
+	PartialLiquidations    uint64
+	TotalVolume            *big.Int
+	AverageLoss            *big.Int
+	MaxLoss                *big.Int
+	InsuranceFundUsage     *big.Int
+	ADLTriggers            uint64
+	SocializedLosses       uint64
+	LastUpdate             time.Time
 }
 
 // CircuitBreaker provides emergency controls
 type CircuitBreaker struct {
-	Enabled             bool
-	TriggerConditions   map[string]*TriggerCondition
-	CooldownPeriod      time.Duration
-	LastTriggered       time.Time
-	TriggeredCount      uint64
+	Enabled           bool
+	TriggerConditions map[string]*TriggerCondition
+	CooldownPeriod    time.Duration
+	LastTriggered     time.Time
+	TriggeredCount    uint64
 }
 
 // TriggerCondition defines circuit breaker trigger conditions
 type TriggerCondition struct {
-	ConditionID         string
-	Name                string
-	Check               func() bool
-	Action              func() error
-	Severity            TriggerSeverity
-	Enabled             bool
+	ConditionID string
+	Name        string
+	Check       func() bool
+	Action      func() error
+	Severity    TriggerSeverity
+	Enabled     bool
 }
 
 // TriggerSeverity represents trigger severity levels
@@ -323,7 +323,7 @@ func NewInsuranceFund() *InsuranceFund {
 		TotalValueUSD:   big.NewInt(0),
 		TargetSize:      big.NewInt(10000000), // $10M target
 		MinimumSize:     big.NewInt(1000000),  // $1M minimum
-		MaxDrawdown:     0.5,                   // 50% max drawdown
+		MaxDrawdown:     0.5,                  // 50% max drawdown
 		Contributions:   make([]*FundContribution, 0),
 		Withdrawals:     make([]*FundWithdrawal, 0),
 		LossCoverage:    make([]*LossCoverageEvent, 0),
@@ -338,12 +338,12 @@ func NewInsuranceFund() *InsuranceFund {
 func (le *LiquidationEngine) ProcessLiquidation(userID string, position *MarginPosition, liquidationOrder *Order) error {
 	le.mu.Lock()
 	defer le.mu.Unlock()
-	
+
 	// Check circuit breaker
 	if le.CircuitBreaker.Enabled && le.CircuitBreaker.ShouldTrigger() {
 		return errors.New("circuit breaker triggered")
 	}
-	
+
 	// Create liquidation order
 	liqOrder := &LiquidationOrder{
 		OrderID:          generateLiquidationOrderID(),
@@ -359,23 +359,23 @@ func (le *LiquidationEngine) ProcessLiquidation(userID string, position *MarginP
 		Status:           LiquidationPending,
 		CreatedAt:        time.Now(),
 	}
-	
+
 	// Calculate potential loss
 	loss := le.calculateLoss(position)
 	liqOrder.Loss = loss
-	
+
 	// Add to queue based on priority
 	le.LiquidationQueue.Add(liqOrder)
-	
+
 	// Process immediately if high priority
 	if liqOrder.Priority == HighPriority {
 		go le.executeLiquidation(liqOrder)
 	}
-	
+
 	// Update metrics
 	le.TotalLiquidations++
 	le.LiquidationMetrics.TotalLiquidations++
-	
+
 	return nil
 }
 
@@ -386,62 +386,62 @@ func (le *LiquidationEngine) executeLiquidation(order *LiquidationOrder) error {
 	le.LiquidationQueue.mu.Lock()
 	le.LiquidationQueue.ProcessingOrders[order.OrderID] = order
 	le.LiquidationQueue.mu.Unlock()
-	
+
 	// Find liquidator
 	liquidator := le.findBestLiquidator(order)
 	if liquidator == nil {
 		// No liquidator available, try ADL
 		return le.triggerADL(order)
 	}
-	
+
 	// Execute liquidation
 	executionPrice, err := le.executeTrade(order, liquidator)
 	if err != nil {
 		order.Status = LiquidationFailed
 		return err
 	}
-	
+
 	order.ExecutionPrice = executionPrice
 	order.LiquidatorID = liquidator.LiquidatorID
-	
+
 	// Calculate fees
 	orderValue := big.NewInt(int64(order.Size * executionPrice))
 	liquidationFee := new(big.Int).Mul(orderValue, big.NewInt(int64(le.LiquidationFee*1000)))
 	liquidationFee.Div(liquidationFee, big.NewInt(1000))
 	order.LiquidationFee = liquidationFee
-	
+
 	// Distribute fees
 	insuranceFundPortion := new(big.Int).Mul(liquidationFee, big.NewInt(int64(le.InsuranceFundFee*1000)))
 	insuranceFundPortion.Div(insuranceFundPortion, big.NewInt(1000))
 	le.InsuranceFund.AddContribution(order.Symbol, insuranceFundPortion)
-	
+
 	// Handle loss if any
 	if order.Loss.Cmp(big.NewInt(0)) > 0 {
 		if err := le.handleLoss(order); err != nil {
 			return err
 		}
 	}
-	
+
 	// Update liquidator stats
 	liquidator.CompletedCount++
 	liquidator.TotalProfit.Add(liquidator.TotalProfit, liquidationFee)
 	liquidator.LastActive = time.Now()
-	
+
 	// Complete order
 	order.Status = LiquidationComplete
 	order.ProcessedAt = &[]time.Time{time.Now()}[0]
-	
+
 	// Move to completed
 	le.LiquidationQueue.mu.Lock()
 	delete(le.LiquidationQueue.ProcessingOrders, order.OrderID)
 	le.LiquidationQueue.CompletedOrders[order.OrderID] = order
 	le.LiquidationQueue.mu.Unlock()
-	
+
 	// Update metrics
 	le.TotalLiquidated.Add(le.TotalLiquidated, orderValue)
 	le.LiquidationMetrics.SuccessfulLiquidations++
 	le.LiquidationMetrics.TotalVolume.Add(le.LiquidationMetrics.TotalVolume, orderValue)
-	
+
 	return nil
 }
 
@@ -451,13 +451,13 @@ func (le *LiquidationEngine) handleLoss(order *LiquidationOrder) error {
 	if le.InsuranceFund.CanCoverLoss(order.Symbol, order.Loss) {
 		return le.InsuranceFund.CoverLoss(order.Symbol, order.Loss, order.OrderID)
 	}
-	
+
 	// If insurance fund insufficient, check for ADL
 	insuranceRatio := le.InsuranceFund.GetCoverageRatio()
 	if insuranceRatio < le.AutoDeleveraging.ADLThreshold {
 		return le.triggerADL(order)
 	}
-	
+
 	// Last resort: socialized loss
 	return le.SocializedLoss.DistributeLoss(order)
 }
@@ -471,14 +471,14 @@ func (le *LiquidationEngine) triggerADL(order *LiquidationOrder) error {
 func (le *LiquidationEngine) findBestLiquidator(order *LiquidationOrder) *Liquidator {
 	var bestLiquidator *Liquidator
 	bestScore := 0.0
-	
+
 	for _, liquidator := range le.Liquidators {
 		// Check if liquidator has sufficient balance
 		requiredBalance := big.NewInt(int64(order.Size * order.MarkPrice))
 		if liquidator.Balance.Cmp(requiredBalance) < 0 {
 			continue
 		}
-		
+
 		// Calculate liquidator score
 		score := le.calculateLiquidatorScore(liquidator, order)
 		if score > bestScore {
@@ -486,24 +486,24 @@ func (le *LiquidationEngine) findBestLiquidator(order *LiquidationOrder) *Liquid
 			bestLiquidator = liquidator
 		}
 	}
-	
+
 	return bestLiquidator
 }
 
 // calculateLiquidatorScore calculates a liquidator's score
 func (le *LiquidationEngine) calculateLiquidatorScore(liquidator *Liquidator, order *LiquidationOrder) float64 {
 	score := 0.0
-	
+
 	// Factor in reputation
 	score += liquidator.Reputation * 0.3
-	
+
 	// Factor in success rate
 	score += liquidator.SuccessRate * 0.3
-	
+
 	// Factor in tier
 	tierBonus := float64(liquidator.Tier) * 0.1
 	score += tierBonus
-	
+
 	// Factor in recent activity
 	timeSinceActive := time.Since(liquidator.LastActive).Hours()
 	if timeSinceActive < 1 {
@@ -511,13 +511,13 @@ func (le *LiquidationEngine) calculateLiquidatorScore(liquidator *Liquidator, or
 	} else if timeSinceActive < 24 {
 		score += 0.1
 	}
-	
+
 	// Factor in balance (more balance = higher score)
 	balanceRatio := new(big.Float).SetInt(liquidator.Balance)
 	balanceRatio.Quo(balanceRatio, big.NewFloat(1000000)) // Normalize to millions
 	balanceScore, _ := balanceRatio.Float64()
 	score += math.Min(balanceScore*0.1, 0.2) // Cap at 0.2
-	
+
 	return score
 }
 
@@ -526,14 +526,14 @@ func (le *LiquidationEngine) calculatePriority(position *MarginPosition) Liquida
 	// Calculate how far below liquidation price
 	currentPrice := position.MarkPrice
 	liquidationPrice := position.LiquidationPrice
-	
+
 	var priceRatio float64
 	if position.Side == Buy {
 		priceRatio = currentPrice / liquidationPrice
 	} else {
 		priceRatio = liquidationPrice / currentPrice
 	}
-	
+
 	// High priority if well below liquidation price
 	if priceRatio < 0.95 {
 		return HighPriority
@@ -549,7 +549,7 @@ func (le *LiquidationEngine) calculateLoss(position *MarginPosition) *big.Int {
 	if position.UnrealizedPnL.Cmp(position.Margin) >= 0 {
 		return big.NewInt(0)
 	}
-	
+
 	loss := new(big.Int).Sub(position.Margin, position.UnrealizedPnL)
 	loss.Neg(loss) // Make positive
 	return loss
@@ -561,7 +561,7 @@ func (le *LiquidationEngine) executeTrade(order *LiquidationOrder, liquidator *L
 	// In production, this would interact with the order book
 	slippage := 0.002 // 0.2% slippage
 	var executionPrice float64
-	
+
 	if order.Side == Buy {
 		// Liquidating a long position, need to sell
 		executionPrice = order.MarkPrice * (1 - slippage)
@@ -569,7 +569,7 @@ func (le *LiquidationEngine) executeTrade(order *LiquidationOrder, liquidator *L
 		// Liquidating a short position, need to buy
 		executionPrice = order.MarkPrice * (1 + slippage)
 	}
-	
+
 	return executionPrice, nil
 }
 
@@ -578,44 +578,44 @@ func (le *LiquidationEngine) executeTrade(order *LiquidationOrder, liquidator *L
 func (fund *InsuranceFund) AddContribution(asset string, amount *big.Int) {
 	fund.mu.Lock()
 	defer fund.mu.Unlock()
-	
+
 	if fund.Balance[asset] == nil {
 		fund.Balance[asset] = big.NewInt(0)
 	}
 	fund.Balance[asset].Add(fund.Balance[asset], amount)
 	fund.TotalValueUSD.Add(fund.TotalValueUSD, amount) // Simplified, should convert to USD
-	
+
 	// Update high water mark
 	if fund.TotalValueUSD.Cmp(fund.HighWaterMark) > 0 {
 		fund.HighWaterMark.Set(fund.TotalValueUSD)
 	}
-	
+
 	fund.LastUpdate = time.Now()
 }
 
 func (fund *InsuranceFund) CanCoverLoss(asset string, loss *big.Int) bool {
 	fund.mu.RLock()
 	defer fund.mu.RUnlock()
-	
+
 	balance := fund.Balance[asset]
 	if balance == nil {
 		return false
 	}
-	
+
 	return balance.Cmp(loss) >= 0
 }
 
 func (fund *InsuranceFund) CoverLoss(asset string, loss *big.Int, referenceID string) error {
 	fund.mu.Lock()
 	defer fund.mu.Unlock()
-	
+
 	if !fund.CanCoverLoss(asset, loss) {
 		return errors.New("insufficient insurance fund balance")
 	}
-	
+
 	fund.Balance[asset].Sub(fund.Balance[asset], loss)
 	fund.TotalValueUSD.Sub(fund.TotalValueUSD, loss) // Simplified
-	
+
 	// Record loss coverage event
 	event := &LossCoverageEvent{
 		EventID:     generateEventID(),
@@ -625,7 +625,7 @@ func (fund *InsuranceFund) CoverLoss(asset string, loss *big.Int, referenceID st
 		Timestamp:   time.Now(),
 	}
 	fund.LossCoverage = append(fund.LossCoverage, event)
-	
+
 	// Update drawdown
 	if fund.HighWaterMark.Cmp(big.NewInt(0)) > 0 {
 		drawdown := new(big.Float).SetInt(fund.HighWaterMark)
@@ -633,7 +633,7 @@ func (fund *InsuranceFund) CoverLoss(asset string, loss *big.Int, referenceID st
 		drawdown.Quo(drawdown, new(big.Float).SetInt(fund.HighWaterMark))
 		fund.CurrentDrawdown, _ = drawdown.Float64()
 	}
-	
+
 	fund.LastUpdate = time.Now()
 	return nil
 }
@@ -641,11 +641,11 @@ func (fund *InsuranceFund) CoverLoss(asset string, loss *big.Int, referenceID st
 func (fund *InsuranceFund) GetCoverageRatio() float64 {
 	fund.mu.RLock()
 	defer fund.mu.RUnlock()
-	
+
 	if fund.TargetSize.Cmp(big.NewInt(0)) == 0 {
 		return 0
 	}
-	
+
 	ratio := new(big.Float).SetInt(fund.TotalValueUSD)
 	ratio.Quo(ratio, new(big.Float).SetInt(fund.TargetSize))
 	result, _ := ratio.Float64()
@@ -671,7 +671,7 @@ func NewLiquidationQueue() *LiquidationQueue {
 func (queue *LiquidationQueue) Add(order *LiquidationOrder) {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
-	
+
 	switch order.Priority {
 	case HighPriority:
 		queue.HighPriority = append(queue.HighPriority, order)
@@ -697,33 +697,33 @@ func NewAutoDeleveragingEngine() *AutoDeleveragingEngine {
 func (adl *AutoDeleveragingEngine) Execute(order *LiquidationOrder) error {
 	adl.mu.Lock()
 	defer adl.mu.Unlock()
-	
+
 	// Get ADL candidates for the symbol
 	candidates := adl.ADLQueue[order.Symbol]
 	if len(candidates) == 0 {
 		return errors.New("no ADL candidates available")
 	}
-	
+
 	// Sort candidates by PnL ranking (highest profit first)
 	// In production, implement proper sorting
-	
+
 	event := &ADLEvent{
-		EventID:       generateEventID(),
-		Timestamp:     time.Now(),
-		TriggerReason: fmt.Sprintf("Insurance fund below threshold for %s", order.OrderID),
+		EventID:           generateEventID(),
+		Timestamp:         time.Now(),
+		TriggerReason:     fmt.Sprintf("Insurance fund below threshold for %s", order.OrderID),
 		AffectedPositions: make([]*ADLAffectedPosition, 0),
 	}
-	
+
 	remainingSize := order.Size
 	for _, candidate := range candidates {
 		if remainingSize <= 0 {
 			break
 		}
-		
+
 		// Calculate reduction
 		reductionSize := math.Min(candidate.PositionSize*adl.MaxADLPercentage, remainingSize)
 		reductionPercentage := reductionSize / candidate.PositionSize
-		
+
 		// Create affected position record
 		affected := &ADLAffectedPosition{
 			PositionID:          candidate.PositionID,
@@ -733,11 +733,11 @@ func (adl *AutoDeleveragingEngine) Execute(order *LiquidationOrder) error {
 			ReductionPercentage: reductionPercentage,
 			CompensationPaid:    big.NewInt(0), // Calculate compensation
 		}
-		
+
 		event.AffectedPositions = append(event.AffectedPositions, affected)
 		remainingSize -= reductionSize
 	}
-	
+
 	adl.ADLEvents = append(adl.ADLEvents, event)
 	return nil
 }
@@ -749,7 +749,7 @@ func NewSocializedLossEngine() *SocializedLossEngine {
 		PendingLosses:     make(map[string]*SocializedLoss),
 		DistributedLosses: make(map[string]*SocializedLoss),
 		LossThreshold:     big.NewInt(100000), // $100k minimum for socialized loss
-		MaxLossPerUser:    0.1,                 // Maximum 10% loss per user
+		MaxLossPerUser:    0.1,                // Maximum 10% loss per user
 		LossHistory:       make([]*SocializedLossEvent, 0),
 		TotalSocialized:   big.NewInt(0),
 	}
@@ -758,11 +758,11 @@ func NewSocializedLossEngine() *SocializedLossEngine {
 func (sl *SocializedLossEngine) DistributeLoss(order *LiquidationOrder) error {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
-	
+
 	if order.Loss.Cmp(sl.LossThreshold) < 0 {
 		return errors.New("loss below socialization threshold")
 	}
-	
+
 	loss := &SocializedLoss{
 		LossID:             generateLossID(),
 		TotalLoss:          order.Loss,
@@ -772,12 +772,12 @@ func (sl *SocializedLossEngine) DistributeLoss(order *LiquidationOrder) error {
 		Timestamp:          time.Now(),
 		Status:             LossPending,
 	}
-	
+
 	sl.PendingLosses[loss.LossID] = loss
-	
+
 	// In production, would calculate and distribute loss shares
 	// based on user positions and risk profile
-	
+
 	return nil
 }
 
@@ -796,12 +796,12 @@ func (cb *CircuitBreaker) ShouldTrigger() bool {
 	if !cb.Enabled {
 		return false
 	}
-	
+
 	// Check cooldown
 	if time.Since(cb.LastTriggered) < cb.CooldownPeriod {
 		return false
 	}
-	
+
 	// Check trigger conditions
 	for _, condition := range cb.TriggerConditions {
 		if condition.Enabled && condition.Check() {
@@ -811,7 +811,7 @@ func (cb *CircuitBreaker) ShouldTrigger() bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -884,10 +884,10 @@ func NewLiquidationMetrics() *LiquidationMetrics {
 
 func NewWithdrawalRules() *WithdrawalRules {
 	return &WithdrawalRules{
-		MinBalance:      big.NewInt(1000000),
-		MaxWithdrawal:   big.NewInt(100000),
-		CooldownPeriod:  24 * time.Hour,
-		RequiredVotes:   3,
+		MinBalance:     big.NewInt(1000000),
+		MaxWithdrawal:  big.NewInt(100000),
+		CooldownPeriod: 24 * time.Hour,
+		RequiredVotes:  3,
 	}
 }
 
@@ -927,9 +927,9 @@ type WithdrawalRules struct {
 }
 
 type SocializedLossEvent struct {
-	EventID      string
-	LossID       string
-	TotalLoss    *big.Int
+	EventID       string
+	LossID        string
+	TotalLoss     *big.Int
 	UsersAffected int
-	Timestamp    time.Time
+	Timestamp     time.Time
 }

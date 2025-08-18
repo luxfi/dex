@@ -44,30 +44,30 @@ func (v *OrderVertex) GetParents() []ids.ID {
 type DAGOrderBook struct {
 	// Node identity
 	nodeID string
-	
+
 	// Order book state
 	orderBook *lx.OrderBook
-	
+
 	// DAG structure
-	vertices   map[ids.ID]*OrderVertex
-	frontier   []ids.ID
-	finalized  map[ids.ID]bool
-	
+	vertices  map[ids.ID]*OrderVertex
+	frontier  []ids.ID
+	finalized map[ids.ID]bool
+
 	// Consensus engine
-	consensus  nebula.Protocol[ids.ID]
-	dagEngine  *dag.Engine
-	
+	consensus nebula.Protocol[ids.ID]
+	dagEngine *dag.Engine
+
 	// Network peers
-	peers      map[string]*RemoteNode
-	
+	peers map[string]*RemoteNode
+
 	// Metrics
 	vertexCount atomic.Uint64
 	tradeCount  atomic.Uint64
-	
+
 	// Synchronization
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
+	mu     sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // RemoteNode represents a peer in the network
@@ -81,7 +81,7 @@ type RemoteNode struct {
 // NewDAGOrderBook creates a new DAG-based order book
 func NewDAGOrderBook(nodeID string, symbol string) (*DAGOrderBook, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	dob := &DAGOrderBook{
 		nodeID:    nodeID,
 		orderBook: lx.NewOrderBook(symbol),
@@ -91,19 +91,19 @@ func NewDAGOrderBook(nodeID string, symbol string) (*DAGOrderBook, error) {
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	
+
 	// Initialize DAG consensus engine
 	params := dag.Parameters{
-		K:                   20,  // Sample size
-		AlphaPreference:     15,  // Quorum size for preference
-		AlphaConfidence:     15,  // Quorum size for confidence
-		Beta:                20,  // Confidence threshold
-		MaxParents:          5,   // Max parent vertices
+		K:                   20, // Sample size
+		AlphaPreference:     15, // Quorum size for preference
+		AlphaConfidence:     15, // Quorum size for confidence
+		Beta:                20, // Confidence threshold
+		MaxParents:          5,  // Max parent vertices
 		MaxVerticesPerRound: 100,
 		ConflictSetSize:     10,
 		VertexTimeout:       time.Second,
 	}
-	
+
 	// Create Nebula consensus configuration
 	cfg := nebula.Config[ids.ID]{
 		Graph:      dob,
@@ -115,14 +115,14 @@ func NewDAGOrderBook(nodeID string, symbol string) (*DAGOrderBook, error) {
 		Apply:      dob.ApplyVertices,
 		Send:       dob.BroadcastVertex,
 	}
-	
+
 	consensus, err := nebula.New[ids.ID](cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consensus: %w", err)
 	}
-	
+
 	dob.consensus = consensus
-	
+
 	return dob, nil
 }
 
@@ -130,7 +130,7 @@ func NewDAGOrderBook(nodeID string, symbol string) (*DAGOrderBook, error) {
 func (dob *DAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
 	dob.mu.Lock()
 	defer dob.mu.Unlock()
-	
+
 	// Create vertex for this order
 	vertex := &OrderVertex{
 		Order:     order,
@@ -138,27 +138,27 @@ func (dob *DAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
 		NodeID:    dob.nodeID,
 		Height:    dob.vertexCount.Add(1),
 	}
-	
+
 	// Set parents to current frontier
 	vertex.Parents = append([]ids.ID{}, dob.frontier...)
 	if len(vertex.Parents) > 5 {
 		vertex.Parents = vertex.Parents[:5] // Limit parents
 	}
-	
+
 	// Generate vertex ID
 	vertex.ID = dob.generateVertexID(vertex)
-	
+
 	// Try to match order locally first
 	trades := dob.orderBook.MatchOrders()
 	vertex.Trades = trades
-	
+
 	// Add to DAG
 	dob.vertices[vertex.ID] = vertex
 	dob.updateFrontier(vertex.ID)
-	
+
 	// Broadcast to peers
 	go dob.broadcastVertexToPeers(vertex)
-	
+
 	return vertex, nil
 }
 
@@ -166,34 +166,34 @@ func (dob *DAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
 func (dob *DAGOrderBook) ProcessRemoteVertex(vertex *OrderVertex) error {
 	dob.mu.Lock()
 	defer dob.mu.Unlock()
-	
+
 	// Validate vertex
 	if err := dob.validateVertex(vertex); err != nil {
 		return fmt.Errorf("invalid vertex: %w", err)
 	}
-	
+
 	// Check if we already have it
 	if _, exists := dob.vertices[vertex.ID]; exists {
 		return nil // Already processed
 	}
-	
+
 	// Add to DAG
 	dob.vertices[vertex.ID] = vertex
-	
+
 	// Process order if not from our node
 	if vertex.NodeID != dob.nodeID {
 		// Apply order to local book
 		dob.orderBook.AddOrder(vertex.Order)
-		
+
 		// Apply trades
 		for _, trade := range vertex.Trades {
 			dob.tradeCount.Add(1)
 		}
 	}
-	
+
 	// Update frontier
 	dob.updateFrontier(vertex.ID)
-	
+
 	return nil
 }
 
@@ -201,7 +201,7 @@ func (dob *DAGOrderBook) ProcessRemoteVertex(vertex *OrderVertex) error {
 func (dob *DAGOrderBook) RunConsensus() error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-dob.ctx.Done():
@@ -211,7 +211,7 @@ func (dob *DAGOrderBook) RunConsensus() error {
 			if err := dob.consensus.Step(dob.ctx); err != nil {
 				return err
 			}
-			
+
 			// Process finalized vertices
 			finalized := dob.consensus.Finalized()
 			for _, id := range finalized {
@@ -227,7 +227,7 @@ func (dob *DAGOrderBook) RunConsensus() error {
 func (dob *DAGOrderBook) Parents(id ids.ID) []ids.ID {
 	dob.mu.RLock()
 	defer dob.mu.RUnlock()
-	
+
 	if vertex, exists := dob.vertices[id]; exists {
 		return vertex.GetParents()
 	}
@@ -262,7 +262,7 @@ func (dob *DAGOrderBook) BroadcastVertex(ctx context.Context, id ids.ID, peers [
 	if !exists {
 		return fmt.Errorf("vertex not found: %s", id)
 	}
-	
+
 	go dob.broadcastVertexToPeers(vertex)
 	return nil
 }
@@ -287,12 +287,12 @@ func (dob *DAGOrderBook) validateVertex(vertex *OrderVertex) error {
 			return fmt.Errorf("parent vertex not found: %s", parentID)
 		}
 	}
-	
+
 	// Validate order
 	if vertex.Order == nil {
 		return fmt.Errorf("vertex missing order")
 	}
-	
+
 	return nil
 }
 
@@ -303,14 +303,14 @@ func (dob *DAGOrderBook) updateFrontier(newVertex ids.ID) {
 	for _, p := range vertex.Parents {
 		parentSet[p] = true
 	}
-	
+
 	newFrontier := []ids.ID{}
 	for _, id := range dob.frontier {
 		if !parentSet[id] {
 			newFrontier = append(newFrontier, id)
 		}
 	}
-	
+
 	// Add new vertex to frontier
 	newFrontier = append(newFrontier, newVertex)
 	dob.frontier = newFrontier
@@ -319,13 +319,13 @@ func (dob *DAGOrderBook) updateFrontier(newVertex ids.ID) {
 func (dob *DAGOrderBook) finalizeVertex(id ids.ID) {
 	dob.mu.Lock()
 	defer dob.mu.Unlock()
-	
+
 	if dob.finalized[id] {
 		return
 	}
-	
+
 	dob.finalized[id] = true
-	
+
 	// Apply trades permanently
 	if vertex, exists := dob.vertices[id]; exists {
 		for _, trade := range vertex.Trades {
@@ -340,7 +340,7 @@ func (dob *DAGOrderBook) broadcastVertexToPeers(vertex *OrderVertex) {
 	if err != nil {
 		return
 	}
-	
+
 	for _, peer := range dob.peers {
 		// Send to peer (would use ZMQ or gRPC)
 		_ = peer
@@ -365,7 +365,7 @@ type confidence struct {
 func (c *confidence) Record(success bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	if success {
 		c.count++
 		return c.count >= 20 // Beta threshold
@@ -394,13 +394,13 @@ func (o *orderer) Schedule(ctx context.Context, vertices []ids.ID) ([]ids.ID, er
 func (dob *DAGOrderBook) GetStats() map[string]interface{} {
 	dob.mu.RLock()
 	defer dob.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"node_id":        dob.nodeID,
-		"vertices":       len(dob.vertices),
-		"finalized":      len(dob.finalized),
-		"frontier_size":  len(dob.frontier),
-		"total_trades":   dob.tradeCount.Load(),
-		"peers":          len(dob.peers),
+		"node_id":       dob.nodeID,
+		"vertices":      len(dob.vertices),
+		"finalized":     len(dob.finalized),
+		"frontier_size": len(dob.frontier),
+		"total_trades":  dob.tradeCount.Load(),
+		"peers":         len(dob.peers),
 	}
 }

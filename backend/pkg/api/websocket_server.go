@@ -24,47 +24,47 @@ type WebSocketServer struct {
 	vaultManager      *lx.VaultManager
 	xchain            *lx.XChainIntegration
 	liquidationEngine *lx.LiquidationEngine
-	
+
 	// WebSocket
-	upgrader          websocket.Upgrader
-	clients           map[string]*Client
-	broadcast         chan []byte
-	
+	upgrader  websocket.Upgrader
+	clients   map[string]*Client
+	broadcast chan []byte
+
 	// Subscriptions
-	subscriptions     map[string]map[string]bool // client -> symbols
-	
+	subscriptions map[string]map[string]bool // client -> symbols
+
 	// Auth
-	authService       AuthService
-	
+	authService AuthService
+
 	// Metrics
-	metrics           *ServerMetrics
-	
+	metrics *ServerMetrics
+
 	// Control
-	ctx               context.Context
-	cancel            context.CancelFunc
-	mu                sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     sync.RWMutex
 }
 
 // Client represents a connected trader
 type Client struct {
-	ID                string
-	UserID            string
-	conn              *websocket.Conn
-	send              chan []byte
-	subscriptions     map[string]bool
-	authenticated     bool
-	lastActivity      time.Time
-	rateLimiter       *RateLimiter
-	mu                sync.RWMutex
+	ID            string
+	UserID        string
+	conn          *websocket.Conn
+	send          chan []byte
+	subscriptions map[string]bool
+	authenticated bool
+	lastActivity  time.Time
+	rateLimiter   *RateLimiter
+	mu            sync.RWMutex
 }
 
 // Message represents a WebSocket message
 type Message struct {
-	Type              string                 `json:"type"`
-	Data              map[string]interface{} `json:"data,omitempty"`
-	Error             string                 `json:"error,omitempty"`
-	RequestID         string                 `json:"request_id,omitempty"`
-	Timestamp         int64                  `json:"timestamp"`
+	Type      string                 `json:"type"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	RequestID string                 `json:"request_id,omitempty"`
+	Timestamp int64                  `json:"timestamp"`
 }
 
 // AuthService handles authentication
@@ -91,17 +91,17 @@ type ServerMetrics struct {
 
 // RateLimiter implements rate limiting
 type RateLimiter struct {
-	requests          int
-	maxRequests       int
-	window            time.Duration
-	lastReset         time.Time
-	mu                sync.Mutex
+	requests    int
+	maxRequests int
+	window      time.Duration
+	lastReset   time.Time
+	mu          sync.Mutex
 }
 
 // NewWebSocketServer creates a new WebSocket server
 func NewWebSocketServer(config ServerConfig) *WebSocketServer {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &WebSocketServer{
 		engine:            config.Engine,
 		marginEngine:      config.MarginEngine,
@@ -148,7 +148,7 @@ func (ws *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return
 	}
-	
+
 	clientID := generateClientID()
 	client := &Client{
 		ID:            clientID,
@@ -158,17 +158,17 @@ func (ws *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reque
 		lastActivity:  time.Now(),
 		rateLimiter:   NewRateLimiter(100, time.Minute),
 	}
-	
+
 	ws.mu.Lock()
 	ws.clients[clientID] = client
 	ws.metrics.ConnectionsActive++
 	ws.metrics.ConnectionsTotal++
 	ws.mu.Unlock()
-	
+
 	// Start client handlers
 	go client.writePump()
 	go client.readPump(ws)
-	
+
 	// Send welcome message
 	welcome := Message{
 		Type:      "connected",
@@ -185,13 +185,13 @@ func (c *Client) readPump(ws *WebSocketServer) {
 		ws.removeClient(c)
 		c.conn.Close()
 	}()
-	
+
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
-	
+
 	for {
 		var msg map[string]interface{}
 		err := c.conn.ReadJSON(&msg)
@@ -201,17 +201,17 @@ func (c *Client) readPump(ws *WebSocketServer) {
 			}
 			break
 		}
-		
+
 		// Rate limiting
 		if !c.rateLimiter.Allow() {
 			c.sendError("Rate limit exceeded", "")
 			continue
 		}
-		
+
 		// Update activity
 		c.lastActivity = time.Now()
 		ws.metrics.MessagesReceived++
-		
+
 		// Process message
 		ws.processMessage(c, msg)
 	}
@@ -223,7 +223,7 @@ func (c *Client) writePump() {
 		ticker.Stop()
 		c.conn.Close()
 	}()
-	
+
 	for {
 		select {
 		case message, ok := <-c.send:
@@ -232,9 +232,9 @@ func (c *Client) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			
+
 			c.conn.WriteMessage(websocket.TextMessage, message)
-			
+
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -252,13 +252,13 @@ func (ws *WebSocketServer) processMessage(client *Client, msg map[string]interfa
 		client.sendError("Invalid message type", "")
 		return
 	}
-	
+
 	// Get request ID if present
 	requestID := ""
 	if rid, ok := msg["request_id"].(string); ok {
 		requestID = rid
 	}
-	
+
 	switch msgType {
 	case "auth":
 		ws.handleAuth(client, msg, requestID)
@@ -305,25 +305,25 @@ func (ws *WebSocketServer) processMessage(client *Client, msg map[string]interfa
 func (ws *WebSocketServer) handleAuth(client *Client, msg map[string]interface{}, requestID string) {
 	apiKey, _ := msg["apiKey"].(string)
 	apiSecret, _ := msg["apiSecret"].(string)
-	
+
 	if apiKey == "" || apiSecret == "" {
 		client.sendError("Missing credentials", requestID)
 		ws.metrics.AuthFailures++
 		return
 	}
-	
+
 	userID, err := ws.authService.Authenticate(apiKey, apiSecret)
 	if err != nil {
 		client.sendError("Authentication failed", requestID)
 		ws.metrics.AuthFailures++
 		return
 	}
-	
+
 	client.mu.Lock()
 	client.authenticated = true
 	client.UserID = userID
 	client.mu.Unlock()
-	
+
 	response := Message{
 		Type:      "auth_success",
 		Data:      map[string]interface{}{"user_id": userID},
@@ -331,7 +331,7 @@ func (ws *WebSocketServer) handleAuth(client *Client, msg map[string]interface{}
 		Timestamp: time.Now().Unix(),
 	}
 	client.sendMessage(response)
-	
+
 	// Send initial data
 	ws.sendInitialData(client)
 }
@@ -379,51 +379,51 @@ func (ws *WebSocketServer) handlePlaceOrder(client *Client, msg map[string]inter
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Parse order from message with proper type checking
 	orderDataRaw, ok := msg["order"]
 	if !ok {
 		client.sendError("Missing order data", requestID)
 		return
 	}
-	
+
 	orderData, ok := orderDataRaw.(map[string]interface{})
 	if !ok {
 		client.sendError("Invalid order data format", requestID)
 		return
 	}
-	
+
 	// Extract fields with safe type assertions
 	symbol, ok := orderData["symbol"].(string)
 	if !ok {
 		client.sendError("Missing or invalid symbol", requestID)
 		return
 	}
-	
+
 	side, ok := orderData["side"].(string)
 	if !ok {
 		client.sendError("Missing or invalid side", requestID)
 		return
 	}
-	
+
 	orderType, ok := orderData["type"].(string)
 	if !ok {
 		client.sendError("Missing or invalid order type", requestID)
 		return
 	}
-	
+
 	price, ok := orderData["price"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid price", requestID)
 		return
 	}
-	
+
 	size, ok := orderData["size"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid size", requestID)
 		return
 	}
-	
+
 	order := &lx.Order{
 		Symbol:    symbol,
 		Side:      parseSide(side),
@@ -433,26 +433,26 @@ func (ws *WebSocketServer) handlePlaceOrder(client *Client, msg map[string]inter
 		User:      client.UserID,
 		Timestamp: time.Now(),
 	}
-	
+
 	// Submit order - get the order book and add the order
 	book := ws.engine.GetOrderBook(order.Symbol)
 	if book == nil {
 		ws.engine.CreateOrderBook(order.Symbol)
 		book = ws.engine.GetOrderBook(order.Symbol)
 	}
-	
+
 	orderID := book.AddOrder(order)
 	if orderID == 0 {
 		client.sendError("Order failed", requestID)
 		return
 	}
 	order.ID = orderID
-	
+
 	ws.metrics.OrdersProcessed++
-	
+
 	// Get any trades that may have occurred (would need to be tracked separately)
 	// For now, we'll skip broadcasting trades as AddOrder doesn't return them
-	
+
 	response := Message{
 		Type: "order_update",
 		Data: map[string]interface{}{
@@ -470,22 +470,22 @@ func (ws *WebSocketServer) handleCancelOrder(client *Client, msg map[string]inte
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Safe type assertion for orderID
 	orderIDRaw, ok := msg["orderID"]
 	if !ok {
 		client.sendError("Missing orderID", requestID)
 		return
 	}
-	
+
 	orderIDFloat, ok := orderIDRaw.(float64)
 	if !ok {
 		client.sendError("Invalid orderID format", requestID)
 		return
 	}
-	
+
 	orderID := uint64(orderIDFloat)
-	
+
 	// Find and cancel the order across all order books
 	var err error
 	var orderFound bool
@@ -495,7 +495,7 @@ func (ws *WebSocketServer) handleCancelOrder(client *Client, msg map[string]inte
 			break
 		}
 	}
-	
+
 	if !orderFound {
 		err = fmt.Errorf("order not found")
 	}
@@ -503,7 +503,7 @@ func (ws *WebSocketServer) handleCancelOrder(client *Client, msg map[string]inte
 		client.sendError(fmt.Sprintf("Cancel failed: %v", err), requestID)
 		return
 	}
-	
+
 	response := Message{
 		Type: "order_update",
 		Data: map[string]interface{}{
@@ -523,33 +523,33 @@ func (ws *WebSocketServer) handleOpenPosition(client *Client, msg map[string]int
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Safe type assertions for all fields
 	symbol, ok := msg["symbol"].(string)
 	if !ok {
 		client.sendError("Missing or invalid symbol", requestID)
 		return
 	}
-	
+
 	sideStr, ok := msg["side"].(string)
 	if !ok {
 		client.sendError("Missing or invalid side", requestID)
 		return
 	}
 	side := parseSide(sideStr)
-	
+
 	size, ok := msg["size"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid size", requestID)
 		return
 	}
-	
+
 	leverage, ok := msg["leverage"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid leverage", requestID)
 		return
 	}
-	
+
 	// Create order for position
 	order := &lx.Order{
 		Symbol: symbol,
@@ -558,16 +558,16 @@ func (ws *WebSocketServer) handleOpenPosition(client *Client, msg map[string]int
 		Size:   size,
 		User:   client.UserID,
 	}
-	
+
 	// Open position
 	position, err := ws.marginEngine.OpenPosition(client.UserID, order, leverage)
 	if err != nil {
 		client.sendError(fmt.Sprintf("Position failed: %v", err), requestID)
 		return
 	}
-	
+
 	ws.metrics.PositionsOpened++
-	
+
 	response := Message{
 		Type: "position_update",
 		Data: map[string]interface{}{
@@ -585,26 +585,26 @@ func (ws *WebSocketServer) handleClosePosition(client *Client, msg map[string]in
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Safe type assertions
 	positionID, ok := msg["positionID"].(string)
 	if !ok {
 		client.sendError("Missing or invalid positionID", requestID)
 		return
 	}
-	
+
 	size, ok := msg["size"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid size", requestID)
 		return
 	}
-	
+
 	err := ws.marginEngine.ClosePosition(client.UserID, positionID, size)
 	if err != nil {
 		client.sendError(fmt.Sprintf("Close failed: %v", err), requestID)
 		return
 	}
-	
+
 	response := Message{
 		Type: "position_update",
 		Data: map[string]interface{}{
@@ -625,38 +625,38 @@ func (ws *WebSocketServer) handleVaultDeposit(client *Client, msg map[string]int
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Safe type assertions
 	vaultID, ok := msg["vaultID"].(string)
 	if !ok {
 		client.sendError("Missing or invalid vaultID", requestID)
 		return
 	}
-	
+
 	amountStr, ok := msg["amount"].(string)
 	if !ok {
 		client.sendError("Missing or invalid amount", requestID)
 		return
 	}
-	
+
 	amount, success := new(big.Int).SetString(amountStr, 10)
 	if !success {
 		client.sendError("Invalid amount format", requestID)
 		return
 	}
-	
+
 	vault, err := ws.vaultManager.GetVault(vaultID)
 	if err != nil {
 		client.sendError(fmt.Sprintf("Vault not found: %v", err), requestID)
 		return
 	}
-	
+
 	position, err := vault.Deposit(client.UserID, amount)
 	if err != nil {
 		client.sendError(fmt.Sprintf("Deposit failed: %v", err), requestID)
 		return
 	}
-	
+
 	// Convert position to a proper map for JSON serialization
 	positionData := map[string]interface{}{
 		"User":          position.User,
@@ -668,7 +668,7 @@ func (ws *WebSocketServer) handleVaultDeposit(client *Client, msg map[string]int
 		"RealizedPnL":   position.RealizedPnL.String(),
 		"UnrealizedPnL": position.UnrealizedPnL.String(),
 	}
-	
+
 	response := Message{
 		Type: "vault_update",
 		Data: map[string]interface{}{
@@ -689,32 +689,32 @@ func (ws *WebSocketServer) handleLendingSupply(client *Client, msg map[string]in
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Safe type assertions
 	asset, ok := msg["asset"].(string)
 	if !ok {
 		client.sendError("Missing or invalid asset", requestID)
 		return
 	}
-	
+
 	amountStr, ok := msg["amount"].(string)
 	if !ok {
 		client.sendError("Missing or invalid amount", requestID)
 		return
 	}
-	
+
 	amount, success := new(big.Int).SetString(amountStr, 10)
 	if !success {
 		client.sendError("Invalid amount format", requestID)
 		return
 	}
-	
+
 	err := ws.lendingPool.Supply(client.UserID, asset, amount)
 	if err != nil {
 		client.sendError(fmt.Sprintf("Supply failed: %v", err), requestID)
 		return
 	}
-	
+
 	response := Message{
 		Type: "lending_update",
 		Data: map[string]interface{}{
@@ -737,26 +737,26 @@ func (ws *WebSocketServer) handleSubscribe(client *Client, msg map[string]interf
 		client.sendError("Missing or invalid channel", requestID)
 		return
 	}
-	
+
 	symbolsRaw, ok := msg["symbols"]
 	if !ok {
 		client.sendError("Missing symbols", requestID)
 		return
 	}
-	
+
 	symbols, ok := symbolsRaw.([]interface{})
 	if !ok {
 		client.sendError("Invalid symbols format", requestID)
 		return
 	}
-	
+
 	client.mu.Lock()
 	for _, symbol := range symbols {
 		key := fmt.Sprintf("%s:%s", channel, symbol)
 		client.subscriptions[key] = true
 	}
 	client.mu.Unlock()
-	
+
 	ws.mu.Lock()
 	if ws.subscriptions[client.ID] == nil {
 		ws.subscriptions[client.ID] = make(map[string]bool)
@@ -766,7 +766,7 @@ func (ws *WebSocketServer) handleSubscribe(client *Client, msg map[string]interf
 	}
 	ws.metrics.SubscriptionsActive++
 	ws.mu.Unlock()
-	
+
 	response := Message{
 		Type: "subscribed",
 		Data: map[string]interface{}{
@@ -786,33 +786,33 @@ func (ws *WebSocketServer) handleUnsubscribe(client *Client, msg map[string]inte
 		client.sendError("Missing or invalid channel", requestID)
 		return
 	}
-	
+
 	symbolsRaw, ok := msg["symbols"]
 	if !ok {
 		client.sendError("Missing symbols", requestID)
 		return
 	}
-	
+
 	symbols, ok := symbolsRaw.([]interface{})
 	if !ok {
 		client.sendError("Invalid symbols format", requestID)
 		return
 	}
-	
+
 	client.mu.Lock()
 	for _, symbol := range symbols {
 		key := fmt.Sprintf("%s:%s", channel, symbol)
 		delete(client.subscriptions, key)
 	}
 	client.mu.Unlock()
-	
+
 	ws.mu.Lock()
 	for _, symbol := range symbols {
 		delete(ws.subscriptions[client.ID], symbol.(string))
 	}
 	ws.metrics.SubscriptionsActive--
 	ws.mu.Unlock()
-	
+
 	response := Message{
 		Type: "unsubscribed",
 		Data: map[string]interface{}{
@@ -832,19 +832,19 @@ func (ws *WebSocketServer) handleGetBalances(client *Client, requestID string) {
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Get balances from margin account
 	account := ws.marginEngine.GetAccount(client.UserID)
 	if account == nil {
 		client.sendError("Account not found", requestID)
 		return
 	}
-	
+
 	balances := make(map[string]string)
 	for asset, collateral := range account.CollateralAssets {
 		balances[asset] = collateral.Amount.String()
 	}
-	
+
 	response := Message{
 		Type: "balance_update",
 		Data: map[string]interface{}{
@@ -861,13 +861,13 @@ func (ws *WebSocketServer) handleGetPositions(client *Client, requestID string) 
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	account := ws.marginEngine.GetAccount(client.UserID)
 	if account == nil {
 		client.sendError("Account not found", requestID)
 		return
 	}
-	
+
 	response := Message{
 		Type: "positions_update",
 		Data: map[string]interface{}{
@@ -884,10 +884,10 @@ func (ws *WebSocketServer) handleGetOrders(client *Client, requestID string) {
 		client.sendError("Not authenticated", requestID)
 		return
 	}
-	
+
 	// Get orders from engine
 	orders := ws.engine.GetUserOrders(client.UserID)
-	
+
 	response := Message{
 		Type: "orders_update",
 		Data: map[string]interface{}{
@@ -910,7 +910,7 @@ func (ws *WebSocketServer) BroadcastOrderBook(symbol string, snapshot *lx.OrderB
 		},
 		Timestamp: time.Now().Unix(),
 	}
-	
+
 	ws.broadcastToSubscribers(fmt.Sprintf("orderbook:%s", symbol), msg)
 }
 
@@ -922,7 +922,7 @@ func (ws *WebSocketServer) BroadcastTrade(trade *lx.Trade) {
 		},
 		Timestamp: time.Now().Unix(),
 	}
-	
+
 	ws.broadcastToSubscribers(fmt.Sprintf("trades:%s", trade.Symbol), msg)
 }
 
@@ -935,16 +935,16 @@ func (ws *WebSocketServer) BroadcastPrice(symbol string, price float64) {
 		},
 		Timestamp: time.Now().Unix(),
 	}
-	
+
 	ws.broadcastToSubscribers(fmt.Sprintf("prices:%s", symbol), msg)
 }
 
 func (ws *WebSocketServer) broadcastToSubscribers(channel string, msg Message) {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
-	
+
 	data, _ := json.Marshal(msg)
-	
+
 	for _, client := range ws.clients {
 		client.mu.RLock()
 		if client.subscriptions[channel] {
@@ -973,10 +973,10 @@ func (ws *WebSocketServer) handlePing(client *Client, requestID string) {
 func (ws *WebSocketServer) sendInitialData(client *Client) {
 	// Send current balances
 	ws.handleGetBalances(client, "")
-	
+
 	// Send current positions
 	ws.handleGetPositions(client, "")
-	
+
 	// Send open orders
 	ws.handleGetOrders(client, "")
 }
@@ -987,7 +987,7 @@ func (ws *WebSocketServer) removeClient(client *Client) {
 	delete(ws.subscriptions, client.ID)
 	ws.metrics.ConnectionsActive--
 	ws.mu.Unlock()
-	
+
 	close(client.send)
 }
 
@@ -1023,17 +1023,17 @@ func NewRateLimiter(maxRequests int, window time.Duration) *RateLimiter {
 func (rl *RateLimiter) Allow() bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	now := time.Now()
 	if now.Sub(rl.lastReset) > rl.window {
 		rl.requests = 0
 		rl.lastReset = now
 	}
-	
+
 	if rl.requests >= rl.maxRequests {
 		return false
 	}
-	
+
 	rl.requests++
 	return true
 }
@@ -1047,18 +1047,18 @@ func NewServerMetrics() *ServerMetrics {
 func (sm *ServerMetrics) GetSnapshot() map[string]interface{} {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"connections_total":      sm.ConnectionsTotal,
-		"connections_active":     sm.ConnectionsActive,
-		"messages_received":      sm.MessagesReceived,
-		"messages_sent":          sm.MessagesSent,
-		"subscriptions_active":   sm.SubscriptionsActive,
-		"auth_failures":          sm.AuthFailures,
-		"orders_processed":       sm.OrdersProcessed,
-		"positions_opened":       sm.PositionsOpened,
-		"liquidations_executed":  sm.LiquidationsExecuted,
-		"error_count":            sm.ErrorCount,
+		"connections_total":     sm.ConnectionsTotal,
+		"connections_active":    sm.ConnectionsActive,
+		"messages_received":     sm.MessagesReceived,
+		"messages_sent":         sm.MessagesSent,
+		"subscriptions_active":  sm.SubscriptionsActive,
+		"auth_failures":         sm.AuthFailures,
+		"orders_processed":      sm.OrdersProcessed,
+		"positions_opened":      sm.PositionsOpened,
+		"liquidations_executed": sm.LiquidationsExecuted,
+		"error_count":           sm.ErrorCount,
 	}
 }
 
@@ -1072,10 +1072,10 @@ func generateClientID() string {
 func (ws *WebSocketServer) Start() {
 	// Start market data broadcaster
 	go ws.marketDataBroadcaster()
-	
+
 	// Start position monitor
 	go ws.positionMonitor()
-	
+
 	// Start metrics reporter
 	go ws.metricsReporter()
 }
@@ -1084,7 +1084,7 @@ func (ws *WebSocketServer) Start() {
 func (ws *WebSocketServer) marketDataBroadcaster() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -1096,7 +1096,7 @@ func (ws *WebSocketServer) marketDataBroadcaster() {
 					snapshot := ob.GetSnapshot()
 					ws.BroadcastOrderBook(symbol, snapshot)
 				}
-				
+
 				// Broadcast price updates
 				price := ws.oracle.GetPrice(symbol)
 				if price > 0 {
@@ -1113,7 +1113,7 @@ func (ws *WebSocketServer) marketDataBroadcaster() {
 func (ws *WebSocketServer) positionMonitor() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -1127,7 +1127,7 @@ func (ws *WebSocketServer) positionMonitor() {
 func (ws *WebSocketServer) checkLiquidations() {
 	// TODO: Implement GetAllAccounts and liquidation monitoring
 	// accounts := ws.marginEngine.GetAllAccounts()
-	
+
 	// for _, account := range accounts {
 	// 	for _, position := range account.Positions {
 	// 		// Check if position should be liquidated
@@ -1141,16 +1141,16 @@ func (ws *WebSocketServer) checkLiquidations() {
 	// 				Size:   position.Size,
 	// 				User:   "liquidation_engine",
 	// 			}
-			// 	
-			// 	err := ws.liquidationEngine.ProcessLiquidation(account.UserID, position, liquidationOrder)
-			// 	if err == nil {
-			// 		ws.metrics.LiquidationsExecuted++
-			// 		
-			// 		// Notify client
-			// 		ws.notifyLiquidation(account.UserID, position)
-			// 	}
-			// }
-		// }
+	//
+	// 	err := ws.liquidationEngine.ProcessLiquidation(account.UserID, position, liquidationOrder)
+	// 	if err == nil {
+	// 		ws.metrics.LiquidationsExecuted++
+	//
+	// 		// Notify client
+	// 		ws.notifyLiquidation(account.UserID, position)
+	// 	}
+	// }
+	// }
 	// }
 }
 
@@ -1165,7 +1165,7 @@ func (ws *WebSocketServer) notifyLiquidation(userID string, position *lx.MarginP
 		}
 	}
 	ws.mu.RUnlock()
-	
+
 	if targetClient != nil {
 		msg := Message{
 			Type: "position_update",
@@ -1189,20 +1189,20 @@ func (ws *WebSocketServer) handleModifyOrder(client *Client, msg map[string]inte
 	} else if id, ok := msg["order_id"].(float64); ok {
 		orderID = uint64(id)
 	}
-	
+
 	var newPrice, newSize float64
 	if price, ok := msg["newPrice"].(float64); ok {
 		newPrice = price
 	} else if price, ok := msg["price"].(float64); ok {
 		newPrice = price
 	}
-	
+
 	if size, ok := msg["newSize"].(float64); ok {
 		newSize = size
 	} else if size, ok := msg["size"].(float64); ok {
 		newSize = size
 	}
-	
+
 	// Modify order logic would go here
 	// For now, send acknowledgment
 	client.sendMessage(Message{
@@ -1215,26 +1215,26 @@ func (ws *WebSocketServer) handleModifyOrder(client *Client, msg map[string]inte
 // handleModifyLeverage handles leverage modification requests
 func (ws *WebSocketServer) handleModifyLeverage(client *Client, msg map[string]interface{}, requestID string) {
 	userID := client.UserID
-	
+
 	// Safe type assertions
 	positionID, ok := msg["position_id"].(string)
 	if !ok {
 		client.sendError("Missing or invalid position_id", requestID)
 		return
 	}
-	
+
 	newLeverage, ok := msg["leverage"].(float64)
 	if !ok {
 		client.sendError("Missing or invalid leverage", requestID)
 		return
 	}
-	
+
 	err := ws.marginEngine.ModifyLeverage(userID, positionID, newLeverage)
 	if err != nil {
 		client.sendError(err.Error(), requestID)
 		return
 	}
-	
+
 	client.sendMessage(Message{
 		Type:      "leverage_modified",
 		Data:      map[string]interface{}{"position_id": positionID, "leverage": newLeverage},
@@ -1250,19 +1250,19 @@ func (ws *WebSocketServer) handleVaultWithdraw(client *Client, msg map[string]in
 		client.sendError("Missing or invalid vault_id", requestID)
 		return
 	}
-	
+
 	amountStr, ok := msg["amount"].(string)
 	if !ok {
 		client.sendError("Missing or invalid amount", requestID)
 		return
 	}
-	
+
 	amount := new(big.Int)
 	if _, success := amount.SetString(amountStr, 10); !success {
 		client.sendError("Invalid amount format", requestID)
 		return
 	}
-	
+
 	// Vault withdrawal logic would go here
 	client.sendMessage(Message{
 		Type:      "vault_withdrawal",
@@ -1279,25 +1279,25 @@ func (ws *WebSocketServer) handleLendingBorrow(client *Client, msg map[string]in
 		client.sendError("Missing or invalid asset", requestID)
 		return
 	}
-	
+
 	amountStr, ok := msg["amount"].(string)
 	if !ok {
 		client.sendError("Missing or invalid amount", requestID)
 		return
 	}
-	
+
 	amount := new(big.Int)
 	if _, success := amount.SetString(amountStr, 10); !success {
 		client.sendError("Invalid amount format", requestID)
 		return
 	}
-	
+
 	err := ws.lendingPool.Borrow(asset, amount)
 	if err != nil {
 		client.sendError(err.Error(), requestID)
 		return
 	}
-	
+
 	client.sendMessage(Message{
 		Type:      "borrow_success",
 		Data:      map[string]interface{}{"asset": asset, "amount": amount.String()},
@@ -1313,33 +1313,33 @@ func (ws *WebSocketServer) handleLendingRepay(client *Client, msg map[string]int
 		client.sendError("Missing or invalid asset", requestID)
 		return
 	}
-	
+
 	amountStr, ok := msg["amount"].(string)
 	if !ok {
 		client.sendError("Missing or invalid amount", requestID)
 		return
 	}
-	
+
 	interestStr, ok := msg["interest"].(string)
 	if !ok {
 		client.sendError("Missing or invalid interest", requestID)
 		return
 	}
-	
+
 	amount := new(big.Int)
 	if _, success := amount.SetString(amountStr, 10); !success {
 		client.sendError("Invalid amount format", requestID)
 		return
 	}
-	
+
 	interest := new(big.Int)
 	if _, success := interest.SetString(interestStr, 10); !success {
 		client.sendError("Invalid interest format", requestID)
 		return
 	}
-	
+
 	ws.lendingPool.Repay(asset, amount, interest)
-	
+
 	client.sendMessage(Message{
 		Type:      "repay_success",
 		Data:      map[string]interface{}{"asset": asset, "amount": amount.String()},
@@ -1351,7 +1351,7 @@ func (ws *WebSocketServer) handleLendingRepay(client *Client, msg map[string]int
 func (ws *WebSocketServer) metricsReporter() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -1367,12 +1367,12 @@ func (ws *WebSocketServer) metricsReporter() {
 // Shutdown gracefully shuts down the server
 func (ws *WebSocketServer) Shutdown() {
 	ws.cancel()
-	
+
 	ws.mu.Lock()
 	for _, client := range ws.clients {
 		client.conn.Close()
 	}
 	ws.mu.Unlock()
-	
+
 	close(ws.broadcast)
 }

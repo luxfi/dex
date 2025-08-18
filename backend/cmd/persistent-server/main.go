@@ -17,21 +17,21 @@ import (
 )
 
 type PersistentServer struct {
-	ob            *lx.OrderBook
-	nc            *nats.Conn
-	js            nats.JetStreamContext
-	ordersCount   int64
-	tradesCount   int64
-	snapshotFile  string
-	mu            sync.RWMutex
-	lastSnapshot  time.Time
+	ob           *lx.OrderBook
+	nc           *nats.Conn
+	js           nats.JetStreamContext
+	ordersCount  int64
+	tradesCount  int64
+	snapshotFile string
+	mu           sync.RWMutex
+	lastSnapshot time.Time
 }
 
 type Snapshot struct {
-	Timestamp    time.Time `json:"timestamp"`
-	OrdersCount  int64     `json:"orders_count"`
-	TradesCount  int64     `json:"trades_count"`
-	OrderBook    string    `json:"orderbook_state"`
+	Timestamp   time.Time `json:"timestamp"`
+	OrdersCount int64     `json:"orders_count"`
+	TradesCount int64     `json:"trades_count"`
+	OrderBook   string    `json:"orderbook_state"`
 }
 
 func main() {
@@ -56,7 +56,7 @@ func main() {
 		if err := server.restoreSnapshot(); err != nil {
 			log.Printf("⚠️  No snapshot to restore: %v", err)
 		} else {
-			log.Printf("✅ Restored from snapshot: %d orders, %d trades", 
+			log.Printf("✅ Restored from snapshot: %d orders, %d trades",
 				server.ordersCount, server.tradesCount)
 		}
 	}
@@ -94,12 +94,12 @@ func main() {
 	// Wait for shutdown signal
 	<-sigChan
 	fmt.Println("\n⚠️  Shutting down...")
-	
+
 	// Save final snapshot
 	if err := server.saveSnapshot(); err != nil {
 		log.Printf("Failed to save snapshot: %v", err)
 	} else {
-		fmt.Printf("✅ Snapshot saved: %d orders, %d trades\n", 
+		fmt.Printf("✅ Snapshot saved: %d orders, %d trades\n",
 			server.ordersCount, server.tradesCount)
 	}
 }

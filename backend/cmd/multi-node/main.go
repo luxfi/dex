@@ -20,32 +20,32 @@ import (
 
 // NodeConfig represents configuration for a single node
 type NodeConfig struct {
-	NodeID       string
-	PubPort      int    // Port for publishing events
-	SubPort      int    // Port for subscribing to events
-	RouterPort   int    // Port for ROUTER socket (receiving orders)
-	DealerPort   int    // Port for DEALER socket (sending orders)
-	IsLeader     bool   // Whether this node is the leader
-	Peers        []string // List of peer addresses
+	NodeID     string
+	PubPort    int      // Port for publishing events
+	SubPort    int      // Port for subscribing to events
+	RouterPort int      // Port for ROUTER socket (receiving orders)
+	DealerPort int      // Port for DEALER socket (sending orders)
+	IsLeader   bool     // Whether this node is the leader
+	Peers      []string // List of peer addresses
 }
 
 // MultiNode represents a single node in the multi-node setup
 type MultiNode struct {
-	config      *NodeConfig
-	orderBook   *lx.OrderBook
-	pubSocket   *zmq.Socket
-	subSocket   *zmq.Socket
+	config       *NodeConfig
+	orderBook    *lx.OrderBook
+	pubSocket    *zmq.Socket
+	subSocket    *zmq.Socket
 	routerSocket *zmq.Socket
 	dealerSocket *zmq.Socket
-	
+
 	// Metrics
 	ordersProcessed  uint64
 	tradesExecuted   uint64
 	messagesReceived uint64
 	messagesSent     uint64
-	
-	mu sync.RWMutex
-	ctx context.Context
+
+	mu     sync.RWMutex
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -53,12 +53,12 @@ type MultiNode struct {
 type MessageType string
 
 const (
-	OrderSubmit    MessageType = "ORDER_SUBMIT"
-	OrderCancel    MessageType = "ORDER_CANCEL"
-	TradeExecuted  MessageType = "TRADE_EXECUTED"
-	BookUpdate     MessageType = "BOOK_UPDATE"
-	Heartbeat      MessageType = "HEARTBEAT"
-	StateSync      MessageType = "STATE_SYNC"
+	OrderSubmit   MessageType = "ORDER_SUBMIT"
+	OrderCancel   MessageType = "ORDER_CANCEL"
+	TradeExecuted MessageType = "TRADE_EXECUTED"
+	BookUpdate    MessageType = "BOOK_UPDATE"
+	Heartbeat     MessageType = "HEARTBEAT"
+	StateSync     MessageType = "STATE_SYNC"
 )
 
 // NodeMessage represents a message between nodes
@@ -73,17 +73,17 @@ type NodeMessage struct {
 // NewMultiNode creates a new multi-node instance
 func NewMultiNode(config *NodeConfig) (*MultiNode, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	node := &MultiNode{
 		config:    config,
 		orderBook: lx.NewOrderBook("BTC-USD"),
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	
+
 	// Initialize ZMQ sockets
 	var err error
-	
+
 	// Publisher socket for broadcasting events
 	node.pubSocket, err = zmq.NewSocket(zmq.PUB)
 	if err != nil {
@@ -93,14 +93,14 @@ func NewMultiNode(config *NodeConfig) (*MultiNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind PUB socket: %w", err)
 	}
-	
+
 	// Subscriber socket for receiving events from peers
 	node.subSocket, err = zmq.NewSocket(zmq.SUB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SUB socket: %w", err)
 	}
 	node.subSocket.SetSubscribe("")
-	
+
 	// Connect to peer publishers
 	for _, peer := range config.Peers {
 		err = node.subSocket.Connect(peer)
@@ -108,7 +108,7 @@ func NewMultiNode(config *NodeConfig) (*MultiNode, error) {
 			log.Printf("Failed to connect to peer %s: %v", peer, err)
 		}
 	}
-	
+
 	// Router socket for receiving orders (server mode)
 	node.routerSocket, err = zmq.NewSocket(zmq.ROUTER)
 	if err != nil {
@@ -118,31 +118,31 @@ func NewMultiNode(config *NodeConfig) (*MultiNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind ROUTER socket: %w", err)
 	}
-	
+
 	// Dealer socket for load balancing (client mode)
 	node.dealerSocket, err = zmq.NewSocket(zmq.DEALER)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DEALER socket: %w", err)
 	}
 	node.dealerSocket.SetIdentity(config.NodeID)
-	
+
 	return node, nil
 }
 
 // Start begins the node's operation
 func (n *MultiNode) Start() {
 	log.Printf("Node %s starting (Leader: %v)...", n.config.NodeID, n.config.IsLeader)
-	
+
 	// Start goroutines for different tasks
 	go n.handleSubscriptions()
 	go n.handleRouterRequests()
 	go n.heartbeatLoop()
 	go n.metricsLoop()
-	
+
 	if n.config.IsLeader {
 		go n.leaderLoop()
 	}
-	
+
 	// Wait for context cancellation
 	<-n.ctx.Done()
 	n.cleanup()
@@ -152,7 +152,7 @@ func (n *MultiNode) Start() {
 func (n *MultiNode) handleSubscriptions() {
 	poller := zmq.NewPoller()
 	poller.Add(n.subSocket, zmq.POLLIN)
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -163,14 +163,14 @@ func (n *MultiNode) handleSubscriptions() {
 				log.Printf("Poller error: %v", err)
 				continue
 			}
-			
+
 			for _, socket := range sockets {
 				msg, err := socket.Socket.RecvBytes(0)
 				if err != nil {
 					log.Printf("Receive error: %v", err)
 					continue
 				}
-				
+
 				atomic.AddUint64(&n.messagesReceived, 1)
 				n.processMessage(msg)
 			}
@@ -191,27 +191,27 @@ func (n *MultiNode) handleRouterRequests() {
 				log.Printf("Router receive error: %v", err)
 				continue
 			}
-			
+
 			// Empty delimiter
 			_, err = n.routerSocket.Recv(0)
 			if err != nil {
 				continue
 			}
-			
+
 			// Actual message
 			data, err := n.routerSocket.RecvBytes(0)
 			if err != nil {
 				continue
 			}
-			
+
 			// Process order and send response
 			response := n.processOrderRequest(data)
-			
+
 			// Send response back [identity, empty, response]
 			n.routerSocket.Send(identity, zmq.SNDMORE)
 			n.routerSocket.Send("", zmq.SNDMORE)
 			n.routerSocket.SendBytes(response, 0)
-			
+
 			atomic.AddUint64(&n.ordersProcessed, 1)
 		}
 	}
@@ -224,12 +224,12 @@ func (n *MultiNode) processMessage(data []byte) {
 		log.Printf("Failed to unmarshal message: %v", err)
 		return
 	}
-	
+
 	// Skip messages from self
 	if msg.NodeID == n.config.NodeID {
 		return
 	}
-	
+
 	switch msg.Type {
 	case TradeExecuted:
 		// Update local order book based on executed trade
@@ -252,26 +252,26 @@ func (n *MultiNode) processOrderRequest(data []byte) []byte {
 	if err := json.Unmarshal(data, &order); err != nil {
 		return []byte(`{"error": "invalid order format"}`)
 	}
-	
+
 	// Add order to local book
 	n.mu.Lock()
 	orderID := n.orderBook.AddOrder(&order)
 	trades := n.orderBook.MatchOrders()
 	n.mu.Unlock()
-	
+
 	// Broadcast trades to peers
 	if len(trades) > 0 {
 		atomic.AddUint64(&n.tradesExecuted, uint64(len(trades)))
 		n.broadcastTrades(trades)
 	}
-	
+
 	// Return response
 	response := map[string]interface{}{
 		"order_id": orderID,
 		"status":   "accepted",
 		"trades":   trades,
 	}
-	
+
 	respData, _ := json.Marshal(response)
 	return respData
 }
@@ -285,13 +285,13 @@ func (n *MultiNode) broadcastTrades(trades []lx.Trade) {
 		Payload:   trades,
 		Sequence:  atomic.LoadUint64(&n.tradesExecuted),
 	}
-	
+
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("Failed to marshal trades: %v", err)
 		return
 	}
-	
+
 	n.pubSocket.SendBytes(data, zmq.DONTWAIT)
 	atomic.AddUint64(&n.messagesSent, 1)
 }
@@ -300,7 +300,7 @@ func (n *MultiNode) broadcastTrades(trades []lx.Trade) {
 func (n *MultiNode) heartbeatLoop() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -315,7 +315,7 @@ func (n *MultiNode) heartbeatLoop() {
 					"trades_executed":  atomic.LoadUint64(&n.tradesExecuted),
 				},
 			}
-			
+
 			data, _ := json.Marshal(msg)
 			n.pubSocket.SendBytes(data, zmq.DONTWAIT)
 		}
@@ -326,7 +326,7 @@ func (n *MultiNode) heartbeatLoop() {
 func (n *MultiNode) leaderLoop() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -343,14 +343,14 @@ func (n *MultiNode) broadcastStateSync() {
 	n.mu.RLock()
 	snapshot := n.orderBook.GetSnapshot()
 	n.mu.RUnlock()
-	
+
 	msg := NodeMessage{
 		Type:      StateSync,
 		NodeID:    n.config.NodeID,
 		Timestamp: time.Now(),
 		Payload:   snapshot,
 	}
-	
+
 	data, _ := json.Marshal(msg)
 	n.pubSocket.SendBytes(data, zmq.DONTWAIT)
 	atomic.AddUint64(&n.messagesSent, 1)
@@ -360,7 +360,7 @@ func (n *MultiNode) broadcastStateSync() {
 func (n *MultiNode) metricsLoop() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -402,7 +402,7 @@ func (n *MultiNode) handleHeartbeat(msg NodeMessage) {
 // cleanup closes all sockets
 func (n *MultiNode) cleanup() {
 	log.Printf("Node %s shutting down...", n.config.NodeID)
-	
+
 	if n.pubSocket != nil {
 		n.pubSocket.Close()
 	}
@@ -425,7 +425,7 @@ func main() {
 		peers    = flag.String("peers", "", "Comma-separated list of peer addresses")
 	)
 	flag.Parse()
-	
+
 	// Calculate ports based on base port
 	config := &NodeConfig{
 		NodeID:     *nodeID,
@@ -436,29 +436,29 @@ func main() {
 		IsLeader:   *leader,
 		Peers:      []string{},
 	}
-	
+
 	// Parse peer addresses
 	if *peers != "" {
 		for _, peer := range splitAndTrim(*peers, ",") {
 			config.Peers = append(config.Peers, peer)
 		}
 	}
-	
+
 	// Create and start node
 	node, err := NewMultiNode(config)
 	if err != nil {
 		log.Fatalf("Failed to create node: %v", err)
 	}
-	
+
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		<-sigChan
 		node.cancel()
 	}()
-	
+
 	node.Start()
 }
 

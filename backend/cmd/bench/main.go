@@ -36,17 +36,17 @@ func main() {
 	case "auto":
 		// Test both and compare
 		results := []BenchResult{}
-		
+
 		// Always test Pure Go
 		goResult := runBenchmark(orderbook.ImplGo, "Pure Go", *iterations, *workers, *warmup)
 		results = append(results, goResult)
-		
+
 		// Test C++ if available
 		if os.Getenv("CGO_ENABLED") == "1" {
 			fmt.Println()
 			cppResult := runBenchmark(orderbook.ImplCpp, "C++ (CGO)", *iterations, *workers, *warmup)
 			results = append(results, cppResult)
-			
+
 			// Compare results
 			printComparison(results)
 		} else {
@@ -69,7 +69,7 @@ type BenchResult struct {
 
 func runBenchmark(impl orderbook.Implementation, name string, iterations, workers, warmup int) BenchResult {
 	fmt.Printf("=== Benchmarking %s ===\n", name)
-	
+
 	// Create orderbook
 	ob := orderbook.NewOrderBook(orderbook.Config{
 		Implementation: impl,
@@ -100,16 +100,16 @@ func runBenchmark(impl orderbook.Implementation, name string, iterations, worker
 	opsPerWorker := iterations / workers
 
 	fmt.Printf("  Running %d workers... ", workers)
-	
+
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 			startID := uint64(workerID*opsPerWorker + warmup)
-			
+
 			for i := 0; i < opsPerWorker; i++ {
 				opStart := time.Now()
-				
+
 				// Mixed operations
 				switch i % 4 {
 				case 0, 1: // 50% adds
@@ -127,7 +127,7 @@ func runBenchmark(impl orderbook.Implementation, name string, iterations, worker
 				case 3: // 25% matches
 					ob.MatchOrders()
 				}
-				
+
 				latency := time.Since(opStart)
 				atomic.AddInt64(&totalLatency, int64(latency))
 				atomic.AddInt64(&totalOps, 1)
@@ -165,24 +165,24 @@ func printComparison(results []BenchResult) {
 	if len(results) != 2 {
 		return
 	}
-	
+
 	fmt.Println("\n" + repeatStr("=", 60))
 	fmt.Println("📊 PERFORMANCE COMPARISON")
 	fmt.Println(repeatStr("=", 60))
-	
+
 	goResult := results[0]
 	cppResult := results[1]
-	
+
 	speedup := cppResult.Throughput / goResult.Throughput
 	latencyRatio := float64(goResult.Latency) / float64(cppResult.Latency)
-	
-	fmt.Printf("Throughput:  C++ is %.2fx %s than Go\n", 
+
+	fmt.Printf("Throughput:  C++ is %.2fx %s than Go\n",
 		speedup, getFasterSlower(speedup))
-	fmt.Printf("Latency:     C++ is %.2fx %s than Go\n", 
+	fmt.Printf("Latency:     C++ is %.2fx %s than Go\n",
 		latencyRatio, getFasterSlower(latencyRatio))
-	
+
 	fmt.Println(repeatStr("=", 60))
-	
+
 	if speedup > 2.0 {
 		fmt.Println("🚀 C++ provides significant performance benefits!")
 	} else if speedup > 1.2 {

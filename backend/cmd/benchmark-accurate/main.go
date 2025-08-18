@@ -45,7 +45,7 @@ func main() {
 	// Create workers
 	wg := sync.WaitGroup{}
 	done := make(chan bool)
-	
+
 	// Calculate orders per worker
 	ordersPerWorker := *orderRate / *goroutines
 	delayBetweenOrders := time.Second / time.Duration(ordersPerWorker)
@@ -55,11 +55,11 @@ func main() {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
 			ticker := time.NewTicker(delayBetweenOrders)
 			defer ticker.Stop()
-			
+
 			for {
 				select {
 				case <-done:
@@ -69,9 +69,9 @@ func main() {
 					order := generateRealisticOrder(r)
 					bookIdx := r.Intn(*books)
 					book := orderBooks[bookIdx]
-					
+
 					trades := book.AddOrderFast(&order)
-					
+
 					ordersProcessed.Add(1)
 					tradesExecuted.Add(trades)
 				}
@@ -83,10 +83,10 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		
+
 		lastOrders := uint64(0)
 		lastTrades := uint64(0)
-		
+
 		for {
 			select {
 			case <-done:
@@ -94,13 +94,13 @@ func main() {
 			case <-ticker.C:
 				currentOrders := ordersProcessed.Load()
 				currentTrades := tradesExecuted.Load()
-				
+
 				ordersPerSec := currentOrders - lastOrders
 				tradesPerSec := currentTrades - lastTrades
-				
+
 				fmt.Printf("  Orders/sec: %8d | Trades/sec: %8d | Total trades: %d\n",
 					ordersPerSec, tradesPerSec, currentTrades)
-				
+
 				lastOrders = currentOrders
 				lastTrades = currentTrades
 			}
@@ -111,12 +111,12 @@ func main() {
 	time.Sleep(*duration)
 	close(done)
 	wg.Wait()
-	
+
 	// Calculate final metrics
 	elapsed := time.Since(startTime)
 	totalOrders := ordersProcessed.Load()
 	totalTrades := tradesExecuted.Load()
-	
+
 	fmt.Println("\n=================================================")
 	fmt.Println("                 Final Results")
 	fmt.Println("=================================================")
@@ -125,7 +125,7 @@ func main() {
 	fmt.Printf("Orders/sec:       %12.0f\n", float64(totalOrders)/elapsed.Seconds())
 	fmt.Printf("Trades/sec:       %12.0f\n", float64(totalTrades)/elapsed.Seconds())
 	fmt.Printf("Match rate:       %12.2f%%\n", float64(totalTrades)/float64(totalOrders)*100)
-	
+
 	// Get stats from order books
 	var totalVolume uint64
 	for _, book := range orderBooks {
@@ -134,9 +134,9 @@ func main() {
 		_ = trades // Already counted
 	}
 	fmt.Printf("Total volume:     $%11.2f\n", float64(totalVolume)/10000000)
-	
+
 	// Project to cluster
-	projectToCluster(float64(totalTrades)/elapsed.Seconds())
+	projectToCluster(float64(totalTrades) / elapsed.Seconds())
 }
 
 func generateRealisticOrder(r *rand.Rand) lx.Order {
@@ -145,11 +145,11 @@ func generateRealisticOrder(r *rand.Rand) lx.Order {
 	if r.Float32() > 0.5 {
 		side = lx.Sell
 	}
-	
+
 	// Price around market with tight spread for more matches
 	basePrice := 50000.0
 	spread := 100.0 // Tight spread for more matches
-	
+
 	var price float64
 	if side == lx.Buy {
 		// Buy orders slightly above market
@@ -158,17 +158,17 @@ func generateRealisticOrder(r *rand.Rand) lx.Order {
 		// Sell orders slightly below market
 		price = basePrice - r.Float64()*spread/2
 	}
-	
+
 	// Mix of order types
 	orderType := lx.Limit
 	if r.Float32() < 0.2 { // 20% market orders
 		orderType = lx.Market
 		price = 0
 	}
-	
+
 	// Varied sizes
 	size := 0.01 + r.Float64()*2.0 // 0.01 to 2.01 BTC
-	
+
 	return lx.Order{
 		Symbol: "BTC-USD",
 		Side:   side,
@@ -182,18 +182,18 @@ func generateRealisticOrder(r *rand.Rand) lx.Order {
 func projectToCluster(tradesPerSec float64) {
 	fmt.Println("\n🚀 Scaling Projection")
 	fmt.Println("=================================================")
-	
+
 	fmt.Printf("Single node:      %12.0f trades/sec\n", tradesPerSec)
-	
+
 	// Calculate with different node counts
 	nodeCounts := []int{10, 50, 100, 200, 500, 1000}
 	efficiency := 0.85 // Network overhead
-	
+
 	fmt.Println("\nProjected cluster performance (85% efficiency):")
 	for _, nodes := range nodeCounts {
 		projected := tradesPerSec * float64(nodes) * efficiency
 		fmt.Printf("  %4d nodes: %15.0f trades/sec", nodes, projected)
-		
+
 		if projected >= 100_000_000 {
 			fmt.Printf(" ✅ EXCEEDS 100M target!")
 		} else {
@@ -202,11 +202,11 @@ func projectToCluster(tradesPerSec float64) {
 		}
 		fmt.Println()
 	}
-	
+
 	// Calculate minimum nodes needed
 	nodesNeeded := 100_000_000 / (tradesPerSec * efficiency)
 	fmt.Printf("\nMinimum nodes for 100M trades/sec: %.0f\n", nodesNeeded)
-	
+
 	// With optimizations
 	fmt.Println("\nWith planned optimizations:")
 	optimizations := []struct {
@@ -218,19 +218,19 @@ func projectToCluster(tradesPerSec float64) {
 		{"GPU matching", 5.0},
 		{"FPGA filtering", 2.0},
 	}
-	
+
 	currentPerf := tradesPerSec
 	for _, opt := range optimizations {
 		currentPerf *= opt.speedup
 		nodesNeeded = 100_000_000 / (currentPerf * efficiency)
-		fmt.Printf("  + %s (%.0fx): %.0f nodes needed\n", 
+		fmt.Printf("  + %s (%.0fx): %.0f nodes needed\n",
 			opt.name, opt.speedup, nodesNeeded)
 	}
-	
+
 	finalSpeedup := currentPerf / tradesPerSec
 	fmt.Printf("\nTotal speedup possible: %.0fx\n", finalSpeedup)
 	fmt.Printf("Per-node with all optimizations: %.0f trades/sec\n", currentPerf)
-	
+
 	if nodesNeeded <= 100 {
 		fmt.Println("\n✅ 100M trades/sec achievable with ≤100 nodes!")
 	} else {

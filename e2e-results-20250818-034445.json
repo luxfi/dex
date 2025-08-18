@@ -1,0 +1,22 @@
+[
+  {
+    "test_name": "E2E Cluster Test (K=3)",
+    "protocol": "HTTP",
+    "transport": "TCP (3 nodes)",
+    "messages_processed": 0,
+    "duration": 123119875,
+    "throughput_msgs_per_sec": 0,
+    "latency_stats": {
+      "min_us": 0,
+      "avg_us": 0,
+      "p50_us": 0,
+      "p95_us": 0,
+      "p99_us": 0,
+      "p999_us": 0,
+      "max_us": 0,
+      "stddev_us": 0
+    },
+    "error_count": 999,
+    "success_rate": 0
+  }
+]

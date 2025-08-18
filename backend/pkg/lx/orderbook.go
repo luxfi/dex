@@ -39,7 +39,7 @@ const (
 var (
 	// AutoDetect the best available backend at runtime
 	currentBackend Backend
-	
+
 	// Global memory pools for zero-allocation
 	orderPool = &sync.Pool{
 		New: func() interface{} {
@@ -63,19 +63,19 @@ func detectBestBackend() Backend {
 	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
 		return BackendCUDA
 	}
-	
+
 	// Check for MLX support (Apple Silicon)
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if _, err := os.Stat("/System/Library/Frameworks/Metal.framework"); err == nil {
 			return BackendMLX
 		}
 	}
-	
+
 	// Check if CGO is enabled
 	if os.Getenv("CGO_ENABLED") == "1" {
 		return BackendCGO
 	}
-	
+
 	// Default to pure Go
 	return BackendGo
 }
@@ -95,36 +95,45 @@ var (
 
 // OrderBook represents a complete order book for a trading pair - OPTIMIZED VERSION
 type OrderBook struct {
-	Symbol       string
-	
+	Symbol string
+
 	// Optimized data structures
-	bids         unsafe.Pointer // *OrderTree
-	asks         unsafe.Pointer // *OrderTree
-	
+	bids unsafe.Pointer // *OrderTree
+	asks unsafe.Pointer // *OrderTree
+
 	// For compatibility - expose these directly
-	Bids         *OrderTree
-	Asks         *OrderTree
-	
+	Bids *OrderTree
+	Asks *OrderTree
+
 	// Trade history with circular buffer
 	Trades       []Trade // Keep for compatibility but use circular buffer internally
 	tradesBuffer *CircularTradeBuffer
-	
+
 	// Order tracking with lock-free map
-	Orders       map[uint64]*Order // Keep for API compatibility
-	ordersMap    sync.Map          // Lock-free internal
-	UserOrders   map[string][]uint64
+	Orders        map[uint64]*Order // Keep for API compatibility
+	ordersMap     sync.Map          // Lock-free internal
+	UserOrders    map[string][]uint64
 	userOrdersMap sync.Map
-	
+
 	// Atomic counters
 	LastTradeID  uint64
 	LastOrderID  uint64
-	
+	LastUpdateID uint64
+	OrderSeq     uint64 // Add OrderSeq field for compatibility
+
+	// Configuration
+	EnableImmediateMatching bool // When true, orders match immediately on add
+
+	// Market data feed
+	subscribers []chan MarketDataUpdate
+	subMu       sync.RWMutex
+
 	// Single write lock for structural changes
-	mu           sync.RWMutex // Keep for API compatibility
-	writeLock    sync.Mutex   // Internal write lock
-	
+	mu        sync.RWMutex // Keep for API compatibility
+	writeLock sync.Mutex   // Internal write lock
+
 	// Cache line padding to prevent false sharing
-	_padding     [64]byte
+	_padding [64]byte
 }
 
 // OrderTree implements optimized price-time priority order book side
@@ -133,7 +142,7 @@ type OrderTree struct {
 	priceLevels map[PriceInt]*OptimizedPriceLevel // Integer keys - FAST!
 	priceTree   *IntBTree                         // B-tree for sorted prices
 	orders      map[uint64]*Order
-	bestPrice   atomic.Int64                      // Atomic best price
+	bestPrice   atomic.Int64 // Atomic best price
 	sequence    uint64
 	mu          sync.RWMutex
 	priceHeap   PriceHeap // Keep for compatibility
@@ -148,7 +157,7 @@ type OptimizedPriceLevel struct {
 	TotalSize  float64
 	OrderCount int
 	mu         sync.RWMutex
-	
+
 	// Atomic counters for lock-free updates
 	atomicSize  atomic.Int64
 	atomicCount atomic.Int32
@@ -170,11 +179,11 @@ type OrderNode struct {
 
 // CircularTradeBuffer for efficient trade history
 type CircularTradeBuffer struct {
-	buffer   [100000]Trade
-	head     uint64
-	tail     uint64
-	size     uint64
-	mu       sync.RWMutex
+	buffer [100000]Trade
+	head   uint64
+	tail   uint64
+	size   uint64
+	mu     sync.RWMutex
 }
 
 // IntBTree is a B-tree for integer keys (prices)
@@ -200,7 +209,7 @@ func NewOrderBook(symbol string) *OrderBook {
 		Orders:       make(map[uint64]*Order),
 		UserOrders:   make(map[string][]uint64),
 	}
-	
+
 	// Initialize optimized bid and ask trees
 	bidTree := &OrderTree{
 		side:        Buy,
@@ -216,17 +225,17 @@ func NewOrderBook(symbol string) *OrderBook {
 		orders:      make(map[uint64]*Order),
 		priceHeap:   &MinPriceHeap{},
 	}
-	
+
 	// Initialize heaps
 	heap.Init(bidTree.priceHeap)
 	heap.Init(askTree.priceHeap)
-	
+
 	// Set both pointer and direct references for compatibility
 	atomic.StorePointer(&ob.bids, unsafe.Pointer(bidTree))
 	atomic.StorePointer(&ob.asks, unsafe.Pointer(askTree))
 	ob.Bids = bidTree
 	ob.Asks = askTree
-	
+
 	return ob
 }
 
@@ -237,7 +246,7 @@ func NewOrderTree(side Side) *OrderTree {
 		priceLevels: make(map[PriceInt]*OptimizedPriceLevel),
 		orders:      make(map[uint64]*Order),
 	}
-	
+
 	// Initialize heap and B-tree based on side
 	if side == Buy {
 		tree.priceHeap = &MaxPriceHeap{}
@@ -247,7 +256,7 @@ func NewOrderTree(side Side) *OrderTree {
 		tree.priceTree = NewIntBTree(32, false)
 	}
 	heap.Init(tree.priceHeap)
-	
+
 	return tree
 }
 
@@ -258,41 +267,45 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		order.ID = atomic.AddUint64(&ob.LastOrderID, 1)
 		ob.LastOrderID = order.ID // Keep synchronized
 	}
-	
+
 	// Set status if not set
 	if order.Status == 0 {
 		order.Status = Open
 	}
-	
+
 	// Set timestamp if not set
 	if order.Timestamp.IsZero() {
 		order.Timestamp = time.Now()
 	}
-	
+
 	// Validate order
 	if err := ob.validateOrder(order); err != nil {
 		order.Status = Rejected
 		return 0
 	}
-	
+
 	// Convert price to integer for fast operations
 	priceInt := PriceInt(order.Price * PriceMultiplier)
-	
+
 	// Handle market orders
 	if order.Type == Market {
 		return ob.processMarketOrderOptimized(order)
 	}
-	
+
 	// Get write lock for modifications
 	ob.writeLock.Lock()
 	defer ob.writeLock.Unlock()
-	
-	// Check self-trade prevention (using flags or PostOnly field)
-	if (order.PostOnly || order.Flags&OrderFlagSTP != 0) && order.User != "" && ob.checkSelfTrade(order) {
+
+	// Check self-trade prevention - check both User and UserID fields
+	userIdentifier := order.User
+	if userIdentifier == "" {
+		userIdentifier = order.UserID
+	}
+	if userIdentifier != "" && ob.checkSelfTrade(order) {
 		order.Status = Rejected
 		return 0
 	}
-	
+
 	// Check post-only
 	if order.PostOnly || order.Flags&OrderFlagPostOnly != 0 {
 		if ob.wouldTakeLiquidity(order) {
@@ -300,29 +313,34 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 			return 0
 		}
 	}
-	
-	// Handle time-in-force
+
+	// Handle time-in-force and check for immediate matches
 	numTrades := uint64(0)
-	
+
+	// Set remaining size
+	order.RemainingSize = order.Size
+
+	// Only match immediately for IOC/FOK orders
+	// Regular limit orders are added to book and matched via MatchOrders()
 	if order.TimeInForce == ImmediateOrCancel || order.TimeInForce == FillOrKill {
 		numTrades = ob.tryMatchImmediateLocked(order)
-		
+
 		if order.TimeInForce == FillOrKill && order.RemainingSize > 0 {
 			order.Status = Rejected
 			return 0
 		}
-		
+
 		if order.TimeInForce == ImmediateOrCancel && order.RemainingSize > 0 {
 			return numTrades
 		}
 	}
-	
+
 	// Add remaining to book
 	if order.RemainingSize > 0 || (order.RemainingSize == 0 && order.Size > 0) {
 		if order.RemainingSize == 0 {
 			order.RemainingSize = order.Size
 		}
-		
+
 		// Get appropriate tree
 		var tree *OrderTree
 		if order.Side == Buy {
@@ -330,23 +348,36 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		} else {
 			tree = (*OrderTree)(atomic.LoadPointer(&ob.asks))
 		}
-		
+
 		// Add to tree with optimized integer price
 		ob.addToTreeOptimized(tree, order, priceInt)
-		
+
 		// Track order
 		ob.Orders[order.ID] = order
 		ob.ordersMap.Store(order.ID, order)
-		
+
 		if ob.UserOrders[order.User] == nil {
 			ob.UserOrders[order.User] = make([]uint64, 0)
 		}
 		ob.UserOrders[order.User] = append(ob.UserOrders[order.User], order.ID)
-		
-		// Try to match
-		numTrades += ob.tryMatchImmediateLocked(order)
+
+		// Match immediately if enabled (for optimized order book)
+		if ob.EnableImmediateMatching {
+			numTrades += ob.tryMatchImmediateLocked(order)
+		}
+
+		// Publish market data update
+		ob.publishUpdate(MarketDataUpdate{
+			Type:      OrderAdded,
+			OrderID:   order.ID,
+			Symbol:    ob.Symbol,
+			Price:     order.Price,
+			Size:      order.Size,
+			Side:      order.Side,
+			Timestamp: time.Now(),
+		})
 	}
-	
+
 	// Return order ID for compatibility
 	if numTrades == 0 && order.ID > 0 {
 		return order.ID
@@ -364,24 +395,24 @@ func (tree *OrderTree) addOrder(order *Order) {
 func (tree *OrderTree) addOrderOptimized(order *Order, priceInt PriceInt) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
-	
+
 	// Get or create price level
 	level, exists := tree.priceLevels[priceInt]
 	if !exists {
 		level = &OptimizedPriceLevel{
-			Price:     order.Price,
-			PriceInt:  priceInt,
-			Orders:    make([]*Order, 0),
+			Price:    order.Price,
+			PriceInt: priceInt,
+			Orders:   make([]*Order, 0),
 			OrderList: &OrderLinkedList{
 				index: make(map[uint64]*OrderNode),
 			},
 		}
 		tree.priceLevels[priceInt] = level
-		
+
 		// Add to B-tree and heap for compatibility
 		tree.priceTree.Insert(priceInt)
 		heap.Push(tree.priceHeap, order.Price)
-		
+
 		// Update best price atomically
 		if tree.side == Buy {
 			currentBest := tree.bestPrice.Load()
@@ -395,11 +426,11 @@ func (tree *OrderTree) addOrderOptimized(order *Order, priceInt PriceInt) {
 			}
 		}
 	}
-	
+
 	// Add to both slice (for compatibility) and linked list (for performance)
 	level.mu.Lock()
 	level.Orders = append(level.Orders, order)
-	
+
 	// Add to linked list
 	node := &OrderNode{Order: order}
 	if level.OrderList.head == nil {
@@ -411,7 +442,7 @@ func (tree *OrderTree) addOrderOptimized(order *Order, priceInt PriceInt) {
 		level.OrderList.tail = node
 	}
 	level.OrderList.index[order.ID] = node
-	
+
 	remainingSize := order.Size - order.Filled
 	if order.RemainingSize > 0 {
 		remainingSize = order.RemainingSize
@@ -419,11 +450,11 @@ func (tree *OrderTree) addOrderOptimized(order *Order, priceInt PriceInt) {
 	level.TotalSize += remainingSize
 	level.OrderCount++
 	level.mu.Unlock()
-	
+
 	// Update atomic counters
 	level.atomicSize.Add(int64(remainingSize * PriceMultiplier))
 	level.atomicCount.Add(1)
-	
+
 	// Track in tree
 	tree.orders[order.ID] = order
 	atomic.AddUint64(&tree.sequence, 1)
@@ -438,15 +469,15 @@ func (ob *OrderBook) addToTreeOptimized(tree *OrderTree, order *Order, priceInt 
 func (tree *OrderTree) removeOrder(order *Order) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
-	
+
 	priceInt := PriceInt(order.Price * PriceMultiplier)
 	level, exists := tree.priceLevels[priceInt]
 	if !exists {
 		return
 	}
-	
+
 	level.mu.Lock()
-	
+
 	// Remove from linked list (O(1))
 	if level.OrderList != nil {
 		node, exists := level.OrderList.index[order.ID]
@@ -456,17 +487,17 @@ func (tree *OrderTree) removeOrder(order *Order) {
 			} else {
 				level.OrderList.head = node.Next
 			}
-			
+
 			if node.Next != nil {
 				node.Next.Prev = node.Prev
 			} else {
 				level.OrderList.tail = node.Prev
 			}
-			
+
 			delete(level.OrderList.index, order.ID)
 		}
 	}
-	
+
 	// Remove from slice for compatibility
 	for i, o := range level.Orders {
 		if o.ID == order.ID {
@@ -474,19 +505,19 @@ func (tree *OrderTree) removeOrder(order *Order) {
 			break
 		}
 	}
-	
+
 	remainingSize := order.Size - order.Filled
 	if order.RemainingSize > 0 {
 		remainingSize = order.RemainingSize
 	}
 	level.TotalSize -= remainingSize
 	level.OrderCount--
-	
+
 	// Remove level if empty
 	if level.OrderCount == 0 {
 		delete(tree.priceLevels, priceInt)
 		tree.priceTree.Delete(priceInt)
-		
+
 		// Update best price if needed
 		if tree.side == Buy && tree.bestPrice.Load() == int64(priceInt) {
 			if next := tree.priceTree.Max(); next != 0 {
@@ -502,13 +533,13 @@ func (tree *OrderTree) removeOrder(order *Order) {
 			}
 		}
 	}
-	
+
 	level.mu.Unlock()
-	
+
 	// Update atomic counters
 	level.atomicSize.Add(-int64(remainingSize * PriceMultiplier))
 	level.atomicCount.Add(-1)
-	
+
 	delete(tree.orders, order.ID)
 }
 
@@ -520,29 +551,29 @@ func (tree *OrderTree) getBestOrder() *Order {
 		// Fallback to heap for compatibility
 		return tree.getBestOrderViaHeap()
 	}
-	
+
 	tree.mu.RLock()
 	defer tree.mu.RUnlock()
-	
+
 	level, exists := tree.priceLevels[bestPriceInt]
 	if !exists || level.OrderList == nil || level.OrderList.head == nil {
 		// Fallback to heap for compatibility
 		return tree.getBestOrderViaHeap()
 	}
-	
+
 	// Use linked list for O(1) access
 	level.mu.RLock()
 	defer level.mu.RUnlock()
-	
+
 	if level.OrderList.head != nil {
 		return level.OrderList.head.Order
 	}
-	
+
 	// Fallback to slice
 	if len(level.Orders) > 0 {
 		return level.Orders[0]
 	}
-	
+
 	return nil
 }
 
@@ -551,13 +582,13 @@ func (tree *OrderTree) getBestOrderViaHeap() *Order {
 	for tree.priceHeap.Len() > 0 {
 		price := tree.priceHeap.Peek()
 		priceInt := PriceInt(price * PriceMultiplier)
-		
+
 		level, exists := tree.priceLevels[priceInt]
 		if !exists {
 			heap.Pop(tree.priceHeap)
 			continue
 		}
-		
+
 		level.mu.RLock()
 		if len(level.Orders) > 0 {
 			order := level.Orders[0]
@@ -568,7 +599,7 @@ func (tree *OrderTree) getBestOrderViaHeap() *Order {
 		} else {
 			level.mu.RUnlock()
 		}
-		
+
 		heap.Pop(tree.priceHeap)
 	}
 	return nil
@@ -577,24 +608,24 @@ func (tree *OrderTree) getBestOrderViaHeap() *Order {
 // tryMatchImmediateLocked with optimized matching
 func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 	numTrades := uint64(0)
-	
+
 	if order.RemainingSize == 0 && order.Size > 0 {
 		order.RemainingSize = order.Size
 	}
-	
+
 	var oppositeTree *OrderTree
 	if order.Side == Buy {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.asks))
 	} else {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.bids))
 	}
-	
+
 	for order.RemainingSize > 0 {
 		bestOrder := oppositeTree.getBestOrder()
 		if bestOrder == nil {
 			break
 		}
-		
+
 		// Price check
 		if order.Type == Limit {
 			if order.Side == Buy && order.Price < bestOrder.Price {
@@ -604,7 +635,7 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 				break
 			}
 		}
-		
+
 		// Self-trade check
 		if order.User != "" && order.User == bestOrder.User {
 			oppositeTree.removeOrder(bestOrder)
@@ -612,7 +643,7 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 			ob.ordersMap.Delete(bestOrder.ID)
 			continue
 		}
-		
+
 		// Calculate trade size
 		var tradeSize float64
 		bestRemaining := bestOrder.Size - bestOrder.Filled
@@ -620,7 +651,7 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 			bestRemaining = bestOrder.RemainingSize
 		}
 		tradeSize = math.Min(order.RemainingSize, bestRemaining)
-		
+
 		// Create trade
 		ob.LastTradeID++
 		trade := Trade{
@@ -629,25 +660,25 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 			Size:      tradeSize,
 			Timestamp: time.Now(),
 		}
-		
+
 		// Update orders
 		order.RemainingSize -= tradeSize
 		order.ExecutedSize += tradeSize
 		order.Filled += tradeSize
-		
+
 		if bestOrder.RemainingSize > 0 {
 			bestOrder.RemainingSize -= tradeSize
 		}
 		bestOrder.ExecutedSize += tradeSize
 		bestOrder.Filled += tradeSize
-		
+
 		// Handle order status
 		if order.RemainingSize <= 0 {
 			order.Status = Filled
 		} else {
 			order.Status = PartiallyFilled
 		}
-		
+
 		if (bestOrder.RemainingSize <= 0 && bestOrder.Filled >= bestOrder.Size) || bestOrder.Filled >= bestOrder.Size {
 			bestOrder.Status = Filled
 			oppositeTree.removeOrder(bestOrder)
@@ -656,21 +687,21 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 		} else {
 			bestOrder.Status = PartiallyFilled
 		}
-		
+
 		// Add trade
 		ob.Trades = append(ob.Trades, trade)
 		if ob.tradesBuffer != nil {
 			ob.tradesBuffer.Add(trade)
 		}
-		
+
 		// Limit trades history for compatibility
 		if len(ob.Trades) > 100000 {
 			ob.Trades = ob.Trades[len(ob.Trades)-50000:]
 		}
-		
+
 		numTrades++
 	}
-	
+
 	return numTrades
 }
 
@@ -678,7 +709,7 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 func (ob *OrderBook) processMarketOrderOptimized(order *Order) uint64 {
 	ob.writeLock.Lock()
 	defer ob.writeLock.Unlock()
-	
+
 	order.RemainingSize = order.Size
 	return ob.tryMatchImmediateLocked(order)
 }
@@ -688,27 +719,30 @@ func (ob *OrderBook) processMarketOrderLocked(order *Order) uint64 {
 	return ob.processMarketOrderOptimized(order)
 }
 
-// MatchOrders attempts to match orders in the book
+// MatchOrders attempts to match orders in the book and returns all trades
 func (ob *OrderBook) MatchOrders() []Trade {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
+	// Clear existing trades for this matching session
+	startingTradeCount := len(ob.Trades)
+
 	trades := make([]Trade, 0)
-	
+
 	for {
 		// Get best bid and ask
 		bestBid := ob.Bids.getBestOrder()
 		bestAsk := ob.Asks.getBestOrder()
-		
+
 		if bestBid == nil || bestAsk == nil {
 			break
 		}
-		
-		// Check if orders cross
+
+		// Check if orders cross (bid must be >= ask for a match)
 		if bestBid.Price < bestAsk.Price {
 			break
 		}
-		
+
 		// Self-trade prevention
 		if bestBid.User == bestAsk.User && bestBid.User != "" {
 			// Cancel the smaller order
@@ -720,12 +754,12 @@ func (ob *OrderBook) MatchOrders() []Trade {
 				continue
 			}
 		}
-		
+
 		// Determine trade size
 		bidRemaining := bestBid.Size - bestBid.Filled
 		askRemaining := bestAsk.Size - bestAsk.Filled
 		tradeSize := math.Min(bidRemaining, askRemaining)
-		
+
 		// Determine trade price (price-time priority)
 		var tradePrice float64
 		var takerSide Side
@@ -736,7 +770,7 @@ func (ob *OrderBook) MatchOrders() []Trade {
 			tradePrice = bestAsk.Price
 			takerSide = Buy
 		}
-		
+
 		// Calculate fees
 		var fee float64
 		if takerSide == Buy {
@@ -744,7 +778,7 @@ func (ob *OrderBook) MatchOrders() []Trade {
 		} else {
 			fee = tradeSize * tradePrice * 0.0002
 		}
-		
+
 		// Create trade
 		ob.LastTradeID++
 		trade := Trade{
@@ -758,11 +792,11 @@ func (ob *OrderBook) MatchOrders() []Trade {
 			MatchType: "partial",
 			Fee:       fee,
 		}
-		
+
 		// Update orders
 		bestBid.Filled += tradeSize
 		bestAsk.Filled += tradeSize
-		
+
 		if bestBid.Filled >= bestBid.Size {
 			bestBid.Status = Filled
 			ob.Bids.removeOrder(bestBid)
@@ -770,7 +804,7 @@ func (ob *OrderBook) MatchOrders() []Trade {
 		} else {
 			bestBid.Status = PartiallyFilled
 		}
-		
+
 		if bestAsk.Filled >= bestAsk.Size {
 			bestAsk.Status = Filled
 			ob.Asks.removeOrder(bestAsk)
@@ -780,16 +814,20 @@ func (ob *OrderBook) MatchOrders() []Trade {
 		} else {
 			bestAsk.Status = PartiallyFilled
 		}
-		
+
 		trades = append(trades, trade)
 		ob.Trades = append(ob.Trades, trade)
-		
+
 		// Limit trades history
 		if len(ob.Trades) > 100000 {
 			ob.Trades = ob.Trades[len(ob.Trades)-50000:]
 		}
 	}
-	
+
+	// Return only trades generated in this MatchOrders call
+	if startingTradeCount < len(ob.Trades) {
+		return ob.Trades[startingTradeCount:]
+	}
 	return trades
 }
 
@@ -811,9 +849,24 @@ func (ob *OrderBook) checkSelfTrade(order *Order) bool {
 	} else {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.bids))
 	}
-	
+
 	bestOrder := oppositeTree.getBestOrder()
-	if bestOrder != nil && order.User != "" && order.User == bestOrder.User {
+	if bestOrder == nil {
+		return false
+	}
+
+	// Get user identifiers for both orders
+	orderUser := order.User
+	if orderUser == "" {
+		orderUser = order.UserID
+	}
+
+	bestUser := bestOrder.User
+	if bestUser == "" {
+		bestUser = bestOrder.UserID
+	}
+
+	if orderUser != "" && orderUser == bestUser {
 		if order.Side == Buy && order.Price >= bestOrder.Price {
 			return true
 		}
@@ -821,7 +874,7 @@ func (ob *OrderBook) checkSelfTrade(order *Order) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -832,19 +885,19 @@ func (ob *OrderBook) wouldTakeLiquidity(order *Order) bool {
 	} else {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.bids))
 	}
-	
+
 	bestOrder := oppositeTree.getBestOrder()
 	if bestOrder == nil {
 		return false
 	}
-	
+
 	if order.Side == Buy && order.Price >= bestOrder.Price {
 		return true
 	}
 	if order.Side == Sell && order.Price <= bestOrder.Price {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -861,16 +914,16 @@ func (ob *OrderBook) cancelOrderInternal(order *Order) {
 func (ob *OrderBook) CancelOrder(orderID uint64) error {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	order, exists := ob.Orders[orderID]
 	if !exists {
 		return ErrOrderNotFound
 	}
-	
+
 	if order.Status != Open && order.Status != PartiallyFilled {
 		return fmt.Errorf("order not cancellable")
 	}
-	
+
 	ob.cancelOrderInternal(order)
 	return nil
 }
@@ -879,35 +932,35 @@ func (ob *OrderBook) CancelOrder(orderID uint64) error {
 func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice, newSize float64) error {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	
+
 	order, exists := ob.Orders[orderID]
 	if !exists {
 		return ErrOrderNotFound
 	}
-	
+
 	if order.Status != Open && order.Status != PartiallyFilled {
 		return fmt.Errorf("order not modifiable")
 	}
-	
+
 	// Remove old order
 	if order.Side == Buy {
 		ob.Bids.removeOrder(order)
 	} else {
 		ob.Asks.removeOrder(order)
 	}
-	
+
 	// Update order
 	order.Price = newPrice
 	order.Size = newSize
 	order.Timestamp = time.Now() // Reset timestamp for price-time priority
-	
+
 	// Re-add order
 	if order.Side == Buy {
 		ob.Bids.addOrder(order)
 	} else {
 		ob.Asks.addOrder(order)
 	}
-	
+
 	return nil
 }
 
@@ -915,7 +968,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice, newSize float64) erro
 func (ob *OrderBook) GetSnapshot() *OrderBookSnapshot {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	return &OrderBookSnapshot{
 		Symbol:    ob.Symbol,
 		Timestamp: time.Now(),
@@ -929,7 +982,7 @@ func (ob *OrderBook) GetSnapshot() *OrderBookSnapshot {
 func (ob *OrderBook) GetDepth(levels int) *OrderBookDepth {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	return &OrderBookDepth{
 		Bids:         ob.Bids.getLevels(levels),
 		Asks:         ob.Asks.getLevels(levels),
@@ -941,27 +994,33 @@ func (ob *OrderBook) GetDepth(levels int) *OrderBookDepth {
 func (tree *OrderTree) getLevels(depth int) []PriceLevel {
 	tree.mu.RLock()
 	defer tree.mu.RUnlock()
-	
-	levels := make([]PriceLevel, 0, depth)
+
+	// If depth is 0, return all levels
+	maxLevels := depth
+	if depth == 0 {
+		maxLevels = len(tree.priceLevels)
+	}
+
+	levels := make([]PriceLevel, 0, maxLevels)
 	prices := make([]float64, 0, len(tree.priceLevels))
-	
-	// Convert to PriceLevel format  
+
+	// Convert to PriceLevel format
 	for _, level := range tree.priceLevels {
 		if level.OrderCount > 0 {
 			prices = append(prices, level.Price)
 		}
 	}
-	
+
 	// Sort prices
 	if tree.side == Buy {
 		sort.Sort(sort.Reverse(sort.Float64Slice(prices)))
 	} else {
 		sort.Float64s(prices)
 	}
-	
+
 	// Build levels
 	for i, price := range prices {
-		if i >= depth {
+		if depth > 0 && i >= depth {
 			break
 		}
 		priceInt := PriceInt(price * PriceMultiplier)
@@ -973,7 +1032,7 @@ func (tree *OrderTree) getLevels(depth int) []PriceLevel {
 			})
 		}
 	}
-	
+
 	return levels
 }
 
@@ -981,26 +1040,26 @@ func (tree *OrderTree) getLevels(depth int) []PriceLevel {
 func (ob *OrderBook) GetL4Book() L4BookSnapshot {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	snapshot := L4BookSnapshot{
 		Symbol:    ob.Symbol,
 		Timestamp: time.Now(),
 		Sequence:  atomic.LoadUint64(&ob.Bids.sequence),
 	}
-	
+
 	// Get all bid orders
 	snapshot.Bids = ob.Bids.getL4Levels()
 	snapshot.Asks = ob.Asks.getL4Levels()
-	
+
 	return snapshot
 }
 
 func (tree *OrderTree) getL4Levels() []L4Level {
 	tree.mu.RLock()
 	defer tree.mu.RUnlock()
-	
+
 	levels := make([]L4Level, 0)
-	
+
 	// Get all prices and sort
 	prices := make([]float64, 0, len(tree.priceLevels))
 	for _, level := range tree.priceLevels {
@@ -1008,13 +1067,13 @@ func (tree *OrderTree) getL4Levels() []L4Level {
 			prices = append(prices, level.Price)
 		}
 	}
-	
+
 	if tree.side == Buy {
 		sort.Sort(sort.Reverse(sort.Float64Slice(prices)))
 	} else {
 		sort.Float64s(prices)
 	}
-	
+
 	// Build L4 levels with individual orders
 	for _, price := range prices {
 		priceInt := PriceInt(price * PriceMultiplier)
@@ -1038,7 +1097,7 @@ func (tree *OrderTree) getL4Levels() []L4Level {
 			level.mu.RUnlock()
 		}
 	}
-	
+
 	return levels
 }
 
@@ -1069,7 +1128,7 @@ func (bt *IntBTree) Insert(key PriceInt) {
 		}
 		return
 	}
-	
+
 	// Simplified B-tree insertion
 	bt.insertNonFull(bt.root, key)
 }
@@ -1113,10 +1172,10 @@ func (bt *IntBTree) insertNonFull(node *IntBTreeNode, key PriceInt) {
 func (ctb *CircularTradeBuffer) Add(trade Trade) {
 	ctb.mu.Lock()
 	defer ctb.mu.Unlock()
-	
+
 	ctb.buffer[ctb.tail] = trade
 	ctb.tail = (ctb.tail + 1) % uint64(len(ctb.buffer))
-	
+
 	if ctb.size < uint64(len(ctb.buffer)) {
 		ctb.size++
 	} else {
@@ -1127,19 +1186,19 @@ func (ctb *CircularTradeBuffer) Add(trade Trade) {
 func (ctb *CircularTradeBuffer) GetRecent(count int) []Trade {
 	ctb.mu.RLock()
 	defer ctb.mu.RUnlock()
-	
+
 	if count > int(ctb.size) {
 		count = int(ctb.size)
 	}
-	
+
 	trades := make([]Trade, count)
 	idx := (ctb.tail - uint64(count) + uint64(len(ctb.buffer))) % uint64(len(ctb.buffer))
-	
+
 	for i := 0; i < count; i++ {
 		trades[i] = ctb.buffer[idx]
 		idx = (idx + 1) % uint64(len(ctb.buffer))
 	}
-	
+
 	return trades
 }
 
@@ -1195,4 +1254,55 @@ func (h *MaxPriceHeap) Pop() interface{} {
 	x := old[n-1]
 	*h = old[0 : n-1]
 	return x
+}
+
+// Subscribe adds a channel to receive market data updates
+func (ob *OrderBook) Subscribe(ch chan MarketDataUpdate) {
+	ob.subMu.Lock()
+	defer ob.subMu.Unlock()
+	ob.subscribers = append(ob.subscribers, ch)
+}
+
+// Unsubscribe removes a channel from market data updates
+func (ob *OrderBook) Unsubscribe(ch chan MarketDataUpdate) {
+	ob.subMu.Lock()
+	defer ob.subMu.Unlock()
+	for i, sub := range ob.subscribers {
+		if sub == ch {
+			ob.subscribers = append(ob.subscribers[:i], ob.subscribers[i+1:]...)
+			break
+		}
+	}
+}
+
+// publishUpdate sends market data updates to all subscribers
+func (ob *OrderBook) publishUpdate(update MarketDataUpdate) {
+	ob.subMu.RLock()
+	defer ob.subMu.RUnlock()
+	for _, ch := range ob.subscribers {
+		select {
+		case ch <- update:
+		default:
+			// Skip if channel is full
+		}
+	}
+}
+
+// Reset clears the order book
+func (ob *OrderBook) Reset() {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	ob.Orders = make(map[uint64]*Order)
+	ob.UserOrders = make(map[string][]uint64)
+	ob.Trades = []Trade{}
+	ob.Bids = NewOrderTree(Buy)
+	ob.Asks = NewOrderTree(Sell)
+	atomic.StorePointer(&ob.bids, unsafe.Pointer(ob.Bids))
+	atomic.StorePointer(&ob.asks, unsafe.Pointer(ob.Asks))
+	ob.ordersMap = sync.Map{}
+	ob.userOrdersMap = sync.Map{}
+	ob.LastOrderID = 0
+	ob.LastTradeID = 0
+	ob.LastUpdateID = 0
 }

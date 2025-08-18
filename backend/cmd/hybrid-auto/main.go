@@ -19,19 +19,19 @@ import (
 
 type ServerInfo struct {
 	ID        string    `json:"id"`
-	ZMQAddr   string    `json:"zmq_addr"`  // LX address for high-perf trading
+	ZMQAddr   string    `json:"zmq_addr"` // LX address for high-perf trading
 	IP        string    `json:"ip"`
 	Hostname  string    `json:"hostname"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
 type HybridNode struct {
-	nc          *nats.Conn
-	nodeID      string
-	hostname    string
-	isServer    bool
-	zmqAddr     string
-	serverMu    sync.RWMutex
+	nc           *nats.Conn
+	nodeID       string
+	hostname     string
+	isServer     bool
+	zmqAddr      string
+	serverMu     sync.RWMutex
 	activeServer *ServerInfo
 }
 
@@ -105,14 +105,14 @@ func main() {
 
 func (n *HybridNode) autoMode(workers, traders int, rate int, duration time.Duration) {
 	log.Println("🤖 AUTO MODE - Using NATS for discovery, LX for trading")
-	
+
 	// Wait for discovery
 	time.Sleep(2 * time.Second)
-	
+
 	n.serverMu.RLock()
 	hasServer := n.activeServer != nil
 	n.serverMu.RUnlock()
-	
+
 	if !hasServer {
 		// No server exists - I become THE server
 		log.Println("🏆 No server found - becoming THE LX SERVER")
@@ -130,24 +130,24 @@ func (n *HybridNode) autoMode(workers, traders int, rate int, duration time.Dura
 func (n *HybridNode) runZMQServer(workers int) {
 	n.isServer = true
 	log.Printf("🏦 Starting LX Exchange Server on %s", n.zmqAddr)
-	
+
 	// Announce via NATS
 	go n.announcer()
-	
+
 	// Start actual LX server
 	context, _ := zmq.NewContext()
 	defer context.Term()
-	
+
 	// Router socket for clients
 	router, _ := context.NewSocket(zmq.ROUTER)
 	defer router.Close()
 	router.Bind(n.zmqAddr)
-	
+
 	// Dealer socket for workers
 	dealer, _ := context.NewSocket(zmq.DEALER)
 	defer dealer.Close()
 	dealer.Bind("inproc://workers")
-	
+
 	// Start worker goroutines
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -157,7 +157,7 @@ func (n *HybridNode) runZMQServer(workers int) {
 			n.zmqWorker(id)
 		}(i)
 	}
-	
+
 	// Proxy between router and dealer
 	log.Printf("✅ LX server ready on %s", n.zmqAddr)
 	zmq.Proxy(router, dealer, nil)
@@ -166,32 +166,32 @@ func (n *HybridNode) runZMQServer(workers int) {
 func (n *HybridNode) zmqWorker(id int) {
 	context, _ := zmq.NewContext()
 	defer context.Term()
-	
+
 	worker, _ := context.NewSocket(zmq.REP)
 	defer worker.Close()
 	worker.Connect("inproc://workers")
-	
+
 	var ordersProcessed int64
 	var tradesMatched int64
-	
+
 	for {
 		_, err := worker.RecvBytes(0)
 		if err != nil {
 			break
 		}
-		
+
 		ordersProcessed++
-		
+
 		// Simple matching logic
 		if ordersProcessed%2 == 0 {
 			tradesMatched++
 		}
-		
+
 		// Send response
-		response := fmt.Sprintf(`{"id":%d,"status":"accepted","matched":%v}`, 
+		response := fmt.Sprintf(`{"id":%d,"status":"accepted","matched":%v}`,
 			ordersProcessed, ordersProcessed%2 == 0)
 		worker.SendBytes([]byte(response), 0)
-		
+
 		if ordersProcessed%100000 == 0 {
 			log.Printf("Worker %d: Orders=%d, Trades=%d", id, ordersProcessed, tradesMatched)
 		}
@@ -204,14 +204,14 @@ func (n *HybridNode) runZMQTrader(traders int, rate int, duration time.Duration)
 		n.serverMu.RLock()
 		server := n.activeServer
 		n.serverMu.RUnlock()
-		
+
 		if server != nil || n.isServer {
 			break
 		}
 		log.Println("⏳ Waiting for server discovery...")
 		time.Sleep(time.Second)
 	}
-	
+
 	// Get server address
 	serverAddr := n.zmqAddr // If we're the server
 	n.serverMu.RLock()
@@ -219,35 +219,35 @@ func (n *HybridNode) runZMQTrader(traders int, rate int, duration time.Duration)
 		serverAddr = n.activeServer.ZMQAddr
 	}
 	n.serverMu.RUnlock()
-	
+
 	log.Printf("💹 Starting %d LX traders connecting to %s", traders, serverAddr)
-	
+
 	var wg sync.WaitGroup
 	var totalOrders int64
 	var totalErrors int64
 	startTime := time.Now()
-	
+
 	// Start traders
 	for i := 0; i < traders; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			context, _ := zmq.NewContext()
 			defer context.Term()
-			
+
 			socket, _ := context.NewSocket(zmq.REQ)
 			defer socket.Close()
-			
+
 			socket.Connect(serverAddr)
-			
+
 			orderID := uint64(id * 1000000)
 			endTime := startTime.Add(duration)
 			sleepNs := time.Duration(1000000000 / rate)
-			
+
 			for time.Now().Before(endTime) {
 				orderID++
-				
+
 				// Send order (binary format for speed)
 				order := fmt.Sprintf(`{"id":%d,"symbol":"BTC/USD","side":"buy","price":50000,"qty":1}`, orderID)
 				_, err := socket.SendBytes([]byte(order), 0)
@@ -255,44 +255,44 @@ func (n *HybridNode) runZMQTrader(traders int, rate int, duration time.Duration)
 					atomic.AddInt64(&totalErrors, 1)
 					continue
 				}
-				
+
 				// Receive response
 				_, err = socket.RecvBytes(0)
 				if err != nil {
 					atomic.AddInt64(&totalErrors, 1)
 					continue
 				}
-				
+
 				atomic.AddInt64(&totalOrders, 1)
-				
+
 				if rate < 10000 {
 					time.Sleep(sleepNs)
 				}
 			}
 		}(i)
 	}
-	
+
 	// Stats printer
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		lastOrders := int64(0)
-		
+
 		for range ticker.C {
 			orders := atomic.LoadInt64(&totalOrders)
 			errors := atomic.LoadInt64(&totalErrors)
 			delta := orders - lastOrders
-			
-			log.Printf("📈 ZMQ Orders: %d | Rate: %d/sec | Errors: %d", 
+
+			log.Printf("📈 ZMQ Orders: %d | Rate: %d/sec | Errors: %d",
 				orders, delta, errors)
 			lastOrders = orders
 		}
 	}()
-	
+
 	wg.Wait()
 	finalOrders := atomic.LoadInt64(&totalOrders)
 	elapsed := time.Since(startTime).Seconds()
-	log.Printf("✅ Trading complete: %d orders in %.1fs = %.0f orders/sec", 
+	log.Printf("✅ Trading complete: %d orders in %.1fs = %.0f orders/sec",
 		finalOrders, elapsed, float64(finalOrders)/elapsed)
 }
 
@@ -300,7 +300,7 @@ func (n *HybridNode) announcer() {
 	// Announce server info on NATS
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		info := ServerInfo{
 			ID:        n.nodeID,
@@ -309,7 +309,7 @@ func (n *HybridNode) announcer() {
 			Hostname:  n.hostname,
 			Timestamp: time.Now(),
 		}
-		
+
 		data, _ := json.Marshal(info)
 		n.nc.Publish("hybrid.server", data)
 		log.Printf("📡 Announcing ZMQ server at %s", n.zmqAddr)
@@ -338,7 +338,7 @@ func getLocalIP() string {
 	if err != nil {
 		return "127.0.0.1"
 	}
-	
+
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
@@ -355,7 +355,7 @@ func discoverNATS() string {
 		"nats://nats:4222",
 		"nats://127.0.0.1:4222",
 	}
-	
+
 	for _, loc := range locations {
 		nc, err := nats.Connect(loc, nats.Timeout(1*time.Second))
 		if err == nil {
@@ -364,7 +364,7 @@ func discoverNATS() string {
 			return loc
 		}
 	}
-	
+
 	return nats.DefaultURL
 }
 

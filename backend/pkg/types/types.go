@@ -8,11 +8,11 @@ import (
 type Order struct {
 	ID        uint64    `json:"id"`
 	Symbol    string    `json:"symbol"`
-	Side      string    `json:"side"`      // "buy" or "sell"
+	Side      string    `json:"side"` // "buy" or "sell"
 	Price     float64   `json:"price"`
 	Quantity  float64   `json:"quantity"`
-	Type      string    `json:"type"`      // "market", "limit", etc.
-	Status    string    `json:"status"`    // "pending", "filled", "cancelled"
+	Type      string    `json:"type"`   // "market", "limit", etc.
+	Status    string    `json:"status"` // "pending", "filled", "cancelled"
 	Timestamp time.Time `json:"timestamp"`
 	User      string    `json:"user,omitempty"`
 	Filled    float64   `json:"filled,omitempty"`
@@ -31,10 +31,10 @@ type Trade struct {
 
 // OrderBook represents the order book state
 type OrderBook struct {
-	Symbol string    `json:"symbol"`
+	Symbol string      `json:"symbol"`
 	Bids   [][]float64 `json:"bids"` // [price, quantity]
 	Asks   [][]float64 `json:"asks"` // [price, quantity]
-	Time   time.Time `json:"time"`
+	Time   time.Time   `json:"time"`
 }
 
 // Response represents a generic API response

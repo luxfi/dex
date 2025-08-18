@@ -77,7 +77,7 @@ func main() {
 	// Show book state
 	fmt.Println("📊 Order Book State:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Get best prices from the trees
 	var bestBid, bestAsk float64
 	if book.Bids.Root != nil {
@@ -87,7 +87,7 @@ func main() {
 		bestAsk = book.Asks.MinPrice().Price
 	}
 	spread := bestAsk - bestBid
-	
+
 	fmt.Printf("   Best Bid: $%,.2f\n", bestBid)
 	fmt.Printf("   Best Ask: $%,.2f\n", bestAsk)
 	if bestAsk > 0 {
@@ -110,19 +110,19 @@ func main() {
 		fmt.Println()
 		fmt.Println("💰 Trades Executed:")
 		fmt.Println("━━━━━━━━━━━━━━━━━━")
-		
+
 		// Get the new trades
 		newTrades := book.Trades[initialTradeCount:]
 		totalSize := 0.0
 		totalValue := 0.0
-		
+
 		for i, trade := range newTrades {
 			fmt.Printf("   Trade %d: %.2f BTC @ $%,.2f = $%,.2f\n",
 				i+1, trade.Size, trade.Price, trade.Size*trade.Price)
 			totalSize += trade.Size
 			totalValue += trade.Size * trade.Price
 		}
-		
+
 		if totalSize > 0 {
 			avgPrice := totalValue / totalSize
 			fmt.Println()
@@ -136,7 +136,7 @@ func main() {
 	// Final book state
 	fmt.Println("📊 Updated Book State:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Get updated best prices
 	bestBid = 0
 	bestAsk = 0
@@ -147,18 +147,18 @@ func main() {
 		bestAsk = book.Asks.MinPrice().Price
 	}
 	spread = bestAsk - bestBid
-	
+
 	fmt.Printf("   Best Bid: $%,.2f\n", bestBid)
 	fmt.Printf("   Best Ask: $%,.2f\n", bestAsk)
 	if bestAsk > 0 {
 		fmt.Printf("   Spread:   $%,.2f\n", spread)
 	}
-	
+
 	fmt.Println()
 	fmt.Println("📈 Order Book Summary:")
 	fmt.Printf("   Total Trades: %d\n", len(book.Trades))
 	fmt.Printf("   Active Orders: %d\n", len(book.Orders))
-	
+
 	fmt.Println()
 	fmt.Println("✅ Demo complete!")
 	fmt.Println()

@@ -81,7 +81,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			announcement := map[string]interface{}{
 				"type":    "dex-server",
@@ -92,8 +92,8 @@ func main() {
 			}
 			data, _ := json.Marshal(announcement)
 			nc.Publish("dex.announce", data)
-			
-			log.Printf("📊 Orders: %d, Trades: %d", 
+
+			log.Printf("📊 Orders: %d, Trades: %d",
 				atomic.LoadInt64(&dex.ordersCount),
 				atomic.LoadInt64(&dex.tradesCount))
 		}
@@ -118,7 +118,7 @@ func (d *NATSDex) orderWorker() {
 
 		// Process order
 		order.ID = uint64(atomic.AddInt64(&d.ordersCount, 1))
-		
+
 		// Simulate matching (create trade 50% of the time)
 		if order.ID%2 == 0 {
 			atomic.AddInt64(&d.tradesCount, 1)

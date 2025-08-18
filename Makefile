@@ -1,4 +1,4 @@
-.PHONY: all build dex-server dex-trader bench test clean help
+.PHONY: all build dex-server dex-trader bench test clean help up down restart logs status docker-build docker-clean
 
 # LX DEX Makefile - High-performance trading platform
 GO := go
@@ -65,6 +65,8 @@ clean:
 
 help:
 	@echo "LX DEX Commands:"
+	@echo ""
+	@echo "Local Development:"
 	@echo "  make build         - Build all binaries"  
 	@echo "  make dex-server    - Run DEX server"
 	@echo "  make dex-trader    - Run DEX trader"
@@ -72,3 +74,74 @@ help:
 	@echo "  make bench         - Run performance benchmark"
 	@echo "  make test          - Run tests"
 	@echo "  make clean         - Clean build artifacts"
+	@echo ""
+	@echo "Docker Stack (K=1 Consensus):"
+	@echo "  make up            - Start entire DEX stack in containers"
+	@echo "  make down          - Stop all containers"
+	@echo "  make restart       - Restart all services"
+	@echo "  make logs          - Follow container logs"
+	@echo "  make status        - Show container status"
+	@echo "  make docker-build  - Build Docker images"
+	@echo "  make docker-clean  - Clean Docker volumes"
+
+# ==================== DOCKER COMMANDS ====================
+# Start entire DEX stack with K=1 consensus (single node)
+up:
+	@echo "🚀 Starting LUX DEX Stack..."
+	@echo "Starting databases first..."
+	docker compose -f docker/compose.dev.yml up -d
+	@echo "✅ Databases are running!"
+	@echo "   - PostgreSQL: localhost:5432"
+	@echo "   - Redis: localhost:6379"
+	@echo ""
+	@echo "To start full stack with monitoring:"
+	@echo "   docker compose -f docker/compose.yml up -d"
+	@echo ""
+	@echo "To run backend locally:"
+	@echo "   make dex-server"
+	@echo ""
+	@echo "To run UI locally:"
+	@echo "   cd ui && npm run dev"
+
+# Stop all Docker services
+down:
+	@echo "🛑 Stopping LUX DEX Stack..."
+	docker compose -f docker/compose.yml down
+
+# Restart Docker stack
+restart: down up
+
+# Follow Docker logs
+logs:
+	docker compose -f docker/compose.yml logs -f
+
+# Show Docker service status
+status:
+	@docker compose -f docker/compose.yml ps
+
+# Build Docker images
+docker-build:
+	@echo "🔨 Building Docker images..."
+	docker compose -f docker/compose.yml build
+
+# Clean Docker volumes
+docker-clean:
+	@echo "🧹 Cleaning Docker volumes..."
+	docker compose -f docker/compose.yml down -v
+	docker system prune -f
+
+# Run E2E tests in Docker
+docker-test:
+	@echo "🧪 Running E2E tests in Docker..."
+	docker compose -f docker/compose.yml --profile test run --rm test-runner
+
+# Quick health check
+health:
+	@echo "❤️  Checking service health..."
+	@docker compose -f docker/compose.yml exec dex-node curl -s http://localhost:8080/health || echo "Node not running"
+	@docker compose -f docker/compose.yml exec dex-ui curl -s http://localhost:3000/v2/api/health || echo "UI not running"
+
+# Run E2E tests
+e2e-test:
+	@echo "🧪 Running E2E tests..."
+	@./test-e2e.sh

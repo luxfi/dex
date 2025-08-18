@@ -23,7 +23,7 @@ func TestConcurrentOrders(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			for i := 0; i < ordersPerGoroutine; i++ {
 				orderID := uint64(id*ordersPerGoroutine + i + 1)
 				order := &Order{
@@ -34,23 +34,23 @@ func TestConcurrentOrders(t *testing.T) {
 					Quantity:  1.0 + float64(i%10)*0.1,
 					Timestamp: time.Now(),
 				}
-				
+
 				// Add order
 				resultID := ob.AddOrder(order)
 				if resultID == 0 {
 					t.Logf("Warning: Failed to add order %d", orderID)
 				}
-				
+
 				// Randomly cancel some orders
 				if i > 10 && i%10 == 0 {
 					ob.CancelOrder(orderID - 5)
 				}
-				
-				// Randomly modify some orders  
+
+				// Randomly modify some orders
 				if i > 20 && i%20 == 0 {
 					ob.ModifyOrder(orderID-10, 50000+float64(i), 2.0)
 				}
-				
+
 				// Match orders occasionally
 				if i%50 == 0 {
 					ob.MatchOrders()
@@ -245,7 +245,7 @@ func TestMatchingAlgorithm(t *testing.T) {
 
 	// Match orders
 	trades := ob.MatchOrders()
-	
+
 	if len(trades) == 0 {
 		t.Fatal("Expected trades to be matched")
 	}
@@ -283,7 +283,7 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 		id := uint64(rand.Int63())
 		for pb.Next() {
 			id++
-			
+
 			// Mix of operations
 			switch rand.Intn(4) {
 			case 0: // Add order

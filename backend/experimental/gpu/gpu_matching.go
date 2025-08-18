@@ -38,8 +38,8 @@ typedef struct {
 
 void* create_gpu_engine();
 void destroy_gpu_engine(void* engine);
-int gpu_match_orders(void* engine, GPUOrder* bids, int bid_count, 
-                    GPUOrder* asks, int ask_count, 
+int gpu_match_orders(void* engine, GPUOrder* bids, int bid_count,
+                    GPUOrder* asks, int ask_count,
                     GPUTrade* trades, int max_trades);
 void gpu_get_stats(void* engine, GPUStats* stats);
 const char* gpu_get_device_info(void* engine);
@@ -94,14 +94,14 @@ func NewEngine() (*Engine, error) {
 	if handle == nil {
 		return nil, fmt.Errorf("failed to initialize GPU engine")
 	}
-	
+
 	engine := &Engine{
 		handle: handle,
 	}
-	
+
 	// Set finalizer to clean up GPU resources
 	runtime.SetFinalizer(engine, (*Engine).Close)
-	
+
 	return engine, nil
 }
 
@@ -109,7 +109,7 @@ func NewEngine() (*Engine, error) {
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle != nil {
 		C.destroy_gpu_engine(e.handle)
 		e.handle = nil
@@ -121,15 +121,15 @@ func (e *Engine) Close() error {
 func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle == nil {
 		return nil, fmt.Errorf("engine is closed")
 	}
-	
+
 	if len(bids) == 0 || len(asks) == 0 {
 		return nil, nil
 	}
-	
+
 	// Convert to C structures
 	cBids := make([]C.GPUOrder, len(bids))
 	for i, bid := range bids {
@@ -142,7 +142,7 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			status:    C.uint8_t(bid.Status),
 		}
 	}
-	
+
 	cAsks := make([]C.GPUOrder, len(asks))
 	for i, ask := range asks {
 		cAsks[i] = C.GPUOrder{
@@ -154,14 +154,14 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			status:    C.uint8_t(ask.Status),
 		}
 	}
-	
+
 	// Allocate space for trades
 	maxTrades := len(bids) * len(asks) / 2
 	if maxTrades > 500000 {
 		maxTrades = 500000
 	}
 	cTrades := make([]C.GPUTrade, maxTrades)
-	
+
 	// Call GPU matching
 	tradeCount := int(C.gpu_match_orders(
 		e.handle,
@@ -169,11 +169,11 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 		(*C.GPUOrder)(unsafe.Pointer(&cAsks[0])), C.int(len(asks)),
 		(*C.GPUTrade)(unsafe.Pointer(&cTrades[0])), C.int(maxTrades),
 	))
-	
+
 	if tradeCount == 0 {
 		return nil, nil
 	}
-	
+
 	// Convert trades back to Go
 	trades := make([]Trade, tradeCount)
 	for i := 0; i < tradeCount; i++ {
@@ -186,7 +186,7 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			Timestamp:   uint32(cTrades[i].timestamp),
 		}
 	}
-	
+
 	return trades, nil
 }
 
@@ -194,14 +194,14 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 func (e *Engine) GetStats() (*Stats, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle == nil {
 		return nil, fmt.Errorf("engine is closed")
 	}
-	
+
 	var cStats C.GPUStats
 	C.gpu_get_stats(e.handle, &cStats)
-	
+
 	return &Stats{
 		OrdersProcessed: uint64(cStats.orders_processed),
 		TradesExecuted:  uint64(cStats.trades_executed),
@@ -216,11 +216,11 @@ func (e *Engine) GetStats() (*Stats, error) {
 func (e *Engine) GetDeviceInfo() (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle == nil {
 		return "", fmt.Errorf("engine is closed")
 	}
-	
+
 	info := C.gpu_get_device_info(e.handle)
 	return C.GoString(info), nil
 }

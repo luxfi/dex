@@ -7,13 +7,13 @@ import (
 
 // TradingEngine is the main trading engine
 type TradingEngine struct {
-	OrderBooks     map[string]*OrderBook
-	PerpManager    *PerpetualManager
-	VaultManager   *VaultManager
-	LendingPool    *LendingPool
-	Events         chan Event
-	Orders         map[uint64]*Order // Track all orders
-	mu             sync.RWMutex
+	OrderBooks   map[string]*OrderBook
+	PerpManager  *PerpetualManager
+	VaultManager *VaultManager
+	LendingPool  *LendingPool
+	Events       chan Event
+	Orders       map[uint64]*Order // Track all orders
+	mu           sync.RWMutex
 }
 
 // EngineConfig configuration for the trading engine
@@ -144,7 +144,7 @@ func (engine *TradingEngine) logEvent(event Event) {
 func (e *TradingEngine) GetUserOrders(userID string) []*Order {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	orders := make([]*Order, 0)
 	for _, order := range e.Orders {
 		if order.User == userID {
@@ -158,7 +158,7 @@ func (e *TradingEngine) GetUserOrders(userID string) []*Order {
 func (e *TradingEngine) CreateOrderBook(symbol string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if _, exists := e.OrderBooks[symbol]; !exists {
 		e.OrderBooks[symbol] = NewOrderBook(symbol)
 	}
@@ -168,6 +168,6 @@ func (e *TradingEngine) CreateOrderBook(symbol string) {
 func (e *TradingEngine) GetOrderBook(symbol string) *OrderBook {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	return e.OrderBooks[symbol]
 }

@@ -26,23 +26,23 @@ import (
 // ExtendedOrderBook adds advanced features to the basic order book
 type ExtendedOrderBook struct {
 	*OrderBook
-	
+
 	// Market data subscribers
 	subscribers     []chan MarketDataUpdate
 	subscriberMutex sync.RWMutex
-	
+
 	// Stop orders tracking
 	stopBuyOrders  map[uint64]*Order
 	stopSellOrders map[uint64]*Order
-	
+
 	// Iceberg orders tracking
 	icebergOrders map[uint64]*IcebergState
-	
+
 	// Advanced features
 	EnableSelfTradePrevention bool
 	EnablePostOnly            bool
 	EnableHiddenOrders        bool
-	
+
 	// Performance metrics
 	totalVolume      float64
 	totalTrades      uint64
@@ -74,7 +74,7 @@ func (book *ExtendedOrderBook) Subscribe(ch chan MarketDataUpdate) {
 func (book *ExtendedOrderBook) Unsubscribe(ch chan MarketDataUpdate) {
 	book.subscriberMutex.Lock()
 	defer book.subscriberMutex.Unlock()
-	
+
 	for i, subscriber := range book.subscribers {
 		if subscriber == ch {
 			book.subscribers = append(book.subscribers[:i], book.subscribers[i+1:]...)
@@ -87,7 +87,7 @@ func (book *ExtendedOrderBook) Unsubscribe(ch chan MarketDataUpdate) {
 func (book *ExtendedOrderBook) publishUpdate(update MarketDataUpdate) {
 	book.subscriberMutex.RLock()
 	defer book.subscriberMutex.RUnlock()
-	
+
 	for _, ch := range book.subscribers {
 		select {
 		case ch <- update:
@@ -101,12 +101,12 @@ func (book *ExtendedOrderBook) publishUpdate(update MarketDataUpdate) {
 func (book *ExtendedOrderBook) AddOrderExtended(order *Order) (uint64, error) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	
+
 	// Validate order
 	if err := book.validateOrder(order); err != nil {
 		return 0, err
 	}
-	
+
 	// Handle different order types
 	switch order.Type {
 	case Stop, StopLimit:
@@ -125,34 +125,34 @@ func (book *ExtendedOrderBook) validateOrder(order *Order) error {
 	if order == nil {
 		return errors.New("order cannot be nil")
 	}
-	
+
 	if order.Size <= 0 {
 		return errors.New("order size must be positive")
 	}
-	
+
 	if order.Type == Limit && order.Price <= 0 {
 		return errors.New("limit order price must be positive")
 	}
-	
+
 	// Self-trade prevention
 	if book.EnableSelfTradePrevention && order.UserID != "" {
 		if book.wouldSelfTrade(order) {
 			return errors.New("order would result in self-trade")
 		}
 	}
-	
+
 	// Post-only validation
 	if order.PostOnly && book.wouldCrossSpread(order) {
 		return errors.New("post-only order would cross the spread")
 	}
-	
+
 	return nil
 }
 
 // wouldSelfTrade checks if order would match with user's own orders
 func (book *ExtendedOrderBook) wouldSelfTrade(order *Order) bool {
 	userOrders := book.UserOrders[order.UserID]
-	
+
 	for _, orderID := range userOrders {
 		existingOrder := book.Orders[orderID]
 		if existingOrder != nil && existingOrder.Side != order.Side {
@@ -168,7 +168,7 @@ func (book *ExtendedOrderBook) wouldSelfTrade(order *Order) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -185,14 +185,14 @@ func (book *ExtendedOrderBook) addStopOrder(order *Order) (uint64, error) {
 	} else {
 		book.stopSellOrders[order.ID] = order
 	}
-	
+
 	book.Orders[order.ID] = order
-	
+
 	// Track user orders
 	if order.UserID != "" {
 		book.UserOrders[order.UserID] = append(book.UserOrders[order.UserID], order.ID)
 	}
-	
+
 	book.publishUpdate(MarketDataUpdate{
 		Type:      OrderAdded,
 		OrderID:   order.ID,
@@ -202,7 +202,7 @@ func (book *ExtendedOrderBook) addStopOrder(order *Order) (uint64, error) {
 		Timestamp: time.Now(),
 		Symbol:    book.Symbol,
 	})
-	
+
 	return 0, nil
 }
 
@@ -216,13 +216,13 @@ func (book *ExtendedOrderBook) addIcebergOrder(order *Order) (uint64, error) {
 		CurrentOrderID: order.ID,
 		RefillCount:    0,
 	}
-	
+
 	book.icebergOrders[order.ID] = icebergState
-	
+
 	// Add visible portion as regular order
 	visibleOrder := *order
 	visibleOrder.Size = order.DisplaySize
-	
+
 	return book.addRegularOrder(&visibleOrder)
 }
 
@@ -230,11 +230,11 @@ func (book *ExtendedOrderBook) addIcebergOrder(order *Order) (uint64, error) {
 func (book *ExtendedOrderBook) addHiddenOrder(order *Order) (uint64, error) {
 	// Hidden orders are added but not displayed in market data
 	book.Orders[order.ID] = order
-	
+
 	// Add to appropriate tree but mark as hidden
 	// Simplified - would need proper AddOrder method
 	book.Orders[order.ID] = order
-	
+
 	return 0, nil
 }
 
@@ -249,17 +249,17 @@ func (book *ExtendedOrderBook) addRegularOrder(order *Order) (uint64, error) {
 	case ImmediateOrCancel:
 		// Will be handled after matching
 	}
-	
+
 	// Process the order
 	trades := book.AddOrder(order)
-	
+
 	// Handle IOC orders
 	if order.TimeInForce == ImmediateOrCancel {
 		if remainingOrder := book.Orders[order.ID]; remainingOrder != nil {
 			book.CancelOrder(order.ID)
 		}
 	}
-	
+
 	// Publish update
 	book.publishUpdate(MarketDataUpdate{
 		Type:      OrderAdded,
@@ -270,7 +270,7 @@ func (book *ExtendedOrderBook) addRegularOrder(order *Order) (uint64, error) {
 		Timestamp: time.Now(),
 		Symbol:    book.Symbol,
 	})
-	
+
 	return trades, nil
 }
 
@@ -284,14 +284,14 @@ func (book *ExtendedOrderBook) canFullyFill(order *Order) bool {
 func (book *ExtendedOrderBook) GetDepth(levels int) OrderBookDepth {
 	book.mu.RLock()
 	defer book.mu.RUnlock()
-	
+
 	depth := OrderBookDepth{
 		Bids:         book.aggregateLevels(book.Bids, levels, false),
 		Asks:         book.aggregateLevels(book.Asks, levels, true),
 		LastUpdateID: book.lastUpdateID,
 		Timestamp:    time.Now(),
 	}
-	
+
 	return depth
 }
 
@@ -305,7 +305,7 @@ func (book *ExtendedOrderBook) aggregateLevels(tree *OrderTree, maxLevels int, a
 func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 	book.mu.RLock()
 	defer book.mu.RUnlock()
-	
+
 	snapshot := OrderBookSnapshot{
 		Symbol:       book.Symbol,
 		Bids:         book.aggregateLevels(book.Bids, 0, false),
@@ -314,9 +314,9 @@ func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 		LastUpdateID: book.lastUpdateID,
 		Timestamp:    time.Now(),
 	}
-	
+
 	book.lastSnapshotTime = snapshot.Timestamp
-	
+
 	return snapshot
 }
 
@@ -324,7 +324,7 @@ func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 func (book *ExtendedOrderBook) Reset() {
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	
+
 	// Clear all data structures
 	book.Orders = make(map[uint64]*Order)
 	book.UserOrders = make(map[string][]uint64)
@@ -334,14 +334,14 @@ func (book *ExtendedOrderBook) Reset() {
 	book.stopBuyOrders = make(map[uint64]*Order)
 	book.stopSellOrders = make(map[uint64]*Order)
 	book.icebergOrders = make(map[uint64]*IcebergState)
-	
+
 	// Reset counters
 	book.LastTradeID = 0
 	book.LastOrderID = 0
 	book.lastUpdateID = 0
 	book.totalVolume = 0
 	book.totalTrades = 0
-	
+
 	// Notify subscribers
 	book.publishUpdate(MarketDataUpdate{
 		Type:      BookReset,
@@ -354,7 +354,7 @@ func (book *ExtendedOrderBook) Reset() {
 func (book *ExtendedOrderBook) CheckStopOrders(lastTradePrice float64) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	
+
 	// Check stop buy orders (triggered when price rises above stop price)
 	for orderID, stopOrder := range book.stopBuyOrders {
 		if lastTradePrice >= stopOrder.Price {
@@ -365,15 +365,15 @@ func (book *ExtendedOrderBook) CheckStopOrders(lastTradePrice float64) {
 				stopOrder.Type = Limit
 				stopOrder.Price = stopOrder.LimitPrice
 			}
-			
+
 			// Add to order book
 			book.AddOrder(stopOrder)
-			
+
 			// Remove from stop orders
 			delete(book.stopBuyOrders, orderID)
 		}
 	}
-	
+
 	// Check stop sell orders (triggered when price falls below stop price)
 	for orderID, stopOrder := range book.stopSellOrders {
 		if lastTradePrice <= stopOrder.Price {
@@ -384,10 +384,10 @@ func (book *ExtendedOrderBook) CheckStopOrders(lastTradePrice float64) {
 				stopOrder.Type = Limit
 				stopOrder.Price = stopOrder.LimitPrice
 			}
-			
+
 			// Add to order book
 			book.AddOrder(stopOrder)
-			
+
 			// Remove from stop orders
 			delete(book.stopSellOrders, orderID)
 		}
@@ -400,19 +400,19 @@ func (book *ExtendedOrderBook) RefillIcebergOrder(orderID uint64) {
 	if !exists || icebergState.RemainingSize <= 0 {
 		return
 	}
-	
+
 	// Calculate refill size
 	refillSize := icebergState.DisplaySize
 	if refillSize > icebergState.RemainingSize {
 		refillSize = icebergState.RemainingSize
 	}
-	
+
 	// Get original order details
 	originalOrder := book.Orders[icebergState.CurrentOrderID]
 	if originalOrder == nil {
 		return
 	}
-	
+
 	// Create new visible order
 	newOrder := &Order{
 		ID:        book.LastOrderID + 1,
@@ -423,12 +423,12 @@ func (book *ExtendedOrderBook) RefillIcebergOrder(orderID uint64) {
 		UserID:    originalOrder.UserID,
 		Timestamp: time.Now(),
 	}
-	
+
 	book.LastOrderID++
 	icebergState.CurrentOrderID = newOrder.ID
 	icebergState.RemainingSize -= refillSize
 	icebergState.RefillCount++
-	
+
 	// Add new visible portion
 	book.AddOrder(newOrder)
 }
@@ -437,9 +437,9 @@ func (book *ExtendedOrderBook) RefillIcebergOrder(orderID uint64) {
 func (book *ExtendedOrderBook) GetStatistics() map[string]interface{} {
 	book.mu.RLock()
 	defer book.mu.RUnlock()
-	
+
 	stats := make(map[string]interface{})
-	
+
 	// Basic stats
 	stats["symbol"] = book.Symbol
 	stats["total_orders"] = len(book.Orders)
@@ -447,21 +447,21 @@ func (book *ExtendedOrderBook) GetStatistics() map[string]interface{} {
 	stats["total_volume"] = book.totalVolume
 	stats["last_trade_id"] = book.LastTradeID
 	stats["last_update_id"] = book.lastUpdateID
-	
+
 	// Order counts by type
 	stats["bid_orders"] = 0 // Simplified
 	stats["ask_orders"] = 0 // Simplified
 	stats["stop_orders"] = len(book.stopBuyOrders) + len(book.stopSellOrders)
 	stats["iceberg_orders"] = len(book.icebergOrders)
-	
+
 	// Price stats - simplified (needs OrderTree methods)
 	stats["best_bid"] = 0.0
 	stats["best_ask"] = 0.0
-	
+
 	// Performance metrics
 	stats["subscribers"] = len(book.subscribers)
 	stats["last_snapshot_time"] = book.lastSnapshotTime
-	
+
 	return stats
 }
 
@@ -501,17 +501,17 @@ func (book *ExtendedOrderBook) GetMarketImpact(side Side, size float64) (float64
 	if err != nil {
 		return 0, err
 	}
-	
+
 	midPrice := book.GetMidPrice()
 	if midPrice == 0 {
 		return 0, errors.New("cannot calculate mid price")
 	}
-	
+
 	// Market impact as percentage from mid price
 	impact := ((vwap - midPrice) / midPrice) * 100
 	if side == Sell {
 		impact = -impact
 	}
-	
+
 	return impact, nil
 }

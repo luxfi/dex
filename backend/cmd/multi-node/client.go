@@ -29,25 +29,25 @@ func NewTestClient(nodeAddrs []string) (*TestClient, error) {
 		nodeAddrs: nodeAddrs,
 		dealers:   make([]*zmq.Socket, len(nodeAddrs)),
 	}
-	
+
 	// Create DEALER socket for each node
 	for i, addr := range nodeAddrs {
 		dealer, err := zmq.NewSocket(zmq.DEALER)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create dealer socket: %w", err)
 		}
-		
+
 		// Set identity for the dealer
 		dealer.SetIdentity(fmt.Sprintf("client-%d-%d", time.Now().Unix(), i))
-		
+
 		// Connect to node's ROUTER socket
 		if err := dealer.Connect(addr); err != nil {
 			return nil, fmt.Errorf("failed to connect to %s: %w", addr, err)
 		}
-		
+
 		client.dealers[i] = dealer
 	}
-	
+
 	return client, nil
 }
 
@@ -56,24 +56,24 @@ func (c *TestClient) SendOrder(order *lx.Order) error {
 	// Select random node for load balancing
 	nodeIdx := rand.Intn(len(c.dealers))
 	dealer := c.dealers[nodeIdx]
-	
+
 	// Marshal order to JSON
 	data, err := json.Marshal(order)
 	if err != nil {
 		return fmt.Errorf("failed to marshal order: %w", err)
 	}
-	
+
 	// Send to dealer (no identity needed, DEALER handles it)
 	dealer.Send("", zmq.SNDMORE)
 	if _, err := dealer.SendBytes(data, 0); err != nil {
 		return fmt.Errorf("failed to send order: %w", err)
 	}
-	
+
 	atomic.AddUint64(&c.ordersent, 1)
-	
+
 	// Receive response asynchronously
 	go c.receiveResponse(dealer)
-	
+
 	return nil
 }
 
@@ -83,21 +83,21 @@ func (c *TestClient) receiveResponse(dealer *zmq.Socket) {
 	if _, err := dealer.Recv(zmq.DONTWAIT); err != nil {
 		return
 	}
-	
+
 	// Response data
 	data, err := dealer.RecvBytes(zmq.DONTWAIT)
 	if err != nil {
 		return
 	}
-	
+
 	atomic.AddUint64(&c.responsesRcv, 1)
-	
+
 	var response map[string]interface{}
 	if err := json.Unmarshal(data, &response); err != nil {
 		log.Printf("Failed to unmarshal response: %v", err)
 		return
 	}
-	
+
 	if trades, ok := response["trades"].([]interface{}); ok && len(trades) > 0 {
 		log.Printf("Order matched! Trades: %v", trades)
 	}
@@ -106,16 +106,16 @@ func (c *TestClient) receiveResponse(dealer *zmq.Socket) {
 // RunLoadTest runs a load test sending many orders
 func (c *TestClient) RunLoadTest(duration time.Duration, ordersPerSec int) {
 	log.Printf("Starting load test: %d orders/sec for %v", ordersPerSec, duration)
-	
+
 	ticker := time.NewTicker(time.Second / time.Duration(ordersPerSec))
 	defer ticker.Stop()
-	
+
 	timeout := time.After(duration)
-	
+
 	for {
 		select {
 		case <-timeout:
-			log.Printf("Load test complete. Sent: %d, Received: %d", 
+			log.Printf("Load test complete. Sent: %d, Received: %d",
 				atomic.LoadUint64(&c.ordersent),
 				atomic.LoadUint64(&c.responsesRcv))
 			return
@@ -129,7 +129,7 @@ func (c *TestClient) RunLoadTest(duration time.Duration, ordersPerSec int) {
 				Size:   float64(rand.Intn(10)+1) * 0.1,
 				User:   fmt.Sprintf("user-%d", rand.Intn(100)),
 			}
-			
+
 			if err := c.SendOrder(order); err != nil {
 				log.Printf("Failed to send order: %v", err)
 			}
@@ -154,26 +154,26 @@ func RunTestClient() {
 		rate     = flag.Int("rate", 100, "Orders per second")
 	)
 	flag.Parse()
-	
+
 	// Parse node addresses
 	nodeAddrs := splitAndTrim(*nodes, ",")
 	if len(nodeAddrs) == 0 {
 		log.Fatal("No node addresses provided")
 	}
-	
+
 	// Create client
 	client, err := NewTestClient(nodeAddrs)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
-	
+
 	// Run load test
 	client.RunLoadTest(*duration, *rate)
-	
+
 	// Wait a bit for final responses
 	time.Sleep(2 * time.Second)
-	
+
 	log.Printf("Final stats - Sent: %d, Received: %d",
 		atomic.LoadUint64(&client.ordersent),
 		atomic.LoadUint64(&client.responsesRcv))

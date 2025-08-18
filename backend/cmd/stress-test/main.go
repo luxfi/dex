@@ -17,15 +17,15 @@ import (
 )
 
 type StressTest struct {
-	nc           *nats.Conn
-	js           nats.JetStreamContext
-	traders      int
-	duration     time.Duration
-	ordersCount  int64
-	errorsCount  int64
-	bytesCount   int64
-	latencies    []time.Duration
-	mu           sync.Mutex
+	nc          *nats.Conn
+	js          nats.JetStreamContext
+	traders     int
+	duration    time.Duration
+	ordersCount int64
+	errorsCount int64
+	bytesCount  int64
+	latencies   []time.Duration
+	mu          sync.Mutex
 }
 
 type Order struct {
@@ -85,7 +85,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	for {
 		msg, err := sub.NextMsg(2 * time.Second)
 		if err == nil {
@@ -108,7 +108,7 @@ func main() {
 
 	// Start traders
 	fmt.Printf("\n🚀 Starting %d concurrent traders...\n\n", *traders)
-	
+
 	var wg sync.WaitGroup
 	startTime := time.Now()
 
@@ -122,7 +122,7 @@ func main() {
 				st.runTrader(ctx, id)
 			}
 		}(i)
-		
+
 		// Stagger start slightly
 		if i%10 == 0 {
 			time.Sleep(10 * time.Millisecond)
@@ -140,7 +140,7 @@ func main() {
 func (st *StressTest) runTrader(ctx context.Context, id int) {
 	symbols := []string{"BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "MATIC-USD"}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
-	
+
 	// Rate limiting: each trader sends 100-500 orders/sec
 	rate := 100 + rng.Intn(400)
 	ticker := time.NewTicker(time.Second / time.Duration(rate))
@@ -162,7 +162,7 @@ func (st *StressTest) runTrader(ctx context.Context, id int) {
 
 			start := time.Now()
 			_, err := st.js.PublishAsync("orders."+order.Symbol, []byte(fmt.Sprintf("%+v", order)))
-			
+
 			if err != nil {
 				atomic.AddInt64(&st.errorsCount, 1)
 			} else {
@@ -177,7 +177,7 @@ func (st *StressTest) runTrader(ctx context.Context, id int) {
 func (st *StressTest) runBurstTrader(ctx context.Context, id int) {
 	symbols := []string{"BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "MATIC-USD"}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
-	
+
 	// Burst mode: send as fast as possible
 	for {
 		select {
@@ -195,7 +195,7 @@ func (st *StressTest) runBurstTrader(ctx context.Context, id int) {
 
 			start := time.Now()
 			_, err := st.js.PublishAsync("orders."+order.Symbol, []byte(fmt.Sprintf("%+v", order)))
-			
+
 			if err != nil {
 				atomic.AddInt64(&st.errorsCount, 1)
 				// Back off on errors
@@ -212,7 +212,7 @@ func (st *StressTest) runBurstTrader(ctx context.Context, id int) {
 func (st *StressTest) recordLatency(d time.Duration) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	
+
 	// Only record a sample to avoid memory issues
 	if len(st.latencies) < 1000000 {
 		st.latencies = append(st.latencies, d)
@@ -259,7 +259,7 @@ func (st *StressTest) reportStats(ctx context.Context) {
 			deltaTime := now.Sub(lastTime).Seconds()
 			ordersPerSec := float64(orders-lastOrders) / deltaTime
 			mbPerSec := float64(bytes-lastBytes) / (deltaTime * 1024 * 1024)
-			
+
 			// Calculate cumulative
 			totalTime := now.Sub(startTime).Seconds()
 			avgRate := float64(orders) / totalTime
@@ -282,7 +282,7 @@ func (st *StressTest) printFinalReport(elapsed time.Duration) {
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("📈 STRESS TEST RESULTS")
 	fmt.Println(strings.Repeat("=", 60))
-	
+
 	fmt.Printf("Duration:        %v\n", elapsed)
 	fmt.Printf("Total Orders:    %d\n", orders)
 	fmt.Printf("Total Errors:    %d (%.2f%%)\n", errors, float64(errors)/float64(orders)*100)
@@ -290,29 +290,29 @@ func (st *StressTest) printFinalReport(elapsed time.Duration) {
 	fmt.Printf("Throughput:      %.0f orders/sec\n", float64(orders)/elapsed.Seconds())
 	fmt.Printf("Data Volume:     %.2f MB\n", float64(bytes)/(1024*1024))
 	fmt.Printf("Network Rate:    %.2f MB/s\n", float64(bytes)/(elapsed.Seconds()*1024*1024))
-	
+
 	// Latency analysis
 	if len(st.latencies) > 0 {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		
+
 		// Sort latencies
 		sort.Slice(st.latencies, func(i, j int) bool {
 			return st.latencies[i] < st.latencies[j]
 		})
-		
+
 		p50 := st.latencies[len(st.latencies)*50/100]
 		p95 := st.latencies[len(st.latencies)*95/100]
 		p99 := st.latencies[len(st.latencies)*99/100]
-		
+
 		fmt.Println("\nLatency Percentiles:")
 		fmt.Printf("  P50: %v\n", p50)
 		fmt.Printf("  P95: %v\n", p95)
 		fmt.Printf("  P99: %v\n", p99)
 	}
-	
+
 	fmt.Println(strings.Repeat("=", 60))
-	
+
 	// Performance grade
 	rate := float64(orders) / elapsed.Seconds()
 	grade := "F"
@@ -328,6 +328,6 @@ func (st *StressTest) printFinalReport(elapsed time.Duration) {
 	case rate > 5000:
 		grade = "D (Below Average)"
 	}
-	
+
 	fmt.Printf("\n🏆 Performance Grade: %s\n", grade)
 }

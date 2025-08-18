@@ -41,7 +41,7 @@ typedef struct {
 void* create_matching_engine();
 void* create_matching_engine_with_backend(int backend);
 void destroy_matching_engine(void* engine);
-int match_orders(void* engine, Order* bids, int bid_count, 
+int match_orders(void* engine, Order* bids, int bid_count,
                 Order* asks, int ask_count, Trade* trades, int max_trades);
 void get_matching_stats(void* engine, MatchingStats* stats);
 const char* get_backend_name(void* engine);
@@ -109,16 +109,16 @@ func NewEngine() (*Engine, error) {
 	if handle == nil {
 		return nil, fmt.Errorf("failed to create matching engine")
 	}
-	
+
 	backend := C.GoString(C.get_backend_name(handle))
-	
+
 	engine := &Engine{
 		handle:  handle,
 		backend: backend,
 	}
-	
+
 	runtime.SetFinalizer(engine, (*Engine).Close)
-	
+
 	fmt.Printf("Matching engine initialized with backend: %s\n", backend)
 	return engine, nil
 }
@@ -129,16 +129,16 @@ func NewEngineWithBackend(backend Backend) (*Engine, error) {
 	if handle == nil {
 		return nil, fmt.Errorf("failed to create matching engine with backend %d", backend)
 	}
-	
+
 	backendName := C.GoString(C.get_backend_name(handle))
-	
+
 	engine := &Engine{
 		handle:  handle,
 		backend: backendName,
 	}
-	
+
 	runtime.SetFinalizer(engine, (*Engine).Close)
-	
+
 	fmt.Printf("Matching engine initialized with backend: %s\n", backendName)
 	return engine, nil
 }
@@ -147,15 +147,15 @@ func NewEngineWithBackend(backend Backend) (*Engine, error) {
 func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle == nil {
 		return nil, fmt.Errorf("engine is closed")
 	}
-	
+
 	if len(bids) == 0 || len(asks) == 0 {
 		return nil, nil
 	}
-	
+
 	// Convert to C structures
 	cBids := make([]C.Order, len(bids))
 	for i, bid := range bids {
@@ -169,7 +169,7 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			user_id:   C.uint16_t(bid.UserID),
 		}
 	}
-	
+
 	cAsks := make([]C.Order, len(asks))
 	for i, ask := range asks {
 		cAsks[i] = C.Order{
@@ -182,14 +182,14 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			user_id:   C.uint16_t(ask.UserID),
 		}
 	}
-	
+
 	// Allocate space for trades
 	maxTrades := len(bids) * len(asks)
 	if maxTrades > 500000 {
 		maxTrades = 500000
 	}
 	cTrades := make([]C.Trade, maxTrades)
-	
+
 	// Call matching engine
 	tradeCount := int(C.match_orders(
 		e.handle,
@@ -197,11 +197,11 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 		(*C.Order)(unsafe.Pointer(&cAsks[0])), C.int(len(asks)),
 		(*C.Trade)(unsafe.Pointer(&cTrades[0])), C.int(maxTrades),
 	))
-	
+
 	if tradeCount == 0 {
 		return nil, nil
 	}
-	
+
 	// Convert trades back to Go
 	trades := make([]Trade, tradeCount)
 	for i := 0; i < tradeCount; i++ {
@@ -214,7 +214,7 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 			Timestamp:   uint32(cTrades[i].timestamp),
 		}
 	}
-	
+
 	return trades, nil
 }
 
@@ -222,14 +222,14 @@ func (e *Engine) MatchOrders(bids, asks []Order) ([]Trade, error) {
 func (e *Engine) GetStats() (*Stats, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle == nil {
 		return nil, fmt.Errorf("engine is closed")
 	}
-	
+
 	var cStats C.MatchingStats
 	C.get_matching_stats(e.handle, &cStats)
-	
+
 	return &Stats{
 		OrdersProcessed:        uint64(cStats.orders_processed),
 		TradesExecuted:         uint64(cStats.trades_executed),
@@ -248,7 +248,7 @@ func (e *Engine) GetBackend() string {
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if e.handle != nil {
 		C.destroy_matching_engine(e.handle)
 		e.handle = nil
@@ -259,16 +259,16 @@ func (e *Engine) Close() error {
 // DetectAvailableBackends returns available backends on this system
 func DetectAvailableBackends() []string {
 	backends := []string{"CPU (Always Available)"}
-	
+
 	flags := int(C.detect_available_backends())
-	
+
 	if flags&(1<<1) != 0 {
 		backends = append(backends, "MLX (Metal GPU)")
 	}
-	
+
 	if flags&(1<<2) != 0 {
 		backends = append(backends, "CUDA GPU")
 	}
-	
+
 	return backends
 }
