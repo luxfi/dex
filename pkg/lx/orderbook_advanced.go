@@ -185,15 +185,13 @@ func (book *AdvancedOrderBook) AddOrder(order *AdvancedOrder) ([]Trade, error) {
 		return book.processMarketOrder(order)
 	case Limit:
 		return book.processLimitOrder(order)
-	case StopOrder, StopLimitOrder:
-		return book.processStopOrder(order)
-	case IcebergOrder:
+	case Stop, StopLimit:
+		return book.processStop(order)
+	case Iceberg:
 		return book.processIcebergOrder(order)
-	case HiddenOrder:
-		return book.processHiddenOrder(order)
-	case PeggedOrder:
+	case Peg:
 		return book.processPeggedOrder(order)
-	case TrailingStopOrder:
+	case Bracket:
 		return book.processTrailingStop(order)
 	default:
 		return nil, fmt.Errorf("unsupported order type: %v", order.Type)
@@ -240,7 +238,7 @@ func (book *AdvancedOrderBook) processMarketOrder(order *AdvancedOrder) ([]Trade
 
 	// Cancel any remaining market order quantity
 	if order.RemainingSize > 0 {
-		order.Status = StatusCancelled
+		order.Status = StatusCanceled
 	}
 
 	book.publishMarketData("trade", trades)
@@ -272,11 +270,11 @@ func (book *AdvancedOrderBook) processLimitOrder(order *AdvancedOrder) ([]Trade,
 
 	// Add remaining to book
 	if order.RemainingSize > 0 {
-		if order.TimeInForce == IOC {
-			order.Status = StatusCancelled
-		} else if order.TimeInForce == FOK && order.RemainingSize < order.Size {
+		if order.TimeInForce == TIF_IOC {
+			order.Status = StatusCanceled
+		} else if order.TimeInForce == TIF_FOK && order.RemainingSize < order.Size {
 			// FOK not fully filled, cancel entire order
-			order.Status = StatusCancelled
+			order.Status = StatusCanceled
 			order.RemainingSize = order.Size
 			order.ExecutedSize = 0
 			return nil, errors.New("FOK order could not be fully filled")
@@ -291,15 +289,15 @@ func (book *AdvancedOrderBook) processLimitOrder(order *AdvancedOrder) ([]Trade,
 	return trades, nil
 }
 
-// processStopOrder handles stop and stop-limit orders
-func (book *AdvancedOrderBook) processStopOrder(order *AdvancedOrder) ([]Trade, error) {
+// processStop handles stop and stop-limit orders
+func (book *AdvancedOrderBook) processStop(order *AdvancedOrder) ([]Trade, error) {
 	order.Status = StatusPending
 	book.stopOrders[order.ID] = order
 	book.orders[order.ID] = order
 
 	// Check if stop should trigger immediately
 	if book.shouldTriggerStop(order) {
-		return book.triggerStopOrder(order)
+		return book.triggerStop(order)
 	}
 
 	return nil, nil
@@ -359,8 +357,8 @@ func (book *AdvancedOrderBook) processTrailingStop(order *AdvancedOrder) ([]Trad
 		order.StopPrice = book.lastPrice + order.TrailAmount
 	}
 
-	order.Type = StopOrder
-	return book.processStopOrder(order)
+	order.Type = Stop
+	return book.processStop(order)
 }
 
 // matchOrder matches an order against the book
@@ -468,7 +466,7 @@ func (book *AdvancedOrderBook) executeTrade(taker, maker *AdvancedOrder) Trade {
 	book.trades = append(book.trades, trade)
 
 	// Check stop orders
-	book.checkStopOrders(tradePrice)
+	book.checkStops(tradePrice)
 
 	// Update trailing stops
 	book.updateTrailingStops(tradePrice)
@@ -538,14 +536,14 @@ func (book *AdvancedOrderBook) CancelOrder(orderID uint64) error {
 	if !exists {
 		// Check stop orders
 		if stopOrder, exists := book.stopOrders[orderID]; exists {
-			stopOrder.Status = StatusCancelled
+			stopOrder.Status = StatusCanceled
 			delete(book.stopOrders, orderID)
 			return nil
 		}
 		return errors.New("order not found")
 	}
 
-	order.Status = StatusCancelled
+	order.Status = StatusCanceled
 	order.UpdateTime = time.Now()
 
 	// Remove from book
@@ -637,11 +635,11 @@ func (book *AdvancedOrderBook) removeFromBook(order *AdvancedOrder) {
 	}
 }
 
-// checkStopOrders checks and triggers stop orders
-func (book *AdvancedOrderBook) checkStopOrders(lastPrice float64) {
+// checkStops checks and triggers stop orders
+func (book *AdvancedOrderBook) checkStops(lastPrice float64) {
 	for _, order := range book.stopOrders {
 		if book.shouldTriggerStop(order) {
-			book.triggerStopOrder(order)
+			book.triggerStop(order)
 		}
 	}
 }
@@ -654,11 +652,11 @@ func (book *AdvancedOrderBook) shouldTriggerStop(order *AdvancedOrder) bool {
 	return book.lastPrice <= order.StopPrice
 }
 
-// triggerStopOrder converts stop order to market/limit
-func (book *AdvancedOrderBook) triggerStopOrder(order *AdvancedOrder) ([]Trade, error) {
+// triggerStop converts stop order to market/limit
+func (book *AdvancedOrderBook) triggerStop(order *AdvancedOrder) ([]Trade, error) {
 	delete(book.stopOrders, order.ID)
 
-	if order.Type == StopOrder {
+	if order.Type == Stop {
 		order.Type = Market
 	} else {
 		order.Type = Limit
@@ -670,7 +668,7 @@ func (book *AdvancedOrderBook) triggerStopOrder(order *AdvancedOrder) ([]Trade, 
 // updateTrailingStops updates trailing stop orders
 func (book *AdvancedOrderBook) updateTrailingStops(lastPrice float64) {
 	for _, order := range book.stopOrders {
-		if order.Type != TrailingStopOrder {
+		if order.Type != Bracket {
 			continue
 		}
 
@@ -745,7 +743,7 @@ func (book *AdvancedOrderBook) validateOrder(order *AdvancedOrder) error {
 	}
 
 	// FOK validation
-	if order.TimeInForce == FOK && !book.canFillCompletely(order) {
+	if order.TimeInForce == TIF_FOK && !book.canFillCompletely(order) {
 		return errors.New("FOK order cannot be filled completely")
 	}
 
