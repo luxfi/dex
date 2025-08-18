@@ -20,15 +20,13 @@ jobs:
         go-version: "1.21"
     
     - name: Install dependencies
-      working-directory: ./backend
       run: |
         go mod download
         go mod tidy
     
     - name: Run tests
-      working-directory: ./backend
       run: |
-        go test -v -short ./pkg/lx/...
+        go test -v -race -short ./pkg/lx/...
     
   benchmark:
     name: Benchmark
@@ -43,10 +41,9 @@ jobs:
         go-version: "1.21"
     
     - name: Run benchmarks
-      working-directory: ./backend
       run: |
-        echo "Running 581M benchmark..."
-        go test -bench=Benchmark581M -benchtime=1s ./pkg/lx/... || true
+        echo "Running benchmarks..."
+        go test -bench=. -benchtime=1s ./pkg/lx/... || true
         
   build:
     name: Build
@@ -61,10 +58,12 @@ jobs:
         go-version: "1.21"
     
     - name: Build binaries
-      working-directory: ./backend
       run: |
-        echo "Building LX consensus..."
-        CGO_ENABLED=0 go build -o bin/lx-consensus ./cmd/xchain-dex/
+        echo "Building demo..."
+        CGO_ENABLED=0 go build -o bin/demo ./cmd/demo/
+        
+        echo "Building DEX server..."
+        CGO_ENABLED=0 go build -o bin/xchain-dex ./cmd/xchain-dex/
         
         echo "Building benchmark tool..."
         CGO_ENABLED=0 go build -o bin/bench-all ./cmd/bench-all/
