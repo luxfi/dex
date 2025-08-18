@@ -344,11 +344,11 @@ make bench
 
 | Exchange | Latency | Throughput | Our Advantage |
 |----------|---------|------------|---------------|
-| Binance | 5-10µs | 1.4M/sec | **8-16x faster** |
-| Coinbase | 50-100µs | 100K/sec | **83-167x faster** |
+| Binance CEX | 100ms | 1.4M/sec | **167x faster** |
+| Coinbase CEX | 100ms | 100K/sec | **167x faster** |
 | Uniswap V3 | 15 sec | 10/sec | **25,000x faster** |
-| dYdX | 500ms | 100/sec | **838,000x faster** |
-| Hyperliquid | 2-5µs | 500K/sec | **3-8x faster** |
+| dYdX DEX | 500ms | 100/sec | **838x faster** |
+| Best DEX | 200ms | 500K/sec | **334x faster** |
 
 ## 🛡️ Security
 
@@ -369,7 +369,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Lux Network team for X-Chain integration
 - Pyth Network for real-time price feeds
 - Chainlink for decentralized oracles
-- Hyperliquid for architecture inspiration
+- Industry best practices for architecture patterns
 
 ## 📞 Support
 

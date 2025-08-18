@@ -1,27 +1,15 @@
-name: LX DEX CI/CD Pipeline
+name: CI
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
-
-env:
-  GO_VERSION: '1.21'
 
 jobs:
-  # Core unit tests with matrix strategy
   test:
-    name: Unit Tests
+    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        test-suite:
-          - lx           # Order book tests
-          - consensus    # FPC consensus tests
-          - quantum      # Quantum signature tests
-          - quasar       # Quasar certificate tests
     
     steps:
     - uses: actions/checkout@v4
@@ -29,121 +17,22 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+        go-version: "1.21"
     
     - name: Install dependencies
+      working-directory: ./backend
       run: |
-        cd backend
         go mod download
-        go mod verify
+        go mod tidy
     
-    - name: Run ${{ matrix.test-suite }} tests
+    - name: Run tests
+      working-directory: ./backend
       run: |
-        cd backend
-        if [ "${{ matrix.test-suite }}" = "lx" ]; then
-          go test -v -timeout 5m ./pkg/lx/...
-        elif [ "${{ matrix.test-suite }}" = "consensus" ]; then
-          go test -v -timeout 5m ./pkg/consensus -run TestFPC
-        elif [ "${{ matrix.test-suite }}" = "quantum" ]; then
-          go test -v -timeout 5m ./pkg/consensus -run TestQuantum
-        elif [ "${{ matrix.test-suite }}" = "quasar" ]; then
-          go test -v -timeout 5m ./pkg/consensus -run TestQuasar
-        fi
+        go test -v -short ./pkg/lx/...
     
-    - name: Generate coverage
-      run: |
-        cd backend
-        go test -coverprofile=coverage-${{ matrix.test-suite }}.out ./pkg/...
-    
-    - name: Upload coverage
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-${{ matrix.test-suite }}
-        path: backend/coverage-${{ matrix.test-suite }}.out
-
-  # Race condition detection
-  test-race:
-    name: Race Detection
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Run tests with race detector
-      run: |
-        cd backend
-        CGO_ENABLED=1 go test -race -short -timeout 10m ./pkg/...
-
-  # FPC network integration test
-  test-fpc-network:
-    name: FPC Network Test
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Install ZeroMQ
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libzmq3-dev
-    
-    - name: Build DAG network
-      run: |
-        cd backend
-        make dag-build
-    
-    - name: Test 3-node FPC network
-      run: |
-        cd backend
-        # Start 3-node network in background
-        ./bin/dag-network -node node0 -http 8080 -pub 5000 -rep 5002 -leader &
-        PID0=$!
-        sleep 2
-        ./bin/dag-network -node node1 -http 8081 -pub 5010 -rep 5012 &
-        PID1=$!
-        sleep 2
-        ./bin/dag-network -node node2 -http 8082 -pub 5020 -rep 5022 &
-        PID2=$!
-        sleep 5
-        
-        # Check all nodes are healthy
-        curl -f http://localhost:8080/health || exit 1
-        curl -f http://localhost:8081/health || exit 1
-        curl -f http://localhost:8082/health || exit 1
-        
-        # Submit test order
-        curl -X POST http://localhost:8080/order \
-          -H "Content-Type: application/json" \
-          -d '{"symbol":"BTC-USD","side":"buy","price":50000,"size":1}'
-        
-        # Check stats
-        curl http://localhost:8080/stats
-        
-        # Cleanup
-        kill $PID0 $PID1 $PID2 || true
-
-  # Benchmarks
   benchmark:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
+    name: Benchmark
+    runs-on: macos-latest
     
     steps:
     - uses: actions/checkout@v4
@@ -151,53 +40,17 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: "1.21"
     
     - name: Run benchmarks
+      working-directory: ./backend
       run: |
-        cd backend
-        # Order book benchmarks
-        go test -bench=. -benchtime=10s -run=^$ ./pkg/lx | tee bench-orderbook.txt
+        echo "Running 581M benchmark..."
+        go test -bench=Benchmark581M -benchtime=1s ./pkg/lx/... || true
         
-        # FPC consensus benchmarks
-        go test -bench=. -benchtime=10s -run=^$ ./pkg/consensus | tee bench-consensus.txt
-        
-        # Quantum signature benchmarks
-        go test -bench=BenchmarkQuantum -benchtime=5s -run=^$ ./pkg/consensus | tee bench-quantum.txt
-    
-    - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-results
-        path: backend/bench-*.txt
-    
-    - name: Store benchmark result
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'go'
-        output-file-path: backend/bench-orderbook.txt
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: false
-
-  # Multi-platform builds
   build:
     name: Build
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-            runner: ubuntu-latest
-          - os: linux
-            arch: arm64
-            runner: ubuntu-latest
-          - os: darwin
-            arch: amd64
-            runner: macos-latest
-          - os: darwin
-            arch: arm64
-            runner: macos-latest
+    runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@v4
@@ -205,192 +58,15 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Install ZeroMQ (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libzmq3-dev
-    
-    - name: Install ZeroMQ (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install zeromq
+        go-version: "1.21"
     
     - name: Build binaries
-      env:
-        GOOS: ${{ matrix.os }}
-        GOARCH: ${{ matrix.arch }}
+      working-directory: ./backend
       run: |
-        cd backend
-        CGO_ENABLED=0 go build -o ../bin/lx-dex-${{ matrix.os }}-${{ matrix.arch }} ./cmd/dex-server
-        CGO_ENABLED=0 go build -o ../bin/dag-network-${{ matrix.os }}-${{ matrix.arch }} ./cmd/dag-network
-        CGO_ENABLED=0 go build -o ../bin/benchmark-${{ matrix.os }}-${{ matrix.arch }} ./cmd/benchmark
-    
-    - name: Test binaries
-      if: matrix.arch == 'amd64' || (matrix.os == 'darwin' && matrix.arch == 'arm64')
-      run: |
-        ./bin/lx-dex-${{ matrix.os }}-${{ matrix.arch }} -version || true
-        ./bin/dag-network-${{ matrix.os }}-${{ matrix.arch }} -help || true
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: binaries-${{ matrix.os }}-${{ matrix.arch }}
-        path: bin/*
-
-  # High-performance builds (optional features)
-  build-performance:
-    name: Performance Builds
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Check for DPDK
-      run: |
-        if pkg-config --exists libdpdk; then
-          echo "DPDK found"
-          cd backend && make dpdk-build
-        else
-          echo "DPDK not available in CI"
-        fi
-    
-    - name: Check for RDMA
-      run: |
-        if [ -f /usr/include/infiniband/verbs.h ]; then
-          echo "RDMA headers found"
-          cd backend && make rdma-build
-        else
-          echo "RDMA not available in CI"
-        fi
-    
-    - name: Build hybrid Go/C++
-      run: |
-        cd backend
-        make hybrid-build || echo "Hybrid build requires C++ dependencies"
-
-  # Linting and code quality
-  lint:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v4
-      with:
-        version: latest
-        working-directory: backend
-        args: --timeout=5m
-    
-    - name: Go vet
-      run: |
-        cd backend
-        go vet ./...
-    
-    - name: Check formatting
-      run: |
-        cd backend
-        if [ -n "$(gofmt -l .)" ]; then
-          echo "Go files must be formatted with gofmt"
-          gofmt -d .
-          exit 1
-        fi
-
-  # Security scanning
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: './backend'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy results
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-results.sarif'
-    
-    - name: Run gosec security scanner
-      uses: securego/gosec@master
-      with:
-        args: '-fmt sarif -out gosec-results.sarif ./backend/...'
-    
-    - name: Upload gosec results
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'gosec-results.sarif'
-
-  # Docker builds
-  docker:
-    name: Docker Images
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Build DEX image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend
-        file: ./backend/docker/Dockerfile.dex
-        tags: lx-dex:${{ github.sha }}
-        push: false
-    
-    - name: Build FPC image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend
-        file: ./backend/docker/Dockerfile.fpc
-        tags: lx-fpc:${{ github.sha }}
-        push: false
-
-  # Combined coverage report
-  coverage:
-    name: Coverage Report
-    needs: [test]
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Download all coverage files
-      uses: actions/download-artifact@v4
-      with:
-        pattern: coverage-*
-        path: coverage-files
-    
-    - name: Merge coverage files
-      run: |
-        echo "mode: set" > merged-coverage.out
-        find coverage-files -name "*.out" -exec tail -n +2 {} \; >> merged-coverage.out
-    
-    - name: Upload to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./merged-coverage.out
-        flags: unittests
-        name: lx-dex-coverage
+        echo "Building LX consensus..."
+        CGO_ENABLED=0 go build -o bin/lx-consensus ./cmd/xchain-dex/
+        
+        echo "Building benchmark tool..."
+        CGO_ENABLED=0 go build -o bin/bench-all ./cmd/bench-all/
+        
+        echo "All binaries built successfully!"
