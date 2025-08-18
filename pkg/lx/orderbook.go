@@ -293,8 +293,8 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 	}
 
 	// Get write lock for modifications
-	ob.writeLock.Lock()
-	defer ob.writeLock.Unlock()
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
 
 	// Check self-trade prevention - check both User and UserID fields
 	userIdentifier := order.User
@@ -380,10 +380,7 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		})
 	}
 
-	// Return order ID for compatibility
-	if numTrades == 0 && order.ID > 0 {
-		return order.ID
-	}
+	// Always return number of trades
 	return numTrades
 }
 
@@ -707,8 +704,8 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 
 // processMarketOrderOptimized handles market orders
 func (ob *OrderBook) processMarketOrderOptimized(order *Order) uint64 {
-	ob.writeLock.Lock()
-	defer ob.writeLock.Unlock()
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
 
 	order.RemainingSize = order.Size
 	return ob.tryMatchImmediateLocked(order)
