@@ -96,7 +96,7 @@ func BenchmarkMLXMatching(b *testing.B) {
 	}
 }
 
-func ExampleMLXInfo() {
+func ExampleGetMLXInfo() {
 	info := GetMLXInfo()
 	fmt.Println(info)
 	// Output will vary based on hardware:

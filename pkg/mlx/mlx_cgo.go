@@ -8,8 +8,53 @@ package mlx
 // #cgo linux LDFLAGS: -lcudart -lcuda
 // #cgo LDFLAGS: -L../../bridge -lmlx_engine -lstdc++
 /*
-#include "mlx_engine.h"
-#include <stdlib.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stddef.h>
+
+// Backend types
+enum Backend {
+    BACKEND_CPU,
+    BACKEND_METAL,
+    BACKEND_CUDA
+};
+
+// Order structure for C side
+typedef struct {
+    uint64_t id;
+    double price;
+    double size;
+    int side;
+} MLXOrder;
+
+// Trade result
+typedef struct {
+    uint64_t buy_order_id;
+    uint64_t sell_order_id;
+    double price;
+    double size;
+} MLXTrade;
+
+// C interface functions
+void* mlx_engine_create();
+void mlx_engine_destroy(void* engine);
+int mlx_engine_get_backend(void* engine);
+const char* mlx_engine_get_device_name(void* engine);
+int mlx_engine_is_gpu_available(void* engine);
+double mlx_engine_benchmark(void* engine, int num_orders);
+int mlx_engine_match_orders(
+    void* engine,
+    MLXOrder* bids, int num_bids,
+    MLXOrder* asks, int num_asks,
+    MLXTrade* trades, int max_trades
+);
+
+#ifdef __cplusplus
+}
+#endif
 */
 import "C"
 import (
