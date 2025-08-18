@@ -574,15 +574,15 @@ func calculateTotalValue(trades []*Trade) *big.Int {
 func extractParticipants(trades []*Trade) map[string]*SettlementParticipant {
 	participants := make(map[string]*SettlementParticipant)
 	for _, trade := range trades {
-		if _, exists := participants[trade.BuyUserID]; !exists {
-			participants[trade.BuyUserID] = &SettlementParticipant{
-				Address: trade.BuyUserID,
+		if _, exists := participants[trade.Buyer]; !exists {
+			participants[trade.Buyer] = &SettlementParticipant{
+				Address: trade.Buyer,
 				Role:    "buyer",
 			}
 		}
-		if _, exists := participants[trade.SellUserID]; !exists {
-			participants[trade.SellUserID] = &SettlementParticipant{
-				Address: trade.SellUserID,
+		if _, exists := participants[trade.Seller]; !exists {
+			participants[trade.Seller] = &SettlementParticipant{
+				Address: trade.Seller,
 				Role:    "seller",
 			}
 		}

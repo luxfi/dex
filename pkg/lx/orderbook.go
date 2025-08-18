@@ -369,12 +369,14 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		// Publish market data update
 		ob.publishUpdate(MarketDataUpdate{
 			Type:      OrderAdded,
-			OrderID:   order.ID,
 			Symbol:    ob.Symbol,
-			Price:     order.Price,
-			Size:      order.Size,
-			Side:      order.Side,
 			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"order_id": order.ID,
+				"price":    order.Price,
+				"size":     order.Size,
+				"side":     order.Side,
+			},
 		})
 	}
 
@@ -663,13 +665,11 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 
 		// Update orders
 		order.RemainingSize -= tradeSize
-		order.ExecutedSize += tradeSize
 		order.Filled += tradeSize
 
 		if bestOrder.RemainingSize > 0 {
 			bestOrder.RemainingSize -= tradeSize
 		}
-		bestOrder.ExecutedSize += tradeSize
 		bestOrder.Filled += tradeSize
 
 		// Handle order status
@@ -771,13 +771,13 @@ func (ob *OrderBook) MatchOrders() []Trade {
 			takerSide = Buy
 		}
 
-		// Calculate fees
-		var fee float64
-		if takerSide == Buy {
-			fee = tradeSize * tradePrice * 0.0002
-		} else {
-			fee = tradeSize * tradePrice * 0.0002
-		}
+		// Calculate fees (currently unused)
+		// var fee float64
+		// if takerSide == Buy {
+		// 	fee = tradeSize * tradePrice * 0.0002
+		// } else {
+		// 	fee = tradeSize * tradePrice * 0.0002
+		// }
 
 		// Create trade
 		ob.LastTradeID++
@@ -785,12 +785,11 @@ func (ob *OrderBook) MatchOrders() []Trade {
 			ID:        ob.LastTradeID,
 			Price:     tradePrice,
 			Size:      tradeSize,
-			BuyOrder:  bestBid,
-			SellOrder: bestAsk,
+			BuyOrder:  bestBid.ID,
+			SellOrder: bestAsk.ID,
 			Timestamp: time.Now(),
 			TakerSide: takerSide,
-			MatchType: "partial",
-			Fee:       fee,
+			MatchType: "normal",
 		}
 
 		// Update orders
@@ -902,7 +901,7 @@ func (ob *OrderBook) wouldTakeLiquidity(order *Order) bool {
 }
 
 func (ob *OrderBook) cancelOrderInternal(order *Order) {
-	order.Status = Cancelled
+	order.Status = Canceled
 	if order.Side == Buy {
 		ob.Bids.removeOrder(order)
 	} else {
@@ -1004,10 +1003,11 @@ func (ob *OrderBook) GetDepth(levels int) *OrderBookDepth {
 	defer ob.mu.RUnlock()
 
 	return &OrderBookDepth{
-		Bids:         ob.Bids.getLevels(levels),
-		Asks:         ob.Asks.getLevels(levels),
-		LastUpdateID: atomic.LoadUint64(&ob.LastOrderID),
-		Timestamp:    time.Now(),
+		Bids:      ob.Bids.getLevels(levels),
+		Asks:      ob.Asks.getLevels(levels),
+		Sequence:  atomic.LoadUint64(&ob.LastOrderID),
+		Timestamp: time.Now(),
+		Symbol:    ob.Symbol,
 	}
 }
 
@@ -1046,9 +1046,9 @@ func (tree *OrderTree) getLevels(depth int) []PriceLevel {
 		priceInt := PriceInt(price * PriceMultiplier)
 		if level, exists := tree.priceLevels[priceInt]; exists {
 			levels = append(levels, PriceLevel{
-				Price:      level.Price,
-				TotalSize:  level.TotalSize,
-				OrderCount: level.OrderCount,
+				Price: level.Price,
+				Size:  level.TotalSize,
+				Count: level.OrderCount,
 			})
 		}
 	}
