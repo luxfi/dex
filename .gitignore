@@ -65,7 +65,7 @@ data/
 *.cer
 
 # Go
-go.sum
+# go.sum - needed for CI, don't ignore
 
 # Rust
 Cargo.lock
