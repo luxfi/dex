@@ -2,7 +2,6 @@
 package lxsdk
 
 import (
-    "context"
     "fmt"
     "sync"
     "sync/atomic"
@@ -256,7 +255,7 @@ func (c *Client) sendFIXMessage(msg string) error {
 
 func (c *Client) processBatch(orders []*Order) error {
     // Batch processing implementation
-    for _, order := range orders {
+    for range orders {
         c.ordersSent.Add(1)
     }
     return nil
