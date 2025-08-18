@@ -107,23 +107,23 @@ func main() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		lastOrders := int64(0)
-		
+
 		for range ticker.C {
 			orders := atomic.LoadInt64(&trader.orders)
 			errors := atomic.LoadInt64(&trader.errors)
 			delta := orders - lastOrders
-			log.Printf("📊 Orders: %d | Rate: %d/sec | Errors: %d", 
+			log.Printf("📊 Orders: %d | Rate: %d/sec | Errors: %d",
 				orders, delta, errors)
 			lastOrders = orders
 		}
 	}()
 
 	wg.Wait()
-	
+
 	// Final stats
 	elapsed := time.Since(startTime).Seconds()
 	finalOrders := atomic.LoadInt64(&trader.orders)
-	log.Printf("✅ Complete: %d orders in %.1fs = %.0f orders/sec", 
+	log.Printf("✅ Complete: %d orders in %.1fs = %.0f orders/sec",
 		finalOrders, elapsed, float64(finalOrders)/elapsed)
 }
 
@@ -131,19 +131,19 @@ func (t *DexTrader) runTrader(tid int, rate int, duration time.Duration) {
 	orderID := uint64(tid * 1000000)
 	endTime := time.Now().Add(duration)
 	sleepNs := time.Duration(1000000000 / rate)
-	
+
 	for time.Now().Before(endTime) {
 		orderID++
-		
+
 		order := fmt.Sprintf(`{"id":%d,"symbol":"BTC/USD","side":"buy","price":50000,"qty":1}`, orderID)
-		
+
 		msg, err := t.nc.Request("dex.orders", []byte(order), 100*time.Millisecond)
 		if err != nil {
 			atomic.AddInt64(&t.errors, 1)
 		} else if msg != nil {
 			atomic.AddInt64(&t.orders, 1)
 		}
-		
+
 		if rate < 10000 {
 			time.Sleep(sleepNs)
 		}
@@ -156,7 +156,7 @@ func discoverNATS() string {
 		"nats://127.0.0.1:4222",
 		"nats://nats:4222",
 	}
-	
+
 	for _, loc := range locations {
 		nc, err := nats.Connect(loc, nats.Timeout(1*time.Second))
 		if err == nil {
@@ -165,7 +165,7 @@ func discoverNATS() string {
 			return loc
 		}
 	}
-	
+
 	return nats.DefaultURL
 }
 
@@ -189,13 +189,13 @@ func runAutoScale(natsURL string, maxTraders int, targetRate int, maxDuration ti
 	currentTraders := 1
 	bestTraders := 1
 	bestRate := float64(0)
-	
+
 	for currentTraders <= maxTraders {
 		log.Printf("\n🧪 Testing with %d traders...", currentTraders)
-		
+
 		rate := testConfiguration(nc, currentTraders, targetRate, 10*time.Second)
 		log.Printf("📈 Rate: %.0f orders/sec", rate)
-		
+
 		if rate > bestRate {
 			bestRate = rate
 			bestTraders = currentTraders
@@ -204,21 +204,21 @@ func runAutoScale(natsURL string, maxTraders int, targetRate int, maxDuration ti
 			log.Printf("📉 Performance degraded, stopping")
 			break
 		}
-		
+
 		// Scale up
 		if currentTraders < 10 {
 			currentTraders *= 2
 		} else {
 			currentTraders += 10
 		}
-		
+
 		if currentTraders > maxTraders {
 			break
 		}
 	}
-	
+
 	log.Printf("\n🏆 OPTIMAL: %d traders = %.0f orders/sec", bestTraders, bestRate)
-	
+
 	// Run optimal configuration
 	log.Printf("🚀 Running optimal configuration for %v...", maxDuration)
 	testConfiguration(nc, bestTraders, targetRate, maxDuration)
@@ -226,7 +226,7 @@ func runAutoScale(natsURL string, maxTraders int, targetRate int, maxDuration ti
 
 func waitForServer(nc *nats.Conn) {
 	serverFound := false
-	
+
 	nc.Subscribe("dex.announce", func(m *nats.Msg) {
 		var ann struct {
 			Type string `json:"type"`
@@ -247,25 +247,25 @@ func waitForServer(nc *nats.Conn) {
 			return
 		}
 	}
-	
+
 	log.Println("⚠️ No server found, continuing...")
 }
 
 func testConfiguration(nc *nats.Conn, numTraders int, targetRate int, duration time.Duration) float64 {
 	var orders int64
 	var wg sync.WaitGroup
-	
+
 	start := time.Now()
 	ctx := make(chan bool)
-	
+
 	for i := 0; i < numTraders; i++ {
 		wg.Add(1)
 		go func(tid int) {
 			defer wg.Done()
-			
+
 			sleepDuration := time.Second / time.Duration(targetRate)
 			orderID := uint64(tid * 1000000)
-			
+
 			for {
 				select {
 				case <-ctx:
@@ -273,11 +273,11 @@ func testConfiguration(nc *nats.Conn, numTraders int, targetRate int, duration t
 				default:
 					orderID++
 					order := fmt.Sprintf(`{"id":%d,"symbol":"BTC/USD","side":"buy","price":50000,"qty":1}`, orderID)
-					
+
 					if _, err := nc.Request("dex.orders", []byte(order), 10*time.Millisecond); err == nil {
 						atomic.AddInt64(&orders, 1)
 					}
-					
+
 					if targetRate > 0 && targetRate < 100000 {
 						time.Sleep(sleepDuration)
 					}
@@ -285,13 +285,13 @@ func testConfiguration(nc *nats.Conn, numTraders int, targetRate int, duration t
 			}
 		}(i)
 	}
-	
+
 	time.Sleep(duration)
 	close(ctx)
 	wg.Wait()
-	
+
 	elapsed := time.Since(start).Seconds()
 	finalOrders := atomic.LoadInt64(&orders)
-	
+
 	return float64(finalOrders) / elapsed
 }

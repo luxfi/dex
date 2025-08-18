@@ -43,7 +43,7 @@ type MarginAccount struct {
 type MarginAccountType int
 
 const (
-	CrossMargin    MarginAccountType = iota // Share margin across all positions
+	CrossMargin     MarginAccountType = iota // Share margin across all positions
 	IsolatedMargin                           // Separate margin for each position
 	PortfolioMargin                          // Advanced risk-based margining
 )
@@ -75,25 +75,25 @@ type MarginPosition struct {
 
 // CollateralAsset represents an asset used as collateral
 type CollateralAsset struct {
-	Asset         string
-	Amount        *big.Int
-	ValueUSD      *big.Int
-	Haircut       float64 // Discount applied to collateral value
-	LoanToValue   float64 // Maximum borrowing against this collateral
-	Locked        *big.Int
-	Available     *big.Int
-	LastUpdate    time.Time
+	Asset       string
+	Amount      *big.Int
+	ValueUSD    *big.Int
+	Haircut     float64 // Discount applied to collateral value
+	LoanToValue float64 // Maximum borrowing against this collateral
+	Locked      *big.Int
+	Available   *big.Int
+	LastUpdate  time.Time
 }
 
 // BorrowedAsset represents a borrowed asset
 type BorrowedAsset struct {
-	Asset          string
-	Amount         *big.Int
-	ValueUSD       *big.Int
-	InterestRate   float64 // Annual interest rate
+	Asset           string
+	Amount          *big.Int
+	ValueUSD        *big.Int
+	InterestRate    float64 // Annual interest rate
 	AccruedInterest *big.Int
-	BorrowTime     time.Time
-	LastUpdate     time.Time
+	BorrowTime      time.Time
+	LastUpdate      time.Time
 }
 
 // MarginEngine manages all margin trading operations
@@ -135,18 +135,18 @@ func NewMarginEngine(oracle *PriceOracle, riskEngine *RiskEngine) *MarginEngine 
 func (me *MarginEngine) CreateMarginAccount(userID string, accountType MarginAccountType) (*MarginAccount, error) {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	if _, exists := me.Accounts[userID]; exists {
 		return nil, errors.New("account already exists")
 	}
-	
+
 	maxLeverage := 10.0 // Default max leverage
 	if accountType == IsolatedMargin {
 		maxLeverage = 20.0
 	} else if accountType == PortfolioMargin {
 		maxLeverage = 100.0
 	}
-	
+
 	account := &MarginAccount{
 		UserID:              userID,
 		AccountType:         accountType,
@@ -171,7 +171,7 @@ func (me *MarginEngine) CreateMarginAccount(userID string, accountType MarginAcc
 		PortfolioMarginMode: accountType == PortfolioMargin,
 		LastUpdate:          time.Now(),
 	}
-	
+
 	me.Accounts[userID] = account
 	return account, nil
 }
@@ -180,7 +180,7 @@ func (me *MarginEngine) CreateMarginAccount(userID string, accountType MarginAcc
 func (me *MarginEngine) GetAccount(userID string) *MarginAccount {
 	me.mu.RLock()
 	defer me.mu.RUnlock()
-	
+
 	return me.Accounts[userID]
 }
 
@@ -188,12 +188,12 @@ func (me *MarginEngine) GetAccount(userID string) *MarginAccount {
 func (me *MarginEngine) DepositCollateral(userID, asset string, amount *big.Int) error {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	account, exists := me.Accounts[userID]
 	if !exists {
 		return errors.New("account not found")
 	}
-	
+
 	collateral, exists := account.CollateralAssets[asset]
 	if !exists {
 		collateral = &CollateralAsset{
@@ -207,24 +207,24 @@ func (me *MarginEngine) DepositCollateral(userID, asset string, amount *big.Int)
 		}
 		account.CollateralAssets[asset] = collateral
 	}
-	
+
 	// Update collateral
 	collateral.Amount.Add(collateral.Amount, amount)
 	collateral.Available.Add(collateral.Available, amount)
-	
+
 	// Update collateral value
 	price := me.Oracle.GetPrice(asset)
 	collateral.ValueUSD = new(big.Int).Mul(collateral.Amount, big.NewInt(int64(price)))
-	
+
 	// Update total collateral
 	if me.TotalCollateral[asset] == nil {
 		me.TotalCollateral[asset] = big.NewInt(0)
 	}
 	me.TotalCollateral[asset].Add(me.TotalCollateral[asset], amount)
-	
+
 	// Recalculate account metrics
 	me.updateAccountMetrics(account)
-	
+
 	return nil
 }
 
@@ -232,55 +232,55 @@ func (me *MarginEngine) DepositCollateral(userID, asset string, amount *big.Int)
 func (me *MarginEngine) OpenPosition(userID string, order *Order, leverage float64) (*MarginPosition, error) {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	account, exists := me.Accounts[userID]
 	if !exists {
 		return nil, errors.New("account not found")
 	}
-	
+
 	// Check leverage limits
 	maxLeverage := me.getMaxLeverage(order.Symbol, account.AccountType)
 	if leverage > maxLeverage {
 		return nil, fmt.Errorf("leverage exceeds maximum: %f > %f", leverage, maxLeverage)
 	}
-	
+
 	// Calculate required margin
 	positionValue := order.Price * order.Size
 	requiredMargin := big.NewInt(int64(positionValue / leverage))
-	
+
 	// Check available margin
 	if account.FreeMargin.Cmp(requiredMargin) < 0 {
 		return nil, errors.New("insufficient margin")
 	}
-	
+
 	// Create position
 	position := &MarginPosition{
-		ID:               generatePositionID(),
-		Symbol:           order.Symbol,
-		Side:             order.Side,
-		Size:             order.Size,
-		EntryPrice:       order.Price,
-		MarkPrice:        order.Price,
-		Leverage:         leverage,
-		Margin:           requiredMargin,
-		UnrealizedPnL:    big.NewInt(0),
-		RealizedPnL:      big.NewInt(0),
-		Fees:             big.NewInt(0),
-		OpenTime:         time.Now(),
-		LastUpdate:       time.Now(),
-		Isolated:         account.AccountType == IsolatedMargin,
-		CollateralAsset:  "USDT", // Default collateral
-		FundingPaid:      big.NewInt(0),
+		ID:              generatePositionID(),
+		Symbol:          order.Symbol,
+		Side:            order.Side,
+		Size:            order.Size,
+		EntryPrice:      order.Price,
+		MarkPrice:       order.Price,
+		Leverage:        leverage,
+		Margin:          requiredMargin,
+		UnrealizedPnL:   big.NewInt(0),
+		RealizedPnL:     big.NewInt(0),
+		Fees:            big.NewInt(0),
+		OpenTime:        time.Now(),
+		LastUpdate:      time.Now(),
+		Isolated:        account.AccountType == IsolatedMargin,
+		CollateralAsset: "USDT", // Default collateral
+		FundingPaid:     big.NewInt(0),
 	}
-	
+
 	// Calculate liquidation price
 	position.LiquidationPrice = me.calculateLiquidationPrice(position, account)
-	
+
 	// Update account
 	account.Positions[position.ID] = position
 	account.MarginUsed.Add(account.MarginUsed, requiredMargin)
 	account.FreeMargin.Sub(account.FreeMargin, requiredMargin)
-	
+
 	// If borrowing is needed
 	borrowAmount := new(big.Int).Sub(big.NewInt(int64(positionValue)), requiredMargin)
 	if borrowAmount.Cmp(big.NewInt(0)) > 0 {
@@ -288,10 +288,10 @@ func (me *MarginEngine) OpenPosition(userID string, order *Order, leverage float
 			return nil, err
 		}
 	}
-	
+
 	// Update metrics
 	me.updateAccountMetrics(account)
-	
+
 	return position, nil
 }
 
@@ -299,21 +299,21 @@ func (me *MarginEngine) OpenPosition(userID string, order *Order, leverage float
 func (me *MarginEngine) ClosePosition(userID, positionID string, size float64) error {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	account, exists := me.Accounts[userID]
 	if !exists {
 		return errors.New("account not found")
 	}
-	
+
 	position, exists := account.Positions[positionID]
 	if !exists {
 		return errors.New("position not found")
 	}
-	
+
 	// Partial or full close
 	closeSize := math.Min(size, position.Size)
 	closeRatio := closeSize / position.Size
-	
+
 	// Calculate PnL
 	currentPrice := me.Oracle.GetPrice(position.Symbol)
 	var pnl float64
@@ -322,25 +322,25 @@ func (me *MarginEngine) ClosePosition(userID, positionID string, size float64) e
 	} else {
 		pnl = (position.EntryPrice - currentPrice) * closeSize
 	}
-	
+
 	pnlBig := big.NewInt(int64(pnl))
 	position.RealizedPnL.Add(position.RealizedPnL, pnlBig)
 	account.RealizedPnL.Add(account.RealizedPnL, pnlBig)
-	
+
 	// Release margin
 	marginToRelease := new(big.Int).Mul(position.Margin, big.NewInt(int64(closeRatio*100)))
 	marginToRelease.Div(marginToRelease, big.NewInt(100))
-	
+
 	account.MarginUsed.Sub(account.MarginUsed, marginToRelease)
 	account.FreeMargin.Add(account.FreeMargin, marginToRelease)
-	
+
 	// Repay borrowed amounts if any
 	if borrowed, exists := account.BorrowedAmounts[position.Symbol]; exists {
 		repayAmount := new(big.Int).Mul(borrowed.Amount, big.NewInt(int64(closeRatio*100)))
 		repayAmount.Div(repayAmount, big.NewInt(100))
 		me.repayBorrowed(account, position.Symbol, repayAmount)
 	}
-	
+
 	// Update or remove position
 	if closeSize >= position.Size {
 		delete(account.Positions, positionID)
@@ -349,13 +349,13 @@ func (me *MarginEngine) ClosePosition(userID, positionID string, size float64) e
 		position.Margin.Sub(position.Margin, marginToRelease)
 		position.LastUpdate = time.Now()
 	}
-	
+
 	// Update account equity
 	account.Equity.Add(account.Balance, pnlBig)
-	
+
 	// Update metrics
 	me.updateAccountMetrics(account)
-	
+
 	return nil
 }
 
@@ -363,28 +363,28 @@ func (me *MarginEngine) ClosePosition(userID, positionID string, size float64) e
 func (me *MarginEngine) ModifyLeverage(userID, positionID string, newLeverage float64) error {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	account, exists := me.Accounts[userID]
 	if !exists {
 		return errors.New("account not found")
 	}
-	
+
 	position, exists := account.Positions[positionID]
 	if !exists {
 		return errors.New("position not found")
 	}
-	
+
 	// Check new leverage limits
 	maxLeverage := me.getMaxLeverage(position.Symbol, account.AccountType)
 	if newLeverage > maxLeverage {
 		return fmt.Errorf("leverage exceeds maximum: %f", maxLeverage)
 	}
-	
+
 	// Calculate new margin requirement
 	positionValue := position.EntryPrice * position.Size
 	newMargin := big.NewInt(int64(positionValue / newLeverage))
 	marginDelta := new(big.Int).Sub(newMargin, position.Margin)
-	
+
 	// Check if we need more margin
 	if marginDelta.Cmp(big.NewInt(0)) > 0 {
 		if account.FreeMargin.Cmp(marginDelta) < 0 {
@@ -398,16 +398,16 @@ func (me *MarginEngine) ModifyLeverage(userID, positionID string, newLeverage fl
 		account.FreeMargin.Add(account.FreeMargin, marginDelta)
 		account.MarginUsed.Sub(account.MarginUsed, marginDelta)
 	}
-	
+
 	// Update position
 	position.Leverage = newLeverage
 	position.Margin = newMargin
 	position.LiquidationPrice = me.calculateLiquidationPrice(position, account)
 	position.LastUpdate = time.Now()
-	
+
 	// Update metrics
 	me.updateAccountMetrics(account)
-	
+
 	return nil
 }
 
@@ -417,7 +417,7 @@ func (me *MarginEngine) calculateLiquidationPrice(position *MarginPosition, acco
 	if maintenanceMarginRate == 0 {
 		maintenanceMarginRate = 0.05 // Default 5%
 	}
-	
+
 	if position.Side == Buy {
 		// Long position: Price at which losses equal available margin
 		return position.EntryPrice * (1 - 1/position.Leverage + maintenanceMarginRate)
@@ -431,7 +431,7 @@ func (me *MarginEngine) calculateLiquidationPrice(position *MarginPosition, acco
 func (me *MarginEngine) updateAccountMetrics(account *MarginAccount) {
 	account.mu.Lock()
 	defer account.mu.Unlock()
-	
+
 	// Calculate total collateral value
 	totalCollateralValue := big.NewInt(0)
 	for _, collateral := range account.CollateralAssets {
@@ -441,7 +441,7 @@ func (me *MarginEngine) updateAccountMetrics(account *MarginAccount) {
 		adjustedValueInt, _ := adjustedValue.Int(nil)
 		totalCollateralValue.Add(totalCollateralValue, adjustedValueInt)
 	}
-	
+
 	// Calculate unrealized PnL
 	totalUnrealizedPnL := big.NewInt(0)
 	for _, position := range account.Positions {
@@ -456,10 +456,10 @@ func (me *MarginEngine) updateAccountMetrics(account *MarginAccount) {
 		totalUnrealizedPnL.Add(totalUnrealizedPnL, position.UnrealizedPnL)
 	}
 	account.UnrealizedPnL = totalUnrealizedPnL
-	
+
 	// Calculate equity
 	account.Equity = new(big.Int).Add(totalCollateralValue, totalUnrealizedPnL)
-	
+
 	// Calculate margin level
 	if account.MarginUsed.Cmp(big.NewInt(0)) > 0 {
 		equityFloat := new(big.Float).SetInt(account.Equity)
@@ -470,21 +470,21 @@ func (me *MarginEngine) updateAccountMetrics(account *MarginAccount) {
 	} else {
 		account.MarginLevel = 0
 	}
-	
+
 	// Calculate current leverage
 	totalPositionValue := big.NewInt(0)
 	for _, position := range account.Positions {
 		posValue := big.NewInt(int64(position.EntryPrice * position.Size))
 		totalPositionValue.Add(totalPositionValue, posValue)
 	}
-	
+
 	if account.Equity.Cmp(big.NewInt(0)) > 0 {
 		posValFloat := new(big.Float).SetInt(totalPositionValue)
 		equityFloat := new(big.Float).SetInt(account.Equity)
 		leverageFloat := new(big.Float).Quo(posValFloat, equityFloat)
 		account.Leverage, _ = leverageFloat.Float64()
 	}
-	
+
 	account.LastUpdate = time.Now()
 }
 
@@ -492,16 +492,16 @@ func (me *MarginEngine) updateAccountMetrics(account *MarginAccount) {
 func (me *MarginEngine) CheckLiquidations() {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	for userID, account := range me.Accounts {
 		// Update metrics first
 		me.updateAccountMetrics(account)
-		
+
 		// Check margin level
 		if account.MarginLevel > 0 && account.MarginLevel <= account.LiquidationLevel {
 			me.liquidateAccount(userID, account)
 		}
-		
+
 		// Check individual positions for isolated margin
 		if account.AccountType == IsolatedMargin {
 			for posID, position := range account.Positions {
@@ -532,14 +532,14 @@ func (me *MarginEngine) liquidatePosition(userID, positionID string, position *M
 		Size:   position.Size,
 		User:   "liquidation_engine",
 	}
-	
+
 	// Process liquidation
 	me.LiquidationEngine.ProcessLiquidation(userID, position, liquidationOrder)
-	
+
 	// Remove position
 	account := me.Accounts[userID]
 	delete(account.Positions, positionID)
-	
+
 	// Release margin to insurance fund if negative
 	if position.UnrealizedPnL.Cmp(big.NewInt(0)) < 0 {
 		loss := new(big.Int).Neg(position.UnrealizedPnL)
@@ -555,7 +555,7 @@ func (me *MarginEngine) liquidateAccount(userID string, account *MarginAccount) 
 	for posID, position := range account.Positions {
 		me.liquidatePosition(userID, posID, position)
 	}
-	
+
 	// Reset account
 	account.MarginUsed = big.NewInt(0)
 	account.FreeMargin = account.Equity
@@ -569,10 +569,10 @@ func (me *MarginEngine) borrowForPosition(account *MarginAccount, asset string, 
 	if available.Cmp(amount) < 0 {
 		return errors.New("insufficient liquidity in lending pool")
 	}
-	
+
 	// Get interest rate
 	rate := me.LendingPool.GetBorrowRate(asset)
-	
+
 	// Create or update borrowed asset
 	borrowed, exists := account.BorrowedAmounts[asset]
 	if !exists {
@@ -586,19 +586,19 @@ func (me *MarginEngine) borrowForPosition(account *MarginAccount, asset string, 
 		}
 		account.BorrowedAmounts[asset] = borrowed
 	}
-	
+
 	// Update borrowed amount
 	borrowed.Amount.Add(borrowed.Amount, amount)
-	
+
 	// Update lending pool
 	me.LendingPool.Borrow(asset, amount)
-	
+
 	// Update total borrowed
 	if me.TotalBorrowed[asset] == nil {
 		me.TotalBorrowed[asset] = big.NewInt(0)
 	}
 	me.TotalBorrowed[asset].Add(me.TotalBorrowed[asset], amount)
-	
+
 	return nil
 }
 
@@ -608,11 +608,11 @@ func (me *MarginEngine) repayBorrowed(account *MarginAccount, asset string, amou
 	if !exists {
 		return errors.New("no borrowed amount found")
 	}
-	
+
 	// Calculate accrued interest
 	interest := me.calculateAccruedInterest(borrowed)
 	totalRepay := new(big.Int).Add(amount, interest)
-	
+
 	// Update borrowed amount
 	borrowed.Amount.Sub(borrowed.Amount, amount)
 	if borrowed.Amount.Cmp(big.NewInt(0)) <= 0 {
@@ -620,16 +620,16 @@ func (me *MarginEngine) repayBorrowed(account *MarginAccount, asset string, amou
 	} else {
 		borrowed.LastUpdate = time.Now()
 	}
-	
+
 	// Update lending pool with total repay amount
 	me.LendingPool.Repay(asset, totalRepay, interest)
-	
+
 	// Update total borrowed
 	me.TotalBorrowed[asset].Sub(me.TotalBorrowed[asset], amount)
-	
+
 	// Add interest to borrowing fees
 	account.BorrowingFees.Add(account.BorrowingFees, interest)
-	
+
 	return nil
 }
 
@@ -639,10 +639,10 @@ func (me *MarginEngine) calculateAccruedInterest(borrowed *BorrowedAsset) *big.I
 	timeDiff := time.Since(borrowed.LastUpdate).Hours()
 	dailyRate := borrowed.InterestRate / 365
 	hourlyRate := dailyRate / 24
-	
+
 	interest := new(big.Float).SetInt(borrowed.Amount)
 	interest.Mul(interest, big.NewFloat(hourlyRate*timeDiff))
-	
+
 	interestInt, _ := interest.Int(nil)
 	return interestInt
 }
@@ -666,7 +666,7 @@ func (me *MarginEngine) getAssetHaircut(asset string) float64 {
 		"USDT": 0.00, // No haircut for stablecoins
 		"USDC": 0.00,
 	}
-	
+
 	if haircut, exists := haircuts[asset]; exists {
 		return haircut
 	}
@@ -681,7 +681,7 @@ func (me *MarginEngine) getAssetLTV(asset string) float64 {
 		"USDT": 0.95, // 95% LTV for stablecoins
 		"USDC": 0.95,
 	}
-	
+
 	if ltv, exists := ltvs[asset]; exists {
 		return ltv
 	}
@@ -690,40 +690,40 @@ func (me *MarginEngine) getAssetLTV(asset string) float64 {
 
 func initMaxLeverageTable() map[string]float64 {
 	return map[string]float64{
-		"BTC-USDT":  100,
-		"ETH-USDT":  100,
-		"BNB-USDT":  50,
-		"SOL-USDT":  50,
-		"AVAX-USDT": 50,
+		"BTC-USDT":   100,
+		"ETH-USDT":   100,
+		"BNB-USDT":   50,
+		"SOL-USDT":   50,
+		"AVAX-USDT":  50,
 		"MATIC-USDT": 20,
-		"ARB-USDT":  20,
-		"OP-USDT":   20,
+		"ARB-USDT":   20,
+		"OP-USDT":    20,
 	}
 }
 
 func initMaintenanceMarginTable() map[string]float64 {
 	return map[string]float64{
-		"BTC-USDT":  0.005, // 0.5%
-		"ETH-USDT":  0.01,  // 1%
-		"BNB-USDT":  0.02,  // 2%
-		"SOL-USDT":  0.025, // 2.5%
-		"AVAX-USDT": 0.025,
+		"BTC-USDT":   0.005, // 0.5%
+		"ETH-USDT":   0.01,  // 1%
+		"BNB-USDT":   0.02,  // 2%
+		"SOL-USDT":   0.025, // 2.5%
+		"AVAX-USDT":  0.025,
 		"MATIC-USDT": 0.05, // 5%
-		"ARB-USDT":  0.05,
-		"OP-USDT":   0.05,
+		"ARB-USDT":   0.05,
+		"OP-USDT":    0.05,
 	}
 }
 
 func initInitialMarginTable() map[string]float64 {
 	return map[string]float64{
-		"BTC-USDT":  0.01,  // 1%
-		"ETH-USDT":  0.02,  // 2%
-		"BNB-USDT":  0.04,  // 4%
-		"SOL-USDT":  0.05,  // 5%
-		"AVAX-USDT": 0.05,
+		"BTC-USDT":   0.01, // 1%
+		"ETH-USDT":   0.02, // 2%
+		"BNB-USDT":   0.04, // 4%
+		"SOL-USDT":   0.05, // 5%
+		"AVAX-USDT":  0.05,
 		"MATIC-USDT": 0.10, // 10%
-		"ARB-USDT":  0.10,
-		"OP-USDT":   0.10,
+		"ARB-USDT":   0.10,
+		"OP-USDT":    0.10,
 	}
 }
 

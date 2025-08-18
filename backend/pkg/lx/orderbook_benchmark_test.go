@@ -12,10 +12,10 @@ import (
 // BenchmarkOptimizedAddOrder tests order addition performance
 func BenchmarkOptimizedAddOrder(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		order := &Order{
 			Symbol: "BTC-USD",
@@ -27,14 +27,14 @@ func BenchmarkOptimizedAddOrder(b *testing.B) {
 		}
 		ob.AddOrder(order)
 	}
-	
+
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "orders/sec")
 }
 
 // BenchmarkOptimizedMatching tests order matching performance
 func BenchmarkOptimizedMatching(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
-	
+
 	// Pre-populate with orders
 	for i := 0; i < 1000; i++ {
 		ob.AddOrder(&Order{
@@ -54,10 +54,10 @@ func BenchmarkOptimizedMatching(b *testing.B) {
 			User:   "maker",
 		})
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		// Add crossing orders that will match
 		if i%2 == 0 {
@@ -80,7 +80,7 @@ func BenchmarkOptimizedMatching(b *testing.B) {
 			})
 		}
 	}
-	
+
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "matches/sec")
 }
 
@@ -88,7 +88,7 @@ func BenchmarkOptimizedMatching(b *testing.B) {
 func BenchmarkOptimizedCancelOrder(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
 	orderIDs := make([]uint64, 0, b.N)
-	
+
 	// Add orders first
 	for i := 0; i < b.N; i++ {
 		order := &Order{
@@ -104,21 +104,21 @@ func BenchmarkOptimizedCancelOrder(b *testing.B) {
 			orderIDs = append(orderIDs, orderID)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for _, orderID := range orderIDs {
 		ob.CancelOrder(orderID)
 	}
-	
+
 	b.ReportMetric(float64(len(orderIDs))/b.Elapsed().Seconds(), "cancels/sec")
 }
 
 // BenchmarkOptimizedGetSnapshot tests snapshot generation performance
 func BenchmarkOptimizedGetSnapshot(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
-	
+
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
 		ob.AddOrder(&Order{
@@ -138,14 +138,14 @@ func BenchmarkOptimizedGetSnapshot(b *testing.B) {
 			User:   "user",
 		})
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_ = ob.GetSnapshot()
 	}
-	
+
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "snapshots/sec")
 }
 
@@ -154,15 +154,15 @@ func BenchmarkOptimizedConcurrent(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
 	numGoroutines := runtime.NumCPU()
 	ordersPerGoroutine := b.N / numGoroutines
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
-	
+
 	start := time.Now()
-	
+
 	for g := 0; g < numGoroutines; g++ {
 		go func(id int) {
 			defer wg.Done()
@@ -179,10 +179,10 @@ func BenchmarkOptimizedConcurrent(b *testing.B) {
 			}
 		}(g)
 	}
-	
+
 	wg.Wait()
 	elapsed := time.Since(start)
-	
+
 	totalOrders := numGoroutines * ordersPerGoroutine
 	b.ReportMetric(float64(totalOrders)/elapsed.Seconds(), "concurrent_orders/sec")
 }
@@ -190,7 +190,7 @@ func BenchmarkOptimizedConcurrent(b *testing.B) {
 // BenchmarkOptimizedMarketOrder tests market order performance
 func BenchmarkOptimizedMarketOrder(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
-	
+
 	// Pre-populate with limit orders
 	for i := 0; i < 1000; i++ {
 		ob.AddOrder(&Order{
@@ -210,10 +210,10 @@ func BenchmarkOptimizedMarketOrder(b *testing.B) {
 			User:   "maker",
 		})
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		order := &Order{
 			Symbol: "BTC-USD",
@@ -224,7 +224,7 @@ func BenchmarkOptimizedMarketOrder(b *testing.B) {
 		}
 		ob.AddOrder(order)
 	}
-	
+
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "market_orders/sec")
 }
 
@@ -234,19 +234,19 @@ func BenchmarkPriceKeyComparison(b *testing.B) {
 		m := make(map[int64]int)
 		b.ResetTimer()
 		b.ReportAllocs()
-		
+
 		for i := 0; i < b.N; i++ {
 			key := int64(50000.12345678 * 100000000)
 			m[key] = i
 			_ = m[key]
 		}
 	})
-	
+
 	b.Run("StringKeys", func(b *testing.B) {
 		m := make(map[string]int)
 		b.ResetTimer()
 		b.ReportAllocs()
-		
+
 		for i := 0; i < b.N; i++ {
 			key := fmt.Sprintf("%.8f", 50000.12345678)
 			m[key] = i
@@ -263,7 +263,7 @@ func BenchmarkMemoryAllocations(b *testing.B) {
 			_ = int64(50000.12345678 * 100000000)
 		}
 	})
-	
+
 	b.Run("StringFormatting", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -275,11 +275,11 @@ func BenchmarkMemoryAllocations(b *testing.B) {
 // BenchmarkLargeOrderBook tests performance with many orders
 func BenchmarkLargeOrderBook(b *testing.B) {
 	sizes := []int{100, 1000, 10000}
-	
+
 	for _, size := range sizes {
 		b.Run(fmt.Sprintf("Size_%d", size), func(b *testing.B) {
 			ob := NewOrderBook("BTC-USD")
-			
+
 			// Pre-populate
 			for i := 0; i < size; i++ {
 				ob.AddOrder(&Order{
@@ -291,10 +291,10 @@ func BenchmarkLargeOrderBook(b *testing.B) {
 					User:   "user",
 				})
 			}
-			
+
 			b.ResetTimer()
 			b.ReportAllocs()
-			
+
 			// Measure operations on large book
 			for i := 0; i < b.N; i++ {
 				order := &Order{
@@ -307,7 +307,7 @@ func BenchmarkLargeOrderBook(b *testing.B) {
 				}
 				ob.AddOrder(order)
 			}
-			
+
 			b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "orders/sec")
 		})
 	}
@@ -317,9 +317,9 @@ func BenchmarkLargeOrderBook(b *testing.B) {
 func BenchmarkStressTest(b *testing.B) {
 	ob := NewOrderBook("BTC-USD")
 	numOrders := 100000
-	
+
 	b.ResetTimer()
-	
+
 	start := time.Now()
 	for i := 0; i < numOrders; i++ {
 		order := &Order{
@@ -333,15 +333,15 @@ func BenchmarkStressTest(b *testing.B) {
 		ob.AddOrder(order)
 	}
 	elapsed := time.Since(start)
-	
+
 	ordersPerSec := float64(numOrders) / elapsed.Seconds()
 	latencyUs := elapsed.Microseconds() / int64(numOrders)
-	
+
 	b.Logf("Stress Test Results:")
 	b.Logf("  Total orders: %d", numOrders)
 	b.Logf("  Time taken: %v", elapsed)
 	b.Logf("  Throughput: %.0f orders/sec", ordersPerSec)
 	b.Logf("  Avg latency: %d μs/order", latencyUs)
-	b.Logf("  Book stats: %d bids, %d asks, %d trades", 
+	b.Logf("  Book stats: %d bids, %d asks, %d trades",
 		len(ob.Bids.orders), len(ob.Asks.orders), len(ob.Trades))
 }

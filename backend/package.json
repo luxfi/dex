@@ -1,0 +1,12 @@
+{
+  "name": "@lux/dex-backend",
+  "version": "2.0.0",
+  "description": "LUX DEX Backend - Ultra-fast trading engine",
+  "scripts": {
+    "start": "./bin/lx-dex",
+    "start:test": "./scripts/start-test-server.sh",
+    "build": "make build",
+    "test": "go test ./...",
+    "bench": "go test -bench=. ./..."
+  }
+}

@@ -36,18 +36,18 @@ func NewLogger(name string) Logger {
 func (l *SimpleLogger) WithField(key string, value interface{}) Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	newLogger := &SimpleLogger{
 		name:   l.name,
 		fields: make(map[string]interface{}),
 	}
-	
+
 	// Copy existing fields
 	for k, v := range l.fields {
 		newLogger.fields[k] = v
 	}
 	newLogger.fields[key] = value
-	
+
 	return newLogger
 }
 
@@ -81,15 +81,15 @@ func (l *SimpleLogger) Fatal(msg string, args ...interface{}) {
 func (l *SimpleLogger) logMessage(level string, msg string, args ...interface{}) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	
+
 	// Build fields string
 	fieldsStr := ""
 	for k, v := range l.fields {
 		fieldsStr += fmt.Sprintf(" %s=%v", k, v)
 	}
-	
+
 	// Build args string
 	argsStr := ""
 	for i := 0; i < len(args); i += 2 {
@@ -97,6 +97,6 @@ func (l *SimpleLogger) logMessage(level string, msg string, args ...interface{})
 			argsStr += fmt.Sprintf(" %v=%v", args[i], args[i+1])
 		}
 	}
-	
+
 	log.Printf("%s [%s] %s: %s%s%s", timestamp, level, l.name, msg, fieldsStr, argsStr)
 }

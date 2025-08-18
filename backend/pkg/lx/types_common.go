@@ -32,14 +32,14 @@ const (
 	TrailingStop
 	OneCancelsOther
 	AllOrNone
-	StopOrder        = Stop       // Alias for compatibility
-	StopLimitOrder   = StopLimit
-	IcebergOrder     = Iceberg
-	HiddenOrder      = Hidden
-	PeggedOrder      = Pegged
-	TrailingStopOrder = TrailingStop
+	StopOrder            = Stop // Alias for compatibility
+	StopLimitOrder       = StopLimit
+	IcebergOrder         = Iceberg
+	HiddenOrder          = Hidden
+	PeggedOrder          = Pegged
+	TrailingStopOrder    = TrailingStop
 	OneCancelsOtherOrder = OneCancelsOther
-	AllOrNoneOrder   = AllOrNone
+	AllOrNoneOrder       = AllOrNone
 )
 
 // OrderStatus represents the status of an order
@@ -53,35 +53,35 @@ const (
 	Cancelled
 	Rejected
 	Expired
-	
+
 	// Additional statuses for advanced order book
-	StatusNew = Open // Alias for compatibility
-	StatusPartiallyFilled = PartiallyFilled
-	StatusFilled = Filled
-	StatusCancelled = Cancelled
-	StatusRejected = Rejected
-	StatusExpired = Expired
-	StatusPending OrderStatus = 100 // For pending orders like stops
+	StatusNew                         = Open // Alias for compatibility
+	StatusPartiallyFilled             = PartiallyFilled
+	StatusFilled                      = Filled
+	StatusCancelled                   = Cancelled
+	StatusRejected                    = Rejected
+	StatusExpired                     = Expired
+	StatusPending         OrderStatus = 100 // For pending orders like stops
 )
 
 // TimeInForce represents order time-in-force options
 type TimeInForce int
 
 const (
-	GTC TimeInForce = iota // Good Till Cancelled
-	IOC                     // Immediate Or Cancel
-	FOK                     // Fill Or Kill
-	GTD                     // Good Till Date
-	GTT                     // Good Till Time
-	ATO                     // At The Open
-	ATC                     // At The Close
+	GTC               TimeInForce = iota // Good Till Cancelled
+	IOC                                  // Immediate Or Cancel
+	FOK                                  // Fill Or Kill
+	GTD                                  // Good Till Date
+	GTT                                  // Good Till Time
+	ATO                                  // At The Open
+	ATC                                  // At The Close
 	GoodTillCancelled = GTC
 	ImmediateOrCancel = IOC
-	FillOrKill = FOK
-	GoodTillDate = GTD
-	GoodTillTime = GTT
-	AtTheOpen = ATO
-	AtTheClose = ATC
+	FillOrKill        = FOK
+	GoodTillDate      = GTD
+	GoodTillTime      = GTT
+	AtTheOpen         = ATO
+	AtTheClose        = ATC
 )
 
 // UpdateType represents market data update types
@@ -98,15 +98,15 @@ const (
 
 // PriceLevel represents an aggregated price level in the order book
 type PriceLevel struct {
-	Price       float64
-	Size        float64
-	Count       int
-	OrderIDs    []uint64
-	Orders      []*Order         // For compatibility
-	TotalSize   float64
-	OrderCount  int
-	UpdateTime  time.Time
-	mu          sync.RWMutex
+	Price      float64
+	Size       float64
+	Count      int
+	OrderIDs   []uint64
+	Orders     []*Order // For compatibility
+	TotalSize  float64
+	OrderCount int
+	UpdateTime time.Time
+	mu         sync.RWMutex
 }
 
 // OrderBookSnapshot represents a full order book snapshot
@@ -167,11 +167,11 @@ type Trade struct {
 
 // IcebergState tracks the state of an iceberg order
 type IcebergState struct {
-	TotalSize       float64
-	RemainingSize   float64
-	DisplaySize     float64
-	CurrentOrderID  uint64
-	RefillCount     int
+	TotalSize      float64
+	RemainingSize  float64
+	DisplaySize    float64
+	CurrentOrderID uint64
+	RefillCount    int
 }
 
 // IcebergData is an alias for IcebergState (compatibility)
@@ -210,42 +210,42 @@ type Event struct {
 
 // Order represents a trading order
 type Order struct {
-	ID                uint64
-	Symbol            string
-	Side              Side
-	Type              OrderType
-	Price             float64
-	Size              float64
-	ExecutedSize      float64
-	RemainingSize     float64
-	Filled            float64    // Alias for ExecutedSize
-	Status            OrderStatus
-	User              string      // Alias for UserID
-	UserID            string
-	ClientID          string
-	ClientOrderID     string
-	Timestamp         time.Time
-	UpdatedAt         time.Time
-	
+	ID            uint64
+	Symbol        string
+	Side          Side
+	Type          OrderType
+	Price         float64
+	Size          float64
+	ExecutedSize  float64
+	RemainingSize float64
+	Filled        float64 // Alias for ExecutedSize
+	Status        OrderStatus
+	User          string // Alias for UserID
+	UserID        string
+	ClientID      string
+	ClientOrderID string
+	Timestamp     time.Time
+	UpdatedAt     time.Time
+
 	// Extended fields for advanced orders
-	StopPrice         float64  // For stop orders
-	LimitPrice        float64  // For stop-limit orders
-	DisplaySize       float64  // For iceberg orders
-	TimeInForce       TimeInForce
-	ExpireTime        time.Time
-	PostOnly          bool
-	ReduceOnly        bool
-	Hidden            bool
-	MinExecuteSize    float64
-	AllOrNone         bool
-	PegOffset         float64  // For pegged orders
-	TrailAmount       float64  // For trailing stops
-	Flags             OrderFlags // Bitwise flags for order behavior
-	
+	StopPrice      float64 // For stop orders
+	LimitPrice     float64 // For stop-limit orders
+	DisplaySize    float64 // For iceberg orders
+	TimeInForce    TimeInForce
+	ExpireTime     time.Time
+	PostOnly       bool
+	ReduceOnly     bool
+	Hidden         bool
+	MinExecuteSize float64
+	AllOrNone      bool
+	PegOffset      float64    // For pegged orders
+	TrailAmount    float64    // For trailing stops
+	Flags          OrderFlags // Bitwise flags for order behavior
+
 	// Fees
-	MakerFee          float64
-	TakerFee          float64
-	FeesPaid          float64
+	MakerFee float64
+	TakerFee float64
+	FeesPaid float64
 }
 
 // AdvancedOrder - defined in orderbook_advanced.go (has its own structure)

@@ -51,7 +51,7 @@ func main() {
 	log.Printf("👥 Traders: %d", *traders)
 	log.Printf("📈 Rate: %d orders/sec per trader", *rate)
 	log.Printf("⏱️  Duration: %v", *duration)
-	log.Printf("🎯 Total target: %d orders/sec", *traders * *rate)
+	log.Printf("🎯 Total target: %d orders/sec", *traders**rate)
 
 	// Connect to NATS
 	nc, err := nats.Connect(*natsURL)
@@ -96,7 +96,7 @@ func main() {
 	// Start traders
 	var wg sync.WaitGroup
 	wg.Add(*traders)
-	
+
 	startTime := time.Now()
 	endTime := startTime.Add(*duration)
 
@@ -134,7 +134,7 @@ func main() {
 	fmt.Printf("\n📈 THROUGHPUT:\n")
 	fmt.Printf("  %.0f orders/sec\n", float64(finalOrders)/elapsed)
 	fmt.Printf("  %.0f accepted/sec\n", float64(finalAccepted)/elapsed)
-	
+
 	if serverStats != nil {
 		fmt.Printf("\n📊 SERVER STATS:\n")
 		fmt.Printf("  Total Orders: %.0f\n", serverStats["orders"])
@@ -170,11 +170,11 @@ func runTrader(nc *nats.Conn, id int, rate int, endTime time.Time, wg *sync.Wait
 		}
 
 		data, _ := json.Marshal(order)
-		
+
 		// Send order and wait for response
 		msg, err := nc.Request("dex.orders", data, 100*time.Millisecond)
 		atomic.AddInt64(&totalOrders, 1)
-		
+
 		if err != nil {
 			atomic.AddInt64(&totalErrors, 1)
 		} else {
@@ -198,19 +198,19 @@ func printStats(startTime time.Time) {
 	defer ticker.Stop()
 
 	lastOrders := int64(0)
-	
+
 	for range ticker.C {
 		orders := atomic.LoadInt64(&totalOrders)
 		accepted := atomic.LoadInt64(&totalAccepted)
 		errors := atomic.LoadInt64(&totalErrors)
-		
+
 		delta := orders - lastOrders
 		elapsed := time.Since(startTime).Seconds()
 		avgRate := float64(orders) / elapsed
-		
+
 		fmt.Printf("\r📡 Orders: %d | Rate: %d/sec | Avg: %.0f/sec | Accepted: %d | Errors: %d",
 			orders, delta, avgRate, accepted, errors)
-		
+
 		lastOrders = orders
 	}
 }

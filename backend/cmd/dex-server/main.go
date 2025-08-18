@@ -14,18 +14,18 @@ import (
 )
 
 type ServerAnnouncement struct {
-	ID       string    `json:"id"`
-	Addr     string    `json:"addr"`
-	Type     string    `json:"type"`
-	Started  time.Time `json:"started"`
+	ID      string    `json:"id"`
+	Addr    string    `json:"addr"`
+	Type    string    `json:"type"`
+	Started time.Time `json:"started"`
 }
 
 type DexServer struct {
-	nc         *nats.Conn
-	id         string
-	addr       string
-	orders     int64
-	trades     int64
+	nc     *nats.Conn
+	id     string
+	addr   string
+	orders int64
+	trades int64
 }
 
 func main() {
@@ -84,14 +84,14 @@ func main() {
 func (s *DexServer) announcer() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	announcement := ServerAnnouncement{
 		ID:      s.id,
 		Addr:    s.addr,
 		Type:    "dex-server",
 		Started: time.Now(),
 	}
-	
+
 	for range ticker.C {
 		data, _ := json.Marshal(announcement)
 		s.nc.Publish("dex.announce", data)

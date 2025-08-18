@@ -16,11 +16,11 @@ import (
 )
 
 type Monitor struct {
-	nc          *nats.Conn
-	stats       Stats
-	clients     map[*websocket.Conn]bool
-	mu          sync.RWMutex
-	upgrader    websocket.Upgrader
+	nc       *nats.Conn
+	stats    Stats
+	clients  map[*websocket.Conn]bool
+	mu       sync.RWMutex
+	upgrader websocket.Upgrader
 }
 
 type Stats struct {
@@ -301,7 +301,7 @@ func main() {
 	fmt.Println("Dashboard: http://localhost:8080")
 	fmt.Println("WebSocket: ws://localhost:8080/ws")
 	fmt.Println("API: http://localhost:8080/api/stats")
-	
+
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -362,7 +362,7 @@ func (m *Monitor) collectStats() {
 		// Calculate rates
 		orders := atomic.LoadInt64(&m.stats.Orders)
 		trades := atomic.LoadInt64(&m.stats.Trades)
-		
+
 		ordersPerSec := float64(orders-lastOrders) / deltaTime
 		tradesPerSec := float64(trades-lastTrades) / deltaTime
 

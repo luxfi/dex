@@ -59,7 +59,7 @@ func testCreateOrderBook(t *testing.T) {
 
 func testAddLimitOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add buy limit orders
 	for i := 1; i <= 10; i++ {
 		order := &Order{
@@ -74,7 +74,7 @@ func testAddLimitOrders(t *testing.T) {
 		// Result could be order ID or num trades - for non-crossing limit orders it's the ID
 		_ = result // Don't check, just ensure order is added
 	}
-	
+
 	// Add sell limit orders
 	for i := 11; i <= 20; i++ {
 		order := &Order{
@@ -89,7 +89,7 @@ func testAddLimitOrders(t *testing.T) {
 		// Result could be order ID or num trades - for non-crossing limit orders it's the ID
 		_ = result // Don't check, just ensure order is added
 	}
-	
+
 	// Verify order count
 	if len(book.Orders) != 20 {
 		t.Errorf("Expected 20 orders, got %d", len(book.Orders))
@@ -98,10 +98,10 @@ func testAddLimitOrders(t *testing.T) {
 
 func testAddMarketOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Setup order book with liquidity
 	setupOrderBook(book)
-	
+
 	// Market buy order
 	marketBuy := &Order{
 		ID:        100,
@@ -110,12 +110,12 @@ func testAddMarketOrders(t *testing.T) {
 		Size:      0.5,
 		Timestamp: time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(marketBuy)
 	if numTrades == 0 {
 		t.Error("Market buy order should have matched")
 	}
-	
+
 	// Market sell order
 	marketSell := &Order{
 		ID:        101,
@@ -124,7 +124,7 @@ func testAddMarketOrders(t *testing.T) {
 		Size:      0.3,
 		Timestamp: time.Now(),
 	}
-	
+
 	numTrades = book.AddOrder(marketSell)
 	if numTrades == 0 {
 		t.Error("Market sell order should have matched")
@@ -133,7 +133,7 @@ func testAddMarketOrders(t *testing.T) {
 
 func testAddStopOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add stop loss order
 	stopLoss := &Order{
 		ID:        200,
@@ -143,39 +143,39 @@ func testAddStopOrders(t *testing.T) {
 		Size:      1.0,
 		Timestamp: time.Now(),
 	}
-	
+
 	book.AddOrder(stopLoss)
-	
+
 	// Add stop limit order
 	stopLimit := &Order{
-		ID:        201,
-		Type:      StopLimit,
-		Side:      Buy,
-		Price:     51000, // Stop price
+		ID:         201,
+		Type:       StopLimit,
+		Side:       Buy,
+		Price:      51000, // Stop price
 		LimitPrice: 51100, // Limit price
-		Size:      0.5,
-		Timestamp: time.Now(),
+		Size:       0.5,
+		Timestamp:  time.Now(),
 	}
-	
+
 	book.AddOrder(stopLimit)
 }
 
 func testAddIcebergOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add iceberg order
 	iceberg := &Order{
 		ID:          300,
 		Type:        Iceberg,
 		Side:        Buy,
 		Price:       50000,
-		Size:        10.0,  // Total size
-		DisplaySize: 1.0,   // Visible size
+		Size:        10.0, // Total size
+		DisplaySize: 1.0,  // Visible size
 		Timestamp:   time.Now(),
 	}
-	
+
 	book.AddOrder(iceberg)
-	
+
 	// Verify only display size is visible
 	if book.Orders[300] != nil && book.Orders[300].DisplaySize != 1.0 {
 		t.Error("Iceberg order display size incorrect")
@@ -184,7 +184,7 @@ func testAddIcebergOrders(t *testing.T) {
 
 func testCancelOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add order
 	order := &Order{
 		ID:        400,
@@ -195,18 +195,18 @@ func testCancelOrders(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(order)
-	
+
 	// Cancel order
 	err := book.CancelOrder(400)
 	if err != nil {
 		t.Errorf("Failed to cancel order: %v", err)
 	}
-	
+
 	// Verify order is cancelled
 	if book.Orders[400] == nil || book.Orders[400].Status != Cancelled {
 		t.Error("Order should be marked as cancelled")
 	}
-	
+
 	// Try to cancel non-existent order
 	err = book.CancelOrder(999)
 	if err == nil {
@@ -216,7 +216,7 @@ func testCancelOrders(t *testing.T) {
 
 func testModifyOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add order
 	order := &Order{
 		ID:        500,
@@ -227,13 +227,13 @@ func testModifyOrders(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(order)
-	
+
 	// Modify order
 	err := book.ModifyOrder(500, 49900, 1.5)
 	if err != nil {
 		t.Errorf("Failed to modify order: %v", err)
 	}
-	
+
 	// Verify modification
 	modified := book.Orders[500]
 	if modified == nil {
@@ -247,7 +247,7 @@ func testModifyOrders(t *testing.T) {
 func testSelfTradePrevention(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	// book.EnableSelfTradePrevention = true // Field doesn't exist
-	
+
 	// Add buy order from user1
 	buyOrder := &Order{
 		ID:        600,
@@ -259,7 +259,7 @@ func testSelfTradePrevention(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(buyOrder)
-	
+
 	// Add sell order from same user
 	sellOrder := &Order{
 		ID:        601,
@@ -270,7 +270,7 @@ func testSelfTradePrevention(t *testing.T) {
 		UserID:    "user1",
 		Timestamp: time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(sellOrder)
 	if numTrades > 0 {
 		t.Error("Self-trade should have been prevented")
@@ -280,7 +280,7 @@ func testSelfTradePrevention(t *testing.T) {
 func testPostOnlyOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupOrderBook(book)
-	
+
 	// Add post-only order that would cross spread
 	postOnly := &Order{
 		ID:        700,
@@ -291,12 +291,12 @@ func testPostOnlyOrders(t *testing.T) {
 		PostOnly:  true,
 		Timestamp: time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(postOnly)
 	if numTrades > 0 {
 		t.Error("Post-only order should not match")
 	}
-	
+
 	// Order should be rejected
 	if book.Orders[700] != nil {
 		t.Error("Post-only order that would match should be rejected")
@@ -306,7 +306,7 @@ func testPostOnlyOrders(t *testing.T) {
 func testFillOrKillOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupOrderBook(book)
-	
+
 	// Add FOK order that can be fully filled
 	fokSuccess := &Order{
 		ID:          800,
@@ -317,12 +317,12 @@ func testFillOrKillOrders(t *testing.T) {
 		TimeInForce: FillOrKill,
 		Timestamp:   time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(fokSuccess)
 	if numTrades == 0 {
 		t.Error("FOK order should have been filled")
 	}
-	
+
 	// Add FOK order that cannot be fully filled
 	fokFail := &Order{
 		ID:          801,
@@ -333,7 +333,7 @@ func testFillOrKillOrders(t *testing.T) {
 		TimeInForce: FillOrKill,
 		Timestamp:   time.Now(),
 	}
-	
+
 	numTrades = book.AddOrder(fokFail)
 	if numTrades > 0 {
 		t.Error("FOK order should have been killed")
@@ -343,7 +343,7 @@ func testFillOrKillOrders(t *testing.T) {
 func testImmediateOrCancelOrders(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupOrderBook(book)
-	
+
 	// Add IOC order
 	ioc := &Order{
 		ID:          900,
@@ -354,12 +354,12 @@ func testImmediateOrCancelOrders(t *testing.T) {
 		TimeInForce: ImmediateOrCancel,
 		Timestamp:   time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(ioc)
 	if numTrades == 0 {
 		t.Error("IOC order should have matched partially")
 	}
-	
+
 	// Check remaining order is cancelled
 	if book.Orders[900] != nil {
 		t.Error("Unfilled portion of IOC should be cancelled")
@@ -368,7 +368,7 @@ func testImmediateOrCancelOrders(t *testing.T) {
 
 func testTimeInForce(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Good Till Cancelled (default)
 	gtc := &Order{
 		ID:          1000,
@@ -380,7 +380,7 @@ func testTimeInForce(t *testing.T) {
 		Timestamp:   time.Now(),
 	}
 	book.AddOrder(gtc)
-	
+
 	// Good Till Date
 	gtd := &Order{
 		ID:          1001,
@@ -393,7 +393,7 @@ func testTimeInForce(t *testing.T) {
 		Timestamp:   time.Now(),
 	}
 	book.AddOrder(gtd)
-	
+
 	// Verify orders exist
 	if book.Orders[1000] == nil || book.Orders[1001] == nil {
 		t.Error("TIF orders not added correctly")
@@ -403,18 +403,18 @@ func testTimeInForce(t *testing.T) {
 func testOrderBookDepth(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupDeepOrderBook(book)
-	
+
 	// Get depth at various levels
 	depth5 := book.GetDepth(5)
 	if len(depth5.Bids) > 5 || len(depth5.Asks) > 5 {
 		t.Error("Depth limit not respected")
 	}
-	
+
 	depth10 := book.GetDepth(10)
 	if len(depth10.Bids) > 10 || len(depth10.Asks) > 10 {
 		t.Error("Depth limit not respected")
 	}
-	
+
 	// Get full depth
 	fullDepth := book.GetDepth(0)
 	if len(fullDepth.Bids) == 0 || len(fullDepth.Asks) == 0 {
@@ -424,7 +424,7 @@ func testOrderBookDepth(t *testing.T) {
 
 func testPriceTimePriority(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add orders at same price level
 	order1 := &Order{
 		ID:        1100,
@@ -435,9 +435,9 @@ func testPriceTimePriority(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(order1)
-	
+
 	time.Sleep(10 * time.Millisecond)
-	
+
 	order2 := &Order{
 		ID:        1101,
 		Type:      Limit,
@@ -447,7 +447,7 @@ func testPriceTimePriority(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(order2)
-	
+
 	// Add matching sell order
 	sell := &Order{
 		ID:        1102,
@@ -456,18 +456,22 @@ func testPriceTimePriority(t *testing.T) {
 		Size:      0.5,
 		Timestamp: time.Now(),
 	}
-	
+
 	book.AddOrder(sell)
-	
-	// First order should be partially filled
-	if book.Orders[1100] != nil && book.Orders[1100].Size != 0.5 {
-		t.Error("Time priority not respected")
+
+	// First order should be partially filled (Size stays same, Filled increases)
+	if book.Orders[1100] == nil {
+		t.Error("Order 1100 should still be in book after partial fill")
+	} else if book.Orders[1100].Filled != 0.5 {
+		t.Errorf("Order 1100 should have Filled=0.5, got %f", book.Orders[1100].Filled)
+	} else if book.Orders[1100].Size != 1.0 {
+		t.Errorf("Order 1100 should still have Size=1.0, got %f", book.Orders[1100].Size)
 	}
 }
 
 func testPartialFills(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Add large limit order
 	largeOrder := &Order{
 		ID:        1200,
@@ -478,7 +482,7 @@ func testPartialFills(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(largeOrder)
-	
+
 	// Partially fill with smaller market order
 	smallMarket := &Order{
 		ID:        1201,
@@ -487,45 +491,49 @@ func testPartialFills(t *testing.T) {
 		Size:      2.0,
 		Timestamp: time.Now(),
 	}
-	
+
 	numTrades := book.AddOrder(smallMarket)
 	if numTrades == 0 {
 		t.Error("Partial fill should have occurred")
 	}
-	
-	// Check remaining size
+
+	// Check remaining size (Size stays same, Filled increases)
 	remaining := book.Orders[1200]
-	if remaining == nil || remaining.Size != 8.0 {
-		t.Error("Partial fill not calculated correctly")
+	if remaining == nil {
+		t.Error("Order should still be in book after partial fill")
+	} else if remaining.Size != 10.0 {
+		t.Errorf("Order should still have Size=10.0, got %f", remaining.Size)
+	} else if remaining.Filled != 2.0 {
+		t.Errorf("Order should have Filled=2.0, got %f", remaining.Filled)
 	}
 }
 
 func testOrderBookSnapshot(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupOrderBook(book)
-	
+
 	// Get snapshot
 	snapshot := book.GetSnapshot()
-	
+
 	if snapshot.Symbol != "BTC-USD" {
 		t.Error("Snapshot symbol incorrect")
 	}
-	
+
 	if snapshot.Timestamp.IsZero() {
 		t.Error("Snapshot timestamp not set")
 	}
-	
+
 	if len(snapshot.Bids) == 0 || len(snapshot.Asks) == 0 {
 		t.Error("Snapshot missing order data")
 	}
-	
+
 	// Verify bid/ask sorting
 	for i := 1; i < len(snapshot.Bids); i++ {
 		if snapshot.Bids[i].Price > snapshot.Bids[i-1].Price {
 			t.Error("Bids not sorted correctly")
 		}
 	}
-	
+
 	for i := 1; i < len(snapshot.Asks); i++ {
 		if snapshot.Asks[i].Price < snapshot.Asks[i-1].Price {
 			t.Error("Asks not sorted correctly")
@@ -535,11 +543,11 @@ func testOrderBookSnapshot(t *testing.T) {
 
 func testMarketDataFeed(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Subscribe to market data
 	updates := make(chan MarketDataUpdate, 100)
 	book.Subscribe(updates)
-	
+
 	// Add order
 	order := &Order{
 		ID:        1300,
@@ -550,7 +558,7 @@ func testMarketDataFeed(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	book.AddOrder(order)
-	
+
 	// Check for update
 	select {
 	case update := <-updates:
@@ -565,20 +573,20 @@ func testMarketDataFeed(t *testing.T) {
 func testOrderBookReset(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
 	setupOrderBook(book)
-	
+
 	// Verify book has orders
 	if len(book.Orders) == 0 {
 		t.Fatal("Book should have orders before reset")
 	}
-	
+
 	// Reset book
 	book.Reset()
-	
+
 	// Verify book is empty
 	if len(book.Orders) != 0 {
 		t.Error("Book should be empty after reset")
 	}
-	
+
 	if len(book.Trades) != 0 {
 		t.Error("Trades should be cleared after reset")
 	}
@@ -586,11 +594,11 @@ func testOrderBookReset(t *testing.T) {
 
 func testConcurrentAccess(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	var wg sync.WaitGroup
 	numGoroutines := 100
 	ordersPerGoroutine := 100
-	
+
 	// Concurrent order additions
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
@@ -609,9 +617,9 @@ func testConcurrentAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify no data corruption
 	if len(book.Orders) == 0 {
 		t.Error("Orders should have been added")
@@ -620,10 +628,10 @@ func testConcurrentAccess(t *testing.T) {
 
 func testStressTest(t *testing.T) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	start := time.Now()
 	numOrders := 100000
-	
+
 	for i := 0; i < numOrders; i++ {
 		order := &Order{
 			ID:        uint64(i),
@@ -634,18 +642,18 @@ func testStressTest(t *testing.T) {
 			Timestamp: time.Now(),
 		}
 		book.AddOrder(order)
-		
+
 		// Random cancellations
 		if rand.Float64() < 0.1 {
 			book.CancelOrder(uint64(rand.Intn(i + 1)))
 		}
 	}
-	
+
 	elapsed := time.Since(start)
 	opsPerSec := float64(numOrders) / elapsed.Seconds()
-	
+
 	t.Logf("Stress test: %d orders in %v (%.0f ops/sec)", numOrders, elapsed, opsPerSec)
-	
+
 	if opsPerSec < 10000 {
 		t.Error("Performance below threshold")
 	}
@@ -665,7 +673,7 @@ func setupOrderBook(book *OrderBook) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	// Add sell orders
 	for i := 11; i <= 20; i++ {
 		book.AddOrder(&Order{
@@ -691,7 +699,7 @@ func setupDeepOrderBook(book *OrderBook) {
 			Size:      rand.Float64() * 10,
 			Timestamp: time.Now(),
 		})
-		
+
 		// Asks
 		book.AddOrder(&Order{
 			ID:        uint64(i + 100),
@@ -710,32 +718,18 @@ func setupDeepOrderBook(book *OrderBook) {
 
 // Extended Order fields - using Order from orderbook.go
 
-// Extended OrderBook methods
-func (book *OrderBook) Subscribe(ch chan MarketDataUpdate) {
-	// Implementation for market data feed
-}
-
-// GetDepth is already implemented in orderbook.go
-
-// GetSnapshot - removed as it's already defined in orderbook.go
-
-func (book *OrderBook) Reset() {
-	book.mu.Lock()
-	defer book.mu.Unlock()
-	
-	book.Orders = make(map[uint64]*Order)
-	book.UserOrders = make(map[string][]uint64)
-	book.Trades = []Trade{}
-	book.Bids = NewOrderTree(Buy)
-	book.Asks = NewOrderTree(Sell)
-}
+// Extended OrderBook methods are now implemented in orderbook.go
+// - Subscribe(ch chan MarketDataUpdate)
+// - Reset()
+// - GetDepth(levels int) - already exists
+// - GetSnapshot() - already exists
 
 // var EnableSelfTradePrevention bool // Not needed
 
 // Benchmark tests for performance validation
 func BenchmarkOrderBookAddOrder(b *testing.B) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		order := &Order{
@@ -752,7 +746,7 @@ func BenchmarkOrderBookAddOrder(b *testing.B) {
 
 func BenchmarkOrderBookCancel(b *testing.B) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Pre-populate orders
 	for i := 0; i < b.N; i++ {
 		order := &Order{
@@ -765,7 +759,7 @@ func BenchmarkOrderBookCancel(b *testing.B) {
 		}
 		book.AddOrder(order)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		book.CancelOrder(uint64(i))
@@ -774,7 +768,7 @@ func BenchmarkOrderBookCancel(b *testing.B) {
 
 func BenchmarkOrderBookMatching(b *testing.B) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	// Setup liquidity
 	for i := 0; i < 1000; i++ {
 		book.AddOrder(&Order{
@@ -794,7 +788,7 @@ func BenchmarkOrderBookMatching(b *testing.B) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Alternating market orders
@@ -815,7 +809,7 @@ func BenchmarkOrderBookMatching(b *testing.B) {
 func BenchmarkOrderBookSnapshot(b *testing.B) {
 	book := NewOrderBook("BTC-USD")
 	setupDeepOrderBook(book)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = book.GetSnapshot()
@@ -824,7 +818,7 @@ func BenchmarkOrderBookSnapshot(b *testing.B) {
 
 func BenchmarkConcurrentOrderBook(b *testing.B) {
 	book := NewOrderBook("BTC-USD")
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		id := uint64(0)
 		for pb.Next() {

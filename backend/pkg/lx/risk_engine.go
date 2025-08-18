@@ -9,33 +9,33 @@ import (
 // RiskEngine manages risk for the trading platform
 type RiskEngine struct {
 	// Risk parameters
-	MaxLeverage          map[string]float64 // Symbol -> max leverage
-	MaintenanceMargin    map[string]float64 // Symbol -> maintenance margin
-	InitialMargin        map[string]float64 // Symbol -> initial margin
-	MaxPositionSize      map[string]float64 // Symbol -> max position size
-	
+	MaxLeverage       map[string]float64 // Symbol -> max leverage
+	MaintenanceMargin map[string]float64 // Symbol -> maintenance margin
+	InitialMargin     map[string]float64 // Symbol -> initial margin
+	MaxPositionSize   map[string]float64 // Symbol -> max position size
+
 	// Risk metrics
-	TotalExposure        float64
-	VaR                  float64 // Value at Risk
-	MaxDrawdown          float64
-	
+	TotalExposure float64
+	VaR           float64 // Value at Risk
+	MaxDrawdown   float64
+
 	// Risk limits
-	MaxTotalExposure     float64
-	MaxVaR               float64
-	MaxConcentration     float64
-	
+	MaxTotalExposure float64
+	MaxVaR           float64
+	MaxConcentration float64
+
 	// State
-	mu                   sync.RWMutex
+	mu sync.RWMutex
 }
 
 // RiskMetrics contains risk metrics for monitoring
 type RiskMetrics struct {
-	TotalExposure        float64
-	ValueAtRisk          float64
-	MaxDrawdown          float64
-	Sharpe               float64
-	Concentration        map[string]float64
-	UpdatedAt            time.Time
+	TotalExposure float64
+	ValueAtRisk   float64
+	MaxDrawdown   float64
+	Sharpe        float64
+	Concentration map[string]float64
+	UpdatedAt     time.Time
 }
 
 // NewRiskEngine creates a new risk engine
@@ -54,10 +54,10 @@ func NewRiskEngine() *RiskEngine {
 			"default":  0.025, // 2.5%
 		},
 		InitialMargin: map[string]float64{
-			"BTC-USDT": 0.01,  // 1%
+			"BTC-USDT": 0.01, // 1%
 			"ETH-USDT": 0.01,
-			"BNB-USDT": 0.02,  // 2%
-			"default":  0.05,  // 5%
+			"BNB-USDT": 0.02, // 2%
+			"default":  0.05, // 5%
 		},
 		MaxPositionSize: map[string]float64{
 			"BTC-USDT": 100,
@@ -67,7 +67,7 @@ func NewRiskEngine() *RiskEngine {
 		},
 		MaxTotalExposure: 100000000, // $100M
 		MaxVaR:           10000000,  // $10M
-		MaxConcentration: 0.3,        // 30% in single asset
+		MaxConcentration: 0.3,       // 30% in single asset
 	}
 }
 
@@ -75,7 +75,7 @@ func NewRiskEngine() *RiskEngine {
 func (re *RiskEngine) CheckPositionRisk(symbol string, size, leverage float64) bool {
 	re.mu.RLock()
 	defer re.mu.RUnlock()
-	
+
 	// Check leverage limit
 	maxLev, exists := re.MaxLeverage[symbol]
 	if !exists {
@@ -84,7 +84,7 @@ func (re *RiskEngine) CheckPositionRisk(symbol string, size, leverage float64) b
 	if leverage > maxLev {
 		return false
 	}
-	
+
 	// Check position size
 	maxSize, exists := re.MaxPositionSize[symbol]
 	if !exists {
@@ -93,13 +93,13 @@ func (re *RiskEngine) CheckPositionRisk(symbol string, size, leverage float64) b
 	if size > maxSize {
 		return false
 	}
-	
+
 	// Check total exposure
 	exposure := size * leverage
-	if re.TotalExposure + exposure > re.MaxTotalExposure {
+	if re.TotalExposure+exposure > re.MaxTotalExposure {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -107,7 +107,7 @@ func (re *RiskEngine) CheckPositionRisk(symbol string, size, leverage float64) b
 func (re *RiskEngine) GetMaintenanceMargin(symbol string) float64 {
 	re.mu.RLock()
 	defer re.mu.RUnlock()
-	
+
 	if margin, exists := re.MaintenanceMargin[symbol]; exists {
 		return margin
 	}
@@ -118,7 +118,7 @@ func (re *RiskEngine) GetMaintenanceMargin(symbol string) float64 {
 func (re *RiskEngine) GetInitialMargin(symbol string) float64 {
 	re.mu.RLock()
 	defer re.mu.RUnlock()
-	
+
 	if margin, exists := re.InitialMargin[symbol]; exists {
 		return margin
 	}
@@ -129,17 +129,17 @@ func (re *RiskEngine) GetInitialMargin(symbol string) float64 {
 func (re *RiskEngine) CalculateVaR(positions []*MarginPosition, confidence float64) float64 {
 	re.mu.Lock()
 	defer re.mu.Unlock()
-	
+
 	// Simplified VaR calculation
 	totalValue := 0.0
 	for _, pos := range positions {
 		totalValue += pos.Size * pos.MarkPrice
 	}
-	
+
 	// Assume 5% daily volatility
 	volatility := 0.05
 	zScore := 1.96 // 95% confidence
-	
+
 	re.VaR = totalValue * volatility * zScore
 	return re.VaR
 }
@@ -148,7 +148,7 @@ func (re *RiskEngine) CalculateVaR(positions []*MarginPosition, confidence float
 func (re *RiskEngine) UpdateExposure(delta float64) {
 	re.mu.Lock()
 	defer re.mu.Unlock()
-	
+
 	re.TotalExposure += delta
 	if re.TotalExposure < 0 {
 		re.TotalExposure = 0
@@ -159,7 +159,7 @@ func (re *RiskEngine) UpdateExposure(delta float64) {
 func (re *RiskEngine) GetRiskMetrics() *RiskMetrics {
 	re.mu.RLock()
 	defer re.mu.RUnlock()
-	
+
 	return &RiskMetrics{
 		TotalExposure: re.TotalExposure,
 		ValueAtRisk:   re.VaR,
@@ -171,7 +171,7 @@ func (re *RiskEngine) GetRiskMetrics() *RiskMetrics {
 // CalculateLiquidationPrice calculates liquidation price for a position
 func (re *RiskEngine) CalculateLiquidationPrice(position *MarginPosition) float64 {
 	maintenanceMargin := re.GetMaintenanceMargin(position.Symbol)
-	
+
 	if position.Side == Buy {
 		// Long position liquidation price
 		// Liquidation when: (Price - Entry) / Entry <= -MaintenanceMargin
@@ -187,16 +187,16 @@ func (re *RiskEngine) CalculateLiquidationPrice(position *MarginPosition) float6
 func (re *RiskEngine) CheckMarginCall(account *MarginAccount, markPrices map[string]float64) bool {
 	totalValue := 0.0
 	totalMarginRequired := 0.0
-	
+
 	for _, position := range account.Positions {
 		markPrice := markPrices[position.Symbol]
 		positionValue := position.Size * markPrice
 		totalValue += positionValue
-		
+
 		maintenanceMargin := re.GetMaintenanceMargin(position.Symbol)
 		totalMarginRequired += positionValue * maintenanceMargin
 	}
-	
+
 	// Calculate available margin
 	availableMargin := 0.0
 	for asset, collateral := range account.CollateralAssets {
@@ -205,9 +205,9 @@ func (re *RiskEngine) CheckMarginCall(account *MarginAccount, markPrices map[str
 			availableMargin += assetValue * collateral.Haircut
 		}
 	}
-	
+
 	// Margin call if available margin < required margin * 1.2 (20% buffer)
-	return availableMargin < totalMarginRequired * 1.2
+	return availableMargin < totalMarginRequired*1.2
 }
 
 // ValidateLeverage validates leverage for an account type
@@ -216,7 +216,7 @@ func (re *RiskEngine) ValidateLeverage(accountType MarginAccountType, symbol str
 	if maxLeverage == 0 {
 		maxLeverage = re.MaxLeverage["default"]
 	}
-	
+
 	switch accountType {
 	case CrossMargin:
 		return leverage <= math.Min(maxLeverage, 10)

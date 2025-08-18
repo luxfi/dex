@@ -39,11 +39,11 @@ func (c *Counter) Count() int64 {
 func (r *Registry) Counter(name string) *Counter {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if c, exists := r.counters[name]; exists {
 		return c
 	}
-	
+
 	c := &Counter{}
 	r.counters[name] = c
 	return c
@@ -66,11 +66,11 @@ func (h *Histogram) Observe(value float64) {
 func (h *Histogram) Percentile(p float64) float64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	if len(h.values) == 0 {
 		return 0
 	}
-	
+
 	// Simple approximation - just return average for now
 	var sum float64
 	for _, v := range h.values {
@@ -83,11 +83,11 @@ func (h *Histogram) Percentile(p float64) float64 {
 func (r *Registry) Histogram(name string) *Histogram {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if h, exists := r.histograms[name]; exists {
 		return h
 	}
-	
+
 	h := &Histogram{
 		values: make([]float64, 0, 1000),
 	}

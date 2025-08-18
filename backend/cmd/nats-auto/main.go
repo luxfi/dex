@@ -136,15 +136,15 @@ func main() {
 
 func (n *AutoNode) autoMode(workers, traders int, rate int, duration time.Duration) {
 	log.Println("🤖 AUTO MODE - Detecting network topology...")
-	
+
 	// Wait for discovery
 	time.Sleep(3 * time.Second)
-	
+
 	n.mu.RLock()
 	serverCount := 0
 	traderCount := 0
 	var earliestServer *NodeInfo
-	
+
 	for _, peer := range n.peers {
 		if peer.Type == "server" || peer.Type == "all" {
 			serverCount++
@@ -158,9 +158,9 @@ func (n *AutoNode) autoMode(workers, traders int, rate int, duration time.Durati
 		}
 	}
 	n.mu.RUnlock()
-	
+
 	log.Printf("📊 Found %d servers, %d traders", serverCount, traderCount)
-	
+
 	// SINGLE SERVER LOGIC - Only ONE server allowed!
 	if serverCount == 0 {
 		// No server exists - I become THE server
@@ -177,18 +177,18 @@ func (n *AutoNode) autoMode(workers, traders int, rate int, duration time.Durati
 func (n *AutoNode) runServer(workers int) {
 	n.isServer = true
 	log.Printf("🏦 Starting DEX Server with %d workers", workers)
-	
+
 	// Subscribe to orders
 	n.nc.QueueSubscribe("dex.orders", "servers", func(m *nats.Msg) {
 		var order Order
 		if json.Unmarshal(m.Data, &order) == nil {
 			atomic.AddInt64(&n.ordersCount, 1)
-			
+
 			// Simple matching
 			if order.ID%2 == 0 {
 				atomic.AddInt64(&n.tradesCount, 1)
 			}
-			
+
 			// Respond
 			resp := map[string]interface{}{
 				"status": "accepted",
@@ -199,7 +199,7 @@ func (n *AutoNode) runServer(workers int) {
 			m.Respond(data)
 		}
 	})
-	
+
 	// Stats printer
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -210,33 +210,33 @@ func (n *AutoNode) runServer(workers int) {
 			log.Printf("📊 Server Stats: Orders=%d, Trades=%d", orders, trades)
 		}
 	}()
-	
+
 	log.Println("✅ DEX Server ready!")
 }
 
 func (n *AutoNode) runTrader(traders int, rate int, duration time.Duration) {
 	n.isTrader = true
 	log.Printf("💹 Starting %d traders at %d orders/sec each", traders, rate)
-	
+
 	var wg sync.WaitGroup
 	wg.Add(traders)
-	
+
 	startTime := time.Now()
 	endTime := startTime.Add(duration)
 	if duration == 0 {
 		endTime = startTime.Add(365 * 24 * time.Hour) // Run for a year
 	}
-	
+
 	var totalOrders int64
 	var totalAccepted int64
-	
+
 	for i := 0; i < traders; i++ {
 		go func(id int) {
 			defer wg.Done()
-			
+
 			sleepNs := time.Duration(1000000000 / rate)
 			orderID := uint64(0)
-			
+
 			for time.Now().Before(endTime) {
 				order := Order{
 					ID:        atomic.AddUint64(&orderID, 1),
@@ -247,9 +247,9 @@ func (n *AutoNode) runTrader(traders int, rate int, duration time.Duration) {
 					Timestamp: time.Now(),
 					NodeID:    n.nodeID,
 				}
-				
+
 				data, _ := json.Marshal(order)
-				
+
 				// Send order
 				msg, err := n.nc.Request("dex.orders", data, 100*time.Millisecond)
 				if err == nil {
@@ -261,31 +261,31 @@ func (n *AutoNode) runTrader(traders int, rate int, duration time.Duration) {
 						}
 					}
 				}
-				
+
 				if rate < 10000 {
 					time.Sleep(sleepNs)
 				}
 			}
 		}(i)
 	}
-	
+
 	// Stats printer
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		lastOrders := int64(0)
-		
+
 		for range ticker.C {
 			orders := atomic.LoadInt64(&totalOrders)
 			accepted := atomic.LoadInt64(&totalAccepted)
 			delta := orders - lastOrders
-			
-			log.Printf("📈 Orders: %d | Rate: %d/sec | Accepted: %d", 
+
+			log.Printf("📈 Orders: %d | Rate: %d/sec | Accepted: %d",
 				orders, delta, accepted)
 			lastOrders = orders
 		}
 	}()
-	
+
 	if duration > 0 {
 		wg.Wait()
 		log.Printf("✅ Trading complete: %d orders sent", totalOrders)
@@ -295,7 +295,7 @@ func (n *AutoNode) runTrader(traders int, rate int, duration time.Duration) {
 func (n *AutoNode) announcer() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		nodeType := "none"
 		if n.isServer && n.isTrader {
@@ -305,7 +305,7 @@ func (n *AutoNode) announcer() {
 		} else if n.isTrader {
 			nodeType = "trader"
 		}
-		
+
 		info := NodeInfo{
 			ID:        n.nodeID,
 			IP:        n.nodeIP,
@@ -316,7 +316,7 @@ func (n *AutoNode) announcer() {
 			Trades:    atomic.LoadInt64(&n.tradesCount),
 			Timestamp: time.Now(),
 		}
-		
+
 		data, _ := json.Marshal(info)
 		n.nc.Publish("nodes.announce", data)
 	}
@@ -329,7 +329,7 @@ func (n *AutoNode) discoverer() {
 			if info.ID != n.nodeID {
 				n.mu.Lock()
 				if _, exists := n.peers[info.ID]; !exists {
-					log.Printf("🔍 Discovered node: %s (%s) - %s at %s", 
+					log.Printf("🔍 Discovered node: %s (%s) - %s at %s",
 						info.ID, info.Type, info.Hostname, info.IP)
 				}
 				n.peers[info.ID] = &info
@@ -344,7 +344,7 @@ func getLocalIP() string {
 	if err != nil {
 		return "127.0.0.1"
 	}
-	
+
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
@@ -363,7 +363,7 @@ func discoverNATS() string {
 		"nats://nats-server:4222",
 		"nats://127.0.0.1:4222",
 	}
-	
+
 	for _, loc := range locations {
 		nc, err := nats.Connect(loc, nats.Timeout(1*time.Second))
 		if err == nil {
@@ -372,7 +372,7 @@ func discoverNATS() string {
 			return loc
 		}
 	}
-	
+
 	// Try mDNS/Bonjour discovery
 	// For now, just use default
 	return nats.DefaultURL

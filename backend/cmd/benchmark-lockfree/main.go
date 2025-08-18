@@ -15,14 +15,14 @@ import (
 
 // BenchmarkResult holds performance metrics
 type BenchmarkResult struct {
-	Name            string
-	OrdersPerSec    float64
-	TradesPerSec    float64
-	LatencyP50      time.Duration
-	LatencyP99      time.Duration
-	LatencyP999     time.Duration
-	MemoryMB        uint64
-	GoroutineCount  int
+	Name           string
+	OrdersPerSec   float64
+	TradesPerSec   float64
+	LatencyP50     time.Duration
+	LatencyP99     time.Duration
+	LatencyP999    time.Duration
+	MemoryMB       uint64
+	GoroutineCount int
 }
 
 func main() {
@@ -45,7 +45,7 @@ func main() {
 
 	// Run benchmark series
 	results := []BenchmarkResult{}
-	
+
 	// Test different configurations
 	configs := []struct {
 		name       string
@@ -60,7 +60,7 @@ func main() {
 	}
 
 	for _, cfg := range configs {
-		fmt.Printf("\nTesting: %s (%d goroutines, %d books)\n", 
+		fmt.Printf("\nTesting: %s (%d goroutines, %d books)\n",
 			cfg.name, cfg.goroutines, cfg.books)
 		result := runBenchmark(cfg.name, *orders, *duration, cfg.goroutines, cfg.books)
 		results = append(results, result)
@@ -69,7 +69,7 @@ func main() {
 
 	// Print comparison
 	printComparison(results)
-	
+
 	// Project to cluster scale
 	best := results[0]
 	for _, r := range results {
@@ -97,22 +97,22 @@ func runBenchmark(name string, numOrders int, duration time.Duration, numGorouti
 
 	// Create order queue
 	orderQueue := make(chan lx.Order, numOrders)
-	
+
 	// Pre-generate orders
 	log.Printf("Generating %d orders...", numOrders)
 	orders := generateOrders(numOrders)
-	
+
 	// Start workers
 	wg := sync.WaitGroup{}
 	startTime := time.Now()
 	done := make(chan bool)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 			localRand := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
-			
+
 			for {
 				select {
 				case <-done:
@@ -121,16 +121,16 @@ func runBenchmark(name string, numOrders int, duration time.Duration, numGorouti
 					// Select random book
 					bookIdx := localRand.Intn(numBooks)
 					book := books[bookIdx]
-					
+
 					// Process order with timing
 					start := time.Now()
 					tradeCount := book.AddOrder(&order)
 					latency := time.Since(start)
-					
+
 					// Update metrics
 					ordersProcessed.Add(1)
 					tradesExecuted.Add(tradeCount)
-					
+
 					// Sample latencies (1% to reduce overhead)
 					if localRand.Float32() < 0.01 {
 						latencyMu.Lock()
@@ -192,25 +192,25 @@ func runBenchmark(name string, numOrders int, duration time.Duration, numGorouti
 func generateOrders(count int) []lx.Order {
 	orders := make([]lx.Order, count)
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	
+
 	for i := 0; i < count; i++ {
 		side := lx.Buy
 		if r.Float32() > 0.5 {
 			side = lx.Sell
 		}
-		
+
 		// Generate realistic price distribution
 		basePrice := 50000.0
 		spread := 1000.0
 		price := basePrice + (r.Float64()-0.5)*spread
-		
+
 		// Add some market orders for immediate matching
 		orderType := lx.Limit
 		if r.Float32() < 0.1 { // 10% market orders
 			orderType = lx.Market
 			price = 0
 		}
-		
+
 		orders[i] = lx.Order{
 			ID:        uint64(i),
 			Symbol:    "BTC-USD",
@@ -222,7 +222,7 @@ func generateOrders(count int) []lx.Order {
 			Timestamp: time.Now(),
 		}
 	}
-	
+
 	return orders
 }
 
@@ -230,7 +230,7 @@ func calculatePercentiles(latencies []time.Duration) (p50, p99, p999 time.Durati
 	if len(latencies) == 0 {
 		return
 	}
-	
+
 	// Simple bubble sort for small arrays
 	n := len(latencies)
 	for i := 0; i < n-1; i++ {
@@ -240,7 +240,7 @@ func calculatePercentiles(latencies []time.Duration) (p50, p99, p999 time.Durati
 			}
 		}
 	}
-	
+
 	p50 = latencies[n*50/100]
 	if n > 99 {
 		p99 = latencies[n*99/100]
@@ -252,7 +252,7 @@ func calculatePercentiles(latencies []time.Duration) (p50, p99, p999 time.Durati
 	} else {
 		p999 = latencies[n-1]
 	}
-	
+
 	return
 }
 
@@ -267,12 +267,12 @@ func printComparison(results []BenchmarkResult) {
 	fmt.Printf("%-30s | %12s | %12s | %10s | %10s | %8s\n",
 		"Configuration", "Orders/sec", "Trades/sec", "P50", "P99", "Memory")
 	fmt.Println("--------------------------------------------------------------------------------")
-	
+
 	baseline := results[0].OrdersPerSec
 	for _, r := range results {
-		improvement := (r.OrdersPerSec / baseline - 1) * 100
+		improvement := (r.OrdersPerSec/baseline - 1) * 100
 		fmt.Printf("%-30s | %12.0f | %12.0f | %10v | %10v | %6dMB",
-			r.Name, r.OrdersPerSec, r.TradesPerSec, 
+			r.Name, r.OrdersPerSec, r.TradesPerSec,
 			r.LatencyP50, r.LatencyP99, r.MemoryMB)
 		if improvement > 0 {
 			fmt.Printf(" | +%.1f%%", improvement)
@@ -284,13 +284,13 @@ func printComparison(results []BenchmarkResult) {
 func projectToCluster(best BenchmarkResult) {
 	fmt.Println("\n🚀 Scaling Projection to 100M trades/sec")
 	fmt.Println("================================================================================")
-	
+
 	// Current single-node performance
 	fmt.Printf("Single Node Best Performance:\n")
 	fmt.Printf("  Orders/sec: %12.0f\n", best.OrdersPerSec)
 	fmt.Printf("  Trades/sec: %12.0f\n", best.TradesPerSec)
 	fmt.Printf("  Latency P50: %v, P99: %v\n", best.LatencyP50, best.LatencyP99)
-	
+
 	// Calculate requirements for different scenarios
 	scenarios := []struct {
 		name       string
@@ -301,18 +301,18 @@ func projectToCluster(best BenchmarkResult) {
 		{"Realistic (85% efficiency)", 0.85, 0.15},
 		{"Conservative (70% efficiency)", 0.70, 0.30},
 	}
-	
+
 	fmt.Printf("\nNodes Required for 100M trades/sec:\n")
 	for _, s := range scenarios {
 		nodesRequired := 100_000_000 / (best.TradesPerSec * s.efficiency)
 		fmt.Printf("  %s: %.0f nodes\n", s.name, nodesRequired)
 	}
-	
+
 	// Project with current optimizations
 	fmt.Printf("\nWith Planned Optimizations:\n")
 	optimizations := []struct {
-		name     string
-		speedup  float64
+		name    string
+		speedup float64
 	}{
 		{"+ Lock-free DAG", 2.0},
 		{"+ DPDK networking", 3.0},
@@ -320,28 +320,28 @@ func projectToCluster(best BenchmarkResult) {
 		{"+ GPU matching", 5.0},
 		{"+ FPGA filtering", 2.0},
 	}
-	
+
 	projectedPerf := best.TradesPerSec
 	for _, opt := range optimizations {
 		projectedPerf *= opt.speedup
 		nodesFor100M := 100_000_000 / (projectedPerf * 0.85)
-		fmt.Printf("  %s: %.0fx speedup → %.0f nodes needed\n", 
+		fmt.Printf("  %s: %.0fx speedup → %.0f nodes needed\n",
 			opt.name, projectedPerf/best.TradesPerSec, nodesFor100M)
 	}
-	
+
 	// Final projection
 	totalSpeedup := projectedPerf / best.TradesPerSec
 	finalNodes := 100_000_000 / (projectedPerf * 0.85)
-	
+
 	fmt.Printf("\n📈 Final Projection:\n")
 	fmt.Printf("  Total speedup: %.0fx\n", totalSpeedup)
 	fmt.Printf("  Per-node performance: %.0f trades/sec\n", projectedPerf)
 	fmt.Printf("  Nodes for 100M trades/sec: %.0f\n", finalNodes)
-	
+
 	if finalNodes <= 100 {
 		fmt.Println("\n✅ TARGET ACHIEVABLE with 100 nodes or less!")
 	} else {
-		fmt.Printf("\n⚠️  Need %.0f nodes (%.0f more than target)\n", 
+		fmt.Printf("\n⚠️  Need %.0f nodes (%.0f more than target)\n",
 			finalNodes, finalNodes-100)
 		fmt.Println("\nAdditional optimizations needed:")
 		fmt.Println("  • Implement sharding across order books")

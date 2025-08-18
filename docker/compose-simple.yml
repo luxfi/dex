@@ -1,0 +1,100 @@
+services:
+  # Use pre-built Go image to run DEX
+  dex-node:
+    image: golang:1.21-alpine
+    container_name: lux-dex-node
+    working_dir: /app
+    volumes:
+      - ../backend:/app
+      - ../bin:/bin/dex
+    environment:
+      - NODE_ID=node-1
+      - CONSENSUS_K=1
+      - CONSENSUS_N=1
+      - CGO_ENABLED=1
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "5000:5000"
+    command: >
+      sh -c "
+        apk add --no-cache gcc musl-dev &&
+        go build -o /bin/dex/lx-server ./cmd/dex-server &&
+        echo 'DEX Server built successfully' &&
+        /bin/dex/lx-server -port 8080
+      "
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - dex-network
+  
+  # Use pre-built Node image to run UI
+  dex-ui:
+    image: node:18-alpine
+    container_name: lux-dex-ui
+    working_dir: /app
+    volumes:
+      - ../ui:/app
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8081
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_BASE_PATH=/v2
+    ports:
+      - "3000:3000"
+    command: >
+      sh -c "
+        npm install &&
+        npm run dev
+      "
+    depends_on:
+      - dex-node
+    networks:
+      - dex-network
+  
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: lux-dex-db
+    environment:
+      - POSTGRES_DB=luxdex
+      - POSTGRES_USER=dexuser
+      - POSTGRES_PASSWORD=dexpass123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - dex-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dexuser -d luxdex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: lux-dex-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - dex-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  dex-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local

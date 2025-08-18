@@ -19,12 +19,12 @@ const (
 )
 
 type SettlementParticipant struct {
-	Address       string
-	Role          string // buyer, seller, market_maker, etc.
-	Amount        *big.Int
-	Fee           *big.Int
-	Confirmed     bool
-	ConfirmedAt   time.Time
+	Address     string
+	Role        string // buyer, seller, market_maker, etc.
+	Amount      *big.Int
+	Fee         *big.Int
+	Confirmed   bool
+	ConfirmedAt time.Time
 }
 
 type SettlementRecord struct {
@@ -39,29 +39,29 @@ type SettlementRecord struct {
 }
 
 type ConsensusProof struct {
-	Round       uint64
-	Validators  []string
-	Signatures  [][]byte
-	Timestamp   time.Time
-	BlockHash   string
-	StateRoot   []byte
+	Round      uint64
+	Validators []string
+	Signatures [][]byte
+	Timestamp  time.Time
+	BlockHash  string
+	StateRoot  []byte
 }
 
 type StateUpdate struct {
-	UpdateID    string
-	ChannelID   string
-	Sequence    uint64
-	FromState   *ChannelState
-	ToState     *ChannelState
-	Signatures  [][]byte
-	Timestamp   time.Time
+	UpdateID   string
+	ChannelID  string
+	Sequence   uint64
+	FromState  *ChannelState
+	ToState    *ChannelState
+	Signatures [][]byte
+	Timestamp  time.Time
 }
 
 type ChannelState struct {
-	Balances    map[string]*big.Int
-	Nonce       uint64
-	StateHash   []byte
-	Timestamp   time.Time
+	Balances  map[string]*big.Int
+	Nonce     uint64
+	StateHash []byte
+	Timestamp time.Time
 }
 
 // Custody types
@@ -76,10 +76,10 @@ const (
 )
 
 type AssetBalance struct {
-	Asset     string
-	Available *big.Int
-	Locked    *big.Int
-	Pending   *big.Int
+	Asset      string
+	Available  *big.Int
+	Locked     *big.Int
+	Pending    *big.Int
 	LastUpdate time.Time
 }
 
@@ -92,26 +92,26 @@ type AccessControl struct {
 }
 
 type AuditEntry struct {
-	EntryID     string
-	Action      string
-	Actor       string
-	Asset       string
-	Amount      *big.Int
-	Details     map[string]interface{}
-	Timestamp   time.Time
-	IPAddress   string
-	UserAgent   string
+	EntryID   string
+	Action    string
+	Actor     string
+	Asset     string
+	Amount    *big.Int
+	Details   map[string]interface{}
+	Timestamp time.Time
+	IPAddress string
+	UserAgent string
 }
 
 type CustodyEvent struct {
-	EventID     string
-	Type        string
-	VaultID     string
-	Owner       string
-	Asset       string
-	Amount      *big.Int
-	Details     map[string]interface{}
-	Timestamp   time.Time
+	EventID   string
+	Type      string
+	VaultID   string
+	Owner     string
+	Asset     string
+	Amount    *big.Int
+	Details   map[string]interface{}
+	Timestamp time.Time
 }
 
 type WithdrawalRequest struct {
@@ -140,10 +140,10 @@ const (
 )
 
 type Signature struct {
-	SignerID    string
-	Signature   []byte
-	SignedAt    time.Time
-	Message     []byte
+	SignerID  string
+	Signature []byte
+	SignedAt  time.Time
+	Message   []byte
 }
 
 type TimeLock struct {
@@ -190,16 +190,16 @@ func (wl *WithdrawalLimit) CanWithdraw(amount *big.Int) bool {
 // Validator types
 
 type ValidatorInfo struct {
-	NodeID          string
-	StakeAmount     *big.Int
-	StakeStartTime  time.Time
-	StakeEndTime    time.Time
-	DelegatorCount  int
-	TotalDelegated  *big.Int
-	RewardsEarned   *big.Int
-	SlashingEvents  []*SlashingEvent
-	Performance     *ValidatorPerformance
-	Status          ValidatorStatus
+	NodeID         string
+	StakeAmount    *big.Int
+	StakeStartTime time.Time
+	StakeEndTime   time.Time
+	DelegatorCount int
+	TotalDelegated *big.Int
+	RewardsEarned  *big.Int
+	SlashingEvents []*SlashingEvent
+	Performance    *ValidatorPerformance
+	Status         ValidatorStatus
 }
 
 type ValidatorStatus int
@@ -212,13 +212,13 @@ const (
 )
 
 type Delegator struct {
-	Address        string
-	ValidatorID    string
-	StakeAmount    *big.Int
-	StartTime      time.Time
-	EndTime        time.Time
-	RewardsEarned  *big.Int
-	AutoCompound   bool
+	Address       string
+	ValidatorID   string
+	StakeAmount   *big.Int
+	StartTime     time.Time
+	EndTime       time.Time
+	RewardsEarned *big.Int
+	AutoCompound  bool
 }
 
 type SlashingEvent struct {
@@ -281,32 +281,32 @@ const (
 )
 
 type BridgeValidator struct {
-	ValidatorID   string
-	PublicKey     []byte
-	VotingPower   uint64
-	LastSeen      time.Time
-	SignedBlocks  uint64
-	MissedBlocks  uint64
+	ValidatorID  string
+	PublicKey    []byte
+	VotingPower  uint64
+	LastSeen     time.Time
+	SignedBlocks uint64
+	MissedBlocks uint64
 }
 
 type BridgeLiquidityPool struct {
-	PoolID        string
-	Asset         string
+	PoolID         string
+	Asset          string
 	TotalLiquidity *big.Int
-	Available     *big.Int
-	Locked        *big.Int
-	Providers     map[string]*LiquidityProvider
-	APY           float64
-	LastRebalance time.Time
+	Available      *big.Int
+	Locked         *big.Int
+	Providers      map[string]*LiquidityProvider
+	APY            float64
+	LastRebalance  time.Time
 }
 
 type TransferLimit struct {
-	Asset         string
-	MinAmount     *big.Int
-	MaxAmount     *big.Int
-	DailyLimit    *big.Int
-	DailyVolume   *big.Int
-	LastReset     time.Time
+	Asset       string
+	MinAmount   *big.Int
+	MaxAmount   *big.Int
+	DailyLimit  *big.Int
+	DailyVolume *big.Int
+	LastReset   time.Time
 }
 
 type FeeStructure struct {
@@ -321,12 +321,12 @@ type FeeStructure struct {
 // Compliance types
 
 type ComplianceEngine struct {
-	KYCProviders     []KYCProvider
-	AMLCheckers      []AMLChecker
-	SanctionsList    *SanctionsList
-	RiskScoring      *RiskScoringEngine
-	ReportingEngine  *ReportingEngine
-	ComplianceRules  map[string]*ComplianceRule
+	KYCProviders    []KYCProvider
+	AMLCheckers     []AMLChecker
+	SanctionsList   *SanctionsList
+	RiskScoring     *RiskScoringEngine
+	ReportingEngine *ReportingEngine
+	ComplianceRules map[string]*ComplianceRule
 }
 
 type KYCProvider interface {
@@ -342,20 +342,20 @@ type AMLChecker interface {
 }
 
 type SanctionsList struct {
-	Addresses    map[string]bool
-	Entities     map[string]bool
+	Addresses     map[string]bool
+	Entities      map[string]bool
 	Jurisdictions map[string]bool
-	LastUpdate   time.Time
+	LastUpdate    time.Time
 }
 
 type ComplianceRule struct {
-	RuleID       string
-	Name         string
-	Description  string
-	Condition    func(interface{}) bool
-	Action       func(interface{}) error
-	Severity     RuleSeverity
-	Enabled      bool
+	RuleID      string
+	Name        string
+	Description string
+	Condition   func(interface{}) bool
+	Action      func(interface{}) error
+	Severity    RuleSeverity
+	Enabled     bool
 }
 
 type RuleSeverity int
@@ -368,15 +368,15 @@ const (
 )
 
 type SuspiciousActivity struct {
-	ActivityID   string
-	Type         string
-	Address      string
-	Asset        string
-	Amount       *big.Int
-	Pattern      string
-	RiskScore    float64
-	Details      map[string]interface{}
-	Timestamp    time.Time
+	ActivityID string
+	Type       string
+	Address    string
+	Asset      string
+	Amount     *big.Int
+	Pattern    string
+	RiskScore  float64
+	Details    map[string]interface{}
+	Timestamp  time.Time
 }
 
 // Monitoring types
@@ -399,12 +399,12 @@ type RiskMonitor struct {
 }
 
 type MonitoringRule struct {
-	RuleID      string
-	Name        string
-	Condition   func() bool
-	AlertLevel  AlertLevel
-	Actions     []func() error
-	Enabled     bool
+	RuleID     string
+	Name       string
+	Condition  func() bool
+	AlertLevel AlertLevel
+	Actions    []func() error
+	Enabled    bool
 }
 
 type AlertLevel int
@@ -424,12 +424,12 @@ type AlertSystem struct {
 }
 
 type Alert struct {
-	AlertID     string
-	Type        string
-	Level       AlertLevel
-	Message     string
-	Details     map[string]interface{}
-	Timestamp   time.Time
+	AlertID      string
+	Type         string
+	Level        AlertLevel
+	Message      string
+	Details      map[string]interface{}
+	Timestamp    time.Time
 	Acknowledged bool
 }
 
@@ -453,9 +453,9 @@ type BatchProcessor struct {
 }
 
 type CacheManager struct {
-	Caches       map[string]Cache
-	DefaultTTL   time.Duration
-	MaxSize      int
+	Caches         map[string]Cache
+	DefaultTTL     time.Duration
+	MaxSize        int
 	EvictionPolicy string
 }
 
@@ -521,10 +521,10 @@ type ExecutedTransaction struct {
 // Pool rebalancer types
 
 type PoolRebalancer struct {
-	Strategy        RebalanceStrategy
-	Interval        time.Duration
-	LastRebalance   time.Time
-	ThresholdRatio  float64
+	Strategy       RebalanceStrategy
+	Interval       time.Duration
+	LastRebalance  time.Time
+	ThresholdRatio float64
 }
 
 type RebalanceStrategy interface {
@@ -545,9 +545,9 @@ type PenaltyRule struct {
 }
 
 type SlashingRules struct {
-	Rules       map[string]*SlashingRule
-	MinSlash    *big.Int
-	MaxSlash    *big.Int
+	Rules        map[string]*SlashingRule
+	MinSlash     *big.Int
+	MaxSlash     *big.Int
 	AppealPeriod time.Duration
 }
 
@@ -559,16 +559,16 @@ type SlashingRule struct {
 }
 
 type RotationSchedule struct {
-	CurrentEpoch    uint64
-	EpochDuration   time.Duration
-	NextRotation    time.Time
-	RotationRules   map[string]RotationRule
+	CurrentEpoch  uint64
+	EpochDuration time.Duration
+	NextRotation  time.Time
+	RotationRules map[string]RotationRule
 }
 
 type RotationRule struct {
-	RuleID      string
-	Condition   func(*ValidatorInfo) bool
-	Priority    int
+	RuleID    string
+	Condition func(*ValidatorInfo) bool
+	Priority  int
 }
 
 // Helper functions
@@ -602,7 +602,7 @@ func (sm *SettlementMetrics) RecordSettlement(batch *SettlementBatch) {
 	sm.TotalValue.Add(sm.TotalValue, batch.TotalValue)
 	sm.GasUsedTotal += batch.GasUsed
 	sm.LastSettlement = batch.SettledAt
-	
+
 	// Calculate average settle time
 	settleTime := batch.SettledAt.Sub(batch.CreatedAt)
 	if sm.AverageSettleTime == 0 {
@@ -610,7 +610,7 @@ func (sm *SettlementMetrics) RecordSettlement(batch *SettlementBatch) {
 	} else {
 		sm.AverageSettleTime = (sm.AverageSettleTime + settleTime) / 2
 	}
-	
+
 	// Update success rate
 	sm.SuccessRate = float64(sm.TotalSettlements) / float64(sm.TotalSettlements+1) // Simplified
 }
@@ -708,9 +708,9 @@ func (as *AlertSystem) TriggerAlert(alertType, message string) {
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	
+
 	as.Alerts = append(as.Alerts, alert)
-	
+
 	// Notify subscribers
 	for _, subscriber := range as.Subscribers {
 		go subscriber.Notify(alert)
@@ -742,10 +742,10 @@ func NewSlashingRules() *SlashingRules {
 
 func NewRotationSchedule() *RotationSchedule {
 	return &RotationSchedule{
-		CurrentEpoch:   0,
-		EpochDuration:  24 * time.Hour,
-		NextRotation:   time.Now().Add(24 * time.Hour),
-		RotationRules:  make(map[string]RotationRule),
+		CurrentEpoch:  0,
+		EpochDuration: 24 * time.Hour,
+		NextRotation:  time.Now().Add(24 * time.Hour),
+		RotationRules: make(map[string]RotationRule),
 	}
 }
 

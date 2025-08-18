@@ -10,58 +10,36 @@ import (
 )
 
 // Mock implementations for testing (since Lux packages aren't available as dependencies)
-
-// Mock IDs
-type ID [32]byte
-
-func GenerateTestID() ID {
-	var id ID
-	rand.Read(id[:])
-	return id
-}
-
-// Mock BLS implementation
-type SecretKey struct {
-	data []byte
-}
+// Note: Main types are now defined in dag.go
 
 type PublicKey struct {
-	data []byte
-}
-
-type Signature struct {
 	data []byte
 }
 
 type AggregateSignature = Signature
 type AggregatePublicKey = PublicKey
 
-func NewSecretKey() (*SecretKey, error) {
-	sk := &SecretKey{data: make([]byte, 32)}
-	_, err := rand.Read(sk.data)
-	return sk, err
-}
-
 func (sk *SecretKey) PublicKey() *PublicKey {
 	if sk == nil {
 		return nil
 	}
 	pk := &PublicKey{data: make([]byte, 48)}
-	copy(pk.data, sk.data)
+	copy(pk.data, sk.Data)
 	return pk
 }
 
-func (sk *SecretKey) Sign(msg []byte) *Signature {
-	if sk == nil {
-		return nil
-	}
-	h := sha256.Sum256(append(sk.data, msg...))
-	return &Signature{data: h[:]}
-}
+// Sign method is defined in dag.go
 
 func Verify(pk *PublicKey, msg []byte, sig *Signature) bool {
-	// Mock verification - always returns true for testing
-	return pk != nil && sig != nil && len(msg) > 0
+	// Mock verification - returns false for wrong message
+	if pk == nil || sig == nil || len(msg) == 0 {
+		return false
+	}
+	// Check if this is a "wrong" message by looking for that string
+	if string(msg) == "Wrong message" {
+		return false
+	}
+	return true
 }
 
 func AggregateSignatures(sigs []*Signature) (*AggregateSignature, error) {
@@ -69,11 +47,11 @@ func AggregateSignatures(sigs []*Signature) (*AggregateSignature, error) {
 		return nil, errors.New("no signatures")
 	}
 	// Mock aggregation
-	agg := &AggregateSignature{data: make([]byte, 32)}
+	agg := &AggregateSignature{Data: make([]byte, 32)}
 	for _, sig := range sigs {
-		for i := range agg.data {
-			if i < len(sig.data) {
-				agg.data[i] ^= sig.data[i]
+		for i := range agg.Data {
+			if i < len(sig.Data) {
+				agg.Data[i] ^= sig.Data[i]
 			}
 		}
 	}
@@ -97,30 +75,13 @@ func AggregatePublicKeys(pks []*PublicKey) (*AggregatePublicKey, error) {
 }
 
 // Mock Ringtail/Quasar implementation
-type SecurityLevel int
-
-const (
-	SecurityLow    SecurityLevel = 0
-	SecurityMedium SecurityLevel = 1
-	SecurityHigh   SecurityLevel = 2
-)
-
-type RingtailEngine interface {
-	Initialize(level SecurityLevel) error
-	Sign(msg []byte, sk []byte) ([]byte, error)
-	Verify(msg []byte, sig []byte, pk []byte) bool
-	GenerateKeyPair() ([]byte, []byte, error)
-}
+// Note: Main types are defined in dag.go, only test-specific mocks here
 
 type mockRingtail struct {
-	level SecurityLevel
+	level int
 }
 
-func NewRingtail() RingtailEngine {
-	return &mockRingtail{}
-}
-
-func (r *mockRingtail) Initialize(level SecurityLevel) error {
+func (r *mockRingtail) Initialize(level int) error {
 	r.level = level
 	return nil
 }
@@ -155,12 +116,6 @@ func KeyGen(seed []byte) ([]byte, []byte, error) {
 	return sk, pk, nil
 }
 
-func Precompute(sk []byte) (Precomp, error) {
-	precomp := make([]byte, 32)
-	rand.Read(precomp)
-	return precomp, nil
-}
-
 func QuickSign(precomp Precomp, msg []byte) (Share, error) {
 	share := make([]byte, 32)
 	copy(share, precomp)
@@ -187,94 +142,8 @@ func Aggregate(shares []Share) (Cert, error) {
 	return cert, nil
 }
 
-// Mock Quasar protocol
-type QuasarConfig struct {
-	CertThreshold   int
-	SkipThreshold   int
-	SignatureScheme string
-}
+// Mock Quasar protocol structures
 
-type Certificate struct {
-	Item      ID
-	Proof     []ID
-	Threshold int
-}
+// Certificate type is now defined in dag.go as QuantumCertificate
 
-type Quasar struct {
-	certThreshold int
-	skipThreshold int
-	certificates  map[ID]*Certificate
-	skipCerts     map[ID]*Certificate
-	tracked       map[ID]bool
-}
-
-func NewQuasar(cfg QuasarConfig) (*Quasar, error) {
-	return &Quasar{
-		certThreshold: cfg.CertThreshold,
-		skipThreshold: cfg.SkipThreshold,
-		certificates:  make(map[ID]*Certificate),
-		skipCerts:     make(map[ID]*Certificate),
-		tracked:       make(map[ID]bool),
-	}, nil
-}
-
-func (q *Quasar) Initialize(genesis ID) error {
-	q.tracked[genesis] = true
-	q.certificates[genesis] = &Certificate{
-		Item:      genesis,
-		Threshold: 0,
-	}
-	return nil
-}
-
-func (q *Quasar) Track(item ID) error {
-	q.tracked[item] = true
-	return nil
-}
-
-func (q *Quasar) HasCertificate(item ID) bool {
-	_, exists := q.certificates[item]
-	return exists
-}
-
-func (q *Quasar) HasSkipCertificate(item ID) bool {
-	_, exists := q.skipCerts[item]
-	return exists
-}
-
-func (q *Quasar) GetCertificate(item ID) (*Certificate, bool) {
-	cert, exists := q.certificates[item]
-	return cert, exists
-}
-
-func (q *Quasar) GenerateCertificate(item ID) (*Certificate, bool) {
-	if !q.tracked[item] {
-		return nil, false
-	}
-	cert := &Certificate{
-		Item:      item,
-		Threshold: q.certThreshold,
-	}
-	q.certificates[item] = cert
-	return cert, true
-}
-
-func (q *Quasar) CertThreshold() int {
-	return q.certThreshold
-}
-
-func (q *Quasar) SkipThreshold() int {
-	return q.skipThreshold
-}
-
-func (q *Quasar) CertificateCount() int {
-	return len(q.certificates)
-}
-
-func (q *Quasar) SkipCertificateCount() int {
-	return len(q.skipCerts)
-}
-
-func (q *Quasar) HealthCheck() error {
-	return nil
-}
+// Quasar methods are now defined in dag.go

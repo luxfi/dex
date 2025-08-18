@@ -41,9 +41,9 @@ func main() {
 
 func testSingleThreaded(ob *lx.OrderBook) {
 	const numOrders = 10000
-	
+
 	start := time.Now()
-	
+
 	for i := 0; i < numOrders; i++ {
 		order := &lx.Order{
 			ID:     uint64(i),
@@ -56,18 +56,18 @@ func testSingleThreaded(ob *lx.OrderBook) {
 		if i%2 == 0 {
 			order.Side = lx.Sell
 		}
-		
+
 		ob.AddOrder(order)
 	}
-	
+
 	elapsed := time.Since(start)
 	throughput := float64(numOrders) / elapsed.Seconds()
 	avgLatency := elapsed / time.Duration(numOrders)
-	
+
 	fmt.Printf("  Processed %d orders in %v\n", numOrders, elapsed)
 	fmt.Printf("  Throughput: %.0f orders/sec\n", throughput)
 	fmt.Printf("  Avg Latency: %v per order\n", avgLatency)
-	
+
 	if avgLatency < time.Microsecond {
 		fmt.Printf("  ✅ SUB-MICROSECOND LATENCY ACHIEVED!\n")
 	}
@@ -76,17 +76,17 @@ func testSingleThreaded(ob *lx.OrderBook) {
 func testConcurrent(ob *lx.OrderBook) {
 	const numThreads = 10
 	const ordersPerThread = 1000
-	
+
 	var wg sync.WaitGroup
 	wg.Add(numThreads)
-	
+
 	var totalOrders atomic.Uint64
 	start := time.Now()
-	
+
 	for t := 0; t < numThreads; t++ {
 		go func(threadID int) {
 			defer wg.Done()
-			
+
 			for i := 0; i < ordersPerThread; i++ {
 				orderID := totalOrders.Add(1)
 				order := &lx.Order{
@@ -100,18 +100,18 @@ func testConcurrent(ob *lx.OrderBook) {
 				if orderID%2 == 0 {
 					order.Side = lx.Sell
 				}
-				
+
 				ob.AddOrder(order)
 			}
 		}(t)
 	}
-	
+
 	wg.Wait()
 	elapsed := time.Since(start)
-	
+
 	orders := totalOrders.Load()
 	throughput := float64(orders) / elapsed.Seconds()
-	
+
 	fmt.Printf("  Processed %d orders from %d threads in %v\n", orders, numThreads, elapsed)
 	fmt.Printf("  Throughput: %.0f orders/sec\n", throughput)
 }
@@ -136,10 +136,10 @@ func testMarketOrders(ob *lx.OrderBook) {
 			Size:   10.0,
 		})
 	}
-	
+
 	const numMarketOrders = 1000
 	start := time.Now()
-	
+
 	for i := 0; i < numMarketOrders; i++ {
 		order := &lx.Order{
 			ID:     uint64(300000 + i),
@@ -151,14 +151,14 @@ func testMarketOrders(ob *lx.OrderBook) {
 		if i%2 == 0 {
 			order.Side = lx.Sell
 		}
-		
+
 		ob.AddOrder(order)
 	}
-	
+
 	elapsed := time.Since(start)
 	throughput := float64(numMarketOrders) / elapsed.Seconds()
 	avgLatency := elapsed / time.Duration(numMarketOrders)
-	
+
 	fmt.Printf("  Matched %d market orders in %v\n", numMarketOrders, elapsed)
 	fmt.Printf("  Throughput: %.0f market orders/sec\n", throughput)
 	fmt.Printf("  Avg Latency: %v per order\n", avgLatency)
@@ -167,7 +167,7 @@ func testMarketOrders(ob *lx.OrderBook) {
 func testLatencyDistribution(ob *lx.OrderBook) {
 	const numSamples = 1000
 	latencies := make([]time.Duration, numSamples)
-	
+
 	for i := 0; i < numSamples; i++ {
 		order := &lx.Order{
 			ID:     uint64(400000 + i),
@@ -180,17 +180,17 @@ func testLatencyDistribution(ob *lx.OrderBook) {
 		if i%2 == 0 {
 			order.Side = lx.Sell
 		}
-		
+
 		start := time.Now()
 		ob.AddOrder(order)
 		latencies[i] = time.Since(start)
 	}
-	
+
 	// Calculate statistics
 	var sum, min, max time.Duration
 	min = time.Hour
 	subMicro := 0
-	
+
 	for _, l := range latencies {
 		sum += l
 		if l < min {
@@ -203,12 +203,12 @@ func testLatencyDistribution(ob *lx.OrderBook) {
 			subMicro++
 		}
 	}
-	
+
 	avg := sum / time.Duration(numSamples)
 	p50 := latencies[numSamples/2]
 	p95 := latencies[numSamples*95/100]
 	p99 := latencies[numSamples*99/100]
-	
+
 	fmt.Printf("  Samples: %d orders\n", numSamples)
 	fmt.Printf("  Min:  %v\n", min)
 	fmt.Printf("  Avg:  %v\n", avg)
@@ -216,10 +216,10 @@ func testLatencyDistribution(ob *lx.OrderBook) {
 	fmt.Printf("  P95:  %v\n", p95)
 	fmt.Printf("  P99:  %v\n", p99)
 	fmt.Printf("  Max:  %v\n", max)
-	
+
 	percentage := float64(subMicro) / float64(numSamples) * 100
 	fmt.Printf("  Sub-microsecond: %d orders (%.1f%%)\n", subMicro, percentage)
-	
+
 	if avg < 10*time.Microsecond {
 		fmt.Printf("  ✅ ACHIEVED: Average latency under 10 microseconds!\n")
 	}

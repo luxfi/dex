@@ -20,20 +20,20 @@ func TestQuasarInitialization(t *testing.T) {
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
 	require.NotNil(t, q)
-	
+
 	// Verify thresholds
 	assert.Equal(t, 15, q.CertThreshold())
 	assert.Equal(t, 20, q.SkipThreshold())
-	
+
 	// Initialize with genesis
 	genesisID := GenerateTestID()
 	err = q.Initialize(genesisID)
 	assert.NoError(t, err)
-	
+
 	// Genesis should have certificate
 	assert.True(t, q.HasCertificate(genesisID))
 	assert.Equal(t, 1, q.CertificateCount())
@@ -46,10 +46,10 @@ func TestQuasarCertificateTracking(t *testing.T) {
 		SkipThreshold:   15,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Track multiple items
 	itemIDs := make([]ID, 5)
 	for i := range itemIDs {
@@ -57,7 +57,7 @@ func TestQuasarCertificateTracking(t *testing.T) {
 		err := q.Track(itemIDs[i])
 		assert.NoError(t, err)
 	}
-	
+
 	// Generate certificates for tracked items
 	for _, id := range itemIDs {
 		cert, ok := q.GenerateCertificate(id)
@@ -65,7 +65,7 @@ func TestQuasarCertificateTracking(t *testing.T) {
 		assert.NotNil(t, cert)
 		assert.True(t, q.HasCertificate(id))
 	}
-	
+
 	// Verify certificate count
 	assert.Equal(t, 5, q.CertificateCount())
 }
@@ -77,30 +77,30 @@ func TestQuasarDualCertificatesBasic(t *testing.T) {
 		SkipThreshold:   10,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Initialize with genesis
 	genesisID := GenerateTestID()
 	err = q.Initialize(genesisID)
 	require.NoError(t, err)
-	
+
 	// Track an item
 	itemID := GenerateTestID()
 	err = q.Track(itemID)
 	assert.NoError(t, err)
-	
+
 	// Generate regular certificate
 	cert, ok := q.GenerateCertificate(itemID)
 	assert.True(t, ok)
 	assert.NotNil(t, cert)
 	assert.Equal(t, 5, cert.Threshold)
-	
+
 	// Check certificate existence
 	assert.True(t, q.HasCertificate(itemID))
 	assert.False(t, q.HasSkipCertificate(itemID))
-	
+
 	// Retrieve certificate
 	retrievedCert, exists := q.GetCertificate(itemID)
 	assert.True(t, exists)
@@ -114,37 +114,37 @@ func TestQuasarConcurrentOperations(t *testing.T) {
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Concurrent tracking and certificate generation
 	var wg sync.WaitGroup
 	numItems := 100
-	
+
 	for i := 0; i < numItems; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			itemID := GenerateTestID()
-			
+
 			// Track item
 			err := q.Track(itemID)
 			assert.NoError(t, err)
-			
+
 			// Generate certificate
 			cert, ok := q.GenerateCertificate(itemID)
 			assert.True(t, ok)
 			assert.NotNil(t, cert)
-			
+
 			// Check certificate
 			assert.True(t, q.HasCertificate(itemID))
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify final state
 	assert.Equal(t, numItems, q.CertificateCount())
 }
@@ -156,10 +156,10 @@ func TestQuasarHealthCheck(t *testing.T) {
 		SkipThreshold:   25,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Health check should pass
 	err = q.HealthCheck()
 	assert.NoError(t, err)
@@ -168,15 +168,15 @@ func TestQuasarHealthCheck(t *testing.T) {
 // TestQuasarWithFPCIntegration tests Quasar integration with FPC
 func TestQuasarWithFPCIntegration(t *testing.T) {
 	// Create FPC DAG order book with Quasar
-	dob, err := NewFPCDAGOrderBook("node1", "BTC-USD")
+	dob, err := NewDAGOrderBook("node1", "BTC-USD")
 	require.NoError(t, err)
 	defer dob.Shutdown()
-	
+
 	// Verify Quasar is initialized
 	assert.NotNil(t, dob.quasar)
 	assert.Equal(t, 15, dob.quasar.CertThreshold())
 	assert.Equal(t, 20, dob.quasar.SkipThreshold())
-	
+
 	// Add an order
 	order := &lx.Order{
 		ID:    1,
@@ -185,10 +185,10 @@ func TestQuasarWithFPCIntegration(t *testing.T) {
 		Price: 50000.0,
 		Size:  1.0,
 	}
-	
+
 	vertex, err := dob.AddOrder(order)
 	require.NoError(t, err)
-	
+
 	// Verify Quasar tracked the vertex
 	// Note: In production, we'd check internal Quasar state
 	// For now, we verify through certificate generation
@@ -196,16 +196,16 @@ func TestQuasarWithFPCIntegration(t *testing.T) {
 	dob.quasar.GenerateCertificate(vertex.ID)
 	hasCert := dob.quasar.HasCertificate(vertex.ID)
 	dob.mu.Unlock()
-	
+
 	assert.True(t, hasCert)
 }
 
 // TestQuasarCertificateValidation tests certificate validation in FPC
 func TestQuasarCertificateValidation(t *testing.T) {
-	dob, err := NewFPCDAGOrderBook("node1", "BTC-USD")
+	dob, err := NewDAGOrderBook("node1", "BTC-USD")
 	require.NoError(t, err)
 	defer dob.Shutdown()
-	
+
 	// Create a vertex
 	order := &lx.Order{
 		ID:    1,
@@ -214,7 +214,7 @@ func TestQuasarCertificateValidation(t *testing.T) {
 		Price: 50000.0,
 		Size:  1.0,
 	}
-	
+
 	vertex := &OrderVertex{
 		Order:     order,
 		NodeID:    "node1",
@@ -222,22 +222,22 @@ func TestQuasarCertificateValidation(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	vertex.ID = dob.generateVertexID(vertex)
-	
+
 	// Generate quantum certificate
 	cert, ok := dob.generateQuantumCertificate(vertex.ID, vertex)
 	assert.True(t, ok)
 	require.NotNil(t, cert)
-	
+
 	// Validate the certificate
 	err = dob.validateQuantumCertificate(vertex, cert)
 	assert.NoError(t, err)
-	
+
 	// Generate Quasar certificate
 	dob.mu.Lock()
 	dob.quasar.Track(vertex.ID)
 	quasarCert, ok := dob.quasar.GenerateCertificate(vertex.ID)
 	dob.mu.Unlock()
-	
+
 	assert.True(t, ok)
 	assert.NotNil(t, quasarCert)
 	assert.Equal(t, vertex.ID, quasarCert.Item)
@@ -245,10 +245,10 @@ func TestQuasarCertificateValidation(t *testing.T) {
 
 // TestQuasarSkipCertificateFastPath tests skip certificate fast finality
 func TestQuasarSkipCertificateFastPath(t *testing.T) {
-	dob, err := NewFPCDAGOrderBook("node1", "BTC-USD")
+	dob, err := NewDAGOrderBook("node1", "BTC-USD")
 	require.NoError(t, err)
 	defer dob.Shutdown()
-	
+
 	// Add multiple orders
 	var vertices []*OrderVertex
 	for i := 0; i < 3; i++ {
@@ -259,21 +259,21 @@ func TestQuasarSkipCertificateFastPath(t *testing.T) {
 			Price: 50000.0 + float64(i),
 			Size:  1.0,
 		}
-		
+
 		vertex, err := dob.AddOrder(order)
 		require.NoError(t, err)
 		vertices = append(vertices, vertex)
 	}
-	
+
 	// Simulate skip certificate for faster finality
 	dob.mu.Lock()
-	
+
 	// Track and generate certificates
 	for _, v := range vertices {
 		dob.quasar.Track(v.ID)
 		dob.quasar.GenerateCertificate(v.ID)
 	}
-	
+
 	// Check if any have skip certificates (in production, would be based on voting)
 	skipCount := 0
 	for _, v := range vertices {
@@ -281,20 +281,20 @@ func TestQuasarSkipCertificateFastPath(t *testing.T) {
 			skipCount++
 		}
 	}
-	
+
 	dob.mu.Unlock()
-	
+
 	// All should have regular certificates
 	assert.Equal(t, 3, skipCount)
-	
+
 	// Process Quasar certificates for finalization
 	dob.processQuasarCertificates()
-	
+
 	// Some vertices should be finalized
 	dob.mu.RLock()
 	finalizedCount := len(dob.finalized)
 	dob.mu.RUnlock()
-	
+
 	assert.GreaterOrEqual(t, finalizedCount, 0)
 }
 
@@ -305,30 +305,30 @@ func TestQuasarCertificateProof(t *testing.T) {
 		SkipThreshold:   15,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Create a chain of items
 	var itemIDs []ID
 	for i := 0; i < 5; i++ {
 		id := GenerateTestID()
 		itemIDs = append(itemIDs, id)
-		
+
 		err := q.Track(id)
 		assert.NoError(t, err)
-		
+
 		cert, ok := q.GenerateCertificate(id)
 		assert.True(t, ok)
 		assert.NotNil(t, cert)
-		
+
 		// Certificate should have proof (chain of previous items)
 		if i > 0 {
 			// In production, proof would contain references to previous certificates
 			assert.NotNil(t, cert.Proof)
 		}
 	}
-	
+
 	// Verify all certificates exist
 	for _, id := range itemIDs {
 		assert.True(t, q.HasCertificate(id))
@@ -342,16 +342,16 @@ func BenchmarkQuasarCertificateGeneration(b *testing.B) {
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, _ := NewQuasar(config)
-	
+
 	// Pre-track items
 	itemIDs := make([]ID, b.N)
 	for i := range itemIDs {
 		itemIDs[i] = GenerateTestID()
 		_ = q.Track(itemIDs[i])
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = q.GenerateCertificate(itemIDs[i])
@@ -365,9 +365,9 @@ func BenchmarkQuasarConcurrentCertificates(b *testing.B) {
 		SkipThreshold:   20,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, _ := NewQuasar(config)
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			itemID := GenerateTestID()
@@ -384,22 +384,22 @@ func TestQuasarCertificateRetrieval(t *testing.T) {
 		SkipThreshold:   12,
 		SignatureScheme: "hybrid-ringtail-bls",
 	}
-	
+
 	q, err := NewQuasar(config)
 	require.NoError(t, err)
-	
+
 	// Generate some certificates
 	var generatedCerts []*Certificate
 	for i := 0; i < 10; i++ {
 		itemID := GenerateTestID()
 		err := q.Track(itemID)
 		require.NoError(t, err)
-		
+
 		cert, ok := q.GenerateCertificate(itemID)
 		require.True(t, ok)
 		generatedCerts = append(generatedCerts, cert)
 	}
-	
+
 	// Retrieve and verify certificates
 	for _, originalCert := range generatedCerts {
 		retrievedCert, exists := q.GetCertificate(originalCert.Item)
@@ -407,7 +407,7 @@ func TestQuasarCertificateRetrieval(t *testing.T) {
 		assert.Equal(t, originalCert.Item, retrievedCert.Item)
 		assert.Equal(t, originalCert.Threshold, retrievedCert.Threshold)
 	}
-	
+
 	// Try to retrieve non-existent certificate
 	nonExistentID := GenerateTestID()
 	_, exists := q.GetCertificate(nonExistentID)

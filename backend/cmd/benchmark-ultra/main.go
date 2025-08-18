@@ -14,15 +14,15 @@ import (
 
 // BenchmarkResult holds performance metrics
 type BenchmarkResult struct {
-	Name            string
-	OrdersPerSec    float64
-	TradesPerSec    float64
-	LatencyP50      time.Duration
-	LatencyP99      time.Duration
-	LatencyP999     time.Duration
-	CPUUsage        float64
-	MemoryMB        uint64
-	GoroutineCount  int
+	Name           string
+	OrdersPerSec   float64
+	TradesPerSec   float64
+	LatencyP50     time.Duration
+	LatencyP99     time.Duration
+	LatencyP999    time.Duration
+	CPUUsage       float64
+	MemoryMB       uint64
+	GoroutineCount int
 }
 
 // TestConfig defines benchmark parameters
@@ -38,14 +38,14 @@ type TestConfig struct {
 
 func main() {
 	var (
-		orders      = flag.Int("orders", 100000, "Number of orders per second")
-		duration    = flag.Duration("duration", 30*time.Second, "Test duration")
-		books       = flag.Int("books", 10, "Number of order books")
-		goroutines  = flag.Int("goroutines", runtime.NumCPU(), "Number of goroutines")
-		useGPU      = flag.Bool("gpu", false, "Use GPU acceleration (disabled)")
-		lockFree    = flag.Bool("lockfree", true, "Use lock-free structures")
-		zeroCopy    = flag.Bool("zerocopy", true, "Use zero-copy optimizations")
-		compareAll  = flag.Bool("compare", false, "Compare all implementations")
+		orders     = flag.Int("orders", 100000, "Number of orders per second")
+		duration   = flag.Duration("duration", 30*time.Second, "Test duration")
+		books      = flag.Int("books", 10, "Number of order books")
+		goroutines = flag.Int("goroutines", runtime.NumCPU(), "Number of goroutines")
+		useGPU     = flag.Bool("gpu", false, "Use GPU acceleration (disabled)")
+		lockFree   = flag.Bool("lockfree", true, "Use lock-free structures")
+		zeroCopy   = flag.Bool("zerocopy", true, "Use zero-copy optimizations")
+		compareAll = flag.Bool("compare", false, "Compare all implementations")
 	)
 	flag.Parse()
 

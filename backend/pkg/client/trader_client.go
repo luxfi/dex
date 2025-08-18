@@ -16,43 +16,43 @@ import (
 // TraderClient is the main client for traders to interact with LX DEX
 type TraderClient struct {
 	// Connection
-	wsConn          *websocket.Conn
-	apiEndpoint     string
-	wsEndpoint      string
-	apiKey          string
-	apiSecret       string
-	
+	wsConn      *websocket.Conn
+	apiEndpoint string
+	wsEndpoint  string
+	apiKey      string
+	apiSecret   string
+
 	// State
-	connected       bool
-	authenticated   bool
-	userID          string
-	
+	connected     bool
+	authenticated bool
+	userID        string
+
 	// Account information
-	marginAccount   *lx.MarginAccount
-	positions       map[string]*lx.MarginPosition
-	orders          map[uint64]*lx.Order
-	balances        map[string]*big.Int
-	
+	marginAccount *lx.MarginAccount
+	positions     map[string]*lx.MarginPosition
+	orders        map[uint64]*lx.Order
+	balances      map[string]*big.Int
+
 	// Market data
-	orderBooks      map[string]*lx.OrderBookSnapshot
-	prices          map[string]float64
-	trades          map[string][]*lx.Trade
-	
+	orderBooks map[string]*lx.OrderBookSnapshot
+	prices     map[string]float64
+	trades     map[string][]*lx.Trade
+
 	// Subscriptions
-	subscriptions   map[string]bool
-	callbacks       map[string]func(interface{})
-	
+	subscriptions map[string]bool
+	callbacks     map[string]func(interface{})
+
 	// Channels
 	orderUpdates    chan *OrderUpdate
 	positionUpdates chan *PositionUpdate
 	priceUpdates    chan *PriceUpdate
 	tradeUpdates    chan *TradeUpdate
 	errorChan       chan error
-	
+
 	// Control
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     sync.RWMutex
 }
 
 // OrderUpdate represents an order update event
@@ -102,9 +102,9 @@ func NewTraderClient(config ClientConfig) (*TraderClient, error) {
 	if config.APIEndpoint == "" || config.WSEndpoint == "" {
 		return nil, errors.New("API and WebSocket endpoints required")
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	client := &TraderClient{
 		apiEndpoint:     config.APIEndpoint,
 		wsEndpoint:      config.WSEndpoint,
@@ -127,7 +127,7 @@ func NewTraderClient(config ClientConfig) (*TraderClient, error) {
 		ctx:             ctx,
 		cancel:          cancel,
 	}
-	
+
 	return client, nil
 }
 
@@ -135,30 +135,30 @@ func NewTraderClient(config ClientConfig) (*TraderClient, error) {
 func (c *TraderClient) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	if c.connected {
 		return errors.New("already connected")
 	}
-	
+
 	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(c.wsEndpoint, nil)
 	if err != nil {
 		return fmt.Errorf("websocket connection failed: %w", err)
 	}
-	
+
 	c.wsConn = conn
 	c.connected = true
-	
+
 	// Start message handlers
 	go c.handleMessages()
 	go c.heartbeat()
-	
+
 	// Authenticate
 	if err := c.authenticate(); err != nil {
 		c.Disconnect()
 		return fmt.Errorf("authentication failed: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -166,27 +166,27 @@ func (c *TraderClient) Connect() error {
 func (c *TraderClient) Disconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	if !c.connected {
 		return nil
 	}
-	
+
 	c.cancel()
-	
+
 	if c.wsConn != nil {
 		c.wsConn.Close()
 	}
-	
+
 	c.connected = false
 	c.authenticated = false
-	
+
 	// Close channels
 	close(c.orderUpdates)
 	close(c.positionUpdates)
 	close(c.priceUpdates)
 	close(c.tradeUpdates)
 	close(c.errorChan)
-	
+
 	return nil
 }
 
@@ -198,22 +198,22 @@ func (c *TraderClient) authenticate() error {
 		"apiSecret": c.apiSecret,
 		"timestamp": time.Now().Unix(),
 	}
-	
+
 	if err := c.wsConn.WriteJSON(auth); err != nil {
 		return err
 	}
-	
+
 	// Wait for auth response
 	var response map[string]interface{}
 	if err := c.wsConn.ReadJSON(&response); err != nil {
 		return err
 	}
-	
+
 	if response["type"] == "auth_success" {
 		c.authenticated = true
 		return nil
 	}
-	
+
 	return fmt.Errorf("authentication failed: %v", response["error"])
 }
 
@@ -224,25 +224,25 @@ func (c *TraderClient) PlaceOrder(order *lx.Order) (*lx.Order, error) {
 	if !c.authenticated {
 		return nil, errors.New("not authenticated")
 	}
-	
+
 	order.User = c.userID
 	order.Timestamp = time.Now()
-	
+
 	// Send order via WebSocket
 	msg := map[string]interface{}{
 		"type":  "place_order",
 		"order": order,
 	}
-	
+
 	if err := c.wsConn.WriteJSON(msg); err != nil {
 		return nil, err
 	}
-	
+
 	// Store order locally
 	c.mu.Lock()
 	c.orders[order.ID] = order
 	c.mu.Unlock()
-	
+
 	return order, nil
 }
 
@@ -251,12 +251,12 @@ func (c *TraderClient) CancelOrder(orderID uint64) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":    "cancel_order",
 		"orderID": orderID,
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -265,14 +265,14 @@ func (c *TraderClient) ModifyOrder(orderID uint64, newPrice, newSize float64) er
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":     "modify_order",
 		"orderID":  orderID,
 		"newPrice": newPrice,
 		"newSize":  newSize,
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -283,7 +283,7 @@ func (c *TraderClient) OpenMarginPosition(symbol string, side lx.Side, size, lev
 	if !c.authenticated {
 		return nil, errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":     "open_position",
 		"symbol":   symbol,
@@ -291,11 +291,11 @@ func (c *TraderClient) OpenMarginPosition(symbol string, side lx.Side, size, lev
 		"size":     size,
 		"leverage": leverage,
 	}
-	
+
 	if err := c.wsConn.WriteJSON(msg); err != nil {
 		return nil, err
 	}
-	
+
 	// Wait for position update
 	select {
 	case update := <-c.positionUpdates:
@@ -305,7 +305,7 @@ func (c *TraderClient) OpenMarginPosition(symbol string, side lx.Side, size, lev
 	case <-time.After(5 * time.Second):
 		return nil, errors.New("timeout waiting for position")
 	}
-	
+
 	return nil, errors.New("failed to open position")
 }
 
@@ -314,13 +314,13 @@ func (c *TraderClient) ClosePosition(positionID string, size float64) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":       "close_position",
 		"positionID": positionID,
 		"size":       size,
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -329,13 +329,13 @@ func (c *TraderClient) ModifyLeverage(positionID string, newLeverage float64) er
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":        "modify_leverage",
 		"positionID":  positionID,
 		"newLeverage": newLeverage,
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -346,13 +346,13 @@ func (c *TraderClient) DepositToVault(vaultID string, amount *big.Int) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":    "vault_deposit",
 		"vaultID": vaultID,
 		"amount":  amount.String(),
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -361,13 +361,13 @@ func (c *TraderClient) WithdrawFromVault(vaultID string, shares *big.Int) error 
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":    "vault_withdraw",
 		"vaultID": vaultID,
 		"shares":  shares.String(),
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -378,13 +378,13 @@ func (c *TraderClient) Supply(asset string, amount *big.Int) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":   "lending_supply",
 		"asset":  asset,
 		"amount": amount.String(),
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -393,13 +393,13 @@ func (c *TraderClient) Borrow(asset string, amount *big.Int) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":   "lending_borrow",
 		"asset":  asset,
 		"amount": amount.String(),
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -408,13 +408,13 @@ func (c *TraderClient) Repay(asset string, amount *big.Int) error {
 	if !c.authenticated {
 		return errors.New("not authenticated")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type":   "lending_repay",
 		"asset":  asset,
 		"amount": amount.String(),
 	}
-	
+
 	return c.wsConn.WriteJSON(msg)
 }
 
@@ -427,11 +427,11 @@ func (c *TraderClient) Subscribe(channel string, symbols []string) error {
 		"channel": channel,
 		"symbols": symbols,
 	}
-	
+
 	if err := c.wsConn.WriteJSON(msg); err != nil {
 		return err
 	}
-	
+
 	// Mark as subscribed
 	c.mu.Lock()
 	for _, symbol := range symbols {
@@ -439,7 +439,7 @@ func (c *TraderClient) Subscribe(channel string, symbols []string) error {
 		c.subscriptions[key] = true
 	}
 	c.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -450,11 +450,11 @@ func (c *TraderClient) Unsubscribe(channel string, symbols []string) error {
 		"channel": channel,
 		"symbols": symbols,
 	}
-	
+
 	if err := c.wsConn.WriteJSON(msg); err != nil {
 		return err
 	}
-	
+
 	// Remove subscriptions
 	c.mu.Lock()
 	for _, symbol := range symbols {
@@ -462,7 +462,7 @@ func (c *TraderClient) Unsubscribe(channel string, symbols []string) error {
 		delete(c.subscriptions, key)
 	}
 	c.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -470,11 +470,11 @@ func (c *TraderClient) Unsubscribe(channel string, symbols []string) error {
 func (c *TraderClient) GetOrderBook(symbol string) (*lx.OrderBookSnapshot, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if ob, exists := c.orderBooks[symbol]; exists {
 		return ob, nil
 	}
-	
+
 	return nil, fmt.Errorf("no order book for %s", symbol)
 }
 
@@ -482,11 +482,11 @@ func (c *TraderClient) GetOrderBook(symbol string) (*lx.OrderBookSnapshot, error
 func (c *TraderClient) GetPrice(symbol string) (float64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if price, exists := c.prices[symbol]; exists {
 		return price, nil
 	}
-	
+
 	return 0, fmt.Errorf("no price for %s", symbol)
 }
 
@@ -496,11 +496,11 @@ func (c *TraderClient) GetPrice(symbol string) (float64, error) {
 func (c *TraderClient) GetBalance(asset string) (*big.Int, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if balance, exists := c.balances[asset]; exists {
 		return balance, nil
 	}
-	
+
 	return big.NewInt(0), nil
 }
 
@@ -508,11 +508,11 @@ func (c *TraderClient) GetBalance(asset string) (*big.Int, error) {
 func (c *TraderClient) GetPosition(positionID string) (*lx.MarginPosition, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if position, exists := c.positions[positionID]; exists {
 		return position, nil
 	}
-	
+
 	return nil, fmt.Errorf("position %s not found", positionID)
 }
 
@@ -520,12 +520,12 @@ func (c *TraderClient) GetPosition(positionID string) (*lx.MarginPosition, error
 func (c *TraderClient) GetPositions() map[string]*lx.MarginPosition {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	positions := make(map[string]*lx.MarginPosition)
 	for k, v := range c.positions {
 		positions[k] = v
 	}
-	
+
 	return positions
 }
 
@@ -533,12 +533,12 @@ func (c *TraderClient) GetPositions() map[string]*lx.MarginPosition {
 func (c *TraderClient) GetOrders() map[uint64]*lx.Order {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	orders := make(map[uint64]*lx.Order)
 	for k, v := range c.orders {
 		orders[k] = v
 	}
-	
+
 	return orders
 }
 
@@ -592,7 +592,7 @@ func (c *TraderClient) handleMessages() {
 			}
 			break
 		}
-		
+
 		c.processMessage(msg)
 	}
 }
@@ -603,7 +603,7 @@ func (c *TraderClient) processMessage(msg map[string]interface{}) {
 	if !ok {
 		return
 	}
-	
+
 	switch msgType {
 	case "order_update":
 		c.handleOrderUpdate(msg)
@@ -628,7 +628,7 @@ func (c *TraderClient) handleOrderUpdate(msg map[string]interface{}) {
 	update := &OrderUpdate{
 		Timestamp: time.Now(),
 	}
-	
+
 	// Extract order data
 	if orderData, ok := msg["order"].(map[string]interface{}); ok {
 		// Convert to Order struct
@@ -636,19 +636,19 @@ func (c *TraderClient) handleOrderUpdate(msg map[string]interface{}) {
 		var order lx.Order
 		json.Unmarshal(orderJSON, &order)
 		update.Order = &order
-		
+
 		// Update local state
 		c.mu.Lock()
 		c.orders[order.ID] = &order
 		c.mu.Unlock()
 	}
-	
+
 	// Send to channel
 	select {
 	case c.orderUpdates <- update:
 	default:
 	}
-	
+
 	// Call callback
 	if callback, exists := c.callbacks["order_update"]; exists {
 		callback(update)
@@ -660,11 +660,11 @@ func (c *TraderClient) handlePositionUpdate(msg map[string]interface{}) {
 	update := &PositionUpdate{
 		Timestamp: time.Now(),
 	}
-	
+
 	if action, ok := msg["action"].(string); ok {
 		update.Action = action
 	}
-	
+
 	// Extract position data
 	if posData, ok := msg["position"].(map[string]interface{}); ok {
 		// Convert to Position struct
@@ -672,7 +672,7 @@ func (c *TraderClient) handlePositionUpdate(msg map[string]interface{}) {
 		var position lx.MarginPosition
 		json.Unmarshal(posJSON, &position)
 		update.Position = &position
-		
+
 		// Update local state
 		c.mu.Lock()
 		if update.Action == "closed" || update.Action == "liquidated" {
@@ -682,13 +682,13 @@ func (c *TraderClient) handlePositionUpdate(msg map[string]interface{}) {
 		}
 		c.mu.Unlock()
 	}
-	
+
 	// Send to channel
 	select {
 	case c.positionUpdates <- update:
 	default:
 	}
-	
+
 	// Call callback
 	if callback, exists := c.callbacks["position_update"]; exists {
 		callback(update)
@@ -700,13 +700,13 @@ func (c *TraderClient) handlePriceUpdate(msg map[string]interface{}) {
 	update := &PriceUpdate{
 		Timestamp: time.Now(),
 	}
-	
+
 	if symbol, ok := msg["symbol"].(string); ok {
 		update.Symbol = symbol
 	}
 	if price, ok := msg["price"].(float64); ok {
 		update.Price = price
-		
+
 		// Update local state
 		c.mu.Lock()
 		c.prices[update.Symbol] = price
@@ -721,13 +721,13 @@ func (c *TraderClient) handlePriceUpdate(msg map[string]interface{}) {
 	if volume, ok := msg["volume"].(float64); ok {
 		update.Volume = volume
 	}
-	
+
 	// Send to channel
 	select {
 	case c.priceUpdates <- update:
 	default:
 	}
-	
+
 	// Call callback
 	if callback, exists := c.callbacks["price_update"]; exists {
 		callback(update)
@@ -739,7 +739,7 @@ func (c *TraderClient) handleTradeUpdate(msg map[string]interface{}) {
 	update := &TradeUpdate{
 		Timestamp: time.Now(),
 	}
-	
+
 	// Extract trade data
 	if tradeData, ok := msg["trade"].(map[string]interface{}); ok {
 		// Convert to Trade struct
@@ -747,27 +747,27 @@ func (c *TraderClient) handleTradeUpdate(msg map[string]interface{}) {
 		var trade lx.Trade
 		json.Unmarshal(tradeJSON, &trade)
 		update.Trade = &trade
-		
+
 		// Update local state
 		c.mu.Lock()
 		if c.trades[trade.Symbol] == nil {
 			c.trades[trade.Symbol] = make([]*lx.Trade, 0)
 		}
 		c.trades[trade.Symbol] = append(c.trades[trade.Symbol], &trade)
-		
+
 		// Limit trade history
 		if len(c.trades[trade.Symbol]) > 100 {
 			c.trades[trade.Symbol] = c.trades[trade.Symbol][1:]
 		}
 		c.mu.Unlock()
 	}
-	
+
 	// Send to channel
 	select {
 	case c.tradeUpdates <- update:
 	default:
 	}
-	
+
 	// Call callback
 	if callback, exists := c.callbacks["trade_update"]; exists {
 		callback(update)
@@ -782,7 +782,7 @@ func (c *TraderClient) handleOrderBookUpdate(msg map[string]interface{}) {
 			snapshotJSON, _ := json.Marshal(snapshot)
 			var ob lx.OrderBookSnapshot
 			json.Unmarshal(snapshotJSON, &ob)
-			
+
 			// Update local state
 			c.mu.Lock()
 			c.orderBooks[symbol] = &ob
@@ -820,7 +820,7 @@ func (c *TraderClient) handleError(msg map[string]interface{}) {
 func (c *TraderClient) heartbeat() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:

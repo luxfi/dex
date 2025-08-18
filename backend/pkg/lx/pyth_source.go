@@ -15,42 +15,42 @@ import (
 // PythPriceSource connects to Pyth Network for real-time price feeds
 type PythPriceSource struct {
 	// Connection
-	wsURL           string
-	httpURL         string
-	conn            *websocket.Conn
-	httpClient      *http.Client
-	
+	wsURL      string
+	httpURL    string
+	conn       *websocket.Conn
+	httpClient *http.Client
+
 	// Price IDs for different assets
-	priceIDs        map[string]string
-	
+	priceIDs map[string]string
+
 	// Cached prices
-	prices          map[string]*PriceData
-	lastUpdate      map[string]time.Time
-	
+	prices     map[string]*PriceData
+	lastUpdate map[string]time.Time
+
 	// Subscriptions
-	subscriptions   map[string]bool
-	
+	subscriptions map[string]bool
+
 	// Health monitoring
-	healthy         bool
-	lastHeartbeat   time.Time
-	reconnectDelay  time.Duration
-	maxReconnect    int
-	
+	healthy        bool
+	lastHeartbeat  time.Time
+	reconnectDelay time.Duration
+	maxReconnect   int
+
 	// Control
-	mu              sync.RWMutex
-	done            chan struct{}
+	mu   sync.RWMutex
+	done chan struct{}
 }
 
 // PythPriceFeed represents a price update from Pyth
 type PythPriceFeed struct {
-	ID              string  `json:"id"`
-	Price           float64 `json:"price"`
-	Confidence      float64 `json:"conf"`
-	ExponentPrice   int32   `json:"expo"`
-	PublishTime     int64   `json:"publish_time"`
-	EMAPrice        float64 `json:"ema_price"`
-	EMAConfidence   float64 `json:"ema_conf"`
-	Status          string  `json:"status"`
+	ID            string  `json:"id"`
+	Price         float64 `json:"price"`
+	Confidence    float64 `json:"conf"`
+	ExponentPrice int32   `json:"expo"`
+	PublishTime   int64   `json:"publish_time"`
+	EMAPrice      float64 `json:"ema_price"`
+	EMAConfidence float64 `json:"ema_conf"`
+	Status        string  `json:"status"`
 }
 
 // NewPythPriceSource creates a new Pyth price source
@@ -66,21 +66,21 @@ func NewPythPriceSource(wsURL, httpURL string) *PythPriceSource {
 		healthy:        false,
 		reconnectDelay: 1 * time.Second,
 		maxReconnect:   10,
-		done:          make(chan struct{}),
+		done:           make(chan struct{}),
 	}
 }
 
 // initPythPriceIDs initializes Pyth price feed IDs for major assets
 func initPythPriceIDs() map[string]string {
 	return map[string]string{
-		"BTC-USDT":  "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
-		"ETH-USDT":  "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace", // ETH/USD
-		"BNB-USDT":  "0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f", // BNB/USD
-		"SOL-USDT":  "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", // SOL/USD
-		"AVAX-USDT": "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7", // AVAX/USD
+		"BTC-USDT":   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
+		"ETH-USDT":   "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace", // ETH/USD
+		"BNB-USDT":   "0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f", // BNB/USD
+		"SOL-USDT":   "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", // SOL/USD
+		"AVAX-USDT":  "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7", // AVAX/USD
 		"MATIC-USDT": "0x5de33a9112c2b700b8d30b8a3402c103578ccfa2765696471cc672bd5cf6ac52", // MATIC/USD
-		"ARB-USDT":  "0x3fa4252848f9f0a1480be62745a4629d9eb1322aebab8a791e344b3b9c1adcf5", // ARB/USD
-		"OP-USDT":   "0x385f64d993f7b77d8182ed5003d97c60aa3361f3cecfe711544d2d59165e9bdf", // OP/USD
+		"ARB-USDT":   "0x3fa4252848f9f0a1480be62745a4629d9eb1322aebab8a791e344b3b9c1adcf5", // ARB/USD
+		"OP-USDT":    "0x385f64d993f7b77d8182ed5003d97c60aa3361f3cecfe711544d2d59165e9bdf", // OP/USD
 	}
 }
 
@@ -88,37 +88,37 @@ func initPythPriceIDs() map[string]string {
 func (ps *PythPriceSource) Connect() error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	
+
 	// Close existing connection
 	if ps.conn != nil {
 		ps.conn.Close()
 	}
-	
+
 	// Establish new connection
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
-	
+
 	conn, _, err := dialer.Dial(ps.wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Pyth: %w", err)
 	}
-	
+
 	ps.conn = conn
 	ps.healthy = true
 	ps.lastHeartbeat = time.Now()
-	
+
 	// Start reading messages
 	go ps.readMessages()
-	
+
 	// Start heartbeat
 	go ps.heartbeat()
-	
+
 	// Subscribe to all configured price feeds
 	for symbol := range ps.priceIDs {
 		ps.subscribeToPriceFeed(symbol)
 	}
-	
+
 	return nil
 }
 
@@ -130,7 +130,7 @@ func (ps *PythPriceSource) readMessages() {
 		ps.mu.Unlock()
 		ps.reconnect()
 	}()
-	
+
 	for {
 		select {
 		case <-ps.done:
@@ -141,7 +141,7 @@ func (ps *PythPriceSource) readMessages() {
 			if err != nil {
 				return
 			}
-			
+
 			ps.handleMessage(msg)
 		}
 	}
@@ -153,7 +153,7 @@ func (ps *PythPriceSource) handleMessage(msg map[string]interface{}) {
 	if !ok {
 		return
 	}
-	
+
 	switch msgType {
 	case "price_update":
 		ps.handlePriceUpdate(msg)
@@ -170,12 +170,12 @@ func (ps *PythPriceSource) handlePriceUpdate(msg map[string]interface{}) {
 	if !ok {
 		return
 	}
-	
+
 	priceID, ok := data["price_id"].(string)
 	if !ok {
 		return
 	}
-	
+
 	// Find symbol for this price ID
 	var symbol string
 	for sym, id := range ps.priceIDs {
@@ -184,21 +184,21 @@ func (ps *PythPriceSource) handlePriceUpdate(msg map[string]interface{}) {
 			break
 		}
 	}
-	
+
 	if symbol == "" {
 		return
 	}
-	
+
 	// Parse price data
 	price, _ := data["price"].(float64)
 	confidence, _ := data["confidence"].(float64)
 	publishTime, _ := data["publish_time"].(float64)
-	
+
 	// Adjust for exponent if present
 	if expo, ok := data["expo"].(float64); ok {
 		price = price * math.Pow(10, expo)
 	}
-	
+
 	// Update cached price
 	ps.mu.Lock()
 	ps.prices[symbol] = &PriceData{
@@ -216,18 +216,18 @@ func (ps *PythPriceSource) handlePriceUpdate(msg map[string]interface{}) {
 func (ps *PythPriceSource) GetPrice(symbol string) (*PriceData, error) {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
-	
+
 	price, exists := ps.prices[symbol]
 	if !exists {
 		// Try to fetch via HTTP API
 		return ps.fetchPriceHTTP(symbol)
 	}
-	
+
 	// Check staleness
 	if time.Since(ps.lastUpdate[symbol]) > 30*time.Second {
 		price.IsStale = true
 	}
-	
+
 	return price, nil
 }
 
@@ -237,26 +237,26 @@ func (ps *PythPriceSource) fetchPriceHTTP(symbol string) (*PriceData, error) {
 	if !exists {
 		return nil, fmt.Errorf("no price ID for symbol %s", symbol)
 	}
-	
+
 	url := fmt.Sprintf("%s/api/latest_price_feeds?ids[]=%s", ps.httpURL, priceID)
 	resp, err := ps.httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	var result []PythPriceFeed
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
-	
+
 	if len(result) == 0 {
 		return nil, errors.New("no price data returned")
 	}
-	
+
 	feed := result[0]
 	price := feed.Price * math.Pow(10, float64(feed.ExponentPrice))
-	
+
 	return &PriceData{
 		Symbol:     symbol,
 		Price:      price,
@@ -269,14 +269,14 @@ func (ps *PythPriceSource) fetchPriceHTTP(symbol string) (*PriceData, error) {
 // GetPrices returns prices for multiple symbols
 func (ps *PythPriceSource) GetPrices(symbols []string) (map[string]*PriceData, error) {
 	prices := make(map[string]*PriceData)
-	
+
 	for _, symbol := range symbols {
 		price, err := ps.GetPrice(symbol)
 		if err == nil {
 			prices[symbol] = price
 		}
 	}
-	
+
 	return prices, nil
 }
 
@@ -284,11 +284,11 @@ func (ps *PythPriceSource) GetPrices(symbols []string) (map[string]*PriceData, e
 func (ps *PythPriceSource) Subscribe(symbol string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	
+
 	if ps.subscriptions[symbol] {
 		return nil // Already subscribed
 	}
-	
+
 	ps.subscriptions[symbol] = true
 	return ps.subscribeToPriceFeed(symbol)
 }
@@ -299,16 +299,16 @@ func (ps *PythPriceSource) subscribeToPriceFeed(symbol string) error {
 	if !exists {
 		return fmt.Errorf("no price ID for symbol %s", symbol)
 	}
-	
+
 	if ps.conn == nil {
 		return errors.New("not connected")
 	}
-	
+
 	msg := map[string]interface{}{
 		"type": "subscribe",
 		"ids":  []string{priceID},
 	}
-	
+
 	return ps.conn.WriteJSON(msg)
 }
 
@@ -316,23 +316,23 @@ func (ps *PythPriceSource) subscribeToPriceFeed(symbol string) error {
 func (ps *PythPriceSource) Unsubscribe(symbol string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	
+
 	delete(ps.subscriptions, symbol)
-	
+
 	if ps.conn == nil {
 		return nil
 	}
-	
+
 	priceID, exists := ps.priceIDs[symbol]
 	if !exists {
 		return nil
 	}
-	
+
 	msg := map[string]interface{}{
 		"type": "unsubscribe",
 		"ids":  []string{priceID},
 	}
-	
+
 	return ps.conn.WriteJSON(msg)
 }
 
@@ -340,16 +340,16 @@ func (ps *PythPriceSource) Unsubscribe(symbol string) error {
 func (ps *PythPriceSource) IsHealthy() bool {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
-	
+
 	if !ps.healthy {
 		return false
 	}
-	
+
 	// Check heartbeat
 	if time.Since(ps.lastHeartbeat) > 30*time.Second {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -367,7 +367,7 @@ func (ps *PythPriceSource) GetWeight() float64 {
 func (ps *PythPriceSource) heartbeat() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ps.done:
@@ -376,7 +376,7 @@ func (ps *PythPriceSource) heartbeat() {
 			ps.mu.RLock()
 			conn := ps.conn
 			ps.mu.RUnlock()
-			
+
 			if conn != nil {
 				msg := map[string]string{"type": "heartbeat"}
 				conn.WriteJSON(msg)
@@ -405,10 +405,10 @@ func (ps *PythPriceSource) reconnect() {
 // Close closes the connection
 func (ps *PythPriceSource) Close() error {
 	close(ps.done)
-	
+
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	
+
 	if ps.conn != nil {
 		return ps.conn.Close()
 	}
