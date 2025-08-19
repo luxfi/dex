@@ -10,12 +10,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go
-RUN wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz && \
-    rm go1.21.5.linux-amd64.tar.gz
+RUN wget -q https://go.dev/dl/go1.22.5.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz && \
+    rm go1.22.5.linux-amd64.tar.gz
 
 ENV PATH="/usr/local/go/bin:${PATH}"
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=0
 
 # Set working directory
 WORKDIR /build
@@ -27,18 +27,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build MLX engine with CUDA
-RUN cd bridge && \
-    g++ -std=c++17 -O3 -fPIC -DHAS_CUDA \
-        -I/usr/local/cuda/include \
-        -c mlx_engine.cpp -o mlx_engine.o && \
-    g++ -shared -o libmlx_engine.so mlx_engine.o \
-        -L/usr/local/cuda/lib64 -lcudart -lcuda
+# Build binaries
+RUN go build -ldflags="-s -w" -o lx-dex ./cmd/demo
+RUN go build -ldflags="-s -w" -o dex-server ./cmd/dex-server
 
-# Build Go binary with CGO
-RUN go build -o lx-dex ./cmd/dex-server
-
-# Runtime stage
+# Final stage
 FROM nvidia/cuda:12.3.0-runtime-ubuntu22.04
 
 # Install runtime dependencies
@@ -47,27 +40,26 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN useradd -m -u 1000 dex
+RUN groupadd -g 1000 dex && \
+    useradd -u 1000 -g dex -s /bin/bash -m dex
 
 WORKDIR /app
 
-# Copy binary and libraries
-COPY --from=builder /build/lx-dex /app/
-COPY --from=builder /build/bridge/libmlx_engine.so /app/
-COPY --from=builder /usr/local/cuda/lib64/libcudart.so* /usr/local/cuda/lib64/
+# Copy binaries from builder
+COPY --from=builder /build/lx-dex /app/lx-dex
+COPY --from=builder /build/dex-server /app/dex-server
 
-# Set library path
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/app:$LD_LIBRARY_PATH
+# Change ownership
+RUN chown -R dex:dex /app
 
 # Switch to non-root user
 USER dex
 
 # Expose ports
-EXPOSE 8080 8081 9090
+EXPOSE 8080 8081
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# Environment for CUDA
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 
-# Run the DEX server
-CMD ["./lx-dex"]
+# Default command
+CMD ["/app/dex-server"]

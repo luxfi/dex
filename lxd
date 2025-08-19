@@ -1,0 +1,5 @@
+#!/bin/bash
+# LXD - Lux DEX Node launcher
+
+# Default to 1ms consensus for planet-scale performance
+exec ./bin/lxd --block-time 1ms "$@"

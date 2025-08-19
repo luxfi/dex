@@ -1,6 +1,6 @@
 module github.com/luxfi/dex
 
-go 1.24.5
+go 1.21
 
 require (
 	github.com/gorilla/websocket v1.5.3
