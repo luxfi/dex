@@ -1,0 +1,6 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/luxfi/dex/test/benchmark
+cpu: Apple M1 Max
+BenchmarkMLXEngine/SingleOrder-10         	15444795	       923.5 ns/op	       597.0 ns/order	   1675042 orders/sec	     658 B/op	       5 allocs/op
+BenchmarkMLXEngine/BatchProcessing-10     	

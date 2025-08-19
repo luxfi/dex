@@ -9,7 +9,11 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.21', '1.22']
     
     steps:
     - uses: actions/checkout@v4
@@ -17,16 +21,16 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.21"
+        go-version: ${{ matrix.go }}
     
     - name: Install dependencies
       run: |
         go mod download
-        go mod tidy
+        go mod verify
     
     - name: Run tests
       run: |
-        go test -v -race -short ./pkg/lx/...
+        go test -v -race -short ./pkg/lx/... ./pkg/mlx/... ./test/unit/...
     
   benchmark:
     name: Benchmark
@@ -43,7 +47,18 @@ jobs:
     - name: Run benchmarks
       run: |
         echo "Running benchmarks..."
-        go test -bench=. -benchtime=1s ./pkg/lx/... || true
+        go test -bench=. -benchtime=3s ./pkg/lx/...
+        
+    - name: Check performance
+      run: |
+        go test -bench=BenchmarkOrderBook -benchtime=1s ./pkg/lx/... | tee bench.txt
+        LATENCY=$(grep "BenchmarkOrderBookAddOrder" bench.txt | awk '{print $3}')
+        echo "Order latency: ${LATENCY} ns/op"
+        # Ensure latency is under 2000ns (2μs)
+        if [ "${LATENCY%.*}" -gt 2000 ]; then
+          echo "Performance regression detected!"
+          exit 1
+        fi
         
   build:
     name: Build
@@ -59,13 +74,35 @@ jobs:
     
     - name: Build binaries
       run: |
-        echo "Building demo..."
-        CGO_ENABLED=0 go build -o bin/demo ./cmd/demo/ || true
+        mkdir -p bin
+        echo "Building core binaries..."
+        CGO_ENABLED=0 go build -o bin/demo ./cmd/demo/
+        CGO_ENABLED=0 go build -o bin/dex-server ./cmd/dex-server/
+        CGO_ENABLED=0 go build -o bin/benchmark-ultra ./cmd/benchmark-ultra/
+        CGO_ENABLED=0 go build -o bin/perf-test ./cmd/perf-test/
         
-        echo "Note: Skipping binaries that require ZeroMQ (CGO)"
-        echo "These would require CGO_ENABLED=1 and ZeroMQ libraries:"
-        echo "- xchain-dex"
-        echo "- dag-network"
-        echo "- multi-node"
-        
-        echo "Build step completed!"
+        echo "✅ Build successful!"
+        ls -la bin/
+  
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.21"
+    
+    - name: Run go fmt
+      run: |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "Go code is not formatted:"
+          gofmt -d .
+          exit 1
+        fi
+    
+    - name: Run go vet
+      run: go vet ./pkg/lx/... ./pkg/mlx/...

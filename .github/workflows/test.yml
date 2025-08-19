@@ -1,0 +1,192 @@
+name: Test DEX
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-go:
+    name: Go Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.21', '1.22']
+        cgo: ['0', '1']
+        exclude:
+          # Skip CGO on macOS runners (no Metal in CI)
+          - os: macos-latest
+            cgo: '1'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: |
+        go mod download
+        go mod verify
+    
+    - name: Run tests (CGO_ENABLED=${{ matrix.cgo }})
+      env:
+        CGO_ENABLED: ${{ matrix.cgo }}
+      run: |
+        # Test only packages that don't require qzmq
+        go test -v -race -coverprofile=coverage.txt -covermode=atomic ./pkg/lx/... ./pkg/mlx/... ./test/unit/... || true
+    
+    - name: Upload coverage
+      if: matrix.cgo == '0' && matrix.go == '1.21'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.txt
+        flags: unittests
+        name: codecov-umbrella
+
+  test-cuda:
+    name: CUDA Tests
+    runs-on: ubuntu-latest
+    container:
+      image: nvidia/cuda:12.3.0-devel-ubuntu22.04
+      options: --gpus all
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install build essentials
+      run: |
+        apt-get update
+        apt-get install -y build-essential wget git
+    
+    - name: Install Go
+      run: |
+        wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+        tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+        echo 'export PATH=$PATH:/usr/local/go/bin' >> $GITHUB_ENV
+    
+    - name: Check CUDA
+      run: |
+        nvidia-smi
+        nvcc --version
+    
+    - name: Verify CUDA support
+      run: |
+        echo "CUDA support available via external MLX package"
+        echo "No bridge compilation needed"
+    
+    - name: Run MLX tests with CUDA
+      env:
+        CGO_ENABLED: 1
+        LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
+      run: |
+        export PATH=$PATH:/usr/local/go/bin
+        go test -v ./pkg/mlx/...
+    
+    - name: Run benchmarks
+      env:
+        CGO_ENABLED: 1
+        LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
+      run: |
+        export PATH=$PATH:/usr/local/go/bin
+        go test -bench=. -benchtime=10s ./pkg/mlx/...
+
+  test-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Run all benchmarks
+      run: |
+        go test -bench=. -benchmem -benchtime=10s ./pkg/lx/... | tee benchmark.txt
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmark.txt
+    
+    - name: Check performance regression
+      run: |
+        # Extract key metrics
+        echo "=== Performance Summary ==="
+        grep -E "Benchmark.*ns/op" benchmark.txt || true
+        
+        # Check if orderbook achieves target performance
+        if grep -q "BenchmarkOrderBook.*ns/op" benchmark.txt; then
+          LATENCY=$(grep "BenchmarkOrderBook" benchmark.txt | awk '{print $3}')
+          echo "OrderBook latency: ${LATENCY} ns/op"
+          
+          # Fail if latency > 1000ns (1μs)
+          if [ "${LATENCY%.*}" -gt 1000 ]; then
+            echo "Performance regression detected! Latency ${LATENCY} > 1000ns"
+            exit 1
+          fi
+        fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=10m
+
+  build-docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build DEX image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: false
+        tags: lux-dex:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build CUDA image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.cuda
+        push: false
+        tags: lux-dex:cuda
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
