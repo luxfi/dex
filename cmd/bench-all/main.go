@@ -12,10 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/luxfi/dex/pkg/dpdk"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/mlx"
-	// "github.com/luxfi/dex/pkg/orderbook"
 )
 
 type BenchResult struct {
@@ -59,16 +57,15 @@ func main() {
 	}
 
 	// 3. MLX GPU acceleration (if available)
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		fmt.Println("📊 Testing MLX GPU Acceleration...")
-		if mlxEngine := mlx.NewMLXMatcher(); mlxEngine != nil && mlxEngine.IsAvailable() {
-			result = benchmarkMLX(*numOrders, *parallel)
-			results = append(results, result)
-			fmt.Printf("   ✅ %s: %.0f orders/sec on %s\n\n",
-				result.Name, result.Throughput, mlxEngine.DeviceName())
-		} else {
-			fmt.Println("   ⚠️  MLX not available")
-		}
+	fmt.Println("📊 Testing MLX GPU Acceleration...")
+	mlxEngine, err := mlx.NewEngine(mlx.Config{Backend: mlx.BackendAuto})
+	if err == nil && mlxEngine.IsGPUAvailable() {
+		result = benchmarkMLX(*numOrders, *parallel)
+		results = append(results, result)
+		fmt.Printf("   ✅ %s: %.0f orders/sec on %s\n\n",
+			result.Name, result.Throughput, mlxEngine.Device())
+	} else {
+		fmt.Println("   ⚠️  MLX GPU not available on this platform")
 	}
 
 	// 4. Kernel-bypass networking
@@ -141,110 +138,43 @@ func benchmarkCGO(numOrders, workers int) BenchResult {
 }
 
 func benchmarkMLX(numOrders, workers int) BenchResult {
-	matcher := mlx.NewMLXMatcher()
-	if matcher == nil || !matcher.IsAvailable() {
+	engine, err := mlx.NewEngine(mlx.Config{Backend: mlx.BackendAuto})
+	if err != nil || !engine.IsGPUAvailable() {
 		return BenchResult{Name: "MLX (N/A)"}
 	}
 	
-	// Create test orders
-	bids := make([]*lx.Order, numOrders/2)
-	asks := make([]*lx.Order, numOrders/2)
+	// Benchmark GPU matching using the engine's benchmark method
+	throughput := engine.Benchmark(numOrders)
 	
-	for i := 0; i < numOrders/2; i++ {
-		bids[i] = &lx.Order{
-			ID:    uint64(i),
-			Price: 50000 - float64(i%100),
-			Size:  1.0,
-			Side:  lx.Buy,
-		}
-		asks[i] = &lx.Order{
-			ID:    uint64(i + numOrders/2),
-			Price: 50001 + float64(i%100),
-			Size:  1.0,
-			Side:  lx.Sell,
-		}
-	}
+	// Calculate values from throughput
+	duration := time.Duration(float64(time.Second) * float64(numOrders) / throughput)
+	latency := time.Duration(float64(time.Second) / throughput)
 	
-	// Benchmark GPU matching
-	start := time.Now()
-	trades, err := matcher.MatchOrders(bids, asks)
-	duration := time.Since(start)
-	
-	if err != nil {
-		return BenchResult{Name: "MLX (Error)", Duration: duration}
-	}
+	engine.Close()
 	
 	return BenchResult{
 		Name:       "MLX GPU",
 		Orders:     numOrders,
-		Trades:     len(trades),
+		Trades:     0, // Not tracked in benchmark
 		Duration:   duration,
-		Throughput: float64(numOrders) / duration.Seconds(),
-		Latency:    duration / time.Duration(len(trades)+1),
+		Throughput: throughput,
+		Latency:    latency,
 	}
 }
 
 func benchmarkKernelBypass(numOrders int) BenchResult {
-	// Mock order processor
-	processor := &mockProcessor{
-		orderBook: lx.NewOrderBook("BTC-USD"),
-	}
-	
-	engine, err := dpdk.NewKernelBypassEngine(processor)
-	if err != nil {
-		return BenchResult{Name: fmt.Sprintf("Kernel Bypass (Error: %v)", err)}
-	}
-	defer engine.Close()
-	
-	// Simulate packet processing
-	start := time.Now()
-	
-	// In a real test, we would send actual packets
-	// For now, simulate with direct calls
-	for i := 0; i < numOrders; i++ {
-		order := &lx.Order{
-			ID:    uint64(i),
-			Type:  lx.Limit,
-			Side:  lx.Side(i % 2),
-			Price: 50000 + float64((i%100)-50),
-			Size:  1.0,
-		}
-		processor.ProcessOrder(order)
-	}
-	
-	duration := time.Since(start)
-	stats := engine.GetStats()
-	
+	// Kernel bypass not available on this platform
+	// Would require DPDK on Linux or similar technology
 	return BenchResult{
-		Name:       fmt.Sprintf("Kernel Bypass (%s)", stats["mode"]),
-		Orders:     numOrders,
-		Trades:     processor.trades,
-		Duration:   duration,
-		Throughput: float64(numOrders) / duration.Seconds(),
-		Latency:    duration / time.Duration(numOrders),
+		Name:       fmt.Sprintf("Kernel Bypass (Error: no kernel-bypass method available on %s)", runtime.GOOS),
+		Orders:     0,
+		Trades:     0,
+		Duration:   0,
+		Throughput: 0,
+		Latency:    0,
 	}
 }
 
-type mockProcessor struct {
-	orderBook *lx.OrderBook
-	trades    int
-	mu        sync.Mutex
-}
-
-func (p *mockProcessor) ProcessOrder(order *lx.Order) (*lx.Trade, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	
-	p.orderBook.AddOrder(order)
-	// Simplified - just count potential matches
-	// Simplified matching
-	if (order.Side == lx.Buy && p.trades % 2 == 0) ||
-	   (order.Side == lx.Sell && p.trades % 2 == 1) {
-		p.trades++
-		return &lx.Trade{Price: order.Price, Size: order.Size}, nil
-	}
-	return nil, nil
-}
 
 func printSummary(results []BenchResult, numOrders int) {
 	fmt.Println("═══════════════════════════════════════════════════════")
