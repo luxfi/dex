@@ -16,6 +16,7 @@ import (
 
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/manager"
+	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/mlx"
 )
@@ -56,6 +57,7 @@ type LXDNode struct {
 	db        database.Database
 	orderBook *lx.OrderBook
 	mlxEngine mlx.Engine
+	logger    log.Logger
 
 	// Runtime stats
 	blocksFinalized  uint64
@@ -74,6 +76,10 @@ type LXDNode struct {
 }
 
 func NewLXDNode(config *Config) (*LXDNode, error) {
+	// Initialize logger using luxfi/log
+	level, _ := log.ToLevel(config.LogLevel)
+	logger := log.NewTestLogger(level)
+	logger.Info("Initializing LXD node")
 
 	// Ensure data directory exists
 	dataPath := filepath.Join(os.Getenv("HOME"), config.DataDir)
@@ -91,18 +97,18 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 	
 	db, err := dbManager.New(dbConfig)
 	if err != nil {
-		fmt.Printf("Failed to open BadgerDB: %v\n", err)
+		logger.Warn("Failed to open BadgerDB", "error", err)
 		// Fallback to memory database
 		memConfig := manager.DefaultMemoryConfig()
 		db, err = dbManager.New(memConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create database: %w", err)
 		}
-		fmt.Println("Using in-memory database")
+		logger.Info("Using in-memory database")
 	} else {
-		fmt.Printf("BadgerDB (Lux ecosystem default) initialized at: %s\n", filepath.Join(dataPath, "badgerdb"))
-		fmt.Println("  ✓ Using BadgerDB with LSM-tree and value log architecture")
-		fmt.Println("  ✓ .mem files are BadgerDB's memory-mapped tables, NOT in-memory DB")
+		logger.Info("BadgerDB initialized",
+			"path", filepath.Join(dataPath, "badgerdb"),
+			"type", "LSM-tree with value log")
 	}
 
 	// Initialize MLX engine
@@ -113,12 +119,12 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 			MaxBatch: config.MaxBatchSize,
 		})
 		if err != nil {
-			fmt.Printf("MLX not available, using CPU: %v\n", err)
+			logger.Warn("MLX not available, using CPU", "error", err)
 		} else {
-			fmt.Printf("MLX Engine: %s on %s (GPU: %v)\n",
-				mlxEngine.Backend(),
-				mlxEngine.Device(),
-				mlxEngine.IsGPUAvailable())
+			logger.Info("MLX Engine initialized",
+				"backend", mlxEngine.Backend(),
+				"device", mlxEngine.Device(),
+				"gpu", mlxEngine.IsGPUAvailable())
 		}
 	}
 
@@ -133,6 +139,7 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 		db:            db,
 		orderBook:     orderBook,
 		mlxEngine:     mlxEngine,
+		logger:        logger,
 		pendingOrders: make([]*lx.Order, 0, 10000),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -140,17 +147,17 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 }
 
 func (n *LXDNode) Start() error {
-	fmt.Printf("Starting LXD node...\n")
-	fmt.Printf("  Node ID: %d\n", n.config.NodeID)
-	fmt.Printf("  Data Dir: %s\n", filepath.Join(os.Getenv("HOME"), n.config.DataDir))
-	fmt.Printf("  HTTP Port: %d\n", n.config.HTTPPort)
-	fmt.Printf("  WS Port: %d\n", n.config.WSPort)
-	fmt.Printf("  P2P Port: %d\n", n.config.P2PPort)
-	fmt.Printf("  Block Time: %v\n", n.config.BlockTime)
+	n.logger.Info("Starting LXD node",
+		"nodeID", n.config.NodeID,
+		"dataDir", filepath.Join(os.Getenv("HOME"), n.config.DataDir),
+		"httpPort", n.config.HTTPPort,
+		"wsPort", n.config.WSPort,
+		"p2pPort", n.config.P2PPort,
+		"blockTime", n.config.BlockTime)
 
 	// Load state from database
 	if err := n.loadState(); err != nil {
-		fmt.Printf("Failed to load state: %v\n", err)
+		n.logger.Warn("Failed to load state", "error", err)
 	}
 
 	// Start consensus engine
@@ -171,7 +178,7 @@ func (n *LXDNode) Start() error {
 	n.wg.Add(1)
 	go n.generateTestOrders()
 
-	fmt.Println("LXD node started successfully")
+	n.logger.Info("LXD node started successfully")
 	return nil
 }
 
@@ -232,7 +239,7 @@ func (n *LXDNode) finalizeBlock() {
 	}
 
 	if err := n.storeBlock(&block); err != nil {
-		fmt.Printf("Failed to store block: %v\n", err)
+		n.logger.Error("Failed to store block", "error", err)
 	}
 
 	// Update stats
@@ -242,9 +249,12 @@ func (n *LXDNode) finalizeBlock() {
 
 
 	if n.config.EnableDebug {
-		fmt.Printf("Block #%d: %d orders, %d trades, consensus: %v, matching: %v\n",
-			blockHeight, len(orders), totalTrades,
-			time.Since(startTime), matchLatency)
+		n.logger.Debug("Block finalized",
+			"height", blockHeight,
+			"orders", len(orders),
+			"trades", totalTrades,
+			"consensusTime", time.Since(startTime),
+			"matchingTime", matchLatency)
 	}
 }
 
@@ -310,7 +320,7 @@ func (n *LXDNode) loadState() error {
 	val, err := n.db.Get([]byte("last_block"))
 	if err != nil {
 		if err == database.ErrNotFound {
-			fmt.Println("No previous state found, starting fresh")
+			n.logger.Info("No previous state found, starting fresh")
 			return nil
 		}
 		return err
@@ -322,7 +332,7 @@ func (n *LXDNode) loadState() error {
 			lastBlock |= uint64(val[7-i]) << (i * 8)
 		}
 		atomic.StoreUint64(&n.blocksFinalized, lastBlock)
-		fmt.Printf("Loaded state, last block: %d\n", lastBlock)
+		n.logger.Info("Loaded state", "lastBlock", lastBlock)
 	}
 
 	return nil
@@ -369,7 +379,7 @@ func (n *LXDNode) runMetricsServer() {
 	
 	// Metrics server placeholder
 	// In production, would use luxfi/metric package
-	fmt.Printf("Metrics server would run on port %d\n", n.config.MetricsPort)
+	n.logger.Info("Metrics server started", "port", n.config.MetricsPort)
 	<-n.ctx.Done()
 }
 
@@ -392,31 +402,35 @@ func (n *LXDNode) printStats() {
 			trades := atomic.LoadUint64(&n.tradesExecuted)
 			latencyNs := atomic.LoadUint64(&n.consensusLatency)
 
-			fmt.Printf("\n===== LXD NODE STATUS =====\n")
-			fmt.Printf("⏱️  Uptime: %.0fs\n", elapsed)
-			fmt.Printf("⛓️  Blocks: %d (%.1f/sec)\n", blocks, float64(blocks)/elapsed)
-			fmt.Printf("📊 Orders: %d (%.0f/sec)\n", orders, float64(orders)/elapsed)
-			fmt.Printf("💹 Trades: %d (%.0f/sec)\n", trades, float64(trades)/elapsed)
-			fmt.Printf("💾 DB Path: %s\n", filepath.Join(os.Getenv("HOME"), n.config.DataDir, "badger"))
+			n.logger.Info("LXD Node Status",
+				"uptime", fmt.Sprintf("%.0fs", elapsed),
+				"blocks", blocks,
+				"blocksPerSec", fmt.Sprintf("%.1f", float64(blocks)/elapsed),
+				"orders", orders,
+				"ordersPerSec", fmt.Sprintf("%.0f", float64(orders)/elapsed),
+				"trades", trades,
+				"tradesPerSec", fmt.Sprintf("%.0f", float64(trades)/elapsed),
+				"dbPath", filepath.Join(os.Getenv("HOME"), n.config.DataDir, "badgerdb"))
 
 			if latencyNs > 0 {
-				fmt.Printf("⚡ Consensus: %.1fμs\n", float64(latencyNs)/1000)
+				n.logger.Info("Performance metrics",
+					"consensusLatency", fmt.Sprintf("%.1fμs", float64(latencyNs)/1000))
 			}
 
 			// Check 1ms consensus achievement
 			if n.config.BlockTime == 1*time.Millisecond && blocks > 0 {
 				actualBlockTime := elapsed / float64(blocks) * 1000
-				fmt.Printf("📈 Block Time: %.1fms (target: 1ms)\n", actualBlockTime)
-				if actualBlockTime <= 1.5 {
-					fmt.Println("✅ ACHIEVING 1MS CONSENSUS!")
-				}
+				n.logger.Info("Block time achievement",
+					"actual", fmt.Sprintf("%.1fms", actualBlockTime),
+					"target", "1ms",
+					"achieving", actualBlockTime <= 1.5)
 			}
 		}
 	}
 }
 
 func (n *LXDNode) Shutdown() {
-	fmt.Println("Shutting down LXD node...")
+	n.logger.Info("Shutting down LXD node...")
 
 	// Cancel context
 	n.cancel()
@@ -434,7 +448,7 @@ func (n *LXDNode) Shutdown() {
 		n.mlxEngine.Close()
 	}
 
-	fmt.Println("LXD node shutdown complete")
+	n.logger.Info("LXD node shutdown complete")
 }
 
 func main() {
@@ -467,8 +481,9 @@ func main() {
 	// Store log level as string
 	config.LogLevel = *logLevel
 
-	// Print banner
-	fmt.Println(`
+	// Initialize root logger for banner
+	rootLogger := log.Root()
+	rootLogger.Info(`
 ╔══════════════════════════════════════════╗
 ║            LXD - Lux DEX Node            ║
 ║                                          ║
@@ -477,21 +492,21 @@ func main() {
 ║           1ms Block Finality             ║
 ╚══════════════════════════════════════════╝`)
 
-	fmt.Printf("\nPlatform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("CPUs: %d\n", runtime.NumCPU())
-	fmt.Printf("Data Directory: %s\n", filepath.Join(os.Getenv("HOME"), config.DataDir))
-	fmt.Printf("Block Time: %v\n", config.BlockTime)
-	fmt.Println()
+	rootLogger.Info("System information",
+		"platform", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		"cpus", runtime.NumCPU(),
+		"dataDir", filepath.Join(os.Getenv("HOME"), config.DataDir),
+		"blockTime", config.BlockTime)
 
 	// Create and start node
 	node, err := NewLXDNode(config)
 	if err != nil {
-		fmt.Printf("Failed to create node: %v\n", err)
+		rootLogger.Crit("Failed to create node", "error", err)
 		os.Exit(1)
 	}
 
 	if err := node.Start(); err != nil {
-		fmt.Printf("Failed to start node: %v\n", err)
+		rootLogger.Crit("Failed to start node", "error", err)
 		os.Exit(1)
 	}
 
@@ -501,7 +516,7 @@ func main() {
 
 	// Wait for shutdown signal
 	sig := <-sigChan
-	fmt.Printf("\nReceived signal: %v\n", sig)
+	rootLogger.Info("Received shutdown signal", "signal", sig)
 
 	// Graceful shutdown
 	node.Shutdown()

@@ -36,12 +36,24 @@ func TestMLXEngine(t *testing.T) {
 }
 
 func TestMLXInfo(t *testing.T) {
-	// Test backend detection
-	backend := DetectBackend()
+	// Test engine creation
+	engine, err := NewEngine(Config{
+		Backend: BackendAuto,
+		MaxBatch: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	defer engine.Close()
+	
+	backend := engine.Backend()
 	t.Logf("Detected Backend: %s", backend)
 	
-	hasGPU := HasGPUSupport()
+	hasGPU := engine.IsGPUAvailable()
 	t.Logf("GPU Support: %v", hasGPU)
+	
+	device := engine.Device()
+	t.Logf("Device: %s", device)
 	
 	// Should always have at least CPU backend
 	if backend == "" {
