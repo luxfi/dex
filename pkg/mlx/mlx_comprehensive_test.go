@@ -76,10 +76,10 @@ func TestLuxMLXEngine(t *testing.T) {
 
 func TestEngineCreation(t *testing.T) {
 	testCases := []struct {
-		name     string
-		config   Config
-		wantGPU  bool
-		wantErr  bool
+		name    string
+		config  Config
+		wantGPU bool
+		wantErr bool
 	}{
 		{
 			name: "Auto backend",
@@ -118,21 +118,21 @@ func TestEngineCreation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, engine)
-				
+
 				// Test engine methods
 				assert.NotEmpty(t, engine.Backend())
 				assert.NotEmpty(t, engine.Device())
-				
+
 				// Test empty batch
 				trades := engine.BatchMatch([]Order{}, []Order{})
 				assert.Empty(t, trades)
-				
+
 				// Test with orders
 				bids := []Order{{ID: 1, Side: 0, Price: 100, Size: 10}}
 				asks := []Order{{ID: 2, Side: 1, Price: 100, Size: 10}}
 				trades = engine.BatchMatch(bids, asks)
 				assert.NotEmpty(t, trades)
-				
+
 				engine.Close()
 			}
 		})

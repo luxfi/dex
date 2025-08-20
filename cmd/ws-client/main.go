@@ -35,7 +35,7 @@ func main() {
 
 	level, _ := log.ToLevel("info")
 	logger := log.NewTestLogger(level)
-	
+
 	logger.Info("Connecting to LXD WebSocket", "url", *wsURL)
 
 	// Parse URL

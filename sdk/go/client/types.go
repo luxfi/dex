@@ -45,21 +45,21 @@ const (
 
 // Order represents a trading order
 type Order struct {
-	OrderID      uint64      `json:"orderId,omitempty"`
-	Symbol       string      `json:"symbol"`
-	Type         OrderType   `json:"type"`
-	Side         OrderSide   `json:"side"`
-	Price        float64     `json:"price"`
-	Size         float64     `json:"size"`
-	Filled       float64     `json:"filled,omitempty"`
-	Remaining    float64     `json:"remaining,omitempty"`
-	Status       OrderStatus `json:"status,omitempty"`
-	UserID       string      `json:"userId,omitempty"`
-	ClientID     string      `json:"clientId,omitempty"`
-	Timestamp    int64       `json:"timestamp,omitempty"`
-	TimeInForce  TimeInForce `json:"timeInForce,omitempty"`
-	PostOnly     bool        `json:"postOnly,omitempty"`
-	ReduceOnly   bool        `json:"reduceOnly,omitempty"`
+	OrderID     uint64      `json:"orderId,omitempty"`
+	Symbol      string      `json:"symbol"`
+	Type        OrderType   `json:"type"`
+	Side        OrderSide   `json:"side"`
+	Price       float64     `json:"price"`
+	Size        float64     `json:"size"`
+	Filled      float64     `json:"filled,omitempty"`
+	Remaining   float64     `json:"remaining,omitempty"`
+	Status      OrderStatus `json:"status,omitempty"`
+	UserID      string      `json:"userId,omitempty"`
+	ClientID    string      `json:"clientId,omitempty"`
+	Timestamp   int64       `json:"timestamp,omitempty"`
+	TimeInForce TimeInForce `json:"timeInForce,omitempty"`
+	PostOnly    bool        `json:"postOnly,omitempty"`
+	ReduceOnly  bool        `json:"reduceOnly,omitempty"`
 }
 
 // OrderResponse represents the response to an order request
@@ -120,12 +120,12 @@ type Balance struct {
 
 // Position represents a trading position
 type Position struct {
-	Symbol      string  `json:"symbol"`
-	Size        float64 `json:"size"`
-	EntryPrice  float64 `json:"entryPrice"`
-	MarkPrice   float64 `json:"markPrice"`
-	PnL         float64 `json:"pnl"`
-	Margin      float64 `json:"margin"`
+	Symbol     string  `json:"symbol"`
+	Size       float64 `json:"size"`
+	EntryPrice float64 `json:"entryPrice"`
+	MarkPrice  float64 `json:"markPrice"`
+	PnL        float64 `json:"pnl"`
+	Margin     float64 `json:"margin"`
 }
 
 // Helper methods

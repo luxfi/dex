@@ -35,30 +35,30 @@ func main() {
 
 	fmt.Println("Memory Requirements (MLX Unified Memory Architecture):")
 	fmt.Println("=" + string(make([]byte, 70)))
-	fmt.Printf("%-15s %-15s %-15s %-15s %-15s\n", 
+	fmt.Printf("%-15s %-15s %-15s %-15s %-15s\n",
 		"Markets", "Order Memory", "GPU Buffers", "Total Memory", "Hardware Req")
 	fmt.Println("-" + string(make([]byte, 70)))
 
 	for _, numMarkets := range marketScales {
 		// Calculate memory components
 		orderSize := 20 // MLX optimized order struct
-		
+
 		// Order book memory (bids + asks)
 		orderMemory := int64(numMarkets) * int64(ordersPerMarket) * int64(orderSize) * 2
-		
+
 		// GPU processing buffers (for batch operations)
 		// We allocate 20% of order memory for GPU working buffers
 		gpuBuffers := orderMemory / 5
-		
+
 		// Market metadata and indices
 		metadataMemory := int64(numMarkets) * 256 // 256 bytes per market metadata
-		
+
 		// Trade history (last 100 trades per market)
 		tradeMemory := int64(numMarkets) * 100 * int64(orderSize)
-		
+
 		// Total memory
 		totalMemory := orderMemory + gpuBuffers + metadataMemory + tradeMemory
-		
+
 		// Format output
 		fmt.Printf("%-15s %-15s %-15s %-15s %-15s\n",
 			formatNumber(numMarkets),
@@ -97,18 +97,18 @@ func main() {
 
 func analyzeMarketScale(numMarkets, ordersPerMarket int) {
 	fmt.Printf("--- %s Markets Analysis ---\n", formatNumber(numMarkets))
-	
+
 	orderSize := 20 // bytes
-	
+
 	// Calculate components
 	orderMemory := int64(numMarkets) * int64(ordersPerMarket) * int64(orderSize) * 2
 	gpuBuffers := orderMemory / 5
 	metadataMemory := int64(numMarkets) * 256
 	tradeMemory := int64(numMarkets) * 100 * int64(orderSize)
 	indexMemory := int64(numMarkets) * 64 // Hash indices
-	
+
 	totalMemory := orderMemory + gpuBuffers + metadataMemory + tradeMemory + indexMemory
-	
+
 	fmt.Printf("  Order Books (CPU/GPU shared):  %s\n", formatBytes(orderMemory))
 	fmt.Printf("  GPU Processing Buffers:        %s\n", formatBytes(gpuBuffers))
 	fmt.Printf("  Market Metadata:               %s\n", formatBytes(metadataMemory))
@@ -116,7 +116,7 @@ func analyzeMarketScale(numMarkets, ordersPerMarket int) {
 	fmt.Printf("  Indices & Caches:              %s\n", formatBytes(indexMemory))
 	fmt.Printf("  --------------------------------\n")
 	fmt.Printf("  Total System + GPU Memory:     %s\n", formatBytes(totalMemory))
-	
+
 	// Performance metrics
 	matchingRate := numMarkets * 1000 // orders/sec per market
 	fmt.Printf("  \n")
@@ -124,7 +124,7 @@ func analyzeMarketScale(numMarkets, ordersPerMarket int) {
 	fmt.Printf("  - Matching throughput: %s orders/sec\n", formatNumber(matchingRate))
 	fmt.Printf("  - Latency: <100μs batch processing\n")
 	fmt.Printf("  - Power usage: ~%.0fW\n", estimatePower(totalMemory))
-	
+
 	// Hardware recommendation
 	fmt.Printf("  \n")
 	fmt.Printf("  Recommended Hardware:\n")
@@ -158,7 +158,7 @@ func formatNumber(n int) string {
 
 func getHardwareRecommendation(memoryBytes int64) string {
 	memoryGB := float64(memoryBytes) / (1024 * 1024 * 1024)
-	
+
 	switch {
 	case memoryGB < 8:
 		return "Mac mini M2"
@@ -177,7 +177,7 @@ func getHardwareRecommendation(memoryBytes int64) string {
 
 func getDetailedHardwareRec(memoryBytes int64) string {
 	memoryGB := float64(memoryBytes) / (1024 * 1024 * 1024)
-	
+
 	switch {
 	case memoryGB < 8:
 		return "• Mac mini M2 (8-24GB) - Entry level, development"
@@ -198,7 +198,7 @@ func getDetailedHardwareRec(memoryBytes int64) string {
 
 func estimatePower(memoryBytes int64) float64 {
 	memoryGB := float64(memoryBytes) / (1024 * 1024 * 1024)
-	
+
 	// Rough power estimates based on memory usage
 	switch {
 	case memoryGB < 32:

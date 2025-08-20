@@ -2,9 +2,9 @@ package lx
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,117 +15,118 @@ import (
 type ClearingHouse struct {
 	// Perps margin state
 	perpAccounts map[string]*PerpAccountState // address -> account state
-	
-	// Spot clearinghouse state  
+
+	// Spot clearinghouse state
 	spotBalances map[string]map[string]*big.Int // address -> token -> balance
 	spotHolds    map[string]map[string]*big.Int // address -> token -> holds
-	
+
 	// Oracle management - weighted median from multiple sources
-	oracles      map[string]*MultiSourceOracle // asset -> oracle
-	validators   []*ValidatorOracle
-	
+	oracles    map[string]*MultiSourceOracle // asset -> oracle
+	validators []*ValidatorOracle
+
 	// Risk parameters
 	maintenanceMargin map[string]float64 // symbol -> maintenance margin ratio
 	initialMargin     map[string]float64 // symbol -> initial margin ratio
 	maxLeverage       map[string]float64 // symbol -> max leverage
-	
+
 	// Funding mechanism
-	fundingRates     map[string]float64          // symbol -> current funding rate
-	fundingInterval  time.Duration               // 8 hours standard
-	nextFundingTime  map[string]time.Time        // symbol -> next funding time
-	
+	fundingRates    map[string]float64   // symbol -> current funding rate
+	fundingInterval time.Duration        // 8 hours standard
+	nextFundingTime map[string]time.Time // symbol -> next funding time
+	fundingEngine   *FundingEngine       // 8-hour funding engine
+
 	// Performance metrics
-	totalVolume      atomic.Uint64
-	totalOrders      atomic.Uint64
-	totalTrades      atomic.Uint64
-	
+	totalVolume atomic.Uint64
+	totalOrders atomic.Uint64
+	totalTrades atomic.Uint64
+
 	// Lock-free operations
-	mu              sync.RWMutex
-	accountLocks    map[string]*sync.RWMutex // Per-account locks for parallel processing
-	
+	mu           sync.RWMutex
+	accountLocks map[string]*sync.RWMutex // Per-account locks for parallel processing
+
 	// Integration with orderbooks
-	orderBooks      map[string]*OrderBook
-	marginEngine    *MarginEngine
-	riskEngine      *RiskEngine
-	
+	orderBooks   map[string]*OrderBook
+	marginEngine *MarginEngine
+	riskEngine   *RiskEngine
+
 	// FPGA acceleration flags
-	fpgaEnabled     bool
-	fpgaOrderPath   bool // Use FPGA for order processing
-	fpgaRiskPath    bool // Use FPGA for risk checks
+	fpgaEnabled   bool
+	fpgaOrderPath bool // Use FPGA for order processing
+	fpgaRiskPath  bool // Use FPGA for risk checks
 }
 
 // PerpAccountState represents a user's perpetual trading state
 type PerpAccountState struct {
-	Address         string
-	
+	Address string
+
 	// Cross margin mode (default)
-	CrossBalance    *big.Int // USDC balance for cross margin
-	CrossPositions  map[string]*PerpPosition // symbol -> position
-	CrossPnL        *big.Int
-	
+	CrossBalance   *big.Int                 // USDC balance for cross margin
+	CrossPositions map[string]*PerpPosition // symbol -> position
+	CrossPnL       *big.Int
+
 	// Isolated margin positions
 	IsolatedPositions map[string]*IsolatedPosition // symbol -> isolated position
-	
+
 	// Risk metrics
-	AccountValue    *big.Int
-	MarginUsed      *big.Int
-	FreeMargin      *big.Int
-	MarginLevel     float64 // AccountValue / MarginUsed
-	
+	AccountValue *big.Int
+	MarginUsed   *big.Int
+	FreeMargin   *big.Int
+	MarginLevel  float64 // AccountValue / MarginUsed
+
 	// Order margin
-	OrderMargin     map[string]*big.Int // symbol -> margin locked in orders
-	
+	OrderMargin map[string]*big.Int // symbol -> margin locked in orders
+
 	// Liquidation tracking
 	LiquidationPrice map[string]float64 // symbol -> liquidation price
 	IsLiquidating    bool
-	
+
 	// Activity tracking
-	TotalVolume     *big.Int
-	TotalFees       *big.Int
-	LastActivity    time.Time
-	
+	TotalVolume  *big.Int
+	TotalFees    *big.Int
+	LastActivity time.Time
+
 	mu sync.RWMutex
 }
 
 // IsolatedPosition represents an isolated margin position
 type IsolatedPosition struct {
-	Symbol          string
-	Size            float64
-	EntryPrice      float64
-	MarkPrice       float64
-	Margin          *big.Int // Allocated margin for this position
-	UnrealizedPnL   *big.Int
-	RealizedPnL     *big.Int
+	Symbol           string
+	Size             float64
+	EntryPrice       float64
+	MarkPrice        float64
+	Margin           *big.Int // Allocated margin for this position
+	UnrealizedPnL    *big.Int
+	RealizedPnL      *big.Int
 	LiquidationPrice float64
-	MaxSize         float64 // Max position size based on allocated margin
-	LastUpdate      time.Time
+	MaxSize          float64 // Max position size based on allocated margin
+	LastUpdate       time.Time
 }
 
 // MultiSourceOracle aggregates prices from multiple exchanges
 type MultiSourceOracle struct {
-	Asset           string
-	Sources         map[string]*PriceSource // exchange -> price source
-	Weights         map[string]int          // exchange -> weight
-	LastPrice       float64
-	LastUpdate      time.Time
-	UpdateInterval  time.Duration
-	
+	Asset          string
+	Sources        map[string]*PriceSource // exchange -> price source
+	Weights        map[string]int          // exchange -> weight
+	LastPrice      float64
+	LastUpdate     time.Time
+	UpdateInterval time.Duration
+
 	// Price components
-	SpotPrice       float64
-	MarkPrice       float64 // Used for margining
-	IndexPrice      float64 // Used for funding
-	
+	SpotPrice  float64
+	MarkPrice  float64 // Used for margining
+	IndexPrice float64 // Used for funding
+
 	mu sync.RWMutex
 }
 
 // PriceSource represents a price feed from an exchange
 type PriceSource struct {
-	Exchange       string
-	Price          float64
-	Volume         float64
-	LastUpdate     time.Time
-	IsActive       bool
-	Confidence     float64 // 0-1 confidence score
+	Exchange   string
+	Price      float64
+	Volume     float64
+	LastUpdate time.Time
+	IsActive   bool
+	Confidence float64 // 0-1 confidence score
 }
 
 // ValidatorOracle represents a validator's oracle submission
@@ -157,13 +158,17 @@ func NewClearingHouse(marginEngine *MarginEngine, riskEngine *RiskEngine) *Clear
 		marginEngine:      marginEngine,
 		riskEngine:        riskEngine,
 	}
-	
+
 	// Initialize oracle sources with exchange weights
 	ch.initializeOracleSources()
-	
+
+	// Initialize 8-hour funding engine
+	ch.fundingEngine = NewFundingEngine(ch, DefaultFundingConfig())
+	ch.fundingEngine.Start()
+
 	// Check for FPGA acceleration
 	ch.detectFPGACapabilities()
-	
+
 	return ch
 }
 
@@ -180,10 +185,10 @@ func (ch *ClearingHouse) initializeOracleSources() {
 		"MEXC":        1,
 		"Hyperliquid": 1,
 	}
-	
+
 	// Initialize for major assets
 	assets := []string{"BTC", "ETH", "SOL", "ARB", "MATIC", "AVAX"}
-	
+
 	for _, asset := range assets {
 		oracle := &MultiSourceOracle{
 			Asset:          asset,
@@ -191,7 +196,7 @@ func (ch *ClearingHouse) initializeOracleSources() {
 			Weights:        exchanges,
 			UpdateInterval: 3 * time.Second, // Update every 3 seconds
 		}
-		
+
 		// Initialize price sources
 		for exchange, weight := range exchanges {
 			oracle.Sources[exchange] = &PriceSource{
@@ -201,7 +206,7 @@ func (ch *ClearingHouse) initializeOracleSources() {
 			}
 			oracle.Weights[exchange] = weight
 		}
-		
+
 		ch.oracles[asset] = oracle
 	}
 }
@@ -210,22 +215,22 @@ func (ch *ClearingHouse) initializeOracleSources() {
 func (ch *ClearingHouse) Deposit(address string, amount *big.Int) error {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	
+
 	if amount.Sign() <= 0 {
 		return errors.New("deposit amount must be positive")
 	}
-	
+
 	account := ch.getOrCreateAccount(address)
 	account.mu.Lock()
 	defer account.mu.Unlock()
-	
+
 	// Credit to cross margin balance
 	account.CrossBalance = new(big.Int).Add(account.CrossBalance, amount)
 	account.LastActivity = time.Now()
-	
+
 	// Update account metrics
 	ch.updateAccountMetrics(account)
-	
+
 	return nil
 }
 
@@ -235,9 +240,9 @@ func (ch *ClearingHouse) OpenPosition(address string, symbol string, side Side, 
 	lock := ch.getAccountLock(address)
 	lock.Lock()
 	defer lock.Unlock()
-	
+
 	account := ch.getOrCreateAccount(address)
-	
+
 	// Perform margin check with FPGA acceleration if available
 	if ch.fpgaRiskPath {
 		if !ch.fpgaMarginCheck(account, symbol, size) {
@@ -248,25 +253,25 @@ func (ch *ClearingHouse) OpenPosition(address string, symbol string, side Side, 
 			return nil, errors.New("insufficient margin")
 		}
 	}
-	
+
 	// Get mark price from oracle
 	markPrice := ch.getMarkPrice(symbol)
-	
+
 	// Create or update position
 	position, isNew := ch.updatePosition(account, symbol, side, size, markPrice)
-	
+
 	// Update margin usage
 	ch.updateMarginUsage(account, symbol, position)
-	
+
 	// Increment metrics
 	ch.totalOrders.Add(1)
 	if isNew {
 		ch.totalTrades.Add(1)
 	}
-	
+
 	notional := size * markPrice
 	ch.totalVolume.Add(uint64(notional))
-	
+
 	return position, nil
 }
 
@@ -275,22 +280,22 @@ func (ch *ClearingHouse) AllocateIsolatedMargin(address string, symbol string, m
 	lock := ch.getAccountLock(address)
 	lock.Lock()
 	defer lock.Unlock()
-	
+
 	account := ch.getOrCreateAccount(address)
-	
+
 	// Check available balance
 	if account.CrossBalance.Cmp(margin) < 0 {
 		return errors.New("insufficient balance for isolated margin")
 	}
-	
+
 	// Transfer from cross to isolated
 	account.CrossBalance = new(big.Int).Sub(account.CrossBalance, margin)
-	
+
 	// Create or update isolated position
 	if account.IsolatedPositions == nil {
 		account.IsolatedPositions = make(map[string]*IsolatedPosition)
 	}
-	
+
 	isolated, exists := account.IsolatedPositions[symbol]
 	if !exists {
 		isolated = &IsolatedPosition{
@@ -300,14 +305,14 @@ func (ch *ClearingHouse) AllocateIsolatedMargin(address string, symbol string, m
 		}
 		account.IsolatedPositions[symbol] = isolated
 	}
-	
+
 	isolated.Margin = new(big.Int).Add(isolated.Margin, margin)
-	
+
 	// Calculate max position size based on margin and leverage
 	maxLeverage := ch.maxLeverage[symbol]
 	markPrice := ch.getMarkPrice(symbol)
 	isolated.MaxSize = float64(isolated.Margin.Int64()) * maxLeverage / markPrice
-	
+
 	return nil
 }
 
@@ -319,7 +324,7 @@ func (ch *ClearingHouse) ProcessFunding() {
 		symbols = append(symbols, symbol)
 	}
 	ch.mu.RUnlock()
-	
+
 	for _, symbol := range symbols {
 		ch.processFundingForSymbol(symbol)
 	}
@@ -329,82 +334,106 @@ func (ch *ClearingHouse) ProcessFunding() {
 func (ch *ClearingHouse) processFundingForSymbol(symbol string) {
 	fundingRate := ch.fundingRates[symbol]
 	markPrice := ch.getMarkPrice(symbol)
-	
+
 	ch.mu.RLock()
 	accounts := make([]*PerpAccountState, 0, len(ch.perpAccounts))
 	for _, account := range ch.perpAccounts {
 		accounts = append(accounts, account)
 	}
 	ch.mu.RUnlock()
-	
+
 	// Process each account's positions
 	for _, account := range accounts {
 		account.mu.Lock()
-		
+
 		// Process cross margin positions
 		if position, exists := account.CrossPositions[symbol]; exists {
 			fundingPayment := position.Size * markPrice * fundingRate
-			
+
 			if position.Size > 0 { // Long pays short
 				fundingPayment = -fundingPayment
 			}
-			
+
 			position.FundingPaid += fundingPayment
 			account.CrossBalance = new(big.Int).Add(
 				account.CrossBalance,
 				big.NewInt(int64(fundingPayment)),
 			)
 		}
-		
+
 		// Process isolated positions
 		if isolated, exists := account.IsolatedPositions[symbol]; exists && isolated.Size != 0 {
 			fundingPayment := isolated.Size * markPrice * fundingRate
-			
+
 			if isolated.Size > 0 { // Long pays short
 				fundingPayment = -fundingPayment
 			}
-			
+
 			// Deduct from isolated margin
 			isolated.Margin = new(big.Int).Add(
 				isolated.Margin,
 				big.NewInt(int64(fundingPayment)),
 			)
 		}
-		
+
 		account.mu.Unlock()
 	}
 }
 
 // UpdateOraclePrice updates the oracle price from validators
 func (ch *ClearingHouse) UpdateOraclePrice(asset string, validatorPrices map[string]float64) {
-	oracle, exists := ch.oracles[asset]
-	if !exists {
-		return
+	// Extract base asset from symbol (e.g., "BTC-USD" -> "BTC")
+	baseAsset := asset
+	if idx := strings.Index(asset, "-"); idx > 0 {
+		baseAsset = asset[:idx]
 	}
 	
+	ch.mu.Lock()
+	oracle, exists := ch.oracles[baseAsset]
+	if !exists {
+		// Create oracle if it doesn't exist
+		oracle = &MultiSourceOracle{
+			Asset:          baseAsset,
+			Sources:        make(map[string]*PriceSource),
+			Weights:        make(map[string]int),
+			UpdateInterval: 3 * time.Second,
+		}
+		ch.oracles[baseAsset] = oracle
+	}
+	ch.mu.Unlock()
+
 	oracle.mu.Lock()
 	defer oracle.mu.Unlock()
-	
+
 	// Calculate weighted median of validator prices
 	prices := make([]float64, 0)
 	weights := make([]float64, 0)
-	
+
 	for validatorID, price := range validatorPrices {
-		validator := ch.getValidator(validatorID)
-		if validator != nil && validator.IsActive {
+		if price > 0 {
 			prices = append(prices, price)
-			// Weight by stake
-			stakeFloat := float64(validator.Stake.Int64())
-			weights = append(weights, stakeFloat)
+			// Use equal weights if no validators configured
+			weights = append(weights, 1.0)
+			
+			// Update source
+			if oracle.Sources[validatorID] == nil {
+				oracle.Sources[validatorID] = &PriceSource{
+					Exchange:   validatorID,
+					IsActive:   true,
+					Confidence: 1.0,
+				}
+			}
+			oracle.Sources[validatorID].Price = price
+			oracle.Sources[validatorID].LastUpdate = time.Now()
 		}
 	}
-	
+
 	if len(prices) > 0 {
 		oracle.IndexPrice = calculateWeightedMedian(prices, weights)
 		oracle.LastUpdate = time.Now()
-		
+
 		// Update mark price (index + premium/discount)
-		premium := ch.calculatePremium(asset)
+		premium := ch.calculatePremium(baseAsset)
 		oracle.MarkPrice = oracle.IndexPrice * (1 + premium)
 	}
 }
@@ -415,7 +444,7 @@ func (ch *ClearingHouse) getOrCreateAccount(address string) *PerpAccountState {
 	if account, exists := ch.perpAccounts[address]; exists {
 		return account
 	}
-	
+
 	account := &PerpAccountState{
 		Address:           address,
 		CrossBalance:      big.NewInt(0),
@@ -431,10 +460,10 @@ func (ch *ClearingHouse) getOrCreateAccount(address string) *PerpAccountState {
 		TotalFees:         big.NewInt(0),
 		LastActivity:      time.Now(),
 	}
-	
+
 	ch.perpAccounts[address] = account
 	ch.accountLocks[address] = &sync.RWMutex{}
-	
+
 	return account
 }
 
@@ -442,27 +471,27 @@ func (ch *ClearingHouse) getAccountLock(address string) *sync.RWMutex {
 	ch.mu.RLock()
 	lock, exists := ch.accountLocks[address]
 	ch.mu.RUnlock()
-	
+
 	if !exists {
 		ch.mu.Lock()
 		lock = &sync.RWMutex{}
 		ch.accountLocks[address] = lock
 		ch.mu.Unlock()
 	}
-	
+
 	return lock
 }
 
 func (ch *ClearingHouse) performMarginCheck(account *PerpAccountState, symbol string, size float64) bool {
 	markPrice := ch.getMarkPrice(symbol)
 	notional := size * markPrice
-	
+
 	// Initial margin requirement
 	initialMarginReq := notional * ch.initialMargin[symbol]
-	
+
 	// Check free margin
 	freeMargin := new(big.Int).Sub(account.CrossBalance, account.MarginUsed)
-	
+
 	return freeMargin.Cmp(big.NewInt(int64(initialMarginReq))) >= 0
 }
 
@@ -475,7 +504,7 @@ func (ch *ClearingHouse) fpgaMarginCheck(account *PerpAccountState, symbol strin
 func (ch *ClearingHouse) updatePosition(account *PerpAccountState, symbol string, side Side, size float64, markPrice float64) (*PerpPosition, bool) {
 	position, exists := account.CrossPositions[symbol]
 	isNew := false
-	
+
 	if !exists {
 		position = &PerpPosition{
 			Symbol:     symbol,
@@ -486,7 +515,7 @@ func (ch *ClearingHouse) updatePosition(account *PerpAccountState, symbol string
 		account.CrossPositions[symbol] = position
 		isNew = true
 	}
-	
+
 	// Update position
 	if side == Buy {
 		if position.Size < 0 {
@@ -517,10 +546,10 @@ func (ch *ClearingHouse) updatePosition(account *PerpAccountState, symbol string
 			position.EntryPrice = totalCost / math.Abs(position.Size)
 		}
 	}
-	
+
 	position.MarkPrice = markPrice
 	position.UpdateTime = time.Now()
-	
+
 	// Update unrealized PnL
 	if position.Size > 0 {
 		position.UnrealizedPnL = (markPrice - position.EntryPrice) * position.Size
@@ -529,17 +558,14 @@ func (ch *ClearingHouse) updatePosition(account *PerpAccountState, symbol string
 	} else {
 		position.UnrealizedPnL = 0
 	}
-	
+
 	return position, isNew
 }
 
 func (ch *ClearingHouse) updateMarginUsage(account *PerpAccountState, symbol string, position *PerpPosition) {
 	markPrice := ch.getMarkPrice(symbol)
-	notional := math.Abs(position.Size) * markPrice
-	
-	// Maintenance margin for this position
-	maintMargin := notional * ch.maintenanceMargin[symbol]
-	
+	_ = math.Abs(position.Size) * markPrice // notional value
+
 	// Update total margin used
 	totalMargin := big.NewInt(0)
 	for sym, pos := range account.CrossPositions {
@@ -548,9 +574,9 @@ func (ch *ClearingHouse) updateMarginUsage(account *PerpAccountState, symbol str
 		posMargin := posNotional * ch.maintenanceMargin[sym]
 		totalMargin = new(big.Int).Add(totalMargin, big.NewInt(int64(posMargin)))
 	}
-	
+
 	account.MarginUsed = totalMargin
-	
+
 	// Calculate liquidation price
 	if position.Size != 0 {
 		// Simplified liquidation price calculation
@@ -567,18 +593,18 @@ func (ch *ClearingHouse) updateMarginUsage(account *PerpAccountState, symbol str
 func (ch *ClearingHouse) updateAccountMetrics(account *PerpAccountState) {
 	// Calculate total account value
 	accountValue := new(big.Int).Set(account.CrossBalance)
-	
+
 	// Add unrealized PnL from all positions
 	for _, position := range account.CrossPositions {
 		pnl := big.NewInt(int64(position.UnrealizedPnL))
 		accountValue = new(big.Int).Add(accountValue, pnl)
 	}
-	
+
 	account.AccountValue = accountValue
-	
+
 	// Calculate free margin
 	account.FreeMargin = new(big.Int).Sub(accountValue, account.MarginUsed)
-	
+
 	// Calculate margin level
 	if account.MarginUsed.Sign() > 0 {
 		account.MarginLevel = float64(accountValue.Int64()) / float64(account.MarginUsed.Int64()) * 100
@@ -588,10 +614,27 @@ func (ch *ClearingHouse) updateAccountMetrics(account *PerpAccountState) {
 }
 
 func (ch *ClearingHouse) getMarkPrice(symbol string) float64 {
-	if oracle, exists := ch.oracles[symbol]; exists {
-		return oracle.MarkPrice
+	// Extract base asset from symbol (e.g., "BTC-USD" -> "BTC", "BTC-PERP" -> "BTC")
+	baseAsset := symbol
+	if idx := strings.Index(symbol, "-"); idx > 0 {
+		baseAsset = symbol[:idx]
 	}
-	return 0
+	
+	ch.mu.RLock()
+	oracle, exists := ch.oracles[baseAsset]
+	ch.mu.RUnlock()
+	
+	if exists && oracle != nil {
+		oracle.mu.RLock()
+		price := oracle.MarkPrice
+		oracle.mu.RUnlock()
+		if price > 0 {
+			return price
+		}
+	}
+	
+	// Default price if oracle not found
+	return 50000 // Default BTC price for testing
 }
 
 func (ch *ClearingHouse) getValidator(validatorID string) *ValidatorOracle {
@@ -622,18 +665,18 @@ func calculateWeightedMedian(values []float64, weights []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
-	
+
 	// Sort values and weights together
 	type pair struct {
 		value  float64
 		weight float64
 	}
-	
+
 	pairs := make([]pair, len(values))
 	for i := range values {
 		pairs[i] = pair{values[i], weights[i]}
 	}
-	
+
 	// Sort by value
 	for i := 0; i < len(pairs); i++ {
 		for j := i + 1; j < len(pairs); j++ {
@@ -642,24 +685,148 @@ func calculateWeightedMedian(values []float64, weights []float64) float64 {
 			}
 		}
 	}
-	
+
 	// Find weighted median
 	totalWeight := 0.0
 	for _, p := range pairs {
 		totalWeight += p.weight
 	}
-	
+
 	halfWeight := totalWeight / 2
 	cumWeight := 0.0
-	
+
 	for _, p := range pairs {
 		cumWeight += p.weight
 		if cumWeight >= halfWeight {
 			return p.value
 		}
 	}
-	
+
 	return pairs[len(pairs)-1].value
+}
+
+// GetAllPositions returns all positions for a symbol across all accounts
+func (ch *ClearingHouse) GetAllPositions(symbol string) []*PerpPosition {
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
+
+	positions := make([]*PerpPosition, 0)
+
+	for _, account := range ch.perpAccounts {
+		account.mu.RLock()
+
+		// Check cross margin positions
+		if pos, exists := account.CrossPositions[symbol]; exists && pos.Size != 0 {
+			positions = append(positions, pos)
+		}
+
+		// Check isolated positions
+		if isolated, exists := account.IsolatedPositions[symbol]; exists && isolated.Size != 0 {
+			// Convert isolated to PerpPosition for funding calculation
+			positions = append(positions, &PerpPosition{
+				Symbol:     symbol,
+				User:       account.Address,
+				Size:       isolated.Size,
+				EntryPrice: isolated.EntryPrice,
+				MarkPrice:  isolated.MarkPrice,
+			})
+		}
+
+		account.mu.RUnlock()
+	}
+
+	return positions
+}
+
+// ApplyFundingPayment applies a funding payment to an account
+func (ch *ClearingHouse) ApplyFundingPayment(address string, symbol string, payment float64) {
+	lock := ch.getAccountLock(address)
+	lock.Lock()
+	defer lock.Unlock()
+
+	account := ch.getOrCreateAccount(address)
+
+	// Apply to cross margin balance
+	paymentInt := big.NewInt(int64(payment * 1e6)) // Convert to 6 decimal precision
+	account.CrossBalance = new(big.Int).Add(account.CrossBalance, paymentInt)
+
+	// Track funding paid in position
+	if pos, exists := account.CrossPositions[symbol]; exists {
+		pos.FundingPaid += payment
+	}
+
+	// Update account metrics
+	ch.updateAccountMetrics(account)
+
+	// Check for liquidation if balance is negative
+	if account.CrossBalance.Sign() < 0 || account.MarginLevel < 100 {
+		ch.triggerLiquidation(account)
+	}
+}
+
+// triggerLiquidation initiates liquidation for an account
+func (ch *ClearingHouse) triggerLiquidation(account *PerpAccountState) {
+	if account.IsLiquidating {
+		return
+	}
+
+	account.IsLiquidating = true
+
+	// Liquidation logic would go here
+	// This would close all positions and distribute to insurance fund
+}
+
+// GetFundingRate returns the current funding rate for a symbol
+func (ch *ClearingHouse) GetFundingRate(symbol string) float64 {
+	if ch.fundingEngine != nil {
+		rate := ch.fundingEngine.GetCurrentFundingRate(symbol)
+		if rate != nil {
+			return rate.Rate
+		}
+	}
+
+	// Fallback to stored rate
+	if rate, exists := ch.fundingRates[symbol]; exists {
+		return rate
+	}
+
+	return 0
+}
+
+// GetPredictedFundingRate returns the predicted next funding rate
+func (ch *ClearingHouse) GetPredictedFundingRate(symbol string) float64 {
+	if ch.fundingEngine != nil {
+		rate := ch.fundingEngine.GetPredictedFundingRate(symbol)
+		if rate != nil {
+			return rate.Rate
+		}
+	}
+
+	return 0
+}
+
+// GetNextFundingTime returns the next funding time
+func (ch *ClearingHouse) GetNextFundingTime() time.Time {
+	if ch.fundingEngine != nil {
+		return ch.fundingEngine.GetNextFundingTime()
+	}
+
+	// Fallback calculation
+	now := time.Now().UTC()
+	hour := now.Hour()
+
+	// Next funding time is at 00:00, 08:00, or 16:00 UTC
+	fundingHours := []int{0, 8, 16}
+
+	for _, fh := range fundingHours {
+		if fh > hour {
+			return time.Date(now.Year(), now.Month(), now.Day(), fh, 0, 0, 0, time.UTC)
+		}
+	}
+
+	// Next day at 00:00
+	tomorrow := now.AddDate(0, 0, 1)
+	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // Initialize functions for margin parameters
@@ -676,12 +843,12 @@ func initMaintenanceMargins() map[string]float64 {
 
 func initInitialMargins() map[string]float64 {
 	return map[string]float64{
-		"BTC-PERP":  0.01,  // 1%
-		"ETH-PERP":  0.02,  // 2%
-		"SOL-PERP":  0.04,  // 4%
-		"ARB-PERP":  0.06,  // 6%
-		"AVAX-PERP": 0.06,  // 6%
-		"HYPE-PERP": 0.10,  // 10% for newer assets
+		"BTC-PERP":  0.01, // 1%
+		"ETH-PERP":  0.02, // 2%
+		"SOL-PERP":  0.04, // 4%
+		"ARB-PERP":  0.06, // 6%
+		"AVAX-PERP": 0.06, // 6%
+		"HYPE-PERP": 0.10, // 10% for newer assets
 	}
 }
 

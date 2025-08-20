@@ -11,7 +11,7 @@ import (
 // TestOrderBookBasics tests basic orderbook functionality
 func TestOrderBookBasics(t *testing.T) {
 	ob := lx.NewOrderBook("BTC-USD")
-	
+
 	// Add buy order
 	buyOrder := &lx.Order{
 		ID:     1,
@@ -22,11 +22,11 @@ func TestOrderBookBasics(t *testing.T) {
 		Size:   1,
 		UserID: "user1",
 	}
-	
+
 	result := ob.AddOrder(buyOrder)
 	// First order should be added to book (no match), returns order ID
 	assert.NotNil(t, buyOrder.ID)
-	
+
 	// Add matching sell order
 	sellOrder := &lx.Order{
 		ID:     2,
@@ -37,11 +37,11 @@ func TestOrderBookBasics(t *testing.T) {
 		Size:   1,
 		UserID: "user2",
 	}
-	
+
 	result = ob.AddOrder(sellOrder)
 	// When orders match, it returns trade count (might be 0 if internal matching)
 	_ = result
-	
+
 	// Both orders should be added successfully
 	// Matching happens internally
 }
@@ -49,10 +49,10 @@ func TestOrderBookBasics(t *testing.T) {
 // TestConcurrentOrders tests thread-safe order processing
 func TestConcurrentOrders(t *testing.T) {
 	ob := lx.NewOrderBook("ETH-USD")
-	
+
 	done := make(chan bool)
 	orderCount := 1000
-	
+
 	// Add orders concurrently
 	go func() {
 		for i := 0; i < orderCount; i++ {
@@ -69,7 +69,7 @@ func TestConcurrentOrders(t *testing.T) {
 		}
 		done <- true
 	}()
-	
+
 	select {
 	case <-done:
 		// Success
@@ -90,11 +90,11 @@ func TestOrderTypes(t *testing.T) {
 		{"BuyMarket", lx.Buy, lx.Market},
 		{"SellMarket", lx.Sell, lx.Market},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ob := lx.NewOrderBook("TEST-USD")
-			
+
 			order := &lx.Order{
 				ID:     1,
 				Symbol: "TEST-USD",
@@ -104,7 +104,7 @@ func TestOrderTypes(t *testing.T) {
 				Size:   1,
 				UserID: "test",
 			}
-			
+
 			if test.typ == lx.Market {
 				// Market orders need liquidity to execute
 				// Add opposite side first
@@ -119,7 +119,7 @@ func TestOrderTypes(t *testing.T) {
 				}
 				ob.AddOrder(opposite)
 			}
-			
+
 			_ = ob.AddOrder(order)
 			// AddOrder returns trade count when matched, order ID when not matched
 			// Both are valid outcomes

@@ -84,6 +84,7 @@ func detectBestBackend() Backend {
 var (
 	ErrOrderNotFound     = fmt.Errorf("order not found")
 	ErrInsufficientFunds = fmt.Errorf("insufficient funds")
+	ErrInvalidOrder      = fmt.Errorf("invalid order")
 	ErrInvalidPrice      = fmt.Errorf("invalid price")
 	ErrInvalidSize       = fmt.Errorf("invalid size")
 	ErrVaultNotFound     = fmt.Errorf("vault not found")
@@ -711,7 +712,7 @@ func (ob *OrderBook) processMarketOrderOptimized(order *Order) uint64 {
 
 	order.RemainingSize = order.Size
 	ob.tryMatchImmediateLocked(order)
-	
+
 	// Return order ID for consistency
 	if order.Status == Rejected {
 		return 0
@@ -837,6 +838,9 @@ func (ob *OrderBook) MatchOrders() []Trade {
 
 // Helper methods
 func (ob *OrderBook) validateOrder(order *Order) error {
+	if order == nil {
+		return ErrInvalidOrder
+	}
 	if order.Type != Market && order.Price <= 0 {
 		return ErrInvalidPrice
 	}
@@ -937,6 +941,14 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice, newSize float64) erro
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
+	// Validate inputs
+	if newPrice < 0 {
+		return fmt.Errorf("invalid price: must be non-negative")
+	}
+	if newSize < 0 {
+		return fmt.Errorf("invalid size: must be non-negative")
+	}
+
 	order, exists := ob.Orders[orderID]
 	if !exists {
 		return ErrOrderNotFound
@@ -972,18 +984,18 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice, newSize float64) erro
 func (ob *OrderBook) GetOrder(orderID uint64) *Order {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	if order, exists := ob.Orders[orderID]; exists {
 		return order
 	}
-	
+
 	// Check ordersMap as well
 	if val, exists := ob.ordersMap.Load(orderID); exists {
 		if order, ok := val.(*Order); ok {
 			return order
 		}
 	}
-	
+
 	return nil
 }
 
@@ -991,7 +1003,7 @@ func (ob *OrderBook) GetOrder(orderID uint64) *Order {
 func (ob *OrderBook) GetTrades() []Trade {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
-	
+
 	trades := make([]Trade, 0, len(ob.Trades))
 	for _, trade := range ob.Trades {
 		trades = append(trades, trade)
@@ -1007,7 +1019,7 @@ func (ob *OrderBook) GetSnapshot() *OrderBookSnapshot {
 	// Convert price levels to order levels
 	bidLevels := ob.Bids.getLevels(10)
 	askLevels := ob.Asks.getLevels(10)
-	
+
 	bids := make([]OrderLevel, len(bidLevels))
 	for i, level := range bidLevels {
 		bids[i] = OrderLevel{
@@ -1015,7 +1027,7 @@ func (ob *OrderBook) GetSnapshot() *OrderBookSnapshot {
 			Size:  level.Size,
 		}
 	}
-	
+
 	asks := make([]OrderLevel, len(askLevels))
 	for i, level := range askLevels {
 		asks[i] = OrderLevel{

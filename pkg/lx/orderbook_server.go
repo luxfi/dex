@@ -49,7 +49,7 @@ func (s *SimpleOrderBookServer) Start(ctx context.Context, port int) error {
 func (s *SimpleOrderBookServer) OnOrderAdd(order *Order) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Broadcast to clients
 	for _, ch := range s.wsClients {
 		select {
@@ -70,17 +70,17 @@ func (s *SimpleOrderBookServer) processBlock() {
 func (s *SimpleOrderBookServer) generateOrderSnapshot(symbol string) *OrderSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	snapshot := &OrderSnapshot{
 		Symbol:    symbol,
 		Timestamp: time.Now().UnixNano(),
 		Block:     s.blockNumber,
 	}
-	
+
 	// Get order counts from the trees
 	bids := s.orderBook.GetBids()
 	asks := s.orderBook.GetAsks()
-	
+
 	if bids != nil {
 		bids.mu.RLock()
 		snapshot.BidCount = len(bids.orders)
@@ -89,7 +89,7 @@ func (s *SimpleOrderBookServer) generateOrderSnapshot(symbol string) *OrderSnaps
 		}
 		bids.mu.RUnlock()
 	}
-	
+
 	if asks != nil {
 		asks.mu.RLock()
 		snapshot.AskCount = len(asks.orders)
@@ -98,7 +98,7 @@ func (s *SimpleOrderBookServer) generateOrderSnapshot(symbol string) *OrderSnaps
 		}
 		asks.mu.RUnlock()
 	}
-	
+
 	return snapshot
 }
 
@@ -106,25 +106,25 @@ func (s *SimpleOrderBookServer) generateOrderSnapshot(symbol string) *OrderSnaps
 func (s *SimpleOrderBookServer) validateState() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if !s.conservative {
 		return true
 	}
-	
+
 	// Check bid/ask crossing
 	bids := s.orderBook.GetBids()
 	asks := s.orderBook.GetAsks()
-	
+
 	if bids != nil && asks != nil {
 		bidBest := bids.bestPrice.Load()
 		askBest := asks.bestPrice.Load()
-		
+
 		if bidBest != 0 && askBest != 0 && bidBest >= askBest {
 			// Order book is crossed
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -132,7 +132,7 @@ func (s *SimpleOrderBookServer) validateState() bool {
 func (s *SimpleOrderBookServer) blockProcessor(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():

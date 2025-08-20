@@ -18,7 +18,7 @@ func main() {
 	log.Printf("Starting LX DEX metrics on :%s (luxfi/metric compatible)\n", *port)
 
 	registry := prometheus.NewRegistry()
-	
+
 	// LX DEX metrics namespace
 	matchingLatency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "lx_dex",
@@ -26,15 +26,15 @@ func main() {
 		Help:      "Order matching latency in nanoseconds",
 		Buckets:   []float64{10, 25, 50, 100, 250, 500, 1000},
 	}, []string{"node", "engine"})
-	
+
 	tradesPerSecond := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "lx_dex",
 		Name:      "trades_per_second",
 		Help:      "Trades executed per second",
 	}, []string{"node"})
-	
+
 	registry.MustRegister(matchingLatency, tradesPerSecond)
-	
+
 	// Simulate metrics from C++ optimized engine
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
@@ -45,7 +45,7 @@ func main() {
 			tradesPerSecond.WithLabelValues(*nodeID).Set(6800000)
 		}
 	}()
-	
+
 	http.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	log.Printf("Prometheus metrics at http://localhost:%s/metrics\n", *port)
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {

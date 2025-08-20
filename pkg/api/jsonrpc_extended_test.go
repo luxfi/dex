@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,14 +32,14 @@ func TestJSONRPCServer_EmptyOrderBook(t *testing.T) {
 	var resp map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	
+
 	// Should return 0 for empty book
 	assert.Equal(t, float64(0), resp["result"])
 }
 
 func TestJSONRPCServer_MultipleOrders(t *testing.T) {
 	orderBook := lx.NewOrderBook("MULTI")
-	
+
 	// Add multiple orders
 	for i := 1; i <= 10; i++ {
 		orderBook.AddOrder(&lx.Order{
@@ -51,7 +51,7 @@ func TestJSONRPCServer_MultipleOrders(t *testing.T) {
 			User:      "buyer",
 			Timestamp: time.Now(),
 		})
-		
+
 		orderBook.AddOrder(&lx.Order{
 			ID:        uint64(i + 10),
 			Type:      lx.Limit,
@@ -73,11 +73,11 @@ func TestJSONRPCServer_MultipleOrders(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
-	
+
 	var resp map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	
+
 	// Best bid should be 99 (100 - 1)
 	assert.Equal(t, float64(99), resp["result"])
 }
@@ -113,7 +113,7 @@ func TestJSONRPCServer_BatchRequests(t *testing.T) {
 		{"jsonrpc":"2.0","method":"orderbook.getBestAsk","params":{},"id":2},
 		{"jsonrpc":"2.0","method":"orderbook.getStats","params":{},"id":3}
 	]`
-	
+
 	req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))
 	w := httptest.NewRecorder()
 
@@ -123,7 +123,7 @@ func TestJSONRPCServer_BatchRequests(t *testing.T) {
 	// Parse batch response
 	var responses []map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &responses)
-	
+
 	// For now, the server doesn't handle batch requests properly
 	// It will parse as a single invalid request
 	// This is a known limitation
@@ -176,9 +176,9 @@ func TestJSONRPCServer_MalformedRequest(t *testing.T) {
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				if err == nil {
 					if resp["error"] == nil {
-					// Some malformed requests might not generate proper error responses
-					// This is acceptable for this implementation
-				}
+						// Some malformed requests might not generate proper error responses
+						// This is acceptable for this implementation
+					}
 				}
 			}
 		})
@@ -256,9 +256,9 @@ func BenchmarkJSONRPCServer_GetStats(b *testing.B) {
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
-	
+
 	reqBody := `{"jsonrpc":"2.0","method":"orderbook.getStats","params":{},"id":1}`
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))
@@ -284,9 +284,9 @@ func BenchmarkJSONRPCServer_Parallel(b *testing.B) {
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
-	
+
 	reqBody := `{"jsonrpc":"2.0","method":"orderbook.getBestBid","params":{},"id":1}`
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))

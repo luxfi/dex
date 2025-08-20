@@ -156,7 +156,7 @@ func (q *Quasar) GenerateCertificate(id ID) (*QuantumCertificate, bool) {
 	if q.tracked == nil || !q.tracked[id] {
 		return nil, false
 	}
-	
+
 	// Build proof from existing certificates
 	var proof []ID
 	if len(q.certificates) > 0 {
@@ -170,7 +170,7 @@ func (q *Quasar) GenerateCertificate(id ID) (*QuantumCertificate, bool) {
 			count++
 		}
 	}
-	
+
 	cert := &QuantumCertificate{
 		VertexID:  id,
 		Threshold: q.certThreshold,

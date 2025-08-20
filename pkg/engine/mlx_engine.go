@@ -12,14 +12,14 @@ import (
 
 // MLXEngine represents the Metal-accelerated matching engine
 type MLXEngine struct {
-	initialized    bool
-	ordersTotal    uint64
-	tradesTotal    uint64
-	markets        uint32
-	maxMarkets     uint32
-	unifiedMemory  bool
-	gpuCores       int
-	neuralCores    int
+	initialized   bool
+	ordersTotal   uint64
+	tradesTotal   uint64
+	markets       uint32
+	maxMarkets    uint32
+	unifiedMemory bool
+	gpuCores      int
+	neuralCores   int
 }
 
 // MLXConfig configures the MLX engine
@@ -37,7 +37,7 @@ func NewMLXEngine(config MLXConfig) (*MLXEngine, error) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		return nil, fmt.Errorf("MLX engine requires Apple Silicon Mac")
 	}
-	
+
 	engine := &MLXEngine{
 		initialized:   true,
 		maxMarkets:    config.MaxMarkets,
@@ -45,7 +45,7 @@ func NewMLXEngine(config MLXConfig) (*MLXEngine, error) {
 		gpuCores:      detectGPUCores(),
 		neuralCores:   detectNeuralCores(),
 	}
-	
+
 	return engine, nil
 }
 
@@ -54,27 +54,27 @@ func (e *MLXEngine) ProcessBatch(orders []Order) (*BatchResult, error) {
 	if !e.initialized {
 		return nil, fmt.Errorf("engine not initialized")
 	}
-	
+
 	start := time.Now()
-	
+
 	// Simulate MLX GPU processing
 	// In production, this would use Metal Performance Shaders
 	processed := uint64(len(orders))
 	executed := processed / 10 // 10% fill rate
-	
+
 	// Simulate 597ns per order latency
 	processingTime := time.Duration(processed*597) * time.Nanosecond
 	if processingTime > 0 {
 		time.Sleep(processingTime / 1000) // Scale down for simulation
 	}
-	
+
 	latency := time.Since(start).Nanoseconds()
 	throughput := float64(processed) / (float64(latency) / 1e9) / 1e6
-	
+
 	// Update totals
 	atomic.AddUint64(&e.ordersTotal, processed)
 	atomic.AddUint64(&e.tradesTotal, executed)
-	
+
 	return &BatchResult{
 		OrdersProcessed: processed,
 		TradesExecuted:  executed,
@@ -100,11 +100,11 @@ func (e *MLXEngine) LoadMarkets(markets []Market) error {
 	if uint32(len(markets)) > e.maxMarkets {
 		return fmt.Errorf("too many markets: %d > %d", len(markets), e.maxMarkets)
 	}
-	
+
 	// Markets are loaded directly into unified memory
 	// No CPU->GPU transfer needed on Apple Silicon!
 	e.markets = uint32(len(markets))
-	
+
 	return nil
 }
 
@@ -120,12 +120,12 @@ type Order struct {
 
 // Market represents a trading market
 type Market struct {
-	Symbol      string
-	BaseAsset   string
-	QuoteAsset  string
-	TickSize    float64
-	LotSize     float64
-	MaxDepth    uint32
+	Symbol     string
+	BaseAsset  string
+	QuoteAsset string
+	TickSize   float64
+	LotSize    float64
+	MaxDepth   uint32
 }
 
 // BatchResult contains results from batch processing
@@ -156,7 +156,7 @@ func detectGPUCores() int {
 	// M1 Max has 32 GPU cores
 	// M1 Pro has 16 GPU cores
 	// M1 has 8 GPU cores
-	
+
 	// Default to M2 Ultra
 	return 76
 }
@@ -192,25 +192,25 @@ func (e *MLXEngine) Benchmark(duration time.Duration) *BenchmarkResult {
 			Type:   0, // Limit
 		}
 	}
-	
+
 	start := time.Now()
 	batches := 0
 	totalOrders := uint64(0)
 	totalLatency := uint64(0)
-	
+
 	for time.Since(start) < duration {
 		result, err := e.ProcessBatch(orders)
 		if err != nil {
 			continue
 		}
-		
+
 		batches++
 		totalOrders += result.OrdersProcessed
 		totalLatency += result.LatencyNanos
 	}
-	
+
 	elapsed := time.Since(start)
-	
+
 	return &BenchmarkResult{
 		Duration:        elapsed,
 		OrdersProcessed: totalOrders,
@@ -233,13 +233,13 @@ type BenchmarkResult struct {
 func (e *MLXEngine) MemoryInfo() *MemoryStats {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	
+
 	return &MemoryStats{
 		Allocated:      m.Alloc,
 		TotalAllocated: m.TotalAlloc,
 		System:         m.Sys,
 		NumGC:          m.NumGC,
-		UnifiedTotal:   512 * 1024 * 1024 * 1024, // 512GB
+		UnifiedTotal:   512 * 1024 * 1024 * 1024,       // 512GB
 		UnifiedUsed:    uint64(e.markets) * 160 * 1024, // 160KB per market estimate
 	}
 }

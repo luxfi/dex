@@ -40,19 +40,19 @@ type Order struct {
 	UserID    string
 	User      string // Alias for UserID
 	ClientID  string
-	
+
 	// Advanced order fields
-	StopPrice    float64
-	LimitPrice   float64 // For stop-limit orders
-	DisplaySize  float64 // For iceberg orders
-	PegOffset    float64
-	TakeProfit   float64
-	StopLoss     float64
-	TimeInForce  string
-	PostOnly     bool
-	ReduceOnly   bool
-	Hidden       bool
-	
+	StopPrice   float64
+	LimitPrice  float64 // For stop-limit orders
+	DisplaySize float64 // For iceberg orders
+	PegOffset   float64
+	TakeProfit  float64
+	StopLoss    float64
+	TimeInForce string
+	PostOnly    bool
+	ReduceOnly  bool
+	Hidden      bool
+
 	// Internal fields
 	RemainingSize float64
 	Status        string
@@ -84,10 +84,10 @@ type MarketDataUpdate struct {
 	Timestamp time.Time
 	Data      interface{}
 	// Order-specific fields (for order updates)
-	OrderID   uint64
-	Price     float64
-	Size      float64
-	Side      Side
+	OrderID uint64
+	Price   float64
+	Size    float64
+	Side    Side
 }
 
 // PriceLevel represents a price level in the order book
@@ -159,12 +159,12 @@ const (
 	PartiallyFilled   = "partially_filled"
 	Filled            = "filled"
 	Canceled          = "canceled"
-	StatusCancelled   = "cancelled"  // Alias for British spelling
+	StatusCancelled   = "cancelled" // Alias for British spelling
 	Rejected          = "rejected"
 	ImmediateOrCancel = "IOC"
-	IOC               = "IOC"  // Alias
+	IOC               = "IOC" // Alias
 	FillOrKill        = "FOK"
-	FOK               = "FOK"  // Alias
+	FOK               = "FOK" // Alias
 	OrderAdded        = "order_added"
 	BookReset         = "book_reset"
 	EventLiquidation  = "liquidation"
@@ -190,7 +190,7 @@ type Event struct {
 type OrderFlags uint32
 
 const (
-	FlagPostOnly   OrderFlags = 1 << iota
+	FlagPostOnly OrderFlags = 1 << iota
 	FlagReduceOnly
 	FlagImmediate
 	FlagHidden
