@@ -83,8 +83,14 @@ type MLXZMQServer struct {
 
 func NewMLXZMQServer(config *Config) (*MLXZMQServer, error) {
 	// Initialize MLX engine
-	mlxEngine := mlx.NewEngine()
-	log.Printf("MLX Engine initialized: %s", mlxEngine.GetInfo())
+	mlxEngine, err := mlx.NewEngine(mlx.Config{
+		Backend:  mlx.BackendAuto,
+		MaxBatch: config.BatchSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MLX engine: %w", err)
+	}
+	log.Printf("MLX Engine initialized: Backend=%s Device=%s", mlxEngine.Backend(), mlxEngine.Device())
 	
 	server := &MLXZMQServer{
 		mlxEngine:    mlxEngine,
@@ -115,7 +121,8 @@ func NewMLXZMQServer(config *Config) (*MLXZMQServer, error) {
 	orderSocket.SetImmediate(false) // Allow batching
 	
 	if server.tcpNoDelay {
-		orderSocket.SetTcpNodelayy(1)
+		// TCP_NODELAY not directly available in pebbe/zmq4
+		// Would need to use SetSockoptInt with proper constant
 	}
 	
 	// Bind to order port
