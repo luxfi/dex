@@ -40,6 +40,12 @@ type Config struct {
 	WSPort      int
 	P2PPort     int
 	MetricsPort int
+	
+	// QZMQ Network
+	QZMQPubPort    int
+	QZMQSubPort    int
+	QZMQRouterPort int
+	QZMQDealerPort int
 
 	// Consensus
 	BlockTime time.Duration
@@ -52,6 +58,7 @@ type Config struct {
 	// Features
 	EnableMetrics bool
 	EnableDebug   bool
+	EnableQZMQ    bool
 }
 
 type LXDNode struct {
@@ -60,16 +67,22 @@ type LXDNode struct {
 	orderBook *lx.OrderBook
 	mlxEngine mlx.Engine
 	logger    log.Logger
+	nodeID    string
 
 	// Runtime stats
 	blocksFinalized  uint64
 	ordersProcessed  uint64
 	tradesExecuted   uint64
 	consensusLatency uint64
+	blockHeight      uint64
 	
 	// Pending orders buffer
 	pendingOrders []*lx.Order
 	orderMu       sync.Mutex
+	mu            sync.RWMutex
+
+	// Consensus
+	consensusEngine interface{} // Placeholder for consensus engine
 
 	// Lifecycle
 	ctx    context.Context
@@ -133,19 +146,26 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 	// Initialize order book
 	orderBook := lx.NewOrderBook("LXD-MAINNET")
 
+	// Generate node ID
+	nodeID := fmt.Sprintf("node-%d", config.NodeID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &LXDNode{
+	node := &LXDNode{
 		config:        config,
 		db:            db,
 		orderBook:     orderBook,
 		mlxEngine:     mlxEngine,
 		logger:        logger,
+		nodeID:        nodeID,
 		pendingOrders: make([]*lx.Order, 0, 10000),
 		ctx:           ctx,
 		cancel:        cancel,
-	}, nil
+	}
+	
+	// QZMQ disabled for now
+	
+	return node, nil
 }
 
 func (n *LXDNode) Start() error {
@@ -470,6 +490,18 @@ func (n *LXDNode) printStats() {
 	}
 }
 
+func (n *LXDNode) processTrade(trade *lx.Trade) {
+	// Process trade in local state
+	atomic.AddUint64(&n.tradesExecuted, 1)
+	// Additional trade processing logic would go here
+}
+
+func (n *LXDNode) broadcastTradeToWS(trade *lx.Trade) {
+	// This would broadcast to WebSocket clients
+	// Implementation depends on WebSocket server setup
+	n.logger.Debug("Broadcasting trade to WebSocket", "tradeID", trade.ID)
+}
+
 func (n *LXDNode) Shutdown() {
 	n.logger.Info("Shutting down LXD node...")
 
@@ -505,6 +537,8 @@ func main() {
 	flag.IntVar(&config.WSPort, "ws-port", defaultWSPort, "WebSocket port")
 	flag.IntVar(&config.P2PPort, "p2p-port", defaultP2PPort, "P2P network port")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Prometheus metrics port")
+	
+	// QZMQ flags
 
 	blockTime := flag.Duration("block-time", 1*time.Millisecond, "Target block time")
 	flag.IntVar(&config.NodeID, "node-id", 1, "Node ID")

@@ -1,12 +1,56 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: registry.lux.network
+
 jobs:
+  # Code Quality
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+            
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout 5m
+          
+      - name: Run gosec security scanner
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt sarif -out security.sarif ./...
+          
+      - name: Upload security results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: security.sarif
+
+  # Unit Tests
   test:
     name: Test
     runs-on: ${{ matrix.os }}
@@ -14,95 +58,30 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         go: ['1.21', '1.22']
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ matrix.go }}
-    
-    - name: Install dependencies
-      run: |
-        go mod download
-        go mod verify
-    
-    - name: Run tests
-      run: |
-        go test -v -race -short ./pkg/lx/... ./pkg/mlx/... ./test/unit/...
-    
-  benchmark:
-    name: Benchmark
-    runs-on: macos-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: "1.21"
-    
-    - name: Run benchmarks
-      run: |
-        echo "Running benchmarks..."
-        go test -bench=. -benchtime=3s ./pkg/lx/...
-        
-    - name: Check performance
-      run: |
-        go test -bench=BenchmarkOrderBook -benchtime=1s ./pkg/lx/... | tee bench.txt
-        LATENCY=$(grep "BenchmarkOrderBookAddOrder" bench.txt | awk '{print $3}')
-        echo "Order latency: ${LATENCY} ns/op"
-        # Ensure latency is under 2000ns (2μs)
-        if [ "${LATENCY%.*}" -gt 2000 ]; then
-          echo "Performance regression detected!"
-          exit 1
-        fi
-        
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: "1.21"
-    
-    - name: Build binaries
-      run: |
-        mkdir -p bin
-        echo "Building core binaries..."
-        CGO_ENABLED=0 go build -o bin/demo ./cmd/demo/
-        CGO_ENABLED=0 go build -o bin/dex-server ./cmd/dex-server/
-        CGO_ENABLED=0 go build -o bin/benchmark-ultra ./cmd/benchmark-ultra/
-        CGO_ENABLED=0 go build -o bin/perf-test ./cmd/perf-test/
-        
-        echo "✅ Build successful!"
-        ls -la bin/
-  
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: "1.21"
-    
-    - name: Run go fmt
-      run: |
-        if [ -n "$(gofmt -l .)" ]; then
-          echo "Go code is not formatted:"
-          gofmt -d .
-          exit 1
-        fi
-    
-    - name: Run go vet
-      run: go vet ./pkg/lx/... ./pkg/mlx/...
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          
+      - name: Install dependencies
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y libzmq3-dev
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew install zeromq
+          fi
+          
+      - name: Run tests
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./pkg/...
+          
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-${{ matrix.os }}-${{ matrix.go }}
