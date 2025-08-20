@@ -11,30 +11,30 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 )
 
 // Server represents a WebSocket server for real-time data
 type Server struct {
 	orderBook *lx.OrderBook
 	logger    log.Logger
-	
+
 	// Client management
 	clients    map[*Client]bool
 	clientsMu  sync.RWMutex
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan Message
-	
+
 	// Subscription management
 	subscriptions map[string]map[*Client]bool // channel -> clients
 	subMu         sync.RWMutex
-	
+
 	// Stats
 	messagesOut uint64
 	clientCount int32
-	
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -53,11 +53,11 @@ type Client struct {
 
 // Message represents a WebSocket message
 type Message struct {
-	Type      string          `json:"type"`
-	Channel   string          `json:"channel,omitempty"`
-	Data      interface{}     `json:"data,omitempty"`
-	Timestamp int64           `json:"timestamp"`
-	Sequence  uint64          `json:"sequence,omitempty"`
+	Type      string      `json:"type"`
+	Channel   string      `json:"channel,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+	Timestamp int64       `json:"timestamp"`
+	Sequence  uint64      `json:"sequence,omitempty"`
 }
 
 // SubscribeRequest represents a subscription request
@@ -68,12 +68,12 @@ type SubscribeRequest struct {
 
 // OrderBookUpdate represents an order book update
 type OrderBookUpdate struct {
-	Type      string             `json:"type"` // "snapshot" or "update"
-	Symbol    string             `json:"symbol"`
-	Bids      []lx.PriceLevel    `json:"bids"`
-	Asks      []lx.PriceLevel    `json:"asks"`
-	Timestamp int64              `json:"timestamp"`
-	Sequence  uint64             `json:"sequence"`
+	Type      string          `json:"type"` // "snapshot" or "update"
+	Symbol    string          `json:"symbol"`
+	Bids      []lx.PriceLevel `json:"bids"`
+	Asks      []lx.PriceLevel `json:"asks"`
+	Timestamp int64           `json:"timestamp"`
+	Sequence  uint64          `json:"sequence"`
 }
 
 // TradeUpdate represents a trade update
@@ -125,7 +125,7 @@ var upgrader = websocket.Upgrader{
 // NewServer creates a new WebSocket server
 func NewServer(orderBook *lx.OrderBook, logger log.Logger, config Config) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Server{
 		orderBook:     orderBook,
 		logger:        logger,
@@ -144,31 +144,31 @@ func (s *Server) Start(port int) error {
 	// Start hub goroutine
 	s.wg.Add(1)
 	go s.runHub()
-	
+
 	// Start HTTP server
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
-	
+
 	addr := fmt.Sprintf(":%d", port)
 	s.logger.Info("WebSocket server starting", "port", port)
-	
+
 	server := &http.Server{
 		Addr:         addr,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
-	
+
 	// Graceful shutdown
 	go func() {
 		<-s.ctx.Done()
 		server.Shutdown(context.Background())
 	}()
-	
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("WebSocket server error: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -182,10 +182,10 @@ func (s *Server) Stop() {
 // runHub manages client connections and message routing
 func (s *Server) runHub() {
 	defer s.wg.Done()
-	
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -196,30 +196,30 @@ func (s *Server) runHub() {
 			}
 			s.clientsMu.Unlock()
 			return
-			
+
 		case client := <-s.register:
 			s.clientsMu.Lock()
 			s.clients[client] = true
 			atomic.AddInt32(&s.clientCount, 1)
 			s.clientsMu.Unlock()
 			s.logger.Debug("Client connected", "id", client.id, "total", atomic.LoadInt32(&s.clientCount))
-			
+
 		case client := <-s.unregister:
 			s.clientsMu.Lock()
 			if _, ok := s.clients[client]; ok {
 				delete(s.clients, client)
 				close(client.send)
 				atomic.AddInt32(&s.clientCount, -1)
-				
+
 				// Remove from all subscriptions
 				s.unsubscribeAll(client)
 			}
 			s.clientsMu.Unlock()
 			s.logger.Debug("Client disconnected", "id", client.id, "total", atomic.LoadInt32(&s.clientCount))
-			
+
 		case message := <-s.broadcast:
 			s.broadcastMessage(message)
-			
+
 		case <-ticker.C:
 			// Log stats periodically
 			s.logger.Debug("WebSocket stats",
@@ -236,7 +236,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("WebSocket upgrade failed", "error", err)
 		return
 	}
-	
+
 	client := &Client{
 		id:       generateClientID(),
 		conn:     conn,
@@ -244,13 +244,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send:     make(chan []byte, 256),
 		channels: make(map[string]bool),
 	}
-	
+
 	s.register <- client
-	
+
 	// Start client goroutines
 	go client.writePump()
 	go client.readPump()
-	
+
 	// Send welcome message
 	welcome := Message{
 		Type:      "welcome",
@@ -276,14 +276,14 @@ func (c *Client) readPump() {
 		c.server.unregister <- c
 		c.conn.Close()
 	}()
-	
+
 	c.conn.SetReadLimit(512 * 1024)
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
-	
+
 	for {
 		var msg json.RawMessage
 		err := c.conn.ReadJSON(&msg)
@@ -293,7 +293,7 @@ func (c *Client) readPump() {
 			}
 			break
 		}
-		
+
 		// Process message
 		c.handleMessage(msg)
 	}
@@ -306,7 +306,7 @@ func (c *Client) writePump() {
 		ticker.Stop()
 		c.conn.Close()
 	}()
-	
+
 	for {
 		select {
 		case message, ok := <-c.send:
@@ -315,17 +315,17 @@ func (c *Client) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			
+
 			c.conn.WriteMessage(websocket.TextMessage, message)
 			atomic.AddUint64(&c.server.messagesOut, 1)
-			
+
 			// Drain queued messages
 			n := len(c.send)
 			for i := 0; i < n; i++ {
 				c.conn.WriteMessage(websocket.TextMessage, <-c.send)
 				atomic.AddUint64(&c.server.messagesOut, 1)
 			}
-			
+
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -342,13 +342,13 @@ func (c *Client) handleMessage(raw json.RawMessage) {
 		c.sendError("Invalid message format")
 		return
 	}
-	
+
 	msgType, ok := msg["type"].(string)
 	if !ok {
 		c.sendError("Missing message type")
 		return
 	}
-	
+
 	switch msgType {
 	case "subscribe":
 		c.handleSubscribe(msg)
@@ -368,26 +368,26 @@ func (c *Client) handleSubscribe(msg map[string]interface{}) {
 		c.sendError("Invalid channels format")
 		return
 	}
-	
+
 	for _, ch := range channels {
 		channel, ok := ch.(string)
 		if !ok {
 			continue
 		}
-		
+
 		c.mu.Lock()
 		c.channels[channel] = true
 		c.mu.Unlock()
-		
+
 		c.server.subscribe(channel, c)
-		
+
 		// Send initial snapshot for order book channels
 		if len(channel) > 10 && channel[:10] == "orderbook:" {
 			symbol := channel[10:]
 			c.sendOrderBookSnapshot(symbol)
 		}
 	}
-	
+
 	c.sendMessage(Message{
 		Type:      "subscribed",
 		Data:      map[string]interface{}{"channels": channels},
@@ -402,20 +402,20 @@ func (c *Client) handleUnsubscribe(msg map[string]interface{}) {
 		c.sendError("Invalid channels format")
 		return
 	}
-	
+
 	for _, ch := range channels {
 		channel, ok := ch.(string)
 		if !ok {
 			continue
 		}
-		
+
 		c.mu.Lock()
 		delete(c.channels, channel)
 		c.mu.Unlock()
-		
+
 		c.server.unsubscribe(channel, c)
 	}
-	
+
 	c.sendMessage(Message{
 		Type:      "unsubscribed",
 		Data:      map[string]interface{}{"channels": channels},
@@ -426,7 +426,7 @@ func (c *Client) handleUnsubscribe(msg map[string]interface{}) {
 // sendOrderBookSnapshot sends current order book state
 func (c *Client) sendOrderBookSnapshot(symbol string) {
 	book := c.server.orderBook.GetOrderBookSnapshot(symbol, 20)
-	
+
 	update := OrderBookUpdate{
 		Type:      "snapshot",
 		Symbol:    symbol,
@@ -435,7 +435,7 @@ func (c *Client) sendOrderBookSnapshot(symbol string) {
 		Timestamp: time.Now().Unix(),
 		Sequence:  0, // TODO: Add sequence tracking
 	}
-	
+
 	c.sendMessage(Message{
 		Type:      "orderbook",
 		Channel:   fmt.Sprintf("orderbook:%s", symbol),
@@ -451,7 +451,7 @@ func (c *Client) sendMessage(msg Message) {
 		c.server.logger.Error("Failed to marshal message", "error", err)
 		return
 	}
-	
+
 	select {
 	case c.send <- data:
 	default:
@@ -474,7 +474,7 @@ func (c *Client) sendError(message string) {
 func (s *Server) subscribe(channel string, client *Client) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
-	
+
 	if s.subscriptions[channel] == nil {
 		s.subscriptions[channel] = make(map[*Client]bool)
 	}
@@ -485,7 +485,7 @@ func (s *Server) subscribe(channel string, client *Client) {
 func (s *Server) unsubscribe(channel string, client *Client) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
-	
+
 	if clients, ok := s.subscriptions[channel]; ok {
 		delete(clients, client)
 		if len(clients) == 0 {
@@ -498,7 +498,7 @@ func (s *Server) unsubscribe(channel string, client *Client) {
 func (s *Server) unsubscribeAll(client *Client) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
-	
+
 	for channel, clients := range s.subscriptions {
 		delete(clients, client)
 		if len(clients) == 0 {
@@ -512,17 +512,17 @@ func (s *Server) broadcastMessage(msg Message) {
 	s.subMu.RLock()
 	clients := s.subscriptions[msg.Channel]
 	s.subMu.RUnlock()
-	
+
 	if len(clients) == 0 {
 		return
 	}
-	
+
 	data, err := json.Marshal(msg)
 	if err != nil {
 		s.logger.Error("Failed to marshal broadcast message", "error", err)
 		return
 	}
-	
+
 	for client := range clients {
 		select {
 		case client.send <- data:
@@ -545,7 +545,7 @@ func (s *Server) BroadcastOrderBookUpdate(symbol string, bids, asks []lx.PriceLe
 		Timestamp: time.Now().Unix(),
 		Sequence:  atomic.AddUint64(&s.messagesOut, 1),
 	}
-	
+
 	s.broadcast <- Message{
 		Type:      "orderbook",
 		Channel:   fmt.Sprintf("orderbook:%s", symbol),
@@ -567,7 +567,7 @@ func (s *Server) BroadcastTrade(trade *lx.Trade) {
 		SellOrderID: trade.SellOrderID,
 		Timestamp:   trade.Timestamp,
 	}
-	
+
 	s.broadcast <- Message{
 		Type:      "trade",
 		Channel:   fmt.Sprintf("trades:%s", "BTC-USD"),
@@ -581,7 +581,7 @@ func (s *Server) GetStats() map[string]interface{} {
 	s.subMu.RLock()
 	numChannels := len(s.subscriptions)
 	s.subMu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"clients":       atomic.LoadInt32(&s.clientCount),
 		"messages_sent": atomic.LoadUint64(&s.messagesOut),

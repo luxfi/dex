@@ -411,7 +411,7 @@ func BenchmarkOrderMatching(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Add matching orders
 		book.AddOrder(&Order{
-			ID:        uint64(i*2),
+			ID:        uint64(i * 2),
 			Type:      Limit,
 			Side:      Buy,
 			Price:     100,
@@ -477,20 +477,20 @@ func TestNewAdvancedOrderBook(t *testing.T) {
 
 func TestAdvancedOrderBookAddOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add limit order
 	order := &AdvancedOrder{
-		ID:     1,
-		UserID: "user1",
-		Symbol: "TEST/USD",
-		Side:   Buy,
-		Type:   Limit,
-		Price:  100.00,
-		Size:   10,  // Size should be integer
-		Status: StatusNew,
+		ID:         1,
+		UserID:     "user1",
+		Symbol:     "TEST/USD",
+		Side:       Buy,
+		Type:       Limit,
+		Price:      100.00,
+		Size:       10, // Size should be integer
+		Status:     StatusNew,
 		CreateTime: time.Now(),
 	}
-	
+
 	trades, err := book.AddOrder(order)
 	assert.NoError(t, err)
 	assert.NotNil(t, trades)
@@ -499,33 +499,33 @@ func TestAdvancedOrderBookAddOrder(t *testing.T) {
 
 func TestAdvancedMarketOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add liquidity
 	limitOrder := &AdvancedOrder{
-		ID:     1,
-		UserID: "maker",
-		Side:   Buy,
-		Type:   Limit,
-		Price:  100.00,
-		Size:   10,
+		ID:            1,
+		UserID:        "maker",
+		Side:          Buy,
+		Type:          Limit,
+		Price:         100.00,
+		Size:          10,
 		RemainingSize: 10,
-		Status: StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
 	book.AddOrder(limitOrder)
-	
+
 	// Market sell order
 	marketOrder := &AdvancedOrder{
-		ID:     2,
-		UserID: "taker",
-		Side:   Sell,
-		Type:   Market,
-		Size:   5,
+		ID:            2,
+		UserID:        "taker",
+		Side:          Sell,
+		Type:          Market,
+		Size:          5,
 		RemainingSize: 5,
-		Status: StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
-	
+
 	trades, err := book.AddOrder(marketOrder)
 	assert.NoError(t, err)
 	assert.True(t, len(trades) > 0)
@@ -534,20 +534,20 @@ func TestAdvancedMarketOrder(t *testing.T) {
 
 func TestAdvancedStopOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add stop order
 	stopOrder := &AdvancedOrder{
-		ID:        1,
-		UserID:    "user1",
-		Side:      Buy,
-		Type:      Stop,
-		StopPrice: 105,
-		Size:      10.000,
+		ID:            1,
+		UserID:        "user1",
+		Side:          Buy,
+		Type:          Stop,
+		StopPrice:     105,
+		Size:          10.000,
 		RemainingSize: 10.000,
-		Status:    StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
-	
+
 	_, err := book.AddOrder(stopOrder)
 	assert.NoError(t, err)
 	// Stop order should be added (check if it exists in either orders or stopOrders)
@@ -556,21 +556,21 @@ func TestAdvancedStopOrder(t *testing.T) {
 
 func TestAdvancedIcebergOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add iceberg order
 	icebergOrder := &AdvancedOrder{
-		ID:          1,
-		UserID:      "user1",
-		Side:        Buy,
-		Type:        Iceberg,
-		Price:       100.00,
-		Size:        100,
-		DisplaySize: 10,
+		ID:            1,
+		UserID:        "user1",
+		Side:          Buy,
+		Type:          Iceberg,
+		Price:         100.00,
+		Size:          100,
+		DisplaySize:   10,
 		RemainingSize: 100,
-		Status:      StatusNew,
-		CreateTime:  time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
-	
+
 	trades, err := book.AddOrder(icebergOrder)
 	assert.NoError(t, err)
 	assert.NotNil(t, trades)
@@ -579,21 +579,21 @@ func TestAdvancedIcebergOrder(t *testing.T) {
 
 func TestAdvancedCancelOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add order
 	order := &AdvancedOrder{
-		ID:     1,
-		UserID: "user1",
-		Side:   Buy,
-		Type:   Limit,
-		Price:  100.00,
-		Size:   10,
+		ID:            1,
+		UserID:        "user1",
+		Side:          Buy,
+		Type:          Limit,
+		Price:         100.00,
+		Size:          10,
 		RemainingSize: 10,
-		Status: StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
 	book.AddOrder(order)
-	
+
 	// Cancel order
 	err := book.CancelOrder(1)
 	assert.NoError(t, err)
@@ -602,25 +602,25 @@ func TestAdvancedCancelOrder(t *testing.T) {
 
 func TestAdvancedModifyOrder(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
-	
+
 	// Add order
 	order := &AdvancedOrder{
-		ID:     1,
-		UserID: "user1",
-		Side:   Buy,
-		Type:   Limit,
-		Price:  100.00,
-		Size:   10,
+		ID:            1,
+		UserID:        "user1",
+		Side:          Buy,
+		Type:          Limit,
+		Price:         100.00,
+		Size:          10,
 		RemainingSize: 10,
-		Status: StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
 	book.AddOrder(order)
-	
+
 	// Modify order
 	err := book.ModifyOrder(1, 105, 15)
 	assert.NoError(t, err)
-	
+
 	modifiedOrder := book.orders[1]
 	assert.NotNil(t, modifiedOrder)
 	assert.Equal(t, float64(105), modifiedOrder.Price)

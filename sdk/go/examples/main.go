@@ -59,12 +59,12 @@ func main() {
 		fmt.Printf("Best Bid: %.2f\n", orderBook.BestBid())
 		fmt.Printf("Best Ask: %.2f\n", orderBook.BestAsk())
 		fmt.Printf("Spread: %.2f (%.3f%%)\n", orderBook.Spread(), orderBook.SpreadPercentage())
-		
+
 		fmt.Println("\nTop 5 Bids:")
 		for i := 0; i < min(5, len(orderBook.Bids)); i++ {
 			fmt.Printf("  %.2f @ %.8f\n", orderBook.Bids[i].Price, orderBook.Bids[i].Size)
 		}
-		
+
 		fmt.Println("\nTop 5 Asks:")
 		for i := 0; i < min(5, len(orderBook.Asks)); i++ {
 			fmt.Printf("  %.2f @ %.8f\n", orderBook.Asks[i].Price, orderBook.Asks[i].Size)

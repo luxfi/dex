@@ -11,7 +11,7 @@ import (
 // PriceOracle aggregates prices from multiple sources
 type PriceOracle struct {
 	// Price sources
-	PriceSources        map[string]PriceSource
+	PriceSources        map[string]OraclePriceSource
 	AggregationStrategy AggregationStrategy
 
 	// Price data
@@ -41,8 +41,8 @@ type PriceOracle struct {
 	mu         sync.RWMutex
 }
 
-// PriceSource represents a price data source
-type PriceSource interface {
+// OraclePriceSource represents a price data source
+type OraclePriceSource interface {
 	GetPrice(symbol string) (*PriceData, error)
 	GetPrices(symbols []string) (map[string]*PriceData, error)
 	Subscribe(symbol string) error
@@ -378,7 +378,7 @@ type OracleMetrics struct {
 // NewPriceOracle creates a new price oracle with Pyth and Chainlink integration
 func NewPriceOracle() *PriceOracle {
 	oracle := &PriceOracle{
-		PriceSources: make(map[string]PriceSource),
+		PriceSources: make(map[string]OraclePriceSource),
 		AggregationStrategy: &WeightedAggregation{
 			SourceWeights: map[string]float64{
 				"pyth":      1.5, // Higher weight for real-time updates
@@ -410,33 +410,21 @@ func NewPriceOracle() *PriceOracle {
 
 // initializeDefaultSources sets up Pyth and Chainlink price sources
 func (po *PriceOracle) initializeDefaultSources() {
+	// TODO: Implement Pyth and Chainlink sources
 	// Add Pyth Network source
-	pythSource := NewPythPriceSource(
-		"wss://hermes.pyth.network/ws",
-		"https://hermes.pyth.network",
-	)
-	po.AddSource("pyth", pythSource)
+	// pythSource := NewPythPriceSource(
+	// 	"wss://hermes.pyth.network/ws",
+	// 	"https://hermes.pyth.network",
+	// )
+	// po.AddSource("pyth", pythSource)
 
 	// Add Chainlink source
-	chainlinkSource := NewChainlinkPriceSource()
-	po.AddSource("chainlink", chainlinkSource)
-
-	// Start sources
-	go func() {
-		if err := pythSource.Connect(); err != nil {
-			fmt.Printf("Failed to connect to Pyth: %v\n", err)
-		}
-	}()
-
-	go func() {
-		if err := chainlinkSource.Start(); err != nil {
-			fmt.Printf("Failed to start Chainlink polling: %v\n", err)
-		}
-	}()
+	// chainlinkSource := NewChainlinkPriceSource()
+	// po.AddSource("chainlink", chainlinkSource)
 }
 
 // AddSource adds a price source to the oracle
-func (po *PriceOracle) AddSource(name string, source PriceSource) error {
+func (po *PriceOracle) AddSource(name string, source OraclePriceSource) error {
 	po.mu.Lock()
 	defer po.mu.Unlock()
 

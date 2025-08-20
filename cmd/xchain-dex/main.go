@@ -359,7 +359,7 @@ func initDatabase(dataDir string) (database.Database, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// For now, still use memDB until we import proper BadgerDB
 	// TODO: Import github.com/luxfi/database/badger
 	log.Printf("Note: Using in-memory DB. For production, use BadgerDB at: %s", dbPath)
@@ -460,7 +460,7 @@ func (dex *XChainDEX) runConsensus(ctx context.Context) {
 			// Only create block if there are pending orders or trades
 			ordersProcessed := atomic.LoadUint64(&dex.metrics.OrdersProcessed)
 			tradesExecuted := atomic.LoadUint64(&dex.metrics.TradesExecuted)
-			
+
 			// Check if we have new activity since last block
 			if ordersProcessed > 0 || tradesExecuted > 0 {
 				// Create new block with actual trades
@@ -480,9 +480,9 @@ func (dex *XChainDEX) runConsensus(ctx context.Context) {
 					// Block finalized
 					dex.finalizeBlock(block)
 					atomic.AddUint64(&dex.metrics.BlocksFinalized, 1)
-					
+
 					// Print that we produced a block with trades
-					log.Printf("📦 Block %d finalized with %d orders, %d trades", 
+					log.Printf("📦 Block %d finalized with %d orders, %d trades",
 						block.Height, ordersProcessed, tradesExecuted)
 				}
 

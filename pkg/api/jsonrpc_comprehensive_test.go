@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -182,7 +182,7 @@ func TestJSONRPCServer_Headers(t *testing.T) {
 
 	reqBody := `{"jsonrpc":"2.0","method":"orderbook.getStats","id":1}`
 	req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))
-	
+
 	// Set various request headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -227,7 +227,7 @@ func TestJSONRPCServer_LargeRequest(t *testing.T) {
 // Test concurrent requests
 func TestJSONRPCServer_ConcurrentRequests(t *testing.T) {
 	orderBook := lx.NewOrderBook("CONCURRENT")
-	
+
 	// Add some orders
 	for i := 1; i <= 100; i++ {
 		orderBook.AddOrder(&lx.Order{
@@ -263,7 +263,7 @@ func TestJSONRPCServer_ConcurrentRequests(t *testing.T) {
 			req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))
 			w := httptest.NewRecorder()
 			server.ServeHTTP(w, req)
-			
+
 			assert.Equal(t, http.StatusOK, w.Code)
 			done <- true
 		}(i)
@@ -405,7 +405,7 @@ func TestJSONRPCServer_BodyReading(t *testing.T) {
 // Benchmark different methods
 func BenchmarkJSONRPCServer_Methods(b *testing.B) {
 	orderBook := lx.NewOrderBook("BENCH")
-	
+
 	// Add many orders
 	for i := 0; i < 10000; i++ {
 		orderBook.AddOrder(&lx.Order{

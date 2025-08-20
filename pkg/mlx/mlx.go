@@ -64,7 +64,7 @@ func NewEngine(config Config) (Engine, error) {
 	// Auto-detect backend based on platform
 	var backendStr Backend
 	deviceStr := "CPU (" + runtime.GOARCH + ")"
-	
+
 	// Simple platform detection
 	switch runtime.GOOS {
 	case "darwin":
@@ -80,12 +80,12 @@ func NewEngine(config Config) (Engine, error) {
 	default:
 		backendStr = BackendCPU
 	}
-	
+
 	// Override with config if specified
 	if config.Backend != BackendAuto {
 		backendStr = config.Backend
 	}
-	
+
 	// If GPU not available or CPU requested, use simple implementation
 	if backendStr == BackendCPU {
 		return &simpleEngine{
@@ -94,7 +94,7 @@ func NewEngine(config Config) (Engine, error) {
 			maxBatch: config.MaxBatch,
 		}, nil
 	}
-	
+
 	return &LuxMLXEngine{
 		backend:  backendStr,
 		device:   deviceStr,
@@ -119,19 +119,19 @@ func (e *LuxMLXEngine) BatchMatch(bids, asks []Order) []Trade {
 	if len(bids) == 0 || len(asks) == 0 {
 		return nil
 	}
-	
+
 	// For now, use simplified matching logic
 	// In production, this would use luxfi/mlx GPU acceleration
 	trades := []Trade{}
 	bidIdx, askIdx := 0, 0
-	
+
 	for bidIdx < len(bids) && askIdx < len(asks) {
 		if bids[bidIdx].Price >= asks[askIdx].Price {
 			size := bids[bidIdx].Size
 			if asks[askIdx].Size < size {
 				size = asks[askIdx].Size
 			}
-			
+
 			trades = append(trades, Trade{
 				ID:          uint64(len(trades) + 1),
 				BuyOrderID:  bids[bidIdx].ID,
@@ -139,10 +139,10 @@ func (e *LuxMLXEngine) BatchMatch(bids, asks []Order) []Trade {
 				Price:       asks[askIdx].Price,
 				Size:        size,
 			})
-			
+
 			bids[bidIdx].Size -= size
 			asks[askIdx].Size -= size
-			
+
 			if bids[bidIdx].Size == 0 {
 				bidIdx++
 			}
@@ -153,21 +153,21 @@ func (e *LuxMLXEngine) BatchMatch(bids, asks []Order) []Trade {
 			break
 		}
 	}
-	
+
 	// TODO: When luxfi/mlx API is stable, use GPU acceleration here
 	// Example: luxmlx.ProcessOrders(bids, asks)
-	
+
 	return trades
 }
 
 // Benchmark runs a performance benchmark
 func (e *LuxMLXEngine) Benchmark(numOrders int) float64 {
 	start := time.Now()
-	
+
 	// Create test orders
 	bids := make([]Order, numOrders/2)
 	asks := make([]Order, numOrders/2)
-	
+
 	for i := range bids {
 		bids[i] = Order{
 			ID:    uint64(i),
@@ -176,7 +176,7 @@ func (e *LuxMLXEngine) Benchmark(numOrders int) float64 {
 			Size:  1.0,
 		}
 	}
-	
+
 	for i := range asks {
 		asks[i] = Order{
 			ID:    uint64(i + numOrders/2),
@@ -185,10 +185,10 @@ func (e *LuxMLXEngine) Benchmark(numOrders int) float64 {
 			Size:  1.0,
 		}
 	}
-	
+
 	// Perform matching
 	_ = e.BatchMatch(bids, asks)
-	
+
 	elapsed := time.Since(start)
 	return float64(numOrders) / elapsed.Seconds()
 }
@@ -220,22 +220,22 @@ func (e *simpleEngine) IsGPUAvailable() bool {
 func (e *simpleEngine) BatchMatch(bids, asks []Order) []Trade {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	trades := make([]Trade, 0)
 	tradeID := uint64(1)
-	
+
 	bidIdx, askIdx := 0, 0
-	
+
 	for bidIdx < len(bids) && askIdx < len(asks) {
 		bid := &bids[bidIdx]
 		ask := &asks[askIdx]
-		
+
 		if bid.Price >= ask.Price {
 			size := bid.Size
 			if ask.Size < size {
 				size = ask.Size
 			}
-			
+
 			trades = append(trades, Trade{
 				ID:          tradeID,
 				BuyOrderID:  bid.ID,
@@ -244,10 +244,10 @@ func (e *simpleEngine) BatchMatch(bids, asks []Order) []Trade {
 				Size:        size,
 			})
 			tradeID++
-			
+
 			bid.Size -= size
 			ask.Size -= size
-			
+
 			if bid.Size == 0 {
 				bidIdx++
 			}
@@ -258,16 +258,16 @@ func (e *simpleEngine) BatchMatch(bids, asks []Order) []Trade {
 			break
 		}
 	}
-	
+
 	return trades
 }
 
 func (e *simpleEngine) Benchmark(numOrders int) float64 {
 	start := time.Now()
-	
+
 	bids := make([]Order, numOrders/2)
 	asks := make([]Order, numOrders/2)
-	
+
 	for i := range bids {
 		bids[i] = Order{
 			ID:    uint64(i),
@@ -276,7 +276,7 @@ func (e *simpleEngine) Benchmark(numOrders int) float64 {
 			Size:  1.0,
 		}
 	}
-	
+
 	for i := range asks {
 		asks[i] = Order{
 			ID:    uint64(i + numOrders/2),
@@ -285,9 +285,9 @@ func (e *simpleEngine) Benchmark(numOrders int) float64 {
 			Size:  1.0,
 		}
 	}
-	
+
 	_ = e.BatchMatch(bids, asks)
-	
+
 	elapsed := time.Since(start)
 	return float64(numOrders) / elapsed.Seconds()
 }

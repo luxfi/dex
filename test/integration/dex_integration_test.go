@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package integration
@@ -12,10 +13,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/luxfi/dex/pkg/lx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/luxfi/dex/pkg/lx"
-	"github.com/luxfi/dex/sdk/go/client"
 )
 
 const (
@@ -24,25 +24,28 @@ const (
 	testGRPCURL    = "localhost:50051"
 )
 
+// Simple test client for integration testing
+type TestClient struct {
+	baseURL string
+}
+
+func NewTestClient(url string) *TestClient {
+	return &TestClient{baseURL: url}
+}
+
 // TestFullOrderLifecycle tests complete order flow
 func TestFullOrderLifecycle(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Create client
-	c, err := client.NewClient(
-		client.WithJSONRPCURL(testJSONRPCURL),
-		client.WithWebSocketURL(testWSURL),
-		client.WithGRPCURL(testGRPCURL),
-	)
-	require.NoError(t, err)
-	defer c.Disconnect()
-	
+	c := NewTestClient(testJSONRPCURL)
+
 	// Connect to gRPC for best performance
 	err = c.ConnectGRPC(ctx)
 	if err != nil {
 		t.Logf("gRPC not available, using JSON-RPC: %v", err)
 	}
-	
+
 	// Test 1: Place a buy limit order
 	buyOrder := &client.Order{
 		Symbol:      "BTC-USD",
@@ -54,12 +57,12 @@ func TestFullOrderLifecycle(t *testing.T) {
 		ClientID:    "test-order-001",
 		TimeInForce: client.TimeInForceGTC,
 	}
-	
+
 	buyResp, err := c.PlaceOrder(ctx, buyOrder)
 	require.NoError(t, err)
 	assert.NotZero(t, buyResp.OrderID)
 	assert.Equal(t, "open", buyResp.Status)
-	
+
 	// Test 2: Place a matching sell order
 	sellOrder := &client.Order{
 		Symbol:      "BTC-USD",
@@ -71,19 +74,19 @@ func TestFullOrderLifecycle(t *testing.T) {
 		ClientID:    "test-order-002",
 		TimeInForce: client.TimeInForceGTC,
 	}
-	
+
 	sellResp, err := c.PlaceOrder(ctx, sellOrder)
 	require.NoError(t, err)
 	assert.NotZero(t, sellResp.OrderID)
-	
+
 	// Orders should match immediately
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Test 3: Verify trades were created
 	trades, err := c.GetTrades(ctx, "BTC-USD", 10)
 	require.NoError(t, err)
 	assert.NotEmpty(t, trades)
-	
+
 	// Find our trade
 	var ourTrade *client.Trade
 	for _, trade := range trades {
@@ -92,7 +95,7 @@ func TestFullOrderLifecycle(t *testing.T) {
 			break
 		}
 	}
-	
+
 	require.NotNil(t, ourTrade, "Trade not found")
 	assert.Equal(t, 50000.0, ourTrade.Price)
 	assert.Equal(t, 0.1, ourTrade.Size)
@@ -101,11 +104,11 @@ func TestFullOrderLifecycle(t *testing.T) {
 // TestOrderTypes tests different order types
 func TestOrderTypes(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(client.WithJSONRPCURL(testJSONRPCURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	testCases := []struct {
 		name      string
 		orderType client.OrderType
@@ -118,7 +121,7 @@ func TestOrderTypes(t *testing.T) {
 		{"Market Buy", client.OrderTypeMarket, client.OrderSideBuy, 0, 0.02},
 		{"Market Sell", client.OrderTypeMarket, client.OrderSideSell, 0, 0.02},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			order := &client.Order{
@@ -129,7 +132,7 @@ func TestOrderTypes(t *testing.T) {
 				Size:   tc.size,
 				UserID: fmt.Sprintf("test-user-%s", tc.name),
 			}
-			
+
 			resp, err := c.PlaceOrder(ctx, order)
 			require.NoError(t, err)
 			assert.NotZero(t, resp.OrderID)
@@ -141,15 +144,15 @@ func TestOrderTypes(t *testing.T) {
 func TestWebSocketStreaming(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	c, err := client.NewClient(client.WithWebSocketURL(testWSURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	// Connect WebSocket
 	err = c.ConnectWebSocket(ctx)
 	require.NoError(t, err)
-	
+
 	// Subscribe to order book updates
 	orderBookChan := make(chan *client.OrderBook, 10)
 	err = c.SubscribeOrderBook("BTC-USD", func(ob *client.OrderBook) {
@@ -159,7 +162,7 @@ func TestWebSocketStreaming(t *testing.T) {
 		}
 	})
 	require.NoError(t, err)
-	
+
 	// Subscribe to trades
 	tradeChan := make(chan *client.Trade, 10)
 	err = c.SubscribeTrades("BTC-USD", func(trade *client.Trade) {
@@ -169,7 +172,7 @@ func TestWebSocketStreaming(t *testing.T) {
 		}
 	})
 	require.NoError(t, err)
-	
+
 	// Place orders to generate events
 	go func() {
 		for i := 0; i < 5; i++ {
@@ -185,26 +188,26 @@ func TestWebSocketStreaming(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
-	
+
 	// Wait for events
 	orderBookReceived := false
 	tradeReceived := false
-	
+
 	for {
 		select {
 		case ob := <-orderBookChan:
 			assert.NotNil(t, ob)
 			orderBookReceived = true
-			
+
 		case trade := <-tradeChan:
 			assert.NotNil(t, trade)
 			tradeReceived = true
-			
+
 		case <-ctx.Done():
 			assert.True(t, orderBookReceived, "No order book updates received")
 			return
 		}
-		
+
 		if orderBookReceived && tradeReceived {
 			return // Success
 		}
@@ -214,23 +217,23 @@ func TestWebSocketStreaming(t *testing.T) {
 // TestConcurrentOrders tests high-concurrency order placement
 func TestConcurrentOrders(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(client.WithJSONRPCURL(testJSONRPCURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	numWorkers := 10
 	ordersPerWorker := 100
 	var wg sync.WaitGroup
 	errors := make(chan error, numWorkers*ordersPerWorker)
 	orderIDs := make(chan uint64, numWorkers*ordersPerWorker)
-	
+
 	// Launch workers
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			for i := 0; i < ordersPerWorker; i++ {
 				order := &client.Order{
 					Symbol: "BTC-USD",
@@ -240,7 +243,7 @@ func TestConcurrentOrders(t *testing.T) {
 					Size:   0.001,
 					UserID: fmt.Sprintf("worker-%d", workerID),
 				}
-				
+
 				resp, err := c.PlaceOrder(ctx, order)
 				if err != nil {
 					errors <- err
@@ -250,26 +253,26 @@ func TestConcurrentOrders(t *testing.T) {
 			}
 		}(w)
 	}
-	
+
 	// Wait for completion
 	wg.Wait()
 	close(errors)
 	close(orderIDs)
-	
+
 	// Check results
 	errorCount := 0
 	for err := range errors {
 		t.Logf("Order error: %v", err)
 		errorCount++
 	}
-	
+
 	orderCount := 0
 	uniqueOrders := make(map[uint64]bool)
 	for id := range orderIDs {
 		orderCount++
 		uniqueOrders[id] = true
 	}
-	
+
 	assert.Equal(t, 0, errorCount, "Should have no errors")
 	assert.Equal(t, numWorkers*ordersPerWorker, orderCount, "All orders should succeed")
 	assert.Equal(t, orderCount, len(uniqueOrders), "All order IDs should be unique")
@@ -278,11 +281,11 @@ func TestConcurrentOrders(t *testing.T) {
 // TestOrderBookDepth tests order book depth and aggregation
 func TestOrderBookDepth(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(client.WithJSONRPCURL(testJSONRPCURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	// Place multiple orders at different price levels
 	for i := 0; i < 20; i++ {
 		buyOrder := &client.Order{
@@ -293,7 +296,7 @@ func TestOrderBookDepth(t *testing.T) {
 			Size:   0.1 + float64(i)*0.01,
 			UserID: fmt.Sprintf("depth-test-buy-%d", i),
 		}
-		
+
 		sellOrder := &client.Order{
 			Symbol: "BTC-USD",
 			Type:   client.OrderTypeLimit,
@@ -302,32 +305,32 @@ func TestOrderBookDepth(t *testing.T) {
 			Size:   0.1 + float64(i)*0.01,
 			UserID: fmt.Sprintf("depth-test-sell-%d", i),
 		}
-		
+
 		_, err = c.PlaceOrder(ctx, buyOrder)
 		require.NoError(t, err)
-		
+
 		_, err = c.PlaceOrder(ctx, sellOrder)
 		require.NoError(t, err)
 	}
-	
+
 	// Get order book with depth
 	orderBook, err := c.GetOrderBook(ctx, "BTC-USD", 10)
 	require.NoError(t, err)
-	
+
 	assert.LessOrEqual(t, len(orderBook.Bids), 10)
 	assert.LessOrEqual(t, len(orderBook.Asks), 10)
-	
+
 	// Verify price ordering
 	for i := 1; i < len(orderBook.Bids); i++ {
 		assert.GreaterOrEqual(t, orderBook.Bids[i-1].Price, orderBook.Bids[i].Price,
 			"Bids should be in descending price order")
 	}
-	
+
 	for i := 1; i < len(orderBook.Asks); i++ {
 		assert.LessOrEqual(t, orderBook.Asks[i-1].Price, orderBook.Asks[i].Price,
 			"Asks should be in ascending price order")
 	}
-	
+
 	// Verify spread
 	if len(orderBook.Bids) > 0 && len(orderBook.Asks) > 0 {
 		spread := orderBook.Spread()
@@ -338,11 +341,11 @@ func TestOrderBookDepth(t *testing.T) {
 // TestOrderCancellation tests order cancellation
 func TestOrderCancellation(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(client.WithJSONRPCURL(testJSONRPCURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	// Place an order
 	order := &client.Order{
 		Symbol:   "BTC-USD",
@@ -353,15 +356,15 @@ func TestOrderCancellation(t *testing.T) {
 		UserID:   "cancel-test-user",
 		ClientID: "cancel-test-001",
 	}
-	
+
 	resp, err := c.PlaceOrder(ctx, order)
 	require.NoError(t, err)
 	assert.NotZero(t, resp.OrderID)
-	
+
 	// Cancel the order
 	err = c.CancelOrder(ctx, resp.OrderID)
 	require.NoError(t, err)
-	
+
 	// Try to cancel again (should fail or be idempotent)
 	err = c.CancelOrder(ctx, resp.OrderID)
 	// This may or may not error depending on implementation
@@ -376,13 +379,13 @@ func TestNodeHealth(t *testing.T) {
 	resp, err := http.Get(testJSONRPCURL + "/health")
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	
+
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	
+
 	var health map[string]interface{}
 	err = json.NewDecoder(resp.Body).Decode(&health)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "healthy", health["status"])
 	assert.NotZero(t, health["block"])
 	assert.NotZero(t, health["orders"])
@@ -391,21 +394,21 @@ func TestNodeHealth(t *testing.T) {
 // TestPerformanceMetrics tests that performance meets requirements
 func TestPerformanceMetrics(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(
 		client.WithJSONRPCURL(testJSONRPCURL),
 		client.WithGRPCURL(testGRPCURL),
 	)
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	// Try to connect to gRPC for best performance
 	c.ConnectGRPC(ctx)
-	
+
 	// Measure order placement latency
 	numOrders := 1000
 	latencies := make([]time.Duration, numOrders)
-	
+
 	for i := 0; i < numOrders; i++ {
 		order := &client.Order{
 			Symbol: "BTC-USD",
@@ -415,14 +418,14 @@ func TestPerformanceMetrics(t *testing.T) {
 			Size:   0.001,
 			UserID: "perf-test",
 		}
-		
+
 		start := time.Now()
 		_, err := c.PlaceOrder(ctx, order)
 		latencies[i] = time.Since(start)
-		
+
 		require.NoError(t, err)
 	}
-	
+
 	// Calculate statistics
 	var totalLatency time.Duration
 	var maxLatency time.Duration
@@ -432,14 +435,14 @@ func TestPerformanceMetrics(t *testing.T) {
 			maxLatency = lat
 		}
 	}
-	
+
 	avgLatency := totalLatency / time.Duration(numOrders)
-	
+
 	t.Logf("Performance Metrics:")
 	t.Logf("  Average latency: %v", avgLatency)
 	t.Logf("  Max latency: %v", maxLatency)
 	t.Logf("  Throughput: %.0f orders/sec", float64(numOrders)/totalLatency.Seconds())
-	
+
 	// Assert performance requirements
 	assert.Less(t, avgLatency, 10*time.Millisecond, "Average latency should be < 10ms")
 	assert.Less(t, maxLatency, 100*time.Millisecond, "Max latency should be < 100ms")
@@ -448,11 +451,11 @@ func TestPerformanceMetrics(t *testing.T) {
 // TestErrorHandling tests error scenarios
 func TestErrorHandling(t *testing.T) {
 	ctx := context.Background()
-	
+
 	c, err := client.NewClient(client.WithJSONRPCURL(testJSONRPCURL))
 	require.NoError(t, err)
 	defer c.Disconnect()
-	
+
 	// Test invalid order (negative price)
 	invalidOrder := &client.Order{
 		Symbol: "BTC-USD",
@@ -462,10 +465,10 @@ func TestErrorHandling(t *testing.T) {
 		Size:   0.1,
 		UserID: "error-test",
 	}
-	
+
 	_, err = c.PlaceOrder(ctx, invalidOrder)
 	assert.Error(t, err, "Should reject negative price")
-	
+
 	// Test invalid symbol
 	invalidSymbol := &client.Order{
 		Symbol: "INVALID-PAIR",
@@ -475,13 +478,13 @@ func TestErrorHandling(t *testing.T) {
 		Size:   0.1,
 		UserID: "error-test",
 	}
-	
+
 	_, err = c.PlaceOrder(ctx, invalidSymbol)
 	// May or may not error depending on implementation
 	if err != nil {
 		t.Logf("Invalid symbol error (expected): %v", err)
 	}
-	
+
 	// Test cancelling non-existent order
 	err = c.CancelOrder(ctx, 999999999)
 	assert.Error(t, err, "Should error when cancelling non-existent order")

@@ -308,7 +308,7 @@ func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 
 	bidLevels := book.aggregateLevels(book.Bids, 0, false)
 	askLevels := book.aggregateLevels(book.Asks, 0, true)
-	
+
 	bids := make([]OrderLevel, len(bidLevels))
 	for i, level := range bidLevels {
 		bids[i] = OrderLevel{
@@ -316,7 +316,7 @@ func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 			Size:  level.Size,
 		}
 	}
-	
+
 	asks := make([]OrderLevel, len(askLevels))
 	for i, level := range askLevels {
 		asks[i] = OrderLevel{
@@ -324,7 +324,7 @@ func (book *ExtendedOrderBook) GetSnapshot() OrderBookSnapshot {
 			Size:  level.Size,
 		}
 	}
-	
+
 	snapshot := OrderBookSnapshot{
 		Symbol:    book.Symbol,
 		Bids:      bids,

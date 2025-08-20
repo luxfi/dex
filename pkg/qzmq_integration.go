@@ -20,14 +20,14 @@ type QZMQConfig struct {
 	NodeAPI     string
 	ChainID     string
 	ValidatorID string
-	
+
 	// Ports
 	ConsensusPort  int
 	OrderBookPort  int
 	MatchingPort   int
 	SettlementPort int
 	MarketDataPort int
-	
+
 	// Security
 	EnableQuantum bool
 	KeyRotation   time.Duration
@@ -37,12 +37,12 @@ type QZMQConfig struct {
 func NewQZMQDEXServer(config *QZMQConfig) (*QZMQDEXServer, error) {
 	// Load validator keys
 	validatorKeys := &qzmq.ValidatorKeys{
-		NodeID:  loadValidatorKey("node"),
-		BLSKey:  loadValidatorKey("bls"),
-		PQKey:   loadValidatorKey("pq"),
-		DSAKey:  loadValidatorKey("dsa"),
+		NodeID: loadValidatorKey("node"),
+		BLSKey: loadValidatorKey("bls"),
+		PQKey:  loadValidatorKey("pq"),
+		DSAKey: loadValidatorKey("dsa"),
 	}
-	
+
 	// Create X-Chain DEX transport
 	transport, err := qzmq.NewXChainDEXTransport(
 		config.NodeAPI,
@@ -53,7 +53,7 @@ func NewQZMQDEXServer(config *QZMQConfig) (*QZMQDEXServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create QZMQ transport: %w", err)
 	}
-	
+
 	return &QZMQDEXServer{
 		transport: transport,
 		config:    config,
@@ -70,7 +70,7 @@ func (s *QZMQDEXServer) Start() error {
 	); err != nil {
 		return fmt.Errorf("failed to start consensus: %w", err)
 	}
-	
+
 	// Start DEX services
 	if err := s.transport.StartDEX(
 		s.config.OrderBookPort,
@@ -80,11 +80,11 @@ func (s *QZMQDEXServer) Start() error {
 	); err != nil {
 		return fmt.Errorf("failed to start DEX: %w", err)
 	}
-	
+
 	log.Printf("QZMQ DEX Server started with quantum security")
 	log.Printf("Consensus on ports %d-%d", s.config.ConsensusPort, s.config.ConsensusPort+2)
 	log.Printf("DEX services on ports %d-%d", s.config.OrderBookPort, s.config.MarketDataPort)
-	
+
 	return nil
 }
 

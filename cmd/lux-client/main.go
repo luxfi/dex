@@ -30,11 +30,11 @@ type OrderResponse struct {
 }
 
 type MarketDataResponse struct {
-	Symbol string     `json:"symbol"`
+	Symbol string      `json:"symbol"`
 	Bids   [][]float64 `json:"bids"`
 	Asks   [][]float64 `json:"asks"`
-	Last   float64    `json:"last"`
-	Volume float64    `json:"volume"`
+	Last   float64     `json:"last"`
+	Volume float64     `json:"volume"`
 }
 
 type LuxClient struct {
@@ -140,7 +140,7 @@ func main() {
 	case "test":
 		// Place a few test orders
 		logger.Info("Placing test orders...")
-		
+
 		// Buy order
 		buyOrder := Order{
 			Symbol: *symbol,

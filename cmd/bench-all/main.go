@@ -44,7 +44,7 @@ func main() {
 	fmt.Println("📊 Testing Pure Go Implementation...")
 	result := benchmarkPureGo(*numOrders, *parallel)
 	results = append(results, result)
-	fmt.Printf("   ✅ %s: %.0f orders/sec, %.0fns latency\n\n", 
+	fmt.Printf("   ✅ %s: %.0f orders/sec, %.0fns latency\n\n",
 		result.Name, result.Throughput, float64(result.Latency.Nanoseconds()))
 
 	// 2. CGO/C++ implementation (if available)
@@ -82,19 +82,19 @@ func main() {
 func benchmarkPureGo(numOrders, workers int) BenchResult {
 	ob := lx.NewOrderBook("BTC-USD")
 	ob.EnableImmediateMatching = false // Batch mode
-	
+
 	ordersPerWorker := numOrders / workers
 	var wg sync.WaitGroup
 	var totalTrades atomic.Uint64
-	
+
 	start := time.Now()
-	
+
 	// Generate and add orders in parallel
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			for i := 0; i < ordersPerWorker; i++ {
 				order := &lx.Order{
 					Type:  lx.Limit,
@@ -107,17 +107,17 @@ func benchmarkPureGo(numOrders, workers int) BenchResult {
 			}
 		}(w)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Match orders
 	matchStart := time.Now()
 	trades := ob.MatchOrders()
 	matchDuration := time.Since(matchStart)
-	
+
 	totalTrades.Store(uint64(len(trades)))
 	duration := time.Since(start)
-	
+
 	return BenchResult{
 		Name:       "Pure Go",
 		Orders:     numOrders,
@@ -142,16 +142,16 @@ func benchmarkMLX(numOrders, workers int) BenchResult {
 	if err != nil || !engine.IsGPUAvailable() {
 		return BenchResult{Name: "MLX (N/A)"}
 	}
-	
+
 	// Benchmark GPU matching using the engine's benchmark method
 	throughput := engine.Benchmark(numOrders)
-	
+
 	// Calculate values from throughput
 	duration := time.Duration(float64(time.Second) * float64(numOrders) / throughput)
 	latency := time.Duration(float64(time.Second) / throughput)
-	
+
 	engine.Close()
-	
+
 	return BenchResult{
 		Name:       "MLX GPU",
 		Orders:     numOrders,
@@ -175,33 +175,32 @@ func benchmarkKernelBypass(numOrders int) BenchResult {
 	}
 }
 
-
 func printSummary(results []BenchResult, numOrders int) {
 	fmt.Println("═══════════════════════════════════════════════════════")
 	fmt.Println("📈 PERFORMANCE SUMMARY")
 	fmt.Println("═══════════════════════════════════════════════════════")
-	
+
 	var best BenchResult
 	for _, r := range results {
 		if r.Throughput > best.Throughput {
 			best = r
 		}
-		
+
 		fmt.Printf("%-20s: %12.0f orders/sec | %8.0fns latency | %d trades\n",
 			r.Name, r.Throughput, float64(r.Latency.Nanoseconds()), r.Trades)
 	}
-	
+
 	fmt.Println("═══════════════════════════════════════════════════════")
-	
+
 	if best.Name != "" {
 		fmt.Printf("\n🏆 WINNER: %s with %.0f orders/sec\n", best.Name, best.Throughput)
-		
+
 		// Calculate how close we are to 100M trades/sec
 		targetThroughput := 100_000_000.0
 		percentage := (best.Throughput / targetThroughput) * 100
-		
+
 		fmt.Printf("📊 Progress to 100M trades/sec: %.2f%%\n", percentage)
-		
+
 		if best.Throughput >= targetThroughput {
 			fmt.Println("🎉 TARGET ACHIEVED! 100M+ trades/sec!")
 		} else {

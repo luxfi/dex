@@ -145,7 +145,7 @@ func (e *KernelBypassEngine) initRawSocket() error {
 	// Set socket options for low latency
 	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, e.bufferSize)
 	syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, 1)
-	
+
 	// Platform-specific optimizations handled separately
 
 	// Create ring buffer
@@ -177,9 +177,9 @@ func (e *KernelBypassEngine) initOptimizedSocket() error {
 		// Set socket options
 		syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, e.bufferSize)
 		syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_SNDBUF, e.bufferSize)
-		
+
 		// Platform-specific optimizations handled by helper functions
-		
+
 		e.socket = int(fd)
 	})
 
@@ -200,7 +200,7 @@ func (e *KernelBypassEngine) initOptimizedSocket() error {
 // ProcessPackets processes incoming packets with kernel bypass
 func (e *KernelBypassEngine) ProcessPackets() error {
 	buffer := make([]byte, 65536) // Max packet size
-	
+
 	for {
 		// Receive packet with zero-copy if possible
 		n, _, err := syscall.Recvfrom(e.socket, buffer, 0)
@@ -217,19 +217,19 @@ func (e *KernelBypassEngine) ProcessPackets() error {
 		order := e.parseOrder(buffer[:n])
 		if order != nil {
 			start := time.Now()
-			
+
 			// Process order
 			trade, err := e.orderProcessor.ProcessOrder(order)
 			if err == nil && trade != nil {
 				e.stats.TradesExecuted.Add(1)
 			}
-			
+
 			// Update latency (moving average)
 			latency := uint64(time.Since(start).Nanoseconds())
 			e.stats.LatencyNs.Store(latency)
 			e.stats.OrdersProcessed.Add(1)
 		}
-		
+
 		e.stats.PacketsProcessed.Add(1)
 	}
 }
@@ -238,7 +238,7 @@ func (e *KernelBypassEngine) ProcessPackets() error {
 func (e *KernelBypassEngine) parseOrder(data []byte) *lx.Order {
 	// Simplified binary protocol parsing
 	// In production, this would parse FIX or custom binary protocol
-	
+
 	if len(data) < 32 {
 		return nil
 	}
@@ -302,7 +302,7 @@ func LinuxOptimizations(fd int) {
 	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 }
 
-// DarwinOptimizations applies macOS-specific optimizations  
+// DarwinOptimizations applies macOS-specific optimizations
 func DarwinOptimizations(fd int) {
 	if runtime.GOOS != "darwin" {
 		return
@@ -310,6 +310,6 @@ func DarwinOptimizations(fd int) {
 
 	// Set SO_NOSIGPIPE to prevent SIGPIPE
 	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_NOSIGPIPE, 1)
-	
+
 	// Other macOS-specific optimizations would go here
 }
