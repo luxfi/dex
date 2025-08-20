@@ -47,6 +47,9 @@ func TestE2ETrading(t *testing.T) {
 				id := ob.AddOrder(order)
 				if id > 0 {
 					atomic.AddInt64(&successCount, 1)
+				} else if j == 0 && traderID == 0 {
+					// Debug first failure
+					t.Logf("First order failed: %+v", order)
 				}
 			}
 		}(i)

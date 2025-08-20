@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/manager"
 	"github.com/luxfi/log"
+	"github.com/luxfi/dex/pkg/api"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/mlx"
 )
@@ -177,6 +179,10 @@ func (n *LXDNode) Start() error {
 	// Start test order generator
 	n.wg.Add(1)
 	go n.generateTestOrders()
+
+	// Start JSON-RPC server
+	n.wg.Add(1)
+	go n.runJSONRPCServer()
 
 	n.logger.Info("LXD node started successfully")
 	return nil
@@ -381,6 +387,41 @@ func (n *LXDNode) runMetricsServer() {
 	// In production, would use luxfi/metric package
 	n.logger.Info("Metrics server started", "port", n.config.MetricsPort)
 	<-n.ctx.Done()
+}
+
+func (n *LXDNode) runJSONRPCServer() {
+	defer n.wg.Done()
+
+	// Create JSON-RPC server
+	server := api.NewJSONRPCServer(n.orderBook, n.logger)
+	
+	mux := http.NewServeMux()
+	mux.Handle("/rpc", server)
+	
+	// Add health check endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "healthy",
+			"block":  atomic.LoadUint64(&n.blocksFinalized),
+			"orders": atomic.LoadUint64(&n.ordersProcessed),
+		})
+	})
+	
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", n.config.HTTPPort),
+		Handler: mux,
+	}
+	
+	go func() {
+		<-n.ctx.Done()
+		httpServer.Shutdown(context.Background())
+	}()
+	
+	n.logger.Info("JSON-RPC server started", "port", n.config.HTTPPort, "endpoint", "/rpc")
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		n.logger.Error("JSON-RPC server error", "error", err)
+	}
 }
 
 func (n *LXDNode) printStats() {

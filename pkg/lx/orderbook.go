@@ -331,7 +331,8 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		}
 
 		if order.TimeInForce == ImmediateOrCancel && order.RemainingSize > 0 {
-			return numTrades
+			// IOC order partially filled, return order ID
+			return order.ID
 		}
 	}
 
@@ -380,8 +381,9 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 		})
 	}
 
-	// Always return number of trades
-	return numTrades
+	// Return the order ID for successful orders
+	// For tests that need trade count, use MatchOrders() or GetTradeCount()
+	return order.ID
 }
 
 // addOrder for compatibility - wraps addToTreeOptimized
@@ -708,7 +710,13 @@ func (ob *OrderBook) processMarketOrderOptimized(order *Order) uint64 {
 	defer ob.mu.Unlock()
 
 	order.RemainingSize = order.Size
-	return ob.tryMatchImmediateLocked(order)
+	ob.tryMatchImmediateLocked(order)
+	
+	// Return order ID for consistency
+	if order.Status == Rejected {
+		return 0
+	}
+	return order.ID
 }
 
 // processMarketOrderLocked for compatibility
@@ -958,6 +966,37 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice, newSize float64) erro
 	}
 
 	return nil
+}
+
+// GetOrder returns an order by ID
+func (ob *OrderBook) GetOrder(orderID uint64) *Order {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	if order, exists := ob.Orders[orderID]; exists {
+		return order
+	}
+	
+	// Check ordersMap as well
+	if val, exists := ob.ordersMap.Load(orderID); exists {
+		if order, ok := val.(*Order); ok {
+			return order
+		}
+	}
+	
+	return nil
+}
+
+// GetTrades returns all trades that have been executed
+func (ob *OrderBook) GetTrades() []Trade {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	trades := make([]Trade, 0, len(ob.Trades))
+	for _, trade := range ob.Trades {
+		trades = append(trades, trade)
+	}
+	return trades
 }
 
 // GetSnapshot returns orderbook snapshot

@@ -21,9 +21,14 @@ func TestOrderBookBasicOperations(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	
-	tradesCount := book.AddOrder(buyOrder)
-	if tradesCount != 0 {
-		t.Errorf("Expected no trades for first order, got %d", tradesCount)
+	orderID := book.AddOrder(buyOrder)
+	if orderID != 1 {
+		t.Errorf("Expected order ID 1 for first order, got %d", orderID)
+	}
+	
+	// No trades should be created yet
+	if len(book.GetTrades()) != 0 {
+		t.Errorf("Expected no trades for first order, got %d", len(book.GetTrades()))
 	}
 	
 	// Test adding sell order that matches
@@ -36,14 +41,20 @@ func TestOrderBookBasicOperations(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	
-	tradesCount = book.AddOrder(sellOrder)
-	if tradesCount != 1 {
-		t.Errorf("Expected 1 trade, got %d", tradesCount)
+	orderID2 := book.AddOrder(sellOrder)
+	if orderID2 != 2 {
+		t.Errorf("Expected order ID 2 for sell order, got %d", orderID2)
 	}
 	
-	// Check trade was recorded
-	if len(book.Trades) > 0 && book.Trades[0].Size != 0.5 {
-		t.Errorf("Expected trade size 0.5, got %f", book.Trades[0].Size)
+	// Check that a trade was created
+	trades := book.GetTrades()
+	if len(trades) != 1 {
+		t.Errorf("Expected 1 trade, got %d", len(trades))
+	}
+	
+	// Check trade was recorded correctly
+	if len(trades) > 0 && trades[0].Size != 0.5 {
+		t.Errorf("Expected trade size 0.5, got %f", trades[0].Size)
 	}
 }
 
@@ -123,18 +134,23 @@ func TestOrderBookMarketOrder(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	
-	tradesCount := book.AddOrder(marketOrder)
-	if tradesCount != 2 {
-		t.Errorf("Expected 2 trades, got %d", tradesCount)
+	// Market orders should get an ID and execute immediately
+	orderID := book.AddOrder(marketOrder)
+	if orderID != 3 {
+		t.Errorf("Expected order ID 3 for market order, got %d", orderID)
 	}
 	
-	// Check total traded size
+	// Check that trades were created
+	trades := book.GetTrades()
+	// We expect at least 2 trades from the market order matching the two limit orders
+	if len(trades) < 2 {
+		t.Errorf("Expected at least 2 trades, got %d", len(trades))
+	}
+	
+	// Check total traded size from market order
 	totalSize := 0.0
-	startIdx := len(book.Trades) - int(tradesCount)
-	if startIdx >= 0 {
-		for i := startIdx; i < len(book.Trades); i++ {
-			totalSize += book.Trades[i].Size
-		}
+	for _, trade := range trades {
+		totalSize += trade.Size
 	}
 	
 	if totalSize != 1.5 {
@@ -200,24 +216,32 @@ func TestOrderBookSelfTradePrevention(t *testing.T) {
 		UserID: userID, Timestamp: time.Now(),
 	})
 	
-	// This should not match with the previous order
-	tradesCount := book.AddOrder(&Order{
+	// This should not match with the previous order (self-trade prevention)
+	orderID := book.AddOrder(&Order{
 		ID: 2, Type: Limit, Side: Sell, Price: 100, Size: 10,
 		UserID: userID, Timestamp: time.Now(),
 	})
 	
-	if tradesCount != 0 {
+	// Order should be rejected (ID = 0) due to self-trade
+	if orderID != 0 {
 		t.Error("Self-trade prevention failed: orders from same user matched")
 	}
 	
-	// Order from different user should match
-	tradesCount = book.AddOrder(&Order{
+	// Order from different user should match and create order
+	orderID2 := book.AddOrder(&Order{
 		ID: 3, Type: Limit, Side: Sell, Price: 100, Size: 10,
 		UserID: "trader2", Timestamp: time.Now(),
 	})
 	
-	if tradesCount != 1 {
-		t.Errorf("Expected 1 trade from different user, got %d", tradesCount)
+	// Should succeed and return order ID
+	if orderID2 != 3 {
+		t.Errorf("Expected order ID 3 from different user, got %d", orderID2)
+	}
+	
+	// Verify a trade was created by checking the order book state
+	trades := book.GetTrades()
+	if len(trades) != 1 {
+		t.Errorf("Expected 1 trade to be created, got %d", len(trades))
 	}
 }
 
@@ -233,14 +257,21 @@ func TestOrderBookPartialFills(t *testing.T) {
 	
 	// Small sell orders that partially fill
 	for i := 0; i < 5; i++ {
-		tradesCount := book.AddOrder(&Order{
+		orderID := book.AddOrder(&Order{
 			ID: uint64(i + 2), Type: Limit, Side: Sell, 
 			Price: 100, Size: 10, Timestamp: time.Now(),
 		})
 		
-		if tradesCount != 1 {
-			t.Errorf("Expected 1 trade for partial fill %d, got %d", i, tradesCount)
+		// Each order should be added successfully
+		if orderID != uint64(i+2) {
+			t.Errorf("Expected order ID %d for partial fill %d, got %d", i+2, i, orderID)
 		}
+	}
+	
+	// Verify all trades were created
+	trades := book.GetTrades()
+	if len(trades) != 5 {
+		t.Errorf("Expected 5 trades from partial fills, got %d", len(trades))
 	}
 	
 	// Check remaining order

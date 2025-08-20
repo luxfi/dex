@@ -923,7 +923,8 @@ func (ws *WebSocketServer) BroadcastTrade(trade *lx.Trade) {
 		Timestamp: time.Now().Unix(),
 	}
 
-	ws.broadcastToSubscribers(fmt.Sprintf("trades:%s", trade.Symbol), msg)
+	// Trade doesn't have Symbol, broadcast to all trade subscribers
+	ws.broadcastToSubscribers("trades", msg)
 }
 
 func (ws *WebSocketServer) BroadcastPrice(symbol string, price float64) {
