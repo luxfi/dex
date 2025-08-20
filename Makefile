@@ -1,51 +1,161 @@
-.PHONY: all luxd build test bench clean ci 3node-bench demo help test-mlx build-mlx test-cuda docker-cuda
+# LX DEX Makefile
+# Complete build, test, and deployment automation
 
-# LX DEX Makefile - Ultra-high performance DEX
+SHELL := /bin/bash
+.PHONY: all build test clean help
+
+# Version and build info
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+# Go parameters
 GO := go
-CGO_ENABLED ?= 0  # Default to pure Go for portability
+GOBUILD := $(GO) build
+GOCLEAN := $(GO) clean
+GOTEST := $(GO) test
+GOGET := $(GO) get
+GOMOD := $(GO) mod
+GOVET := $(GO) vet
+GOFMT := gofmt
 
-# Default target: build luxd first, then run tests
-all: clean luxd test
-	@echo "✅ All tasks complete!"
+# Build parameters
+CGO_ENABLED ?= 0
+LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
 
-# CI target - comprehensive testing for continuous integration
-ci: clean luxd test bench
-	@echo "✅ CI pipeline complete - all tests passed!"
-	@echo "📊 Performance: 100M+ trades/sec capability verified"
+# Binary output
+BINARY_NAME := luxd
+BINARY_DIR := bin
 
-# Build luxd binary (primary target)
-luxd:
-	@echo "🔨 Building luxd - Lux DEX Node..."
-	@mkdir -p bin
-	@CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o bin/luxd ./cmd/luxd
+# Test parameters
+TEST_TIMEOUT := 30s
+BENCH_TIME := 10s
+
+# Default target
+all: clean fmt vet test build
+	@echo "✅ Build complete!"
+
+help:
+	@echo "LX DEX Makefile Commands:"
+	@echo ""
+	@echo "Development:"
+	@echo "  make build         - Build all binaries"
+	@echo "  make test          - Run all tests"
+	@echo "  make bench         - Run benchmarks"
+	@echo "  make clean         - Clean build artifacts"
+	@echo ""
+	@echo "Running:"
+	@echo "  make run           - Run single node"
+	@echo "  make run-cluster   - Run 3-node cluster"
+	@echo ""
+	@echo "Quality:"
+	@echo "  make fmt           - Format code"
+	@echo "  make vet           - Run go vet"
+	@echo "  make lint          - Run linters"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker-build  - Build Docker images"
+	@echo "  make up            - Start with docker-compose"
+	@echo "  make down          - Stop docker-compose"
+
+# Build targets
+build: build-go build-tools
+
+build-go:
+	@echo "🔨 Building luxd..."
+	@mkdir -p $(BINARY_DIR)
+	@CGO_ENABLED=$(CGO_ENABLED) $(GOBUILD) $(LDFLAGS) -o $(BINARY_DIR)/$(BINARY_NAME) ./cmd/luxd
 	@echo "✅ luxd built successfully!"
-	@echo "Run with: ./bin/luxd"
 
-# Build all binaries
-build: luxd
-	@echo "🔨 Building other LX DEX binaries (CGO_ENABLED=$(CGO_ENABLED))..."
-	@CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o bin/demo ./cmd/demo 2>/dev/null || true
-	@CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o bin/perf-test ./cmd/perf-test 2>/dev/null || true
-	@CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o bin/dex-server ./cmd/dex-server 2>/dev/null || true
-	@CGO_ENABLED=0 $(GO) build -o bin/benchmark-ultra ./cmd/benchmark-ultra 2>/dev/null || true
-	@echo "✅ All binaries built!"
+build-cpp:
+	@echo "🔨 Building with C++ optimizations..."
+	@mkdir -p $(BINARY_DIR)
+	@CGO_ENABLED=1 $(GOBUILD) $(LDFLAGS) -tags cpp -o $(BINARY_DIR)/$(BINARY_NAME)-cpp ./cmd/luxd
 
-# Run tests
+build-gpu:
+	@echo "🔨 Building with GPU support..."
+	@mkdir -p $(BINARY_DIR)
+	@CGO_ENABLED=1 $(GOBUILD) $(LDFLAGS) -tags "cpp gpu mlx" -o $(BINARY_DIR)/$(BINARY_NAME)-gpu ./cmd/luxd
+
+build-tools:
+	@echo "🔨 Building tools..."
+	@$(GOBUILD) -o $(BINARY_DIR)/lx-trader ./cmd/trader 2>/dev/null || true
+	@$(GOBUILD) -o $(BINARY_DIR)/lx-metrics ./cmd/lx-metrics 2>/dev/null || true
+
+# Test targets
 test:
-	@echo "🧪 Running test suite..."
-	@$(GO) test -v ./pkg/lx/... || true
-	@$(GO) test -v ./pkg/mlx/... || true
-	@$(GO) test -v ./test/unit/... 2>/dev/null || true
-	@echo "✅ Tests complete!"
+	@echo "🧪 Running tests..."
+	@$(GOTEST) -v -timeout $(TEST_TIMEOUT) ./pkg/lx/...
+	@$(GOTEST) -v -timeout $(TEST_TIMEOUT) ./pkg/api/...
+	@echo "✅ Tests passed!"
 
-# Run benchmarks
+test-all:
+	@./scripts/test-all.sh
+
+test-race:
+	@$(GOTEST) -race -timeout 2m ./pkg/...
+
+# Benchmark targets
 bench:
-	@echo "🏁 Running performance benchmarks..."
-	@$(GO) test -bench=. -benchmem -benchtime=3s -run=^$$ ./test/benchmark/...
-	@$(GO) test -bench=. -benchmem -benchtime=1s -run=^$$ ./pkg/lx/...
-	@echo "✅ Benchmarks complete!"
+	@echo "🏁 Running benchmarks..."
+	@$(GOTEST) -bench=. -benchmem -benchtime=$(BENCH_TIME) -run=^$$ ./pkg/lx/...
 
-# Run 3-node network benchmark
+bench-all:
+	@./scripts/run-comprehensive-benchmark.sh
+
+# Run targets
+run:
+	@$(BINARY_DIR)/$(BINARY_NAME) --data-dir ~/.lxd --http-port 8080
+
+run-cluster:
+	@./scripts/run-lx-cluster.sh
+
+run-dev:
+	@air -c .air.toml 2>/dev/null || $(BINARY_DIR)/$(BINARY_NAME)
+
+# Code quality
+fmt:
+	@$(GOFMT) -s -w .
+
+vet:
+	@$(GOVET) ./...
+
+lint:
+	@golangci-lint run --timeout 5m 2>/dev/null || echo "Install golangci-lint for linting"
+
+# Docker targets
+docker-build:
+	@docker build -f docker/backend/Dockerfile -t lxdex:$(VERSION) .
+
+up:
+	@docker-compose -f docker/compose.yml up -d
+
+down:
+	@docker-compose -f docker/compose.yml down
+
+logs:
+	@docker-compose -f docker/compose.yml logs -f
+
+# Utility targets
+deps:
+	@$(GOMOD) download
+	@$(GOMOD) tidy
+
+clean:
+	@$(GOCLEAN)
+	@rm -rf $(BINARY_DIR)
+	@rm -f coverage.out coverage.html
+
+version:
+	@echo "Version: $(VERSION)"
+	@echo "Commit:  $(GIT_COMMIT)"
+	@echo "Built:   $(BUILD_TIME)"
+
+# CI target
+ci: clean fmt vet test build
+	@echo "✅ CI pipeline complete!"
+
+# 3-node benchmark (legacy compatibility)
 3node-bench:
 	@echo "🌐 Starting 3-node FPC network benchmark..."
 	@./scripts/run-3node-bench.sh
@@ -53,139 +163,155 @@ bench:
 
 # Run demo
 demo:
-	@echo "💹 Running LX DEX Demo..."
-	@$(GO) run ./cmd/demo
+	@./scripts/demo.sh
 
-# Quick demo - build and run luxd with test orders
-demo-quick: luxd
-	@echo "🚀 Starting LXD node in demo mode..."
-	@./bin/luxd --log-level=info --block-time=100ms --debug
-
-# Run luxd server in development mode
-run-server: luxd
-	@echo "🏃 Running LXD server (1ms consensus)..."
-	@./bin/luxd --log-level=info --block-time=1ms --enable-metrics
-
-# Run performance test
-run-perf: luxd
-	@echo "⚡ Running performance test..."
-	@./bin/luxd --block-time=1ms --log-level=warn --max-batch=100000
-
-# Interactive demo with monitoring
-demo-interactive: luxd
-	@echo "📊 Starting interactive demo with monitoring..."
-	@echo "Access metrics at http://localhost:9090/metrics"
-	@./bin/luxd --enable-metrics --debug --block-time=10ms
-
-# Demo with MLX GPU acceleration
-demo-mlx: luxd
-	@echo "🎮 Running demo with MLX GPU acceleration..."
-	@./bin/luxd --enable-mlx --max-batch=50000 --debug
-
-# Clean build artifacts
-clean:
-	@echo "🧹 Cleaning build artifacts..."
-	@rm -rf bin/
-	@rm -f coverage.out coverage.html
-	@rm -rf logs/
-	@echo "✅ Clean complete"
-
-# Test MLX engine (auto-detects Metal/CUDA/CPU)
+# Test MLX acceleration
 test-mlx:
-	@echo "🚀 Testing MLX GPU acceleration engine..."
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Detecting available backends..."
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		echo "✅ Platform: macOS - Testing Metal backend"; \
-	elif [ "$$(uname)" = "Linux" ]; then \
-		echo "✅ Platform: Linux - Testing CUDA backend"; \
-		if command -v nvidia-smi >/dev/null 2>&1; then \
-			echo "✅ NVIDIA GPU detected"; \
-			nvidia-smi -L 2>/dev/null | head -3 || true; \
-		else \
-			echo "⚠️  No NVIDIA GPU - will use CPU fallback"; \
-		fi; \
-	else \
-		echo "✅ Platform: Other - Testing CPU backend"; \
-	fi
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo ""
-	@echo "Building MLX engine..."
-	@$(MAKE) build-mlx
-	@echo ""
-	@echo "Running MLX tests..."
-	@CGO_ENABLED=1 $(GO) test -v ./pkg/mlx/... -run=MLX -bench=MLX -benchtime=3s
-	@echo ""
-	@echo "Running MLX benchmarks..."
-	@CGO_ENABLED=1 $(GO) test -bench=BenchmarkMLX -benchmem -benchtime=10s ./test/benchmark/...
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "✅ MLX testing complete!"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@./scripts/test-mlx.sh
 
-# Build MLX engine library
-build-mlx:
-	@echo "🔨 Building MLX engine with GPU support..."
-	@echo "Using external github.com/luxfi/mlx package"
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		echo "✅ Metal backend available on Apple Silicon"; \
-	elif [ "$$(uname)" = "Linux" ]; then \
-		if [ -d "/usr/local/cuda" ]; then \
-			echo "✅ CUDA backend available"; \
-		else \
-			echo "⚠️  CPU-only fallback (no CUDA found)"; \
-		fi; \
-	else \
-		echo "⚠️  CPU-only fallback"; \
-	fi
-	@echo "✅ MLX package ready to use"
+# Build with MLX support
+build-mlx: build-gpu
 
-# Test with CUDA GPU (Linux only)
+# Test CUDA acceleration
 test-cuda:
-	@echo "🚀 Testing with CUDA GPU acceleration..."
-	@if [ "$$(uname)" != "Linux" ]; then \
-		echo "❌ CUDA testing requires Linux with NVIDIA GPU"; \
-		exit 1; \
-	fi
 	@./scripts/test-cuda.sh
 
-# Build and run CUDA Docker container
+# Docker CUDA build
 docker-cuda:
-	@echo "🐳 Building CUDA Docker image..."
-	@docker build -f Dockerfile.cuda -t lux-dex:cuda .
-	@echo "🚀 Running CUDA tests in Docker..."
-	@docker-compose -f docker-compose.cuda.yml run --rm dex-cuda-test
+	@docker build -f docker/backend/Dockerfile.cuda -t lxdex-cuda:$(VERSION) .
 
-# Help
-help:
-	@echo "LX DEX - Ultra-High Performance Decentralized Exchange"
-	@echo "======================================================"
-	@echo ""
-	@echo "Quick Start:"
-	@echo "  make              - Build luxd and run tests (default)"
-	@echo "  make luxd         - Build just the luxd binary"
-	@echo "  make ci           - Run full CI pipeline"
-	@echo "  make demo         - Run interactive demo"
-	@echo ""
-	@echo "Development:"
-	@echo "  make build        - Build all binaries"
-	@echo "  make test         - Run unit, integration, and e2e tests"
-	@echo "  make bench        - Run performance benchmarks"
-	@echo "  make 3node-bench  - Run 3-node network benchmark"
-	@echo "  make clean        - Clean build artifacts"
-	@echo ""
-	@echo "Performance Targets:"
-	@echo "  • 100M+ trades/second throughput"
-	@echo "  • <1μs order matching latency"
-	@echo "  • 50ms consensus finality (FPC)"
-	@echo "  • Quantum-resistant signatures (Ringtail+BLS)"
-	@echo ""
-	@echo "Build Options:"
-	@echo "  CGO_ENABLED=0 make build  - Pure Go (default)"
-	@echo "  CGO_ENABLED=1 make build  - Hybrid Go/C++ for max performance"
-	@echo ""
-	@echo "GPU Testing:"
-	@echo "  make test-mlx     - Test MLX engine (auto-detects Metal/CUDA/CPU)"
-	@echo "  make build-mlx    - Build MLX GPU acceleration library"
-	@echo "  make test-cuda    - Test with CUDA GPU (Linux only)"
-	@echo "  make docker-cuda  - Build and run CUDA Docker container"
+# Ensure 100% test passing
+test-100:
+	@./scripts/ensure-100-pass.sh
+
+# Run performance tuning
+perf-tune:
+	@sudo ./scripts/perf-tune.sh
+
+# Development setup
+setup:
+	@./scripts/setup.sh
+
+# Install development tools
+tools:
+	@go install github.com/cosmtrek/air@latest
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+# Generate protobuf code
+proto:
+	@protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		proto/*.proto
+
+# SDK targets
+sdk-typescript:
+	@cd sdk/typescript && npm install && npm run build
+
+sdk-python:
+	@cd sdk/python && pip install -e .
+
+sdk-go:
+	@cd sdk/go && go mod tidy && go build ./...
+
+sdk-all: sdk-typescript sdk-python sdk-go
+
+# Deploy targets
+deploy-staging:
+	@./scripts/deploy.sh staging deploy
+
+deploy-production:
+	@./scripts/deploy.sh production deploy
+
+rollback:
+	@./scripts/deploy.sh production rollback
+
+# Monitoring
+metrics:
+	@open http://localhost:9090
+
+grafana:
+	@open http://localhost:3001
+
+# Performance benchmarks
+bench-10gbps:
+	@./scripts/benchmark-10gbps.sh
+
+bench-zmq:
+	@./scripts/run-zmq-benchmark.sh
+
+bench-comprehensive:
+	@./scripts/run-comprehensive-benchmark.sh
+
+# Network operations
+run-testnet:
+	@./scripts/run-lux-testnet.sh
+
+run-local:
+	@./scripts/run-local-network.sh
+
+run-fpc:
+	@./scripts/run-fpc-network.sh
+
+run-qzmq:
+	@./scripts/run-qzmq-network.sh
+
+# Database operations
+db-migrate:
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" up
+
+db-rollback:
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" down 1
+
+db-reset:
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" drop -f
+	@make db-migrate
+
+# Complete verification
+verify-all: deps fmt vet lint test-100 bench
+	@echo "✅ Complete verification passed!"
+
+# Install everything for development
+install: deps tools
+	@echo "✅ Development environment ready!"
+
+# Security scan
+security:
+	@gosec -fmt json -out security-report.json ./...
+
+# Coverage report
+coverage:
+	@go test -v -race -coverprofile=coverage.out -covermode=atomic ./pkg/...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+# Production build
+prod: clean verify-all build docker-build
+	@echo "✅ Production build complete!"
+
+# Quick development cycle
+dev: fmt test-fast build-go run-dev
+
+# Fast tests only
+test-fast:
+	@go test -short -timeout 30s ./pkg/...
+
+# Integration tests
+test-integration:
+	@go test -tags integration -timeout 5m ./test/integration/...
+
+# E2E tests
+test-e2e:
+	@./scripts/test-all.sh e2e
+
+# Load testing
+load-test:
+	@k6 run test/load/scenario.js
+
+# Initialize project
+init:
+	@chmod +x scripts/*.sh
+	@mkdir -p bin
+	@echo "✅ Project initialized!"
+
+.PHONY: all build test bench clean help run docker deploy sdk db verify install init demo test-mlx test-cuda docker-cuda

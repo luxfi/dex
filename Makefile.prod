@@ -1,0 +1,298 @@
+# LX DEX Production Makefile
+SHELL := /bin/bash
+
+# Version
+VERSION := $(shell git describe --tags --always --dirty)
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+GIT_COMMIT := $(shell git rev-parse --short HEAD)
+
+# Go parameters
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GOCLEAN := $(GOCMD) clean
+GOTEST := $(GOCMD) test
+GOGET := $(GOCMD) get
+GOMOD := $(GOCMD) mod
+GOVET := $(GOCMD) vet
+GOFMT := gofmt
+
+# Build parameters
+CGO_ENABLED ?= 1
+GOFLAGS := -v
+LDFLAGS := -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)
+
+# Binary names
+BINARY_NAME := luxd
+BINARY_DIR := bin
+
+# Docker parameters
+DOCKER_REGISTRY := registry.lux.network
+DOCKER_IMAGE := $(DOCKER_REGISTRY)/lxdex
+DOCKER_TAG := $(VERSION)
+
+# Directories
+PKG_DIR := ./pkg/...
+CMD_DIR := ./cmd/...
+TEST_DIR := ./test/...
+
+.PHONY: all build clean test bench fmt vet lint docker help
+
+# Default target
+all: clean fmt vet lint test build
+
+# Help target
+help:
+	@echo "LX DEX Makefile Commands:"
+	@echo ""
+	@echo "Development:"
+	@echo "  make build       - Build the binary"
+	@echo "  make test        - Run tests"
+	@echo "  make bench       - Run benchmarks"
+	@echo "  make fmt         - Format code"
+	@echo "  make vet         - Run go vet"
+	@echo "  make lint        - Run linters"
+	@echo "  make clean       - Clean build artifacts"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker-build   - Build Docker images"
+	@echo "  make docker-push    - Push images to registry"
+	@echo "  make docker-run     - Run with Docker Compose"
+	@echo "  make docker-stop    - Stop Docker containers"
+	@echo "  make docker-clean   - Clean Docker resources"
+	@echo ""
+	@echo "Production:"
+	@echo "  make deploy-staging - Deploy to staging"
+	@echo "  make deploy-prod    - Deploy to production"
+	@echo "  make rollback       - Rollback deployment"
+	@echo ""
+	@echo "Monitoring:"
+	@echo "  make metrics     - View Prometheus metrics"
+	@echo "  make logs        - View container logs"
+	@echo "  make health      - Check service health"
+
+# Build targets
+build: build-go build-cpp build-gpu
+
+build-go:
+	@echo "Building Go binary..."
+	@mkdir -p $(BINARY_DIR)
+	CGO_ENABLED=0 $(GOBUILD) $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_DIR)/$(BINARY_NAME) ./cmd/luxd
+
+build-cpp:
+	@echo "Building C++ components..."
+	@mkdir -p $(BINARY_DIR)
+	CGO_ENABLED=1 $(GOBUILD) $(GOFLAGS) -ldflags "$(LDFLAGS)" -tags cpp -o $(BINARY_DIR)/$(BINARY_NAME)-cpp ./cmd/luxd
+
+build-gpu:
+	@echo "Building GPU-accelerated binary..."
+	@mkdir -p $(BINARY_DIR)
+	CGO_ENABLED=1 $(GOBUILD) $(GOFLAGS) -ldflags "$(LDFLAGS)" -tags "cpp gpu mlx" -o $(BINARY_DIR)/$(BINARY_NAME)-gpu ./cmd/luxd
+
+build-all: build-go build-cpp build-gpu
+
+# Test targets
+test:
+	@echo "Running unit tests..."
+	$(GOTEST) -v -race -coverprofile=coverage.out $(PKG_DIR)
+
+test-integration:
+	@echo "Running integration tests..."
+	$(GOTEST) -v -tags integration $(TEST_DIR)
+
+test-e2e:
+	@echo "Running E2E tests..."
+	@docker-compose -f docker/compose.test.yml up --abort-on-container-exit
+	@docker-compose -f docker/compose.test.yml down
+
+bench:
+	@echo "Running benchmarks..."
+	$(GOTEST) -bench=. -benchmem -run=^$$ $(PKG_DIR)
+
+coverage:
+	@echo "Generating coverage report..."
+	$(GOTEST) -v -race -coverprofile=coverage.out $(PKG_DIR)
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+# Code quality targets
+fmt:
+	@echo "Formatting code..."
+	@$(GOFMT) -s -w .
+
+vet:
+	@echo "Running go vet..."
+	@$(GOVET) $(PKG_DIR)
+
+lint:
+	@echo "Running linters..."
+	@golangci-lint run --timeout 5m
+
+security:
+	@echo "Running security scan..."
+	@gosec -fmt json -out security-report.json ./...
+	@nancy sleuth
+
+# Docker targets
+docker-build:
+	@echo "Building Docker images..."
+	@docker build -f docker/backend/Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@docker build -f docker/ui/Dockerfile -t $(DOCKER_IMAGE)-ui:$(DOCKER_TAG) ./ui
+
+docker-push:
+	@echo "Pushing Docker images..."
+	@docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	@docker push $(DOCKER_IMAGE)-ui:$(DOCKER_TAG)
+
+docker-run:
+	@echo "Starting services with Docker Compose..."
+	@docker-compose -f docker/compose.prod.yml up -d
+
+docker-stop:
+	@echo "Stopping Docker services..."
+	@docker-compose -f docker/compose.prod.yml down
+
+docker-logs:
+	@docker-compose -f docker/compose.prod.yml logs -f
+
+docker-clean:
+	@echo "Cleaning Docker resources..."
+	@docker-compose -f docker/compose.prod.yml down -v
+	@docker system prune -af
+
+# Deployment targets
+deploy-staging:
+	@echo "Deploying to staging..."
+	@kubectl apply -f k8s/staging/
+	@kubectl rollout status deployment/lxdex -n staging
+
+deploy-prod:
+	@echo "Deploying to production..."
+	@read -p "Are you sure you want to deploy to production? (y/N) " confirm && \
+	if [ "$$confirm" = "y" ]; then \
+		kubectl apply -f k8s/production/; \
+		kubectl rollout status deployment/lxdex -n production; \
+	fi
+
+rollback:
+	@echo "Rolling back deployment..."
+	@kubectl rollout undo deployment/lxdex -n production
+
+# Monitoring targets
+metrics:
+	@echo "Opening Prometheus metrics..."
+	@open http://localhost:9090
+
+grafana:
+	@echo "Opening Grafana dashboard..."
+	@open http://localhost:3001
+
+logs:
+	@docker-compose -f docker/compose.prod.yml logs -f --tail=100
+
+health:
+	@echo "Checking service health..."
+	@curl -s http://localhost:8080/health | jq .
+	@curl -s http://localhost:8082/health | jq .
+	@curl -s http://localhost:8084/health | jq .
+
+# SDK targets
+sdk-typescript:
+	@echo "Building TypeScript SDK..."
+	@cd sdk/typescript && npm install && npm run build
+
+sdk-python:
+	@echo "Building Python SDK..."
+	@cd sdk/python && pip install -e .
+
+sdk-go:
+	@echo "Building Go SDK..."
+	@cd sdk/go && go mod tidy && go build ./...
+
+sdk-all: sdk-typescript sdk-python sdk-go
+
+# Database targets
+db-migrate:
+	@echo "Running database migrations..."
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" up
+
+db-rollback:
+	@echo "Rolling back database..."
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" down 1
+
+db-reset:
+	@echo "Resetting database..."
+	@migrate -path migrations -database "postgres://lxdex:lxdex123@localhost:5432/lxdex?sslmode=disable" drop -f
+	@make db-migrate
+
+# Protocol buffer generation
+proto:
+	@echo "Generating protocol buffers..."
+	@protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		proto/*.proto
+
+# Clean targets
+clean:
+	@echo "Cleaning build artifacts..."
+	@$(GOCLEAN)
+	@rm -rf $(BINARY_DIR)
+	@rm -f coverage.out coverage.html
+	@rm -f security-report.json
+
+clean-all: clean docker-clean
+	@echo "Cleaning all artifacts..."
+	@rm -rf vendor/
+	@rm -rf node_modules/
+	@rm -rf .cache/
+
+# Development helpers
+dev:
+	@echo "Starting development environment..."
+	@docker-compose -f docker/compose.yml up -d postgres redis nats
+	@air -c .air.toml
+
+dev-stop:
+	@echo "Stopping development environment..."
+	@docker-compose -f docker/compose.yml down
+
+install-tools:
+	@echo "Installing development tools..."
+	@go install github.com/cosmtrek/air@latest
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@go install github.com/sonatype-nexus-community/nancy@latest
+	@go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+	@brew install protobuf protoc-gen-go protoc-gen-go-grpc
+
+# Performance testing
+perf-test:
+	@echo "Running performance tests..."
+	@go test -bench=. -benchtime=10s -cpuprofile=cpu.prof -memprofile=mem.prof $(PKG_DIR)
+	@go tool pprof -http=:8090 cpu.prof
+
+load-test:
+	@echo "Running load tests..."
+	@k6 run test/load/scenario.js
+
+# Release targets
+release:
+	@echo "Creating release $(VERSION)..."
+	@git tag -a $(VERSION) -m "Release $(VERSION)"
+	@git push origin $(VERSION)
+	@goreleaser release --clean
+
+snapshot:
+	@echo "Creating snapshot release..."
+	@goreleaser release --snapshot --clean
+
+# CI/CD helpers
+ci-test:
+	@$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic $(PKG_DIR)
+
+ci-lint:
+	@golangci-lint run --out-format=github-actions
+
+ci-security:
+	@gosec -fmt sarif -out security.sarif ./...
+
+.DEFAULT_GOAL := help
