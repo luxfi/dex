@@ -17,10 +17,10 @@ import (
 
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/manager"
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/api"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/mlx"
+	"github.com/luxfi/log"
 )
 
 const (
@@ -40,7 +40,7 @@ type Config struct {
 	WSPort      int
 	P2PPort     int
 	MetricsPort int
-	
+
 	// QZMQ Network
 	QZMQPubPort    int
 	QZMQSubPort    int
@@ -75,7 +75,7 @@ type LXDNode struct {
 	tradesExecuted   uint64
 	consensusLatency uint64
 	blockHeight      uint64
-	
+
 	// Pending orders buffer
 	pendingOrders []*lx.Order
 	orderMu       sync.Mutex
@@ -105,11 +105,11 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 	// Initialize database using luxfi/database manager
 	// BadgerDB is the default/preferred database in Lux ecosystem
 	dbManager := manager.NewManager(dataPath, nil)
-	
+
 	// Use default BadgerDB configuration (Lux standard)
 	dbConfig := manager.DefaultBadgerDBConfig("badgerdb")
 	dbConfig.Namespace = "lxd"
-	
+
 	db, err := dbManager.New(dbConfig)
 	if err != nil {
 		logger.Warn("Failed to open BadgerDB", "error", err)
@@ -162,9 +162,9 @@ func NewLXDNode(config *Config) (*LXDNode, error) {
 		ctx:           ctx,
 		cancel:        cancel,
 	}
-	
+
 	// QZMQ disabled for now
-	
+
 	return node, nil
 }
 
@@ -273,7 +273,6 @@ func (n *LXDNode) finalizeBlock() {
 	atomic.AddUint64(&n.tradesExecuted, uint64(totalTrades))
 	atomic.StoreUint64(&n.consensusLatency, uint64(time.Since(startTime).Nanoseconds()))
 
-
 	if n.config.EnableDebug {
 		n.logger.Debug("Block finalized",
 			"height", blockHeight,
@@ -329,7 +328,7 @@ func (n *LXDNode) storeBlock(block *Block) error {
 	if err := batch.Put(key, value); err != nil {
 		return err
 	}
-	
+
 	// Update last block height
 	heightBytes := make([]byte, 8)
 	for i := 0; i < 8; i++ {
@@ -402,7 +401,7 @@ func (n *LXDNode) generateTestOrders() {
 
 func (n *LXDNode) runMetricsServer() {
 	defer n.wg.Done()
-	
+
 	// Metrics server placeholder
 	// In production, would use luxfi/metric package
 	n.logger.Info("Metrics server started", "port", n.config.MetricsPort)
@@ -414,10 +413,10 @@ func (n *LXDNode) runJSONRPCServer() {
 
 	// Create JSON-RPC server
 	server := api.NewJSONRPCServer(n.orderBook, n.logger)
-	
+
 	mux := http.NewServeMux()
 	mux.Handle("/rpc", server)
-	
+
 	// Add health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -427,17 +426,17 @@ func (n *LXDNode) runJSONRPCServer() {
 			"orders": atomic.LoadUint64(&n.ordersProcessed),
 		})
 	})
-	
+
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", n.config.HTTPPort),
 		Handler: mux,
 	}
-	
+
 	go func() {
 		<-n.ctx.Done()
 		httpServer.Shutdown(context.Background())
 	}()
-	
+
 	n.logger.Info("JSON-RPC server started", "port", n.config.HTTPPort, "endpoint", "/rpc")
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		n.logger.Error("JSON-RPC server error", "error", err)
@@ -537,7 +536,7 @@ func main() {
 	flag.IntVar(&config.WSPort, "ws-port", defaultWSPort, "WebSocket port")
 	flag.IntVar(&config.P2PPort, "p2p-port", defaultP2PPort, "P2P network port")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Prometheus metrics port")
-	
+
 	// QZMQ flags
 
 	blockTime := flag.Duration("block-time", 1*time.Millisecond, "Target block time")
@@ -552,7 +551,7 @@ func main() {
 	flag.Parse()
 
 	config.BlockTime = *blockTime
-	
+
 	// Store log level as string
 	config.LogLevel = *logLevel
 

@@ -3,9 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	
-	"github.com/luxfi/log"
+
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 )
 
 // JSONRPCServer handles JSON-RPC requests
@@ -50,11 +50,11 @@ func (s *JSONRPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "orderbook.getBestBid":
 		bestBid := s.orderBook.GetBestBid()
 		s.writeResult(w, req.ID, bestBid)
-		
+
 	case "orderbook.getBestAsk":
 		bestAsk := s.orderBook.GetBestAsk()
 		s.writeResult(w, req.ID, bestAsk)
-		
+
 	case "orderbook.getStats":
 		stats := map[string]interface{}{
 			"symbol": s.orderBook.Symbol,
@@ -62,7 +62,7 @@ func (s *JSONRPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"trades": len(s.orderBook.Trades),
 		}
 		s.writeResult(w, req.ID, stats)
-		
+
 	default:
 		s.writeError(w, req.ID, -32601, "Method not found")
 	}

@@ -84,7 +84,7 @@ func TestOrderBookMatchingPriority(t *testing.T) {
 
 	// Should match all orders
 	assert.Equal(t, uint64(10), trades)
-	
+
 	// Check if orders are filled (implementation may keep them)
 	for i := 1; i <= 5; i++ {
 		_, exists := book.Orders[uint64(i)]
@@ -96,7 +96,7 @@ func TestOrderBookMatchingPriority(t *testing.T) {
 func TestOrderBookGetDepthEmpty(t *testing.T) {
 	book := NewOrderBook("EMPTY")
 	depth := book.GetDepth(10)
-	
+
 	assert.NotNil(t, depth)
 	assert.Equal(t, 0, len(depth.Bids))
 	assert.Equal(t, 0, len(depth.Asks))
@@ -116,7 +116,7 @@ func TestOrderBookGetDepthLarge(t *testing.T) {
 			User:      "buyer",
 			Timestamp: time.Now(),
 		})
-		
+
 		book.AddOrder(&Order{
 			ID:        uint64(i + 100),
 			Type:      Limit,
@@ -140,7 +140,7 @@ func TestOrderBookGetDepthLarge(t *testing.T) {
 
 func TestOrderBookModifyNonExistent(t *testing.T) {
 	book := NewOrderBook("MODIFY")
-	
+
 	// Try to modify non-existent order
 	err := book.ModifyOrder(999, 100, 10)
 	assert.Error(t, err)
@@ -148,11 +148,11 @@ func TestOrderBookModifyNonExistent(t *testing.T) {
 
 func TestOrderBookCancelNonExistent(t *testing.T) {
 	book := NewOrderBook("CANCEL")
-	
+
 	// Try to cancel non-existent order
 	err := book.CancelOrder(999)
 	assert.Error(t, err) // Should return error for non-existent order
-	
+
 	// Verify order doesn't exist
 	_, exists := book.Orders[999]
 	assert.False(t, exists)
@@ -160,7 +160,7 @@ func TestOrderBookCancelNonExistent(t *testing.T) {
 
 func TestOrderBookMarketOrderNoLiquidity(t *testing.T) {
 	book := NewOrderBook("MARKET")
-	
+
 	// Try market buy with no sell orders
 	trades := book.AddOrder(&Order{
 		ID:        1,
@@ -170,10 +170,10 @@ func TestOrderBookMarketOrderNoLiquidity(t *testing.T) {
 		User:      "buyer",
 		Timestamp: time.Now(),
 	})
-	
+
 	// No trades should occur
 	assert.Equal(t, uint64(1), trades)
-	
+
 	// Order should not remain in book (market orders don't rest)
 	_, exists := book.Orders[1]
 	assert.False(t, exists) // Market orders shouldn't rest in book
@@ -181,7 +181,7 @@ func TestOrderBookMarketOrderNoLiquidity(t *testing.T) {
 
 func TestOrderBookStopOrders(t *testing.T) {
 	book := NewOrderBook("STOP")
-	
+
 	// Add stop order
 	trades := book.AddOrder(&Order{
 		ID:        1,
@@ -192,14 +192,14 @@ func TestOrderBookStopOrders(t *testing.T) {
 		User:      "user1",
 		Timestamp: time.Now(),
 	})
-	
-	assert.Equal(t, uint64(0), trades) // Stop orders don't create trades immediately
+
+	assert.Equal(t, uint64(0), trades)    // Stop orders don't create trades immediately
 	assert.False(t, len(book.Orders) > 0) // Current implementation may not store stop orders
 }
 
 func TestOrderBookIcebergOrders(t *testing.T) {
 	book := NewOrderBook("ICEBERG")
-	
+
 	// Add iceberg order
 	trades := book.AddOrder(&Order{
 		ID:          1,
@@ -211,7 +211,7 @@ func TestOrderBookIcebergOrders(t *testing.T) {
 		User:        "user1",
 		Timestamp:   time.Now(),
 	})
-	
+
 	assert.Equal(t, uint64(1), trades)
 	assert.True(t, len(book.Orders) > 0)
 }
@@ -237,13 +237,13 @@ func TestOrderBookStressTest(t *testing.T) {
 				if orderID%2 == 0 {
 					side = Sell
 				}
-				
+
 				book.AddOrder(&Order{
 					ID:        orderID,
 					Type:      Limit,
 					Side:      side,
 					Price:     100 + float64(rand.Intn(20)-10),
-					Size:      float64(rand.Intn(100)+1),
+					Size:      float64(rand.Intn(100) + 1),
 					User:      fmt.Sprintf("user%d", threadID),
 					Timestamp: time.Now(),
 				})
@@ -252,7 +252,7 @@ func TestOrderBookStressTest(t *testing.T) {
 	}
 
 	wg.Wait()
-	
+
 	// Verify some orders were added (may have trades due to matching)
 	// At least some orders should exist or trades should have occurred
 	assert.True(t, len(book.Orders) > 0 || len(book.Trades) > 0)
@@ -260,7 +260,7 @@ func TestOrderBookStressTest(t *testing.T) {
 
 func TestOrderBookReset(t *testing.T) {
 	book := NewOrderBook("RESET")
-	
+
 	// Add some orders and trades
 	for i := 1; i <= 10; i++ {
 		book.AddOrder(&Order{
@@ -273,12 +273,12 @@ func TestOrderBookReset(t *testing.T) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	assert.True(t, len(book.Orders) > 0)
-	
+
 	// Reset
 	book.Reset()
-	
+
 	// Everything should be cleared
 	assert.Equal(t, 0, len(book.Orders))
 	assert.Equal(t, 0, len(book.Trades))
@@ -287,7 +287,7 @@ func TestOrderBookReset(t *testing.T) {
 
 func TestOrderBookPegOrders(t *testing.T) {
 	book := NewOrderBook("PEG")
-	
+
 	// Add some liquidity first
 	book.AddOrder(&Order{
 		ID:        1,
@@ -298,7 +298,7 @@ func TestOrderBookPegOrders(t *testing.T) {
 		User:      "buyer",
 		Timestamp: time.Now(),
 	})
-	
+
 	book.AddOrder(&Order{
 		ID:        2,
 		Type:      Limit,
@@ -308,7 +308,7 @@ func TestOrderBookPegOrders(t *testing.T) {
 		User:      "seller",
 		Timestamp: time.Now(),
 	})
-	
+
 	// Add peg order
 	trades := book.AddOrder(&Order{
 		ID:        3,
@@ -319,32 +319,32 @@ func TestOrderBookPegOrders(t *testing.T) {
 		User:      "pegger",
 		Timestamp: time.Now(),
 	})
-	
+
 	assert.Equal(t, uint64(3), trades)
 }
 
 func TestOrderBookBracketOrders(t *testing.T) {
 	book := NewOrderBook("BRACKET")
-	
+
 	// Add bracket order (entry + stop loss + take profit)
 	trades := book.AddOrder(&Order{
 		ID:        1,
 		Type:      Bracket,
 		Side:      Buy,
-		Price:     100,    // Entry price
+		Price:     100, // Entry price
 		Size:      10,
-		StopPrice: 95,     // Stop loss
+		StopPrice: 95, // Stop loss
 		User:      "trader",
 		Timestamp: time.Now(),
 	})
-	
+
 	assert.Equal(t, uint64(1), trades)
 	assert.True(t, len(book.Orders) > 0)
 }
 
 func TestOrderBookTimeInForceDAY(t *testing.T) {
 	book := NewOrderBook("TIF")
-	
+
 	// Add DAY order
 	trades := book.AddOrder(&Order{
 		ID:          1,
@@ -356,14 +356,14 @@ func TestOrderBookTimeInForceDAY(t *testing.T) {
 		User:        "user",
 		Timestamp:   time.Now(),
 	})
-	
+
 	assert.Equal(t, uint64(1), trades)
 	assert.True(t, len(book.Orders) > 0)
 }
 
 func TestOrderBookTimeInForceGTC(t *testing.T) {
 	book := NewOrderBook("TIF")
-	
+
 	// Add GTC (Good Till Cancelled) order
 	trades := book.AddOrder(&Order{
 		ID:          1,
@@ -375,14 +375,14 @@ func TestOrderBookTimeInForceGTC(t *testing.T) {
 		User:        "user",
 		Timestamp:   time.Now(),
 	})
-	
+
 	assert.Equal(t, uint64(1), trades)
 	assert.True(t, len(book.Orders) > 0)
 }
 
 func TestOrderBookConcurrentModifications(t *testing.T) {
 	book := NewOrderBook("CONCURRENT")
-	
+
 	// Add initial orders
 	for i := 1; i <= 100; i++ {
 		book.AddOrder(&Order{
@@ -395,12 +395,12 @@ func TestOrderBookConcurrentModifications(t *testing.T) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Concurrent modifications
 	wg.Add(3)
-	
+
 	// Thread 1: Cancel orders
 	go func() {
 		defer wg.Done()
@@ -408,7 +408,7 @@ func TestOrderBookConcurrentModifications(t *testing.T) {
 			book.CancelOrder(uint64(i))
 		}
 	}()
-	
+
 	// Thread 2: Modify orders
 	go func() {
 		defer wg.Done()
@@ -416,7 +416,7 @@ func TestOrderBookConcurrentModifications(t *testing.T) {
 			book.ModifyOrder(uint64(i), 95, 15)
 		}
 	}()
-	
+
 	// Thread 3: Add new orders
 	go func() {
 		defer wg.Done()
@@ -432,9 +432,9 @@ func TestOrderBookConcurrentModifications(t *testing.T) {
 			})
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	// Verify book is still consistent
 	assert.NotNil(t, book.Orders)
 	assert.NotNil(t, book.Trades)
@@ -442,7 +442,7 @@ func TestOrderBookConcurrentModifications(t *testing.T) {
 
 func BenchmarkOrderBookAddOrderExtended(b *testing.B) {
 	book := NewOrderBook("BENCH")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		book.AddOrder(&Order{
@@ -459,7 +459,7 @@ func BenchmarkOrderBookAddOrderExtended(b *testing.B) {
 
 func BenchmarkOrderBookGetDepth(b *testing.B) {
 	book := NewOrderBook("BENCH")
-	
+
 	// Pre-populate with orders
 	for i := 1; i <= 1000; i++ {
 		book.AddOrder(&Order{
@@ -481,7 +481,7 @@ func BenchmarkOrderBookGetDepth(b *testing.B) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = book.GetDepth(10)
@@ -490,12 +490,12 @@ func BenchmarkOrderBookGetDepth(b *testing.B) {
 
 func BenchmarkOrderBookMatching(b *testing.B) {
 	book := NewOrderBook("BENCH")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Add alternating buy/sell orders that will match
 		book.AddOrder(&Order{
-			ID:        uint64(i*2),
+			ID:        uint64(i * 2),
 			Type:      Limit,
 			Side:      Buy,
 			Price:     100,
@@ -517,7 +517,7 @@ func BenchmarkOrderBookMatching(b *testing.B) {
 
 func BenchmarkOrderBookConcurrentExtended(b *testing.B) {
 	book := NewOrderBook("BENCH")
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {

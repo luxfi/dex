@@ -77,6 +77,22 @@ build-gpu:
 	@mkdir -p $(BINARY_DIR)
 	@CGO_ENABLED=1 $(GOBUILD) $(LDFLAGS) -tags "cpp gpu mlx" -o $(BINARY_DIR)/$(BINARY_NAME)-gpu ./cmd/luxd
 
+# FPGA build targets
+build-fpga:
+	@echo "🔨 Building with FPGA support..."
+	@mkdir -p $(BINARY_DIR)
+	@CGO_ENABLED=1 $(GOBUILD) $(LDFLAGS) -tags "cgo fpga" -o $(BINARY_DIR)/$(BINARY_NAME)-fpga ./cmd/luxd
+
+build-fpga-versal:
+	@echo "🔨 Building for AMD Versal FPGA..."
+	@mkdir -p $(BINARY_DIR)
+	@$(GOBUILD) $(LDFLAGS) -tags "fpga versal" -o $(BINARY_DIR)/$(BINARY_NAME)-versal ./cmd/luxd
+
+build-fpga-f2:
+	@echo "🔨 Building for AWS F2 FPGA..."
+	@mkdir -p $(BINARY_DIR)
+	@$(GOBUILD) $(LDFLAGS) -tags "fpga awsf2" -o $(BINARY_DIR)/$(BINARY_NAME)-f2 ./cmd/luxd
+
 build-tools:
 	@echo "🔨 Building tools..."
 	@$(GOBUILD) -o $(BINARY_DIR)/lx-trader ./cmd/trader 2>/dev/null || true

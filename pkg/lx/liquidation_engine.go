@@ -817,7 +817,7 @@ func (cb *CircuitBreaker) ShouldTrigger() bool {
 
 // Helper functions
 
-func initMaintenanceMargins() map[string]float64 {
+func initLiquidationMaintenanceMargins() map[string]float64 {
 	return map[string]float64{
 		"BTC-USDT":  0.005,
 		"ETH-USDT":  0.01,

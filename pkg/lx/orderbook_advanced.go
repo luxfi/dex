@@ -735,13 +735,13 @@ func (book *AdvancedOrderBook) validateOrder(order *AdvancedOrder) error {
 	// Check tick size with tolerance for floating point precision
 	const epsilon = 1e-9
 	remainder := math.Mod(order.Price, book.tickSize)
-	if remainder > epsilon && remainder < (book.tickSize - epsilon) {
+	if remainder > epsilon && remainder < (book.tickSize-epsilon) {
 		return fmt.Errorf("price must be multiple of tick size %.2f", book.tickSize)
 	}
 
 	// Check lot size with tolerance for floating point precision
 	sizeRemainder := math.Mod(order.Size, book.lotSize)
-	if sizeRemainder > epsilon && sizeRemainder < (book.lotSize - epsilon) {
+	if sizeRemainder > epsilon && sizeRemainder < (book.lotSize-epsilon) {
 		return fmt.Errorf("size must be multiple of lot size %.3f", book.lotSize)
 	}
 

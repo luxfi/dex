@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -257,9 +257,9 @@ func BenchmarkJSONRPCServer_GetBestBid(b *testing.B) {
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
-	
+
 	reqBody := `{"jsonrpc":"2.0","method":"orderbook.getBestBid","params":{},"id":1}`
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("POST", "/rpc", bytes.NewBufferString(reqBody))

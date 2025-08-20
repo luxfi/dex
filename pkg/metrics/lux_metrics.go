@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/luxfi/metric"
 	"github.com/luxfi/log"
+	"github.com/luxfi/metric"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -17,25 +17,25 @@ type LXMetrics struct {
 	registry  *prometheus.Registry
 	gatherer  prometheus.Gatherer
 	logger    log.Logger
-	
+
 	// Order book metrics
-	ordersProcessed   prometheus.Counter
-	tradesExecuted    prometheus.Counter
-	orderBookDepth    prometheus.GaugeVec
-	matchingLatency   prometheus.Histogram
-	consensusRounds   prometheus.Counter
-	blockHeight       prometheus.Gauge
-	
+	ordersProcessed prometheus.Counter
+	tradesExecuted  prometheus.Counter
+	orderBookDepth  prometheus.GaugeVec
+	matchingLatency prometheus.Histogram
+	consensusRounds prometheus.Counter
+	blockHeight     prometheus.Gauge
+
 	// Network metrics
-	zmqMessagesIn     prometheus.Counter
-	zmqMessagesOut    prometheus.Counter
-	natsPublished     prometheus.Counter
-	natsReceived      prometheus.Counter
-	
+	zmqMessagesIn  prometheus.Counter
+	zmqMessagesOut prometheus.Counter
+	natsPublished  prometheus.Counter
+	natsReceived   prometheus.Counter
+
 	// System metrics
-	memoryUsage       prometheus.Gauge
-	goroutines        prometheus.Gauge
-	consensusNodes    prometheus.Gauge
+	memoryUsage    prometheus.Gauge
+	goroutines     prometheus.Gauge
+	consensusNodes prometheus.Gauge
 }
 
 // NewLXMetrics creates metrics using luxfi packages
@@ -43,102 +43,102 @@ func NewLXMetrics(namespace string) (*LXMetrics, error) {
 	// Use luxfi/log for logging
 	logger := log.Root().New("module", "metrics")
 	logger.Info("Initializing LX metrics")
-	
+
 	// Create Prometheus registry
 	registry := prometheus.NewRegistry()
-	
+
 	// Create metric gatherer (luxfi specific)
 	gatherer := metric.NewMultiGatherer()
-	
+
 	m := &LXMetrics{
 		namespace: namespace,
 		registry:  registry,
 		gatherer:  gatherer,
 		logger:    logger,
-		
+
 		// Initialize order metrics
 		ordersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "orders_processed_total",
 			Help:      "Total number of orders processed",
 		}),
-		
+
 		tradesExecuted: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "trades_executed_total",
 			Help:      "Total number of trades executed",
 		}),
-		
+
 		orderBookDepth: *prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "orderbook_depth",
 			Help:      "Current order book depth by side",
 		}, []string{"symbol", "side"}),
-		
+
 		matchingLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "matching_latency_nanoseconds",
 			Help:      "Order matching latency in nanoseconds",
 			Buckets:   []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
 		}),
-		
+
 		consensusRounds: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "consensus_rounds_total",
 			Help:      "Total consensus rounds completed",
 		}),
-		
+
 		blockHeight: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "block_height",
 			Help:      "Current block height",
 		}),
-		
+
 		// Network metrics
 		zmqMessagesIn: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "zmq_messages_received_total",
 			Help:      "Total ZeroMQ messages received",
 		}),
-		
+
 		zmqMessagesOut: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "zmq_messages_sent_total",
 			Help:      "Total ZeroMQ messages sent",
 		}),
-		
+
 		natsPublished: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "nats_messages_published_total",
 			Help:      "Total NATS messages published",
 		}),
-		
+
 		natsReceived: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "nats_messages_received_total",
 			Help:      "Total NATS messages received",
 		}),
-		
+
 		// System metrics
 		memoryUsage: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "memory_usage_bytes",
 			Help:      "Current memory usage in bytes",
 		}),
-		
+
 		goroutines: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "goroutines_count",
 			Help:      "Current number of goroutines",
 		}),
-		
+
 		consensusNodes: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "consensus_nodes_active",
 			Help:      "Number of active consensus nodes",
 		}),
 	}
-	
+
 	// Register all metrics
 	registry.MustRegister(
 		m.ordersProcessed,
@@ -155,13 +155,13 @@ func NewLXMetrics(namespace string) (*LXMetrics, error) {
 		m.goroutines,
 		m.consensusNodes,
 	)
-	
+
 	// Register with luxfi gatherer
 	err := gatherer.Register(namespace, registry)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	logger.Info("LX metrics initialized successfully")
 	return m, nil
 }
@@ -169,24 +169,24 @@ func NewLXMetrics(namespace string) (*LXMetrics, error) {
 // StartServer starts Prometheus metrics server
 func (m *LXMetrics) StartServer(port string) error {
 	m.logger.Info("Starting Prometheus metrics server", log.Field("port", port))
-	
+
 	// Use luxfi/metric handler
 	handler := metric.NewHandler(m.namespace, m.gatherer)
-	
+
 	// Also expose standard Prometheus endpoint
 	http.Handle("/metrics", promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{}))
 	http.Handle("/luxfi/metrics", handler)
-	
+
 	go func() {
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
 			m.logger.Error("Metrics server failed", log.Field("error", err))
 		}
 	}()
-	
-	m.logger.Info("Prometheus metrics available", 
+
+	m.logger.Info("Prometheus metrics available",
 		log.Field("endpoint", "http://localhost:"+port+"/metrics"),
 		log.Field("luxfi_endpoint", "http://localhost:"+port+"/luxfi/metrics"))
-	
+
 	return nil
 }
 
@@ -244,7 +244,7 @@ func (m *LXMetrics) UpdateConsensusNodes(count float64) {
 func (m *LXMetrics) CollectSystemMetrics(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():

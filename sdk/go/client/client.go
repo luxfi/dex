@@ -30,11 +30,11 @@ type Client struct {
 	idCounter  uint64
 
 	// WebSocket
-	wsConn     *websocket.Conn
+	wsConn      *websocket.Conn
 	wsCallbacks map[string]func(interface{})
-	wsMu       sync.RWMutex
-	wsRunning  bool
-	wsStop     chan struct{}
+	wsMu        sync.RWMutex
+	wsRunning   bool
+	wsStop      chan struct{}
 
 	// gRPC
 	grpcConn   *grpc.ClientConn
@@ -47,11 +47,11 @@ type Client struct {
 func NewClient(opts ...Option) (*Client, error) {
 	c := &Client{
 		jsonRPCURL:  "http://localhost:8080",
-		wsURL:      "ws://localhost:8081",
-		grpcURL:    "localhost:50051",
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		wsURL:       "ws://localhost:8081",
+		grpcURL:     "localhost:50051",
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		wsCallbacks: make(map[string]func(interface{})),
-		wsStop:     make(chan struct{}),
+		wsStop:      make(chan struct{}),
 	}
 
 	// Apply options
@@ -151,7 +151,7 @@ func (c *Client) handleWebSocketMessages() {
 			return
 		default:
 			c.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			
+
 			var msg map[string]interface{}
 			err := c.wsConn.ReadJSON(&msg)
 			if err != nil {
@@ -421,7 +421,7 @@ func (c *Client) Subscribe(channel string, callback func(interface{})) error {
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if c.wsConn == nil {
 		return fmt.Errorf("WebSocket not connected")
 	}
@@ -443,7 +443,7 @@ func (c *Client) Unsubscribe(channel string) error {
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if c.wsConn == nil {
 		return nil // Not connected, nothing to do
 	}
@@ -572,7 +572,7 @@ func (c *Client) callJSONRPC(ctx context.Context, method string, params interfac
 	defer resp.Body.Close()
 
 	var response struct {
-		Result interface{}            `json:"result"`
+		Result interface{} `json:"result"`
 		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`

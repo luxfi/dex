@@ -14,22 +14,22 @@ func TestOrderBookDepth(t *testing.T) {
 	// Add multiple orders at different price levels
 	for i := 1; i <= 5; i++ {
 		book.AddOrder(&Order{
-			ID:    uint64(i),
-			Type:  Limit,
-			Side:  Buy,
-			Price: float64(100 - i),
-			Size:  float64(i),
-			User:  fmt.Sprintf("buyer%d", i),
+			ID:        uint64(i),
+			Type:      Limit,
+			Side:      Buy,
+			Price:     float64(100 - i),
+			Size:      float64(i),
+			User:      fmt.Sprintf("buyer%d", i),
 			Timestamp: time.Now(),
 		})
 
 		book.AddOrder(&Order{
-			ID:    uint64(i + 10),
-			Type:  Limit,
-			Side:  Sell,
-			Price: float64(100 + i),
-			Size:  float64(i),
-			User:  fmt.Sprintf("seller%d", i),
+			ID:        uint64(i + 10),
+			Type:      Limit,
+			Side:      Sell,
+			Price:     float64(100 + i),
+			Size:      float64(i),
+			User:      fmt.Sprintf("seller%d", i),
 			Timestamp: time.Now(),
 		})
 	}
@@ -37,7 +37,7 @@ func TestOrderBookDepth(t *testing.T) {
 	depth := book.GetDepth(3)
 	assert.Equal(t, 3, len(depth.Bids))
 	assert.Equal(t, 3, len(depth.Asks))
-	
+
 	// Best bid should be 99
 	assert.Equal(t, float64(99), depth.Bids[0].Price)
 	// Best ask should be 101
@@ -49,12 +49,12 @@ func TestOrderBookResetState(t *testing.T) {
 
 	// Add orders
 	book.AddOrder(&Order{
-		ID:    1,
-		Type:  Limit,
-		Side:  Buy,
-		Price: 100,
-		Size:  10,
-		User:  "user1",
+		ID:        1,
+		Type:      Limit,
+		Side:      Buy,
+		Price:     100,
+		Size:      10,
+		User:      "user1",
 		Timestamp: time.Now(),
 	})
 
@@ -72,12 +72,12 @@ func TestOrderBookModifyOrderFunc(t *testing.T) {
 
 	// Add order
 	book.AddOrder(&Order{
-		ID:    1,
-		Type:  Limit,
-		Side:  Buy,
-		Price: 100,
-		Size:  10,
-		User:  "user1",
+		ID:        1,
+		Type:      Limit,
+		Side:      Buy,
+		Price:     100,
+		Size:      10,
+		User:      "user1",
 		Timestamp: time.Now(),
 	})
 
@@ -136,7 +136,7 @@ func TestOrderBookAdvancedTypes(t *testing.T) {
 		Side:      Buy,
 		Price:     100,
 		Size:      10,
-		StopPrice: 95,  // Stop loss
+		StopPrice: 95, // Stop loss
 		User:      "user4",
 		Timestamp: time.Now(),
 	})
@@ -165,12 +165,12 @@ func TestOrderBookTimeInForceOptions(t *testing.T) {
 
 	// Add a sell order
 	book.AddOrder(&Order{
-		ID:    2,
-		Type:  Limit,
-		Side:  Sell,
-		Price: 100,
-		Size:  5,
-		User:  "user2",
+		ID:        2,
+		Type:      Limit,
+		Side:      Sell,
+		Price:     100,
+		Size:      5,
+		User:      "user2",
 		Timestamp: time.Now(),
 	})
 

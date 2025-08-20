@@ -38,23 +38,23 @@ func TestMLXEngine(t *testing.T) {
 func TestMLXInfo(t *testing.T) {
 	// Test engine creation
 	engine, err := NewEngine(Config{
-		Backend: BackendAuto,
+		Backend:  BackendAuto,
 		MaxBatch: 1000,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
 	defer engine.Close()
-	
+
 	backend := engine.Backend()
 	t.Logf("Detected Backend: %s", backend)
-	
+
 	hasGPU := engine.IsGPUAvailable()
 	t.Logf("GPU Support: %v", hasGPU)
-	
+
 	device := engine.Device()
 	t.Logf("Device: %s", device)
-	
+
 	// Should always have at least CPU backend
 	if backend == "" {
 		t.Error("Backend should not be empty")
@@ -123,7 +123,7 @@ func ExampleNewEngine() {
 		return
 	}
 	defer engine.Close()
-	
+
 	fmt.Printf("Backend: %s\n", engine.Backend())
 	fmt.Printf("Device: %s\n", engine.Device())
 	// Output will vary based on hardware:
@@ -145,19 +145,19 @@ func TestEngineInterface(t *testing.T) {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
 	defer engine.Close()
-	
+
 	// Test Backend
 	backend := engine.Backend()
 	t.Logf("Engine Backend: %s", backend)
-	
+
 	// Test Device
 	device := engine.Device()
 	t.Logf("Engine Device: %s", device)
-	
+
 	// Test GPU availability
 	hasGPU := engine.IsGPUAvailable()
 	t.Logf("GPU Available: %v", hasGPU)
-	
+
 	// Test BatchMatch
 	bids := []Order{
 		{ID: 1, Price: 100.0, Size: 10.0, Side: 0},
@@ -167,14 +167,14 @@ func TestEngineInterface(t *testing.T) {
 		{ID: 3, Price: 100.0, Size: 15.0, Side: 1},
 		{ID: 4, Price: 101.0, Size: 25.0, Side: 1},
 	}
-	
+
 	trades := engine.BatchMatch(bids, asks)
 	t.Logf("Matched %d trades", len(trades))
-	
+
 	// Test Benchmark
 	throughput := engine.Benchmark(1000)
 	t.Logf("Benchmark Throughput: %.2f orders/sec", throughput)
-	
+
 	if throughput <= 0 {
 		t.Error("Throughput should be positive")
 	}
@@ -188,11 +188,11 @@ func BenchmarkEngineMatching(b *testing.B) {
 		b.Fatalf("Failed to create engine: %v", err)
 	}
 	defer engine.Close()
-	
+
 	// Create test orders
 	bids := make([]Order, 100)
 	asks := make([]Order, 100)
-	
+
 	for i := 0; i < 100; i++ {
 		bids[i] = Order{
 			ID:    uint64(i),
@@ -207,7 +207,7 @@ func BenchmarkEngineMatching(b *testing.B) {
 			Side:  1,
 		}
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = engine.BatchMatch(bids, asks)

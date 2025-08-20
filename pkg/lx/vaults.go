@@ -9,16 +9,22 @@ import (
 
 // VaultManager manages all vaults in the system
 type VaultManager struct {
-	vaults map[string]*Vault
-	engine *TradingEngine
-	mu     sync.RWMutex
+	vaults       map[string]*Vault
+	copyVaults   map[string]*CopyVault // Copy-trading vaults with 10% profit share
+	userVaults   map[string][]string   // userAddress -> vaultIDs they're in
+	leaderVaults map[string][]string   // leaderAddress -> vaultIDs they lead
+	engine       *TradingEngine
+	mu           sync.RWMutex
 }
 
 // NewVaultManager creates a new vault manager
 func NewVaultManager(engine *TradingEngine) *VaultManager {
 	return &VaultManager{
-		vaults: make(map[string]*Vault),
-		engine: engine,
+		vaults:       make(map[string]*Vault),
+		copyVaults:   make(map[string]*CopyVault),
+		userVaults:   make(map[string][]string),
+		leaderVaults: make(map[string][]string),
+		engine:       engine,
 	}
 }
 
@@ -113,6 +119,22 @@ type PendingWithdrawal struct {
 	User      string
 	Shares    *big.Int
 	Timestamp time.Time
+}
+
+// CopyVault represents a copy-trading vault
+type CopyVault struct {
+	ID            string
+	Name          string
+	Description   string
+	Leader        string                      // Leader trader address
+	ProfitShare   float64                     // Share of profits (default 10%)
+	TotalDeposits *big.Int
+	TotalShares   *big.Int
+	Followers     map[string]*VaultPosition   // follower -> position
+	Performance   *PerformanceMetrics
+	State         VaultState
+	CreatedAt     time.Time
+	mu            sync.RWMutex
 }
 
 // Enhanced Vault struct
@@ -722,4 +744,399 @@ func (vm *VaultManager) GetVaultPerformance(id string) (*PerformanceMetrics, err
 func mulDiv(a, b, c *big.Int) *big.Int {
 	result := new(big.Int).Mul(a, b)
 	return result.Div(result, c)
+}
+
+// ============================================
+// Copy-Trading Vault Implementation (10% Profit Share)
+// ============================================
+
+// CreateVaultWithProfitShare creates a new vault with 10% profit share for leaders
+func (vm *VaultManager) CreateVaultWithProfitShare(leader string, name string, description string, initialDeposit *big.Int) (*CopyVault, error) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	
+	// Validate minimum deposit (100 USDC)
+	minDeposit := big.NewInt(100 * 1e6) // 100 USDC with 6 decimals
+	if initialDeposit.Cmp(minDeposit) < 0 {
+		return nil, fmt.Errorf("initial deposit must be at least 100 USDC")
+	}
+	
+	// Generate vault ID
+	vaultID := fmt.Sprintf("copy_%s_%d", leader[:8], time.Now().Unix())
+	
+	// Check if vault already exists
+	if _, exists := vm.copyVaults[vaultID]; exists {
+		return nil, fmt.Errorf("vault %s already exists", vaultID)
+	}
+	
+	// Calculate leader's initial shares (always starts with 100% of shares)
+	initialShares := big.NewInt(1000000) // 1M shares initially
+	
+	vault := &CopyVault{
+		ID:            vaultID,
+		Name:          name,
+		Description:   description,
+		Leader:        leader,
+		ProfitShare:   0.10, // 10% profit share for leader
+		TotalDeposits: new(big.Int).Set(initialDeposit),
+		TotalShares:   new(big.Int).Set(initialShares),
+		Followers:     make(map[string]*VaultPosition),
+		Performance:   NewPerformanceMetrics(),
+		State:         VaultStateActive,
+		CreatedAt:     time.Now(),
+	}
+	
+	// Add leader as first member with initial position
+	vault.Followers[leader] = &VaultPosition{
+		User:          leader,
+		Shares:        new(big.Int).Set(initialShares),
+		DepositValue:  new(big.Int).Set(initialDeposit),
+		CurrentValue:  new(big.Int).Set(initialDeposit),
+		RealizedPnL:   big.NewInt(0),
+		UnrealizedPnL: big.NewInt(0),
+		LastUpdate:    time.Now(),
+	}
+	
+	// Store vault
+	vm.copyVaults[vaultID] = vault
+	
+	// Update mappings
+	if vm.leaderVaults[leader] == nil {
+		vm.leaderVaults[leader] = []string{}
+	}
+	vm.leaderVaults[leader] = append(vm.leaderVaults[leader], vaultID)
+	
+	if vm.userVaults[leader] == nil {
+		vm.userVaults[leader] = []string{}
+	}
+	vm.userVaults[leader] = append(vm.userVaults[leader], vaultID)
+	
+	return vault, nil
+}
+
+// JoinVault allows a user to join a vault
+func (vm *VaultManager) JoinVault(vaultID string, userAddress string, depositAmount *big.Int) error {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	
+	vault, exists := vm.copyVaults[vaultID]
+	if !exists {
+		return fmt.Errorf("copy vault not found")
+	}
+	
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	
+	// Check if vault is active
+	if vault.State != VaultStateActive {
+		return fmt.Errorf("vault is not accepting new members")
+	}
+	
+	// Check minimum deposit (100 USDC)
+	minDeposit := big.NewInt(100 * 1e6)
+	if depositAmount.Cmp(minDeposit) < 0 {
+		return fmt.Errorf("minimum deposit is 100 USDC")
+	}
+	
+	// Check if already a member
+	if _, isMember := vault.Followers[userAddress]; isMember {
+		return fmt.Errorf("already a member of this vault")
+	}
+	
+	// Calculate shares based on current vault value
+	var shares *big.Int
+	if vault.TotalShares.Cmp(big.NewInt(0)) == 0 {
+		shares = new(big.Int).Set(depositAmount)
+	} else {
+		// shares = (deposit / total_deposits) * total_shares
+		shares = new(big.Int).Mul(depositAmount, vault.TotalShares)
+		shares.Div(shares, vault.TotalDeposits)
+	}
+	
+	// Create follower position
+	position := &VaultPosition{
+		User:          userAddress,
+		Shares:        shares,
+		DepositValue:  new(big.Int).Set(depositAmount),
+		CurrentValue:  new(big.Int).Set(depositAmount),
+		RealizedPnL:   big.NewInt(0),
+		UnrealizedPnL: big.NewInt(0),
+		LastUpdate:    time.Now(),
+	}
+	
+	// Update vault state
+	vault.Followers[userAddress] = position
+	vault.TotalShares = new(big.Int).Add(vault.TotalShares, shares)
+	vault.TotalDeposits = new(big.Int).Add(vault.TotalDeposits, depositAmount)
+	
+	// Update user mappings
+	if vm.userVaults[userAddress] == nil {
+		vm.userVaults[userAddress] = []string{}
+	}
+	vm.userVaults[userAddress] = append(vm.userVaults[userAddress], vaultID)
+	
+	// Ensure leader maintains at least 5% share
+	if !vm.checkLeaderMinimumShare(vault) {
+		// Revert changes
+		delete(vault.Followers, userAddress)
+		vault.TotalShares = new(big.Int).Sub(vault.TotalShares, shares)
+		vault.TotalDeposits = new(big.Int).Sub(vault.TotalDeposits, depositAmount)
+		
+		// Remove from user mappings
+		userVaults := vm.userVaults[userAddress]
+		for i, id := range userVaults {
+			if id == vaultID {
+				vm.userVaults[userAddress] = append(userVaults[:i], userVaults[i+1:]...)
+				break
+			}
+		}
+		
+		return fmt.Errorf("accepting this deposit would dilute leader below 5%% minimum share")
+	}
+	
+	return nil
+}
+
+// WithdrawFromVault allows withdrawal with 10% profit share to leader
+func (vm *VaultManager) WithdrawFromVault(vaultID string, userAddress string, sharePercent float64) (*big.Int, error) {
+	if sharePercent <= 0 || sharePercent > 1.0 {
+		return nil, fmt.Errorf("share percent must be between 0 and 1")
+	}
+	
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	
+	vault, exists := vm.copyVaults[vaultID]
+	if !exists {
+		return nil, fmt.Errorf("copy vault not found")
+	}
+	
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	
+	position, isMember := vault.Followers[userAddress]
+	if !isMember {
+		return nil, fmt.Errorf("not a member of this vault")
+	}
+	
+	// Calculate shares to withdraw
+	sharesToWithdraw := new(big.Float).Mul(
+		new(big.Float).SetInt(position.Shares),
+		big.NewFloat(sharePercent),
+	)
+	sharesToWithdrawInt, _ := sharesToWithdraw.Int(nil)
+	
+	// Calculate value of shares
+	shareValue := new(big.Int).Mul(sharesToWithdrawInt, vault.TotalDeposits)
+	shareValue.Div(shareValue, vault.TotalShares)
+	
+	// Calculate profit and apply 10% profit share for leader (only for followers)
+	withdrawalAmount := new(big.Int).Set(shareValue)
+	if userAddress != vault.Leader {
+		// Calculate proportional entry value
+		proportionalEntry := new(big.Int).Mul(position.DepositValue, sharesToWithdrawInt)
+		proportionalEntry.Div(proportionalEntry, position.Shares)
+		
+		// If withdrawing with profit, apply 10% profit share
+		if shareValue.Cmp(proportionalEntry) > 0 {
+			profit := new(big.Int).Sub(shareValue, proportionalEntry)
+			profitShare := new(big.Int).Mul(profit, big.NewInt(10))
+			profitShare.Div(profitShare, big.NewInt(100))
+			
+			// Deduct profit share from withdrawal
+			withdrawalAmount.Sub(withdrawalAmount, profitShare)
+			
+			// Add profit share to leader's position
+			if leaderPosition, exists := vault.Followers[vault.Leader]; exists {
+				leaderPosition.CurrentValue.Add(leaderPosition.CurrentValue, profitShare)
+				leaderPosition.RealizedPnL.Add(leaderPosition.RealizedPnL, profitShare)
+			}
+		}
+	}
+	
+	// Check if leader withdrawal would go below 5% minimum
+	if userAddress == vault.Leader {
+		newLeaderShares := new(big.Int).Sub(position.Shares, sharesToWithdrawInt)
+		newTotalShares := new(big.Int).Sub(vault.TotalShares, sharesToWithdrawInt)
+		
+		if newTotalShares.Sign() > 0 {
+			leaderPercent := float64(newLeaderShares.Int64()) / float64(newTotalShares.Int64())
+			if leaderPercent < 0.05 {
+				return nil, fmt.Errorf("withdrawal would put leader below 5%% minimum share")
+			}
+		}
+	}
+	
+	// Update position
+	position.Shares.Sub(position.Shares, sharesToWithdrawInt)
+	position.CurrentValue.Sub(position.CurrentValue, shareValue)
+	
+	// Calculate realized PnL
+	proportionalDeposit := new(big.Int).Mul(position.DepositValue, sharesToWithdrawInt)
+	proportionalDeposit.Div(proportionalDeposit, new(big.Int).Add(position.Shares, sharesToWithdrawInt))
+	realizedPnL := new(big.Int).Sub(withdrawalAmount, proportionalDeposit)
+	position.RealizedPnL.Add(position.RealizedPnL, realizedPnL)
+	position.DepositValue.Sub(position.DepositValue, proportionalDeposit)
+	position.LastUpdate = time.Now()
+	
+	// Update vault totals
+	vault.TotalShares.Sub(vault.TotalShares, sharesToWithdrawInt)
+	vault.TotalDeposits.Sub(vault.TotalDeposits, shareValue)
+	
+	// Remove member if fully withdrawn
+	if position.Shares.Sign() == 0 {
+		delete(vault.Followers, userAddress)
+		
+		// Remove from user mappings
+		userVaults := vm.userVaults[userAddress]
+		for i, id := range userVaults {
+			if id == vaultID {
+				vm.userVaults[userAddress] = append(userVaults[:i], userVaults[i+1:]...)
+				break
+			}
+		}
+		
+		if len(vm.userVaults[userAddress]) == 0 {
+			delete(vm.userVaults, userAddress)
+		}
+	}
+	
+	return withdrawalAmount, nil
+}
+
+// checkLeaderMinimumShare ensures leader maintains at least 5% of vault
+func (vm *VaultManager) checkLeaderMinimumShare(vault *CopyVault) bool {
+	leaderPosition, exists := vault.Followers[vault.Leader]
+	if !exists || vault.TotalShares.Sign() == 0 {
+		return false
+	}
+	
+	leaderPercent := float64(leaderPosition.Shares.Int64()) / float64(vault.TotalShares.Int64())
+	return leaderPercent >= 0.05
+}
+
+// GetVaultByID returns a vault by ID
+func (vm *VaultManager) GetVaultByID(vaultID string) (*CopyVault, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+	
+	vault, exists := vm.copyVaults[vaultID]
+	if !exists {
+		return nil, fmt.Errorf("vault not found")
+	}
+	
+	return vault, nil
+}
+
+// GetUserVaults returns all vaults a user is part of
+func (vm *VaultManager) GetUserVaults(userAddress string) ([]*CopyVault, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+	
+	vaultIDs := vm.userVaults[userAddress]
+	vaults := make([]*CopyVault, 0)
+	
+	for _, id := range vaultIDs {
+		if vault, exists := vm.copyVaults[id]; exists {
+			vaults = append(vaults, vault)
+		}
+	}
+	
+	return vaults, nil
+}
+
+// GetLeaderVaults returns all vaults led by a specific leader
+func (vm *VaultManager) GetLeaderVaults(leaderAddress string) ([]*CopyVault, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+	
+	vaultIDs := vm.leaderVaults[leaderAddress]
+	vaults := make([]*CopyVault, 0)
+	
+	for _, id := range vaultIDs {
+		if vault, exists := vm.copyVaults[id]; exists {
+			vaults = append(vaults, vault)
+		}
+	}
+	
+	return vaults, nil
+}
+
+// UpdateVaultValue updates the vault's total value based on PnL from trading
+// This is how Hyperliquid handles it - the vault trades as one entity and value changes affect all members proportionally
+func (vm *VaultManager) UpdateVaultValue(vaultID string, newValue *big.Int) error {
+	vm.mu.RLock()
+	vault, exists := vm.copyVaults[vaultID]
+	vm.mu.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("vault not found")
+	}
+	
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	
+	// Update vault's total value
+	vault.TotalDeposits = newValue
+	
+	// Update each member's current value proportionally
+	for _, position := range vault.Followers {
+		// Calculate member's share of the new value
+		memberValue := new(big.Int).Mul(position.Shares, newValue)
+		memberValue.Div(memberValue, vault.TotalShares)
+		
+		// Update unrealized PnL
+		position.UnrealizedPnL = new(big.Int).Sub(memberValue, position.DepositValue)
+		position.CurrentValue = memberValue
+		position.LastUpdate = time.Now()
+	}
+	
+	// Update high water mark if needed (for profit share calculation)
+	returnRatio := float64(newValue.Int64()) / float64(vault.TotalDeposits.Int64())
+	if returnRatio > vault.Performance.TotalReturn {
+		vault.Performance.TotalReturn = returnRatio
+	}
+	
+	vault.Performance.UpdatedAt = time.Now()
+	
+	return nil
+}
+
+// ExecuteVaultTrade places a trade using the vault's total capital
+// The vault trades as a single entity, not individual user orders
+func (vm *VaultManager) ExecuteVaultTrade(vaultID string, symbol string, side Side, size float64, orderType OrderType) error {
+	vm.mu.RLock()
+	vault, exists := vm.copyVaults[vaultID]
+	vm.mu.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("vault not found")
+	}
+	
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	
+	// Check if vault is active
+	if vault.State != VaultStateActive {
+		return fmt.Errorf("vault is not active")
+	}
+	
+	// Create order for the entire vault (leader trades on behalf of all)
+	_ = Order{
+		Symbol:   symbol,
+		Side:     side,
+		Type:     orderType,
+		Size:     size,
+		User:     vault.Leader, // Leader executes on behalf of vault
+		ClientID: vaultID,     // Track that this is a vault order
+	}
+	
+	// This would integrate with the actual order book
+	// The order is placed with the vault's total capital
+	// PnL from this trade will update the vault's total value
+	// which then affects all members proportionally
+	
+	// TODO: vm.engine.orderBook.AddOrder(&vaultOrder)
+	
+	return nil
 }

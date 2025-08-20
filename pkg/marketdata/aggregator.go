@@ -10,31 +10,31 @@ import (
 	"time"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/log"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/log"
 )
 
 // Aggregator collects trades and generates OHLCV data
 type Aggregator struct {
 	logger log.Logger
 	db     database.Database
-	
+
 	// Candle storage by symbol and interval
-	candles    map[string]map[Interval]*Candle
-	candlesMu  sync.RWMutex
-	
+	candles   map[string]map[Interval]*Candle
+	candlesMu sync.RWMutex
+
 	// Trade buffer
-	trades     []*lx.Trade
-	tradesMu   sync.Mutex
-	
+	trades   []*lx.Trade
+	tradesMu sync.Mutex
+
 	// Subscribers
 	subscribers map[string][]chan *Candle
 	subMu       sync.RWMutex
-	
+
 	// Stats
-	totalTrades   uint64
-	totalCandles  uint64
-	
+	totalTrades  uint64
+	totalCandles uint64
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -140,7 +140,7 @@ func AllIntervals() []Interval {
 // NewAggregator creates a new market data aggregator
 func NewAggregator(logger log.Logger, db database.Database) *Aggregator {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Aggregator{
 		logger:      logger,
 		db:          db,
@@ -159,15 +159,15 @@ func (a *Aggregator) Start() error {
 		a.wg.Add(1)
 		go a.generateCandles(interval)
 	}
-	
+
 	// Start trade processor
 	a.wg.Add(1)
 	go a.processTrades()
-	
+
 	// Start cleanup routine
 	a.wg.Add(1)
 	go a.cleanup()
-	
+
 	a.logger.Info("Market data aggregator started")
 	return nil
 }
@@ -190,10 +190,10 @@ func (a *Aggregator) AddTrade(trade *lx.Trade) {
 // processTrades processes buffered trades
 func (a *Aggregator) processTrades() {
 	defer a.wg.Done()
-	
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -211,11 +211,11 @@ func (a *Aggregator) processTradeBuffer() {
 		a.tradesMu.Unlock()
 		return
 	}
-	
+
 	trades := a.trades
 	a.trades = make([]*lx.Trade, 0, 1000)
 	a.tradesMu.Unlock()
-	
+
 	// Update candles for each trade
 	for _, trade := range trades {
 		a.updateCandles(trade)
@@ -226,23 +226,23 @@ func (a *Aggregator) processTradeBuffer() {
 func (a *Aggregator) updateCandles(trade *lx.Trade) {
 	symbol := "BTC-USD" // TODO: Get from trade
 	tradeTime := time.Unix(0, trade.Timestamp)
-	
+
 	a.candlesMu.Lock()
 	defer a.candlesMu.Unlock()
-	
+
 	// Ensure symbol map exists
 	if a.candles[symbol] == nil {
 		a.candles[symbol] = make(map[Interval]*Candle)
 	}
-	
+
 	// Update candle for each interval
 	for _, interval := range AllIntervals() {
 		candle := a.candles[symbol][interval]
-		
+
 		// Get candle period
 		openTime := a.getCandleOpenTime(tradeTime, interval)
 		closeTime := openTime.Add(interval.Duration())
-		
+
 		// Create new candle if needed
 		if candle == nil || candle.OpenTime != openTime {
 			// Complete previous candle if exists
@@ -251,7 +251,7 @@ func (a *Aggregator) updateCandles(trade *lx.Trade) {
 				a.publishCandle(candle)
 				a.storeCandle(candle)
 			}
-			
+
 			// Create new candle
 			candle = &Candle{
 				Symbol:    symbol,
@@ -282,10 +282,10 @@ func (a *Aggregator) updateCandles(trade *lx.Trade) {
 // generateCandles generates candles at regular intervals
 func (a *Aggregator) generateCandles(interval Interval) {
 	defer a.wg.Done()
-	
+
 	ticker := time.NewTicker(interval.Duration())
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -300,16 +300,16 @@ func (a *Aggregator) generateCandles(interval Interval) {
 func (a *Aggregator) completeCandles(interval Interval) {
 	a.candlesMu.Lock()
 	defer a.candlesMu.Unlock()
-	
+
 	now := time.Now()
-	
+
 	for symbol, intervalCandles := range a.candles {
 		candle := intervalCandles[interval]
 		if candle != nil && !candle.Complete && now.After(candle.CloseTime) {
 			candle.Complete = true
 			a.publishCandle(candle)
 			a.storeCandle(candle)
-			
+
 			// Clear the candle
 			delete(intervalCandles, interval)
 		}
@@ -319,32 +319,32 @@ func (a *Aggregator) completeCandles(interval Interval) {
 // getCandleOpenTime returns the open time for a candle
 func (a *Aggregator) getCandleOpenTime(t time.Time, interval Interval) time.Time {
 	duration := interval.Duration()
-	
+
 	// Special handling for monthly interval
 	if interval == Interval1M {
 		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 	}
-	
+
 	// Align to interval boundary
 	unix := t.Unix()
 	intervalSeconds := int64(duration.Seconds())
 	aligned := (unix / intervalSeconds) * intervalSeconds
-	
+
 	return time.Unix(aligned, 0)
 }
 
 // publishCandle publishes a completed candle to subscribers
 func (a *Aggregator) publishCandle(candle *Candle) {
 	key := fmt.Sprintf("%s:%s", candle.Symbol, candle.Interval)
-	
+
 	a.subMu.RLock()
 	subscribers := a.subscribers[key]
 	a.subMu.RUnlock()
-	
+
 	if len(subscribers) == 0 {
 		return
 	}
-	
+
 	// Send to all subscribers
 	for _, ch := range subscribers {
 		select {
@@ -358,13 +358,13 @@ func (a *Aggregator) publishCandle(candle *Candle) {
 // storeCandle stores a candle in the database
 func (a *Aggregator) storeCandle(candle *Candle) {
 	key := fmt.Sprintf("candle:%s:%s:%d", candle.Symbol, candle.Interval, candle.OpenTime.Unix())
-	
+
 	value, err := json.Marshal(candle)
 	if err != nil {
 		a.logger.Error("Failed to marshal candle", "error", err)
 		return
 	}
-	
+
 	if err := a.db.Put([]byte(key), value); err != nil {
 		a.logger.Error("Failed to store candle", "error", err)
 	}
@@ -374,43 +374,43 @@ func (a *Aggregator) storeCandle(candle *Candle) {
 func (a *Aggregator) Subscribe(symbol string, interval Interval) <-chan *Candle {
 	key := fmt.Sprintf("%s:%s", symbol, interval)
 	ch := make(chan *Candle, 100)
-	
+
 	a.subMu.Lock()
 	a.subscribers[key] = append(a.subscribers[key], ch)
 	a.subMu.Unlock()
-	
+
 	return ch
 }
 
 // GetCandles retrieves historical candles
 func (a *Aggregator) GetCandles(symbol string, interval Interval, limit int) ([]*Candle, error) {
 	candles := make([]*Candle, 0, limit)
-	
+
 	// Calculate time range
 	now := time.Now()
 	duration := interval.Duration()
 	startTime := now.Add(-duration * time.Duration(limit))
-	
+
 	// Iterate through database
 	prefix := fmt.Sprintf("candle:%s:%s:", symbol, interval)
 	iter := a.db.NewIterator([]byte(prefix), nil)
 	defer iter.Release()
-	
+
 	for iter.Next() {
 		var candle Candle
 		if err := json.Unmarshal(iter.Value(), &candle); err != nil {
 			continue
 		}
-		
+
 		if candle.OpenTime.After(startTime) {
 			candles = append(candles, &candle)
 		}
-		
+
 		if len(candles) >= limit {
 			break
 		}
 	}
-	
+
 	return candles, nil
 }
 
@@ -418,11 +418,11 @@ func (a *Aggregator) GetCandles(symbol string, interval Interval, limit int) ([]
 func (a *Aggregator) GetLatestCandle(symbol string, interval Interval) *Candle {
 	a.candlesMu.RLock()
 	defer a.candlesMu.RUnlock()
-	
+
 	if symbolCandles, ok := a.candles[symbol]; ok {
 		return symbolCandles[interval]
 	}
-	
+
 	return nil
 }
 
@@ -431,7 +431,7 @@ func (a *Aggregator) GetStats() map[string]interface{} {
 	a.candlesMu.RLock()
 	numSymbols := len(a.candles)
 	a.candlesMu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"total_trades":  a.totalTrades,
 		"total_candles": a.totalCandles,
@@ -442,10 +442,10 @@ func (a *Aggregator) GetStats() map[string]interface{} {
 // cleanup removes old data periodically
 func (a *Aggregator) cleanup() {
 	defer a.wg.Done()
-	
+
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -471,29 +471,29 @@ func (a *Aggregator) cleanupOldCandles() {
 		Interval1h:  365 * 24 * time.Hour,
 		Interval1d:  10 * 365 * 24 * time.Hour,
 	}
-	
+
 	now := time.Now()
 	batch := a.db.NewBatch()
 	defer batch.Reset()
-	
+
 	for interval, retention := range retentionMap {
 		cutoff := now.Add(-retention)
 		prefix := fmt.Sprintf("candle:*:%s:", interval)
-		
+
 		iter := a.db.NewIterator([]byte(prefix), nil)
 		for iter.Next() {
 			var candle Candle
 			if err := json.Unmarshal(iter.Value(), &candle); err != nil {
 				continue
 			}
-			
+
 			if candle.OpenTime.Before(cutoff) {
 				batch.Delete(iter.Key())
 			}
 		}
 		iter.Release()
 	}
-	
+
 	if err := batch.Write(); err != nil {
 		a.logger.Error("Failed to cleanup old candles", "error", err)
 	}
@@ -505,20 +505,20 @@ func (a *Aggregator) VolumeWeightedAveragePrice(symbol string, interval Interval
 	if err != nil || len(candles) == 0 {
 		return 0
 	}
-	
+
 	var totalVolume float64
 	var volumePrice float64
-	
+
 	for _, candle := range candles {
 		avgPrice := (candle.High + candle.Low + candle.Close) / 3
 		volumePrice += avgPrice * candle.Volume
 		totalVolume += candle.Volume
 	}
-	
+
 	if totalVolume == 0 {
 		return 0
 	}
-	
+
 	return volumePrice / totalVolume
 }
 
@@ -528,12 +528,12 @@ func (a *Aggregator) MovingAverage(symbol string, interval Interval, periods int
 	if err != nil || len(candles) == 0 {
 		return 0
 	}
-	
+
 	var sum float64
 	for _, candle := range candles {
 		sum += candle.Close
 	}
-	
+
 	return sum / float64(len(candles))
 }
 
@@ -543,7 +543,7 @@ func (a *Aggregator) RSI(symbol string, interval Interval, periods int) float64 
 	if err != nil || len(candles) < 2 {
 		return 50 // Neutral RSI
 	}
-	
+
 	var gains, losses float64
 	for i := 1; i < len(candles); i++ {
 		change := candles[i].Close - candles[i-1].Close
@@ -553,14 +553,14 @@ func (a *Aggregator) RSI(symbol string, interval Interval, periods int) float64 
 			losses += -change
 		}
 	}
-	
+
 	if losses == 0 {
 		return 100 // Overbought
 	}
-	
+
 	avgGain := gains / float64(periods)
 	avgLoss := losses / float64(periods)
 	rs := avgGain / avgLoss
-	
+
 	return 100 - (100 / (1 + rs))
 }
