@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -58,7 +57,7 @@ type Stats struct {
 }
 
 type MLXZMQServer struct {
-	mlxEngine    *mlx.Engine
+	mlxEngine    mlx.Engine
 	orderBooks   map[uint32]*lx.OrderBook
 	stats        *Stats
 	
@@ -336,7 +335,6 @@ func (s *MLXZMQServer) processBatch() {
 				Price:  o.Price,
 				Size:   o.Size,
 				Side:   int(o.Side),
-				UserID: o.UserID,
 			}
 			
 			if o.Side == 0 { // Buy
@@ -402,8 +400,8 @@ func (s *MLXZMQServer) publishTrade(symbol uint32, trade mlx.Trade) {
 
 func (s *MLXZMQServer) publishMarketData(symbol uint32, ob *lx.OrderBook) {
 	// Get best bid/ask
-	bestBid, _ := ob.GetBestBid()
-	bestAsk, _ := ob.GetBestAsk()
+	bestBid := ob.GetBestBid()
+	bestAsk := ob.GetBestAsk()
 	
 	// Create market data message
 	type MarketData struct {

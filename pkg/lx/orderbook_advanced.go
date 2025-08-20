@@ -732,13 +732,16 @@ func (book *AdvancedOrderBook) validateOrder(order *AdvancedOrder) error {
 		return errors.New("limit order must have positive price")
 	}
 
-	// Check tick size
-	if math.Mod(order.Price, book.tickSize) != 0 {
+	// Check tick size with tolerance for floating point precision
+	const epsilon = 1e-9
+	remainder := math.Mod(order.Price, book.tickSize)
+	if remainder > epsilon && remainder < (book.tickSize - epsilon) {
 		return fmt.Errorf("price must be multiple of tick size %.2f", book.tickSize)
 	}
 
-	// Check lot size
-	if math.Mod(order.Size, book.lotSize) != 0 {
+	// Check lot size with tolerance for floating point precision
+	sizeRemainder := math.Mod(order.Size, book.lotSize)
+	if sizeRemainder > epsilon && sizeRemainder < (book.lotSize - epsilon) {
 		return fmt.Errorf("size must be multiple of lot size %.3f", book.lotSize)
 	}
 

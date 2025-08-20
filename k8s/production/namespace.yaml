@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lxdex-production
+  labels:
+    name: lxdex-production
+    environment: production
+    app: lxdex
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: lxdex-quota
+  namespace: lxdex-production
+spec:
+  hard:
+    requests.cpu: "100"
+    requests.memory: 500Gi
+    requests.storage: 10Ti
+    persistentvolumeclaims: "20"
+    services.loadbalancers: "5"
