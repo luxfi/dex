@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// AlertSeverity represents the severity level of an alert
+type AlertSeverity int
+
+const (
+	InfoAlert AlertSeverity = iota
+	WarningAlert
+	CriticalAlert
+)
+
 // PriceOracle aggregates prices from multiple sources
 type PriceOracle struct {
 	// Price sources
