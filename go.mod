@@ -6,9 +6,12 @@ toolchain go1.24.6
 
 require (
 	github.com/gorilla/websocket v1.5.3
+	github.com/luxfi/consensus v1.0.0
 	github.com/luxfi/database v1.1.13
 	github.com/luxfi/log v1.1.22
 	github.com/luxfi/metric v1.3.0
+	github.com/luxfi/crypto v1.3.2
+	github.com/luxfi/ids v1.0.2
 	github.com/luxfi/mlx v0.2.0
 	github.com/luxfi/qzmq v0.1.0
 	github.com/nats-io/nats.go v1.44.0
@@ -44,9 +47,6 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/luxfi/crypto v1.3.2 // indirect
-	github.com/luxfi/ids v1.0.2 // indirect
-	github.com/luxfi/node v1.13.4 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect

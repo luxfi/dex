@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: LX DEX API
+  description: High-performance decentralized exchange with perpetual contracts and 8-hour funding mechanism
+  version: 1.0.0
+  contact:
+    name: LX DEX Team
+    url: https://github.com/luxfi/dex
+
+servers:
+  - url: http://localhost:8080
+    description: JSON-RPC Server
+  - url: http://localhost:50051
+    description: gRPC Server
+  - url: ws://localhost:8081
+    description: WebSocket Server
+  - url: tcp://localhost:4444
+    description: FIX Binary over QZMQ
+
+paths:
+  /rpc:
+    post:
+      summary: JSON-RPC 2.0 Endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonRpcRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JsonRpcResponse'
+
+  /health:
+    get:
+      summary: Health Check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+components:
+  schemas:
+    JsonRpcRequest:
+      type: object
+      required:
+        - jsonrpc
+        - method
+        - id
+      properties:
+        jsonrpc:
+          type: string
+          enum: ["2.0"]
+        method:
+          type: string
+          enum:
+            - lx_placeOrder
+            - lx_cancelOrder
+            - lx_getOrders
+            - lx_openPosition
+            - lx_closePosition
+            - lx_getPositions
+            - lx_getFundingRate
+            - lx_getOrderBook
+            - lx_getTrades
+        params:
+          type: object
+        id:
+          type: integer
+
+    JsonRpcResponse:
+      type: object
+      required:
+        - jsonrpc
+        - id
+      properties:
+        jsonrpc:
+          type: string
+          enum: ["2.0"]
+        result:
+          type: object
+        error:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+        id:
+          type: integer
+
+    Order:
+      type: object
+      required:
+        - symbol
+        - side
+        - type
+        - size
+      properties:
+        id:
+          type: integer
+          format: int64
+        symbol:
+          type: string
+          example: "BTC-USD-PERP"
+        side:
+          type: string
+          enum: [buy, sell]
+        type:
+          type: string
+          enum: [limit, market, stop, stop_limit, iceberg, peg, bracket]
+        price:
+          type: number
+          format: double
+        size:
+          type: number
+          format: double
+        leverage:
+          type: integer
+          minimum: 1
+          maximum: 100
+        timeInForce:
+          type: string
+          enum: [GTC, IOC, FOK, GTX]
+        clientId:
+          type: string
+        stopPrice:
+          type: number
+          format: double
+        displaySize:
+          type: number
+          format: double
+        pegType:
+          type: string
+          enum: [bid, ask, mid]
+        takeProfitPrice:
+          type: number
+          format: double
+        stopLossPrice:
+          type: number
+          format: double
+
+    Position:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: "BTC-USD-PERP"
+        side:
+          type: string
+          enum: [long, short]
+        size:
+          type: number
+          format: double
+        entryPrice:
+          type: number
+          format: double
+        markPrice:
+          type: number
+          format: double
+        unrealizedPnl:
+          type: number
+          format: double
+        realizedPnl:
+          type: number
+          format: double
+        margin:
+          type: number
+          format: double
+        marginRatio:
+          type: number
+          format: double
+        liquidationPrice:
+          type: number
+          format: double
+        leverage:
+          type: integer
+        marginMode:
+          type: string
+          enum: [cross, isolated]
+
+    FundingRate:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: "BTC-USD-PERP"
+        rate:
+          type: number
+          format: double
+          description: Current funding rate (e.g., 0.0001 = 0.01%)
+        nextFundingTime:
+          type: string
+          format: date-time
+          description: Next funding time (00:00, 08:00, or 16:00 UTC)
+        predictedRate:
+          type: number
+          format: double
+          description: Predicted funding rate for next period
+        indexPrice:
+          type: number
+          format: double
+        markPrice:
+          type: number
+          format: double
+        openInterest:
+          type: number
+          format: double
+
+    OrderBook:
+      type: object
+      properties:
+        symbol:
+          type: string
+        bids:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+            minItems: 2
+            maxItems: 2
+            description: "[price, size]"
+        asks:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+            minItems: 2
+            maxItems: 2
+            description: "[price, size]"
+        timestamp:
+          type: integer
+          format: int64
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        symbol:
+          type: string
+        price:
+          type: number
+          format: double
+        size:
+          type: number
+          format: double
+        side:
+          type: string
+          enum: [buy, sell]
+        timestamp:
+          type: integer
+          format: int64
+        maker:
+          type: string
+        taker:
+          type: string
+
+    WebSocketMessage:
+      type: object
+      properties:
+        op:
+          type: string
+          enum: [subscribe, unsubscribe, ping]
+        channels:
+          type: array
+          items:
+            type: string
+            example: "orderbook:BTC-USD-PERP"
+
+    WebSocketSubscription:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum:
+            - orderbook
+            - trades
+            - funding
+            - liquidations
+            - positions
+            - orders
+        symbol:
+          type: string
+        data:
+          type: object
+
+security:
+  - apiKey: []
+
+tags:
+  - name: Trading
+    description: Order placement and management
+  - name: Perpetuals
+    description: Perpetual contract operations
+  - name: Market Data
+    description: Real-time market data
+  - name: Account
+    description: Account management
