@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  dex-cuda:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    image: lux-dex:cuda
+    container_name: lux-dex-cuda
+    
+    # Enable GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    environment:
+      - CGO_ENABLED=1
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/app
+      - ENGINE_MODE=cuda
+      - LOG_LEVEL=debug
+      - METRICS_ENABLED=true
+    
+    ports:
+      - "8080:8080"  # REST API
+      - "8081:8081"  # WebSocket
+      - "9090:9090"  # Metrics
+    
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    restart: unless-stopped
+
+  dex-cuda-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    image: lux-dex:cuda-test
+    container_name: lux-dex-cuda-test
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    environment:
+      - CGO_ENABLED=1
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/app
+    
+    command: |
+      bash -c "
+        cd /build
+        echo '=== CUDA Detection ==='
+        nvidia-smi
+        echo ''
+        echo '=== Running Tests ==='
+        go test -v ./pkg/mlx/...
+        echo ''
+        echo '=== Running Benchmarks ==='
+        go test -bench=. -benchtime=30s ./pkg/mlx/...
+      "
+    
+    volumes:
+      - ./benchmark-results:/results
+    
+    profiles:
+      - test
+
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: lux-dex-prometheus
+    
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    
+    ports:
+      - "9091:9090"
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lux-dex-grafana
+    
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - grafana-data:/var/lib/grafana
+    
+    ports:
+      - "3000:3000"
+    
+    depends_on:
+      - monitoring
+    
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

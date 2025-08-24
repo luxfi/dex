@@ -1,0 +1,54 @@
+# Multi-stage build for LX DEX multi-node
+FROM golang:1.24.5-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    gcc \
+    g++ \
+    make \
+    git \
+    zeromq-dev \
+    pkgconfig
+
+# Set working directory
+WORKDIR /build
+
+# Copy go mod files
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY backend/ ./
+
+# Build multi-node binary
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o multi-node ./cmd/multi-node/main.go
+
+# Build test client
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o test-client ./cmd/multi-node/client.go
+
+# Final stage
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    zeromq \
+    ca-certificates
+
+# Create app directory
+WORKDIR /app
+
+# Copy binaries from builder
+COPY --from=builder /build/multi-node /app/
+COPY --from=builder /build/test-client /app/
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Expose ports
+# PUB, SUB, ROUTER, DEALER
+EXPOSE 5000 5001 5002 5003
+EXPOSE 5100 5101 5102 5103
+EXPOSE 5200 5201 5202 5203
+
+# Default command
+CMD ["/app/multi-node"]
