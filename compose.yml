@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # Lux Oracle - Real-time price feeds
+  oracle:
+    build: ./oracle
+    container_name: lux-oracle
+    ports:
+      - "2000:2000"    # HTTP API
+      - "2002:2002"    # WebSocket
+      - "8080:8080"    # Metrics
+    networks:
+      - lux-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend Trading Engines
+  engine-go:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.go
+    container_name: lux-engine-go
+    environment:
+      - CGO_ENABLED=0
+      - ENGINE_PORT=50051
+    ports:
+      - "50051:50051"
+    networks:
+      - lux-network
+    depends_on:
+      - oracle
+
+  engine-hybrid:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.hybrid
+    container_name: lux-engine-hybrid
+    environment:
+      - CGO_ENABLED=1
+      - ENGINE_PORT=50052
+    ports:
+      - "50052:50052"
+    networks:
+      - lux-network
+    depends_on:
+      - oracle
+
+  engine-cpp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.cpp
+    container_name: lux-engine-cpp
+    environment:
+      - ENGINE_PORT=50053
+    ports:
+      - "50053:50053"
+    networks:
+      - lux-network
+    depends_on:
+      - oracle
+
+  # Engine Router/Load Balancer
+  engine-router:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.router
+    container_name: lux-engine-router
+    environment:
+      - ROUTER_PORT=50050
+      - GO_ENGINE=engine-go:50051
+      - HYBRID_ENGINE=engine-hybrid:50052
+      - CPP_ENGINE=engine-cpp:50053
+      - DEFAULT_ENGINE=engine-hybrid:50052
+    ports:
+      - "50050:50050"
+    networks:
+      - lux-network
+    depends_on:
+      - engine-go
+      - engine-hybrid
+      - engine-cpp
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: lux-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - lux-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lux-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config/grafana:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    networks:
+      - lux-network
+    depends_on:
+      - prometheus
+
+networks:
+  lux-network:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
