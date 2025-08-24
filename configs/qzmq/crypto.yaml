@@ -1,0 +1,33 @@
+# QZMQ Cryptographic Configuration
+crypto:
+  # Default suite - hybrid for smooth migration
+  suite: 
+    kem: "x25519+mlkem768"
+    sig: "mldsa2"
+    aead: "aes256gcm"
+    hash: "sha256"
+  
+  # PQ-only mode for maximum security
+  pq_only: false
+  
+  # AEAD tag size (always 128-bit for security)
+  tag_bits: 128
+  
+  # Key rotation policies
+  key_update:
+    max_msgs: 4294967296          # 2^32 messages
+    max_bytes: 1125899906842624   # 2^50 bytes (~1 PiB)
+    max_age_s: 600                 # 10 minutes
+  
+  # Budgets and limits
+  limits:
+    max_handshake_size: 65536     # 64KB max handshake
+    max_message_size: 1048576     # 1MB max message
+    max_aad_size: 255              # Max additional data
+  
+  # Certificate configuration
+  certs:
+    algorithm: "mldsa2"            # ML-DSA-2 for certificates
+    validity_days: 30              # Short-lived certificates
+    pin_spki: true                 # Pin public keys
+    verify_chain: true             # Full chain verification

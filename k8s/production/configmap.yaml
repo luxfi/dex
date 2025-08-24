@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lxdex-config
+  namespace: lxdex-production
+data:
+  node.yaml: |
+    node:
+      id: ${NODE_ID}
+      data_dir: /data/lxd
+      log_level: info
+      
+    network:
+      http_port: 8080
+      ws_port: 8081
+      grpc_port: 50051
+      qzmq_pub_port: 5555
+      qzmq_sub_port: 5556
+      
+    consensus:
+      enable: true
+      k: 3
+      n: 3
+      block_time: 1ms
+      finality_threshold: 0.67
+      
+    engine:
+      type: hybrid
+      enable_mlx: true
+      enable_gpu: true
+      max_batch_size: 10000
+      
+    orderbook:
+      max_orders_per_user: 1000
+      max_order_size: 100000
+      min_order_size: 0.0001
+      price_precision: 7
+      
+    risk:
+      enable: true
+      max_leverage: 100
+      min_margin: 0.01
+      liquidation_threshold: 0.95
+      
+    markets:
+      - symbol: BTC-USD
+        tick_size: 0.01
+        min_size: 0.00001
+        max_size: 1000
+      - symbol: ETH-USD
+        tick_size: 0.01
+        min_size: 0.0001
+        max_size: 10000
+      - symbol: LUX-USD
+        tick_size: 0.0001
+        min_size: 1
+        max_size: 1000000
+        
+  haproxy.cfg: |
+    global
+        maxconn 100000
+        nbthread 8
+        cpu-map auto:1/1-8 0-7
+        stats socket /var/run/haproxy.sock mode 600 level admin
+        
+    defaults
+        mode http
+        timeout connect 5s
+        timeout client 30s
+        timeout server 30s
+        option httplog
+        
+    backend lxdex_http
+        balance leastconn
+        option httpchk GET /health
+        server node1 lxdex-node-0:8080 check
+        server node2 lxdex-node-1:8080 check
+        server node3 lxdex-node-2:8080 check
+        
+    backend lxdex_ws
+        balance source
+        option httpchk GET /health
+        server node1 lxdex-node-0:8081 check
+        server node2 lxdex-node-1:8081 check
+        server node3 lxdex-node-2:8081 check
+        
+    backend lxdex_grpc
+        mode tcp
+        balance leastconn
+        server node1 lxdex-node-0:50051 check
+        server node2 lxdex-node-1:50051 check
+        server node3 lxdex-node-2:50051 check

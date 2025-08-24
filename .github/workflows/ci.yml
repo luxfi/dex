@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Get dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test ./pkg/lx -v -cover -timeout=30s
+    
+    - name: Run benchmarks
+      run: go test ./pkg/lx -bench=. -benchmem -run=^$ -benchtime=1s
+    
+    - name: Check test coverage
+      run: |
+        go test ./pkg/lx -cover -coverprofile=coverage.out
+        go tool cover -func=coverage.out
+    
+    - name: Verify critical components
+      run: |
+        echo "Testing critical components..."
+        go test ./pkg/lx -run "TestOrderBook|TestLiquidationEngine|TestStaking" -v
+        
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Build
+      run: go build -v ./...
+    
+    - name: Vet
+      run: go vet ./...

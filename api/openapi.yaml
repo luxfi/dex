@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info:
+  title: LX Trading API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+paths:
+  /orders:
+    post:
+      summary: Submit order
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                symbol:
+                  type: string
+                side:
+                  type: string
+                  enum: [buy, sell]
+                quantity:
+                  type: number
+                price:
+                  type: number
+      responses:
+        '201':
+          description: Order created

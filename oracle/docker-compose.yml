@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # Lux Oracle - Real-time price feeds powered by Pyth Network
+  lux-oracle:
+    image: public.ecr.aws/pyth-network/hermes:latest
+    container_name: lux-oracle
+    restart: unless-stopped
+    environment:
+      # Network configuration
+      - PYTHNET_HTTP_ENDPOINT=https://pythnet.rpcpool.com
+      - PYTHNET_WS_ENDPOINT=wss://pythnet.rpcpool.com
+      
+      # Hermes configuration
+      - HERMES_ENDPOINT=0.0.0.0:2000
+      - HERMES_WS_ENDPOINT=0.0.0.0:2002
+      - HERMES_METRICS_PORT=8080
+      
+      # Price feed configuration
+      - ENABLE_ALL_PRICE_FEEDS=true
+      - PRICE_SERVICE_URLS=https://xc-mainnet.pyth.network,https://xc-testnet.pyth.network
+      
+      # Performance tuning
+      - MAX_MESSAGE_SIZE=104857600
+      - WS_MAX_FRAME_SIZE=104857600
+      - CACHE_TTL_SECONDS=1
+      - UPDATE_INTERVAL_MS=400
+      
+      # Logging
+      - RUST_LOG=info
+      - LOG_FORMAT=json
+    ports:
+      - "2000:2000"    # HTTP API
+      - "2002:2002"    # WebSocket API
+      - "8080:8080"    # Prometheus metrics
+    volumes:
+      - oracle-data:/data
+      - ./config:/config
+    networks:
+      - lx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # Lux Price Pusher (optional - for pushing prices on-chain)
+  price-pusher:
+    image: public.ecr.aws/pyth-network/price-pusher:latest
+    container_name: lux-price-pusher
+    restart: unless-stopped
+    environment:
+      - HERMES_URL=http://lux-oracle:2000
+      - TARGET_CHAINS=ethereum,avalanche,bsc,polygon
+      - PUSH_INTERVAL_SECONDS=60
+      - RUST_LOG=info
+    depends_on:
+      - lux-oracle
+    networks:
+      - lx-network
+    profiles:
+      - pusher
+
+  # Monitoring for Lux Oracle
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: lux-oracle-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - lx-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lux-oracle-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=pyth-network-datasource
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./monitoring/grafana:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    networks:
+      - lx-network
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+networks:
+  lx-network:
+    external: true
+    name: lx-backend_lx-network
+
+volumes:
+  oracle-data:
+  prometheus-data:
+  grafana-data:

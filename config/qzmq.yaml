@@ -1,0 +1,220 @@
+# QZMQ Configuration for DEX
+# Post-quantum secure transport configuration
+
+# Global defaults
+qzmq:
+  enabled: true
+  fallback_curve: true  # Allow fallback to CurveZMQ during migration
+  log_level: info
+  
+  # Default cryptographic suite
+  default_suite:
+    kem: "x25519+mlkem768"  # Hybrid KEM (classical + post-quantum)
+    sig: "mldsa44"          # ML-DSA-44 (Dilithium2)
+    aead: "aes256gcm"       # AES-256-GCM
+    hash: "sha256"          # SHA-256
+  
+  # Alternate suites for compatibility
+  allowed_suites:
+    - id: "default"
+      kem: "x25519+mlkem768"
+      sig: "mldsa44"
+      aead: "aes256gcm"
+      hash: "sha256"
+    - id: "high_security"
+      kem: "x25519+mlkem1024"
+      sig: "mldsa65"
+      aead: "aes256gcm"
+      hash: "sha384"
+    - id: "performance"
+      kem: "x25519+mlkem768"
+      sig: "mldsa44"
+      aead: "chacha20poly1305"
+      hash: "sha256"
+  
+  # Key rotation policy
+  key_rotation:
+    max_messages: 4294967296        # 2^32 messages
+    max_bytes: 1125899906842624     # 2^50 bytes (~1PB)
+    max_duration_seconds: 600       # 10 minutes
+    auto_rotate: true
+  
+  # Session management
+  session:
+    cache_size: 10000               # Max cached sessions
+    resumption_timeout: 86400       # 24 hours
+    ticket_rotation: 3600           # 1 hour
+    enable_0rtt: false              # Disabled by default for financial data
+  
+  # Connection settings
+  connection:
+    handshake_timeout_ms: 5000
+    idle_timeout_seconds: 300
+    max_frame_size: 16777216        # 16MB
+    replay_window_size: 1024
+  
+  # Certificate management
+  certificates:
+    path: "/etc/qzmq/certs"
+    verify_mode: "require"          # require, optional, none
+    pin_public_keys: true
+    ocsp_stapling: true
+    ml_dsa_cert_chain: true
+
+# Per-role/link configurations
+links:
+  # Engine replication - highest security
+  engine_replication:
+    enabled: true
+    pq_only: true                   # Enforce post-quantum only
+    suite: "high_security"
+    zero_rtt: false                 # Never allow 0-RTT
+    priority: "critical"
+    key_rotation:
+      max_messages: 1073741824      # 2^30 (more frequent rotation)
+      max_duration_seconds: 300     # 5 minutes
+    connection:
+      handshake_timeout_ms: 3000
+      idle_timeout_seconds: 60
+    
+  # Market data feed - optimized for performance
+  market_data:
+    enabled: true
+    pq_only: true
+    suite: "performance"
+    zero_rtt: true                  # Allow 0-RTT for read-only data
+    priority: "high"
+    multicast: true
+    key_rotation:
+      max_duration_seconds: 900     # 15 minutes
+    connection:
+      handshake_timeout_ms: 1000
+      max_frame_size: 65536         # 64KB for small, frequent updates
+  
+  # Client API - balanced security/performance
+  client_api:
+    enabled: true
+    pq_only: false                  # Allow hybrid during transition
+    suite: "default"
+    zero_rtt: false
+    priority: "normal"
+    rate_limiting:
+      enabled: true
+      max_connections_per_ip: 100
+      max_handshakes_per_second: 10
+    connection:
+      handshake_timeout_ms: 10000
+      idle_timeout_seconds: 600
+  
+  # Admin interface - maximum security
+  admin:
+    enabled: true
+    pq_only: true
+    suite: "high_security"
+    zero_rtt: false
+    priority: "critical"
+    client_auth: "required"         # Require client certificates
+    allowed_ips:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+    key_rotation:
+      max_messages: 268435456       # 2^28
+      max_duration_seconds: 180     # 3 minutes
+  
+  # Inter-exchange connectivity
+  inter_exchange:
+    enabled: true
+    pq_only: true
+    suite: "high_security"
+    zero_rtt: false
+    priority: "high"
+    mutual_auth: true              # Both sides authenticate
+    connection:
+      handshake_timeout_ms: 15000
+      keepalive_interval: 30
+      keepalive_timeout: 90
+
+# Migration settings
+migration:
+  mode: "dual_stack"               # dual_stack, qzmq_only, curve_only
+  start_date: "2025-09-01T00:00:00Z"
+  phases:
+    - name: "internal_dark_launch"
+      start: "2025-09-01T00:00:00Z"
+      duration_days: 7
+      links: ["engine_replication"]
+      mode: "dual_stack"
+    - name: "market_data_canary"
+      start: "2025-09-08T00:00:00Z"
+      duration_days: 14
+      links: ["market_data"]
+      mode: "dual_stack"
+      canary_percentage: 10
+    - name: "client_api_rollout"
+      start: "2025-09-22T00:00:00Z"
+      duration_days: 30
+      links: ["client_api"]
+      mode: "dual_stack"
+      gradual_rollout: true
+    - name: "full_deployment"
+      start: "2025-10-22T00:00:00Z"
+      duration_days: 14
+      links: ["all"]
+      mode: "qzmq_only"
+    - name: "curve_deprecation"
+      start: "2025-11-05T00:00:00Z"
+      mode: "qzmq_only"
+      disable_curve: true
+
+# Monitoring and metrics
+monitoring:
+  metrics_enabled: true
+  metrics_port: 9091
+  export_interval_seconds: 10
+  tracked_metrics:
+    - handshake_duration
+    - handshake_failures
+    - key_rotations
+    - session_resumptions
+    - zero_rtt_accepts
+    - zero_rtt_rejects
+    - bytes_encrypted
+    - messages_sent
+    - connection_count
+  
+  alerts:
+    - metric: "handshake_duration_p99"
+      threshold: 10  # ms
+      severity: "warning"
+    - metric: "handshake_failure_rate"
+      threshold: 0.01  # 1%
+      severity: "critical"
+    - metric: "key_rotation_failures"
+      threshold: 1
+      severity: "critical"
+
+# Testing configuration
+testing:
+  enabled: false
+  test_vectors_path: "/etc/qzmq/test_vectors"
+  chaos_monkey:
+    enabled: false
+    failure_rate: 0.001
+    latency_injection: false
+    packet_loss_rate: 0.0001
+  load_testing:
+    enabled: false
+    connections: 10000
+    messages_per_second: 100000
+    duration_seconds: 3600
+
+# Compliance and audit
+compliance:
+  log_all_handshakes: true
+  log_retention_days: 90
+  audit_trail: true
+  fips_mode: false  # ML-KEM/ML-DSA not yet FIPS certified
+  export_restrictions:
+    enforce: true
+    blocked_countries: []
+    require_license: false

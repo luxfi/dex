@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  # Node 0 - Leader
+  node0:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi-node
+    container_name: lx-node0
+    hostname: node0
+    environment:
+      - NODE_ID=node0
+      - BASE_PORT=5000
+      - IS_LEADER=true
+      - PEERS=tcp://node1:5100,tcp://node2:5200
+    ports:
+      - "5000:5000"  # PUB
+      - "5001:5001"  # SUB
+      - "5002:5002"  # ROUTER
+      - "5003:5003"  # DEALER
+    networks:
+      - lx-network
+    volumes:
+      - ./logs/node0:/app/logs
+    command: >
+      /app/multi-node
+      --node node0
+      --port 5000
+      --peers tcp://node1:5100,tcp://node2:5200
+      --leader
+
+  # Node 1
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi-node
+    container_name: lx-node1
+    hostname: node1
+    environment:
+      - NODE_ID=node1
+      - BASE_PORT=5100
+      - IS_LEADER=false
+      - PEERS=tcp://node0:5000,tcp://node2:5200
+    ports:
+      - "5100:5100"  # PUB
+      - "5101:5101"  # SUB
+      - "5102:5102"  # ROUTER
+      - "5103:5103"  # DEALER
+    networks:
+      - lx-network
+    volumes:
+      - ./logs/node1:/app/logs
+    command: >
+      /app/multi-node
+      --node node1
+      --port 5100
+      --peers tcp://node0:5000,tcp://node2:5200
+    depends_on:
+      - node0
+
+  # Node 2
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi-node
+    container_name: lx-node2
+    hostname: node2
+    environment:
+      - NODE_ID=node2
+      - BASE_PORT=5200
+      - IS_LEADER=false
+      - PEERS=tcp://node0:5000,tcp://node1:5100
+    ports:
+      - "5200:5200"  # PUB
+      - "5201:5201"  # SUB
+      - "5202:5202"  # ROUTER
+      - "5203:5203"  # DEALER
+    networks:
+      - lx-network
+    volumes:
+      - ./logs/node2:/app/logs
+    command: >
+      /app/multi-node
+      --node node2
+      --port 5200
+      --peers tcp://node0:5000,tcp://node1:5100
+    depends_on:
+      - node0
+
+  # Test Client
+  test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi-node
+    container_name: lx-test-client
+    environment:
+      - NODES=tcp://node0:5002,tcp://node1:5102,tcp://node2:5202
+      - DURATION=60s
+      - RATE=1000
+    networks:
+      - lx-network
+    volumes:
+      - ./logs/client:/app/logs
+    command: >
+      sh -c "sleep 5 && /app/test-client
+      --nodes tcp://node0:5002,tcp://node1:5102,tcp://node2:5202
+      --duration 60s
+      --rate 1000"
+    depends_on:
+      - node0
+      - node1
+      - node2
+
+  # Monitoring Dashboard (optional)
+  monitor:
+    image: prom/prometheus:latest
+    container_name: lx-monitor
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - lx-network
+    depends_on:
+      - node0
+      - node1
+      - node2
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lx-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./config/grafana:/etc/grafana/provisioning
+    networks:
+      - lx-network
+    depends_on:
+      - monitor
+
+networks:
+  lx-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  logs:

@@ -1,0 +1,44 @@
+# QZMQ Transport Configuration
+zmq:
+  # Security mechanism
+  mechanism: "QZMQ1"
+  
+  # Legacy support (disabled by default)
+  allow_legacy_curve: false
+  allow_plain: false
+  allow_null: false
+  
+  # Anti-DoS protection
+  anti_dos_cookie: true
+  cookie_timeout_s: 60
+  max_handshake_attempts: 3
+  
+  # Session resumption
+  resumption:
+    enable: true
+    lifetime_s: 86400              # 24 hours
+    max_tickets: 1000              # Max cached tickets
+    ticket_rotation_s: 3600        # Rotate every hour
+  
+  # 0-RTT configuration
+  zero_rtt:
+    allow: true
+    safe_topics:                   # Only for read-only operations
+      - "md.snapshot"
+      - "md.heartbeat"
+      - "status.ping"
+    max_early_data: 16384          # 16KB max 0-RTT data
+  
+  # Connection parameters
+  connection:
+    heartbeat_s: 30
+    timeout_s: 120
+    reconnect_ivl_ms: 100
+    reconnect_ivl_max_ms: 30000
+  
+  # Buffer sizes
+  buffers:
+    sndhwm: 10000                  # Send high water mark
+    rcvhwm: 10000                  # Receive high water mark
+    sndbuf: 1048576                # 1MB send buffer
+    rcvbuf: 1048576                # 1MB receive buffer
