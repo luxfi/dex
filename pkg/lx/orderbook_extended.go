@@ -3,6 +3,7 @@ package lx
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -276,8 +277,37 @@ func (book *ExtendedOrderBook) addRegularOrder(order *Order) (uint64, error) {
 
 // canFullyFill checks if an order can be fully filled
 func (book *ExtendedOrderBook) canFullyFill(order *Order) bool {
-	// Simplified implementation - needs OrderTree methods
-	return true // Assume it can be filled for now
+	var tree *OrderTree
+	if order.Side == Buy {
+		tree = book.Asks
+	} else {
+		tree = book.Bids
+	}
+
+	if tree == nil || len(tree.priceLevels) == 0 {
+		return false
+	}
+
+	remainingSize := order.Size
+	for _, level := range tree.priceLevels {
+		// For buy orders, check asks up to order price
+		// For sell orders, check bids down to order price
+		if order.Side == Buy && level.Price > order.Price {
+			break
+		}
+		if order.Side == Sell && level.Price < order.Price {
+			break
+		}
+
+		for _, levelOrder := range level.Orders {
+			remainingSize -= levelOrder.Size
+			if remainingSize <= 0 {
+				return true
+			}
+		}
+	}
+
+	return remainingSize <= 0
 }
 
 // GetDepth returns the order book depth up to specified levels
@@ -509,8 +539,54 @@ func (book *ExtendedOrderBook) GetMidPrice() float64 {
 
 // GetVWAP calculates volume-weighted average price for a given size
 func (book *ExtendedOrderBook) GetVWAP(side Side, size float64) (float64, error) {
-	// Simplified - needs OrderTree traversal
-	return 0, fmt.Errorf("not implemented")
+	book.mu.RLock()
+	defer book.mu.RUnlock()
+
+	if size <= 0 {
+		return 0, fmt.Errorf("invalid size: %f", size)
+	}
+
+	var tree *OrderTree
+	if side == Buy {
+		tree = book.Asks // Buy from asks
+	} else {
+		tree = book.Bids // Sell to bids
+	}
+
+	if tree == nil || len(tree.priceLevels) == 0 {
+		return 0, fmt.Errorf("no liquidity available")
+	}
+
+	var totalValue float64
+	var totalSize float64
+	remainingSize := size
+
+	// Traverse price levels to calculate VWAP
+	for _, level := range tree.priceLevels {
+		if remainingSize <= 0 {
+			break
+		}
+
+		levelSize := 0.0
+		for _, order := range level.Orders {
+			levelSize += order.Size
+		}
+
+		fillSize := math.Min(remainingSize, levelSize)
+		totalValue += level.Price * fillSize
+		totalSize += fillSize
+		remainingSize -= fillSize
+	}
+
+	if totalSize == 0 {
+		return 0, fmt.Errorf("insufficient liquidity")
+	}
+
+	if remainingSize > 0 {
+		return totalValue / totalSize, fmt.Errorf("partial fill: only %.2f of %.2f available", totalSize, size)
+	}
+
+	return totalValue / totalSize, nil
 }
 
 // GetMarketImpact estimates the market impact of a large order

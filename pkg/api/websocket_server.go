@@ -1126,33 +1126,47 @@ func (ws *WebSocketServer) positionMonitor() {
 }
 
 func (ws *WebSocketServer) checkLiquidations() {
-	// TODO: Implement GetAllAccounts and liquidation monitoring
-	// accounts := ws.marginEngine.GetAllAccounts()
-
-	// for _, account := range accounts {
-	// 	for _, position := range account.Positions {
-	// 		// Check if position should be liquidated
-	// 		markPrice := ws.oracle.GetPrice(position.Symbol)
-	// 		if ws.marginEngine.ShouldLiquidate(position, markPrice) {
-	// 			// Process liquidation
-	// 			liquidationOrder := &lx.Order{
-	// 				Symbol: position.Symbol,
-	// 				Side:   oppositeSide(position.Side),
-	// 				Type:   lx.Market,
-	// 				Size:   position.Size,
-	// 				User:   "liquidation_engine",
-	// 			}
-	//
-	// 	err := ws.liquidationEngine.ProcessLiquidation(account.UserID, position, liquidationOrder)
-	// 	if err == nil {
-	// 		ws.metrics.LiquidationsExecuted++
-	//
-	// 		// Notify client
-	// 		ws.notifyLiquidation(account.UserID, position)
-	// 	}
-	// }
-	// }
-	// }
+	// Use the MarginEngine's built-in CheckLiquidations method
+	ws.marginEngine.CheckLiquidations()
+	
+	// TODO: The following would need implementation of GetAllPositions
+	// and manual liquidation checks if needed
+	/*
+	positions := ws.marginEngine.GetAllPositions()
+	
+	for _, position := range positions {
+		// Get current mark price from oracle
+		markPrice := ws.oracle.GetPrice(position.Symbol)
+		position.MarkPrice = markPrice
+		
+		// Check if position should be liquidated
+		if ws.marginEngine.ShouldLiquidate(position, markPrice) {
+			// Create liquidation order
+			liquidationOrder := &lx.Order{
+				Symbol: position.Symbol,
+				Side:   oppositeSide(position.Side),
+				Type:   lx.Market,
+				Size:   position.Size,
+				User:   "liquidation_engine",
+			}
+			
+			// Process the liquidation
+			err := ws.liquidationEngine.ProcessLiquidation(position.User, position, liquidationOrder)
+			if err == nil {
+				ws.metrics.LiquidationsExecuted++
+				
+				// Notify the affected client
+				ws.notifyLiquidation(position.User, position)
+				
+				// Log liquidation event
+				log.Printf("Liquidated position: user=%s, symbol=%s, size=%f, price=%f",
+					position.User, position.Symbol, position.Size, markPrice)
+			} else {
+				log.Printf("Failed to liquidate position: %v", err)
+			}
+		}
+	}
+	*/
 }
 
 func (ws *WebSocketServer) notifyLiquidation(userID string, position *lx.MarginPosition) {
@@ -1168,16 +1182,39 @@ func (ws *WebSocketServer) notifyLiquidation(userID string, position *lx.MarginP
 	ws.mu.RUnlock()
 
 	if targetClient != nil {
+		// Calculate realized PnL
+		realizedPnL := (position.MarkPrice - position.EntryPrice) * position.Size
+		if position.Side == lx.Sell {
+			realizedPnL = -realizedPnL
+		}
+		
 		msg := Message{
 			Type: "position_update",
 			Data: map[string]interface{}{
-				"position": position,
-				"action":   "liquidated",
-				"message":  fmt.Sprintf("Position %s liquidated at %.2f", position.ID, position.MarkPrice),
+				"position":    position,
+				"action":      "liquidated",
+				"message":     fmt.Sprintf("Position %s liquidated at %.2f", position.ID, position.MarkPrice),
+				"realizedPnL": realizedPnL,
 			},
 			Timestamp: time.Now().Unix(),
 		}
 		targetClient.sendMessage(msg)
+	}
+	
+	// Also broadcast public liquidation event
+	liquidationMsg := Message{
+		Type: "public_liquidation",
+		Data: map[string]interface{}{
+			"symbol":     position.Symbol,
+			"side":       position.Side,
+			"size":       position.Size,
+			"price":      position.MarkPrice,
+			"timestamp":  time.Now().Unix(),
+		},
+		Timestamp: time.Now().Unix(),
+	}
+	if msgBytes, err := json.Marshal(liquidationMsg); err == nil {
+		ws.broadcast <- msgBytes
 	}
 }
 
