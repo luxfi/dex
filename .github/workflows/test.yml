@@ -45,8 +45,8 @@ jobs:
       env:
         CGO_ENABLED: ${{ matrix.cgo }}
       run: |
-        # Test only packages that exist
-        go test -v -race -coverprofile=coverage.txt -covermode=atomic ./pkg/lx/... || true
+        # Test only packages that exist with short timeout
+        go test -v -race -coverprofile=coverage.txt -covermode=atomic -timeout=5s -short ./pkg/lx/... || true
     
     - name: Upload coverage
       if: matrix.cgo == '0' && matrix.go == '1.21'

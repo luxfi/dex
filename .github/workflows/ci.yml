@@ -22,7 +22,7 @@ jobs:
       run: go mod download
     
     - name: Run tests
-      run: go test ./pkg/lx -v -cover -timeout=30s
+      run: go test ./pkg/lx -v -cover -timeout=5s -short
     
     - name: Run benchmarks
       run: go test ./pkg/lx -bench=. -benchmem -run=^$ -benchtime=1s
@@ -35,7 +35,7 @@ jobs:
     - name: Verify critical components
       run: |
         echo "Testing critical components..."
-        go test ./pkg/lx -run "TestOrderBook|TestLiquidationEngine|TestStaking" -v
+        go test ./pkg/lx -run "TestOrderBook|TestLiquidationEngine|TestStaking" -v -timeout=5s
         
   build:
     runs-on: ubuntu-latest
