@@ -21,11 +21,23 @@ jobs:
     - name: Get dependencies
       run: go mod download
     
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        echo "Running tests..."
-        go test ./pkg/lx -v -short -timeout=5s || true
+        echo "Running tests with coverage..."
+        go test ./pkg/lx -v -short -timeout=5s -cover -coverprofile=coverage.out || true
         echo "Tests completed"
+    
+    - name: Generate coverage report
+      run: |
+        go tool cover -html=coverage.out -o coverage.html || true
+        go tool cover -func=coverage.out || true
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        fail_ci_if_error: false
     
     - name: Success
       run: echo "✅ CI Pipeline Passed"
