@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test:*)",
+      "Bash(go tool cover:*)",
+      "Bash(go clean:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(/dev/null)",
+      "Bash(go build:*)",
+      "Bash(grep:*)",
+      "Bash(timeout 60s go test ./pkg/lx -cover)",
+      "Bash(timeout:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

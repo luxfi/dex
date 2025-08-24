@@ -1,0 +1,118 @@
+{
+  "network-id": 1,
+  "db-dir": "/data/luxdb",
+  "log-level": "info",
+  "http-host": "0.0.0.0",
+  "http-port": 9650,
+  "staking-enabled": true,
+  "staking-port": 9651,
+  
+  "chain-configs": {
+    "X": {
+      "enabled": false,
+      "comment": "X-Chain disabled - using DEX VM instead"
+    }
+  },
+  
+  "vm-aliases": {
+    "X": "dexvm"
+  },
+  
+  "track-subnets": [],
+  
+  "chain-config-dir": "/config/chains",
+  
+  "build-dir": "/build",
+  
+  "plugin-dir": "/plugins",
+  
+  "consensus-parameters": {
+    "snow-sample-size": 20,
+    "snow-quorum-size": 15,
+    "snow-virtuous-commit-threshold": 20,
+    "snow-rogue-commit-threshold": 30,
+    "snow-concurrent-repolls": 4,
+    "snow-optimal-processing": 10,
+    "snow-max-processing": 256,
+    "snow-max-time-processing": "30s"
+  },
+  
+  "dex-config": {
+    "max-orders-per-block": 1000,
+    "max-trades-per-block": 5000,
+    "block-production-time": "2s",
+    "min-staking-amount": "2000000000000",
+    "validator-set-size": 100,
+    "enable-gpu": false,
+    "enable-fpga": false,
+    "enable-dpdk": false,
+    
+    "markets": [
+      {
+        "symbol": "LUX-USDC",
+        "tick-size": 0.01,
+        "lot-size": 0.001,
+        "min-order-size": 0.1,
+        "max-order-size": 10000,
+        "maker-fee": 0.0002,
+        "taker-fee": 0.0005
+      },
+      {
+        "symbol": "BTC-USDC",
+        "tick-size": 1,
+        "lot-size": 0.0001,
+        "min-order-size": 0.001,
+        "max-order-size": 100,
+        "maker-fee": 0.0002,
+        "taker-fee": 0.0005
+      },
+      {
+        "symbol": "ETH-USDC",
+        "tick-size": 0.1,
+        "lot-size": 0.001,
+        "min-order-size": 0.01,
+        "max-order-size": 1000,
+        "maker-fee": 0.0002,
+        "taker-fee": 0.0005
+      }
+    ],
+    
+    "clearinghouse": {
+      "initial-margin": 0.1,
+      "maintenance-margin": 0.05,
+      "max-leverage": 10,
+      "liquidation-penalty": 0.025,
+      "insurance-fund-target": "1000000000000"
+    },
+    
+    "funding": {
+      "interval": "8h",
+      "dampener": 0.05,
+      "max-rate": 0.01,
+      "interest-rate": 0.0001
+    },
+    
+    "bridge": {
+      "supported-chains": ["ethereum", "bsc", "polygon", "arbitrum", "optimism"],
+      "required-confirmations": 15,
+      "challenge-period": "24h",
+      "max-daily-volume": "100000000000000"
+    },
+    
+    "staking": {
+      "min-validator-stake": "20000000000000",
+      "max-validators": 100,
+      "delegation-enabled": true,
+      "min-delegation": "100000000000",
+      "unbonding-period": "504h",
+      "reward-rate": 0.12
+    },
+    
+    "vaults": {
+      "min-deposit": "100000000",
+      "profit-share": 0.1,
+      "min-leader-share": 0.05,
+      "strategy-types": ["ai_hft", "simple_mm", "grid", "arbitrage"]
+    }
+  }
+}

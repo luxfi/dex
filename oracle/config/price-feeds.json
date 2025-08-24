@@ -1,0 +1,89 @@
+{
+  "priceFeedIds": {
+    "crypto": {
+      "BTC/USD": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      "ETH/USD": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+      "SOL/USD": "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+      "BNB/USD": "0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
+      "XRP/USD": "0xec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8",
+      "ADA/USD": "0x2a01deaec9e51a579277b34b122399984d0bbf57e2458a7e42fecd2829867a0d",
+      "AVAX/USD": "0x93da3352f9f1d105fdfe4971cfa80e9dd77bfc192d909c4e32ac15a2f358a699",
+      "DOGE/USD": "0xdcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
+      "DOT/USD": "0xca3eed9b267293f6595901c734c7525ce8ef49adafe8284606ceb307afa2ca5b",
+      "MATIC/USD": "0x5de33a9112c2b700b8d30b8a3402c103578ccfa2765696471cc672bd5cf6ac52",
+      "LINK/USD": "0x8ac0c70fff57e9aefdf5edf44b51d62c2d433653cbb2cf5cc06bb115af04d221",
+      "UNI/USD": "0x78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737bf456b5e7c27",
+      "ATOM/USD": "0xb00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819",
+      "LTC/USD": "0x6e3f3fa8253588df9326580180233eb791e03b443a3ba7a1d892e73874e19a54",
+      "NEAR/USD": "0xc415de8d2eba7db216527dff3b60e8410ba5c7f2d87277a4b2c0b75d98cf1cfe"
+    },
+    "stocks": {
+      "AAPL": "0x67a6f93030501a32e15e09e0e61c38c9a04802d11e021a83669350c6fafb419f",
+      "GOOGL": "0xe65ff435be42630439c96396653a37829c6af7b0f6964a9337f05d79fd0473b7",
+      "MSFT": "0xd0ca23c1cc9a036b936a76507e9cb26289d4955d3e034e4d20ee8e734e839c69",
+      "AMZN": "0x9481b13ab3a9a96b90c90efb341bc37cbaa3bbfcb19dc86a1c10dc8e99e38b6d",
+      "TSLA": "0x16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1",
+      "META": "0x785646804ab62bb37280c8e7c3f5cf66cf5fa683177f16893b4ab685c0402e95",
+      "NVDA": "0x21198b2cc6eb5772917f8ffaa19056cfc7e8096bb0ee90f227d3e5f64833a57f",
+      "AMD": "0x5b1703d7eb9dc6b8b5e3c49ff906b5fd539a0c7a0f313b42e60c38583e8ad0f8",
+      "NFLX": "0xc10a6e9b196fa0b2c7bd2e595502a4dd1cf77ae39e04f55d1c8bb96bdb091730",
+      "SPY": "0x19e09bb805456ada3979a7d1caca8b470e96698d6be18bfcbbeb87c2cd6e8d45",
+      "QQQ": "0xb05c02b93c1211a9f96dc98e8e051b8a4bffa87e95e7e2b1d3e32e01797e7f58",
+      "DIA": "0xd47bf8553c8349f45b283a029126bf7fcb36a1dd08c1fca80ad032c56e696fce",
+      "JPM": "0x49e3ad9fb0b32a042e8098c5a6f8c88fe1e20f74e10799deb0e742c546f62311",
+      "BAC": "0xd56339ccf8a5c4e18beec5863a0e0e0487f5920bb0c87b3cd5bb3c21e8e28a9e"
+    },
+    "forex": {
+      "EUR/USD": "0xa995d00bb36a63cef7fd2c287dc105fc8f3d93779f062f09551b0af3e81ec30b",
+      "GBP/USD": "0x84c2dde9633d93d1bcad84e7dc41c9d56578b7ec52fabedc1f335d673df0a7c1",
+      "USD/JPY": "0xef23256c1e5917e6672c01c50a4f2e2e88e03e7e8c9caa4cc056a8a2b6c8e4d9",
+      "USD/CHF": "0x0b1e3297e643f39d15b5d63ddaa49dc95fb2036491e7c9ca504d2b2c6ad712a9",
+      "AUD/USD": "0x67a6f93030420a32e15e09e061e38c9a048e2d11de210833659350c6fecb520c",
+      "USD/CAD": "0x1cb0c97a1129c0b240e86351e3f5ec49c6e7886fa44de3e6d8b3645e4e593cc4",
+      "NZD/USD": "0x92eea9c3b0a2e2e1ffc86cc96a9a96e79312b5f6e3b22c6d5471ed93f91f3865",
+      "EUR/GBP": "0xc02033c956e96fb8bd1e3e24722c019b07731db5797e2bd5e89d59e02e6b1e0f",
+      "EUR/JPY": "0xde41cdd3fd5c779f9e0f51e14fd984f7c27e5e9e9e0f73e9a2e5c8a91a1c5290",
+      "GBP/JPY": "0x7c420ba479bc50cf8c1e46e19cc3b0bbca0b3c0e0b6db3e9f8e2a3fbe1e0e5b2"
+    },
+    "commodities": {
+      "GOLD": "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2",
+      "SILVER": "0xf2fb02c32b055c805e7238d628e5e9dadef274376114618e95738502200ef7b0",
+      "OIL_WTI": "0x30a19158f5a54c0adf8fb7560521343e81e80de53e71cafba56cbee946f36829",
+      "OIL_BRENT": "0x86443eb8d32c8e8e4bbbb3c1db295d0614e1a8f5e3f19b3b8d92a7e60f36ad1f",
+      "NATURAL_GAS": "0x21b42ce2bbed07e47bc9d5a427317c2bb0427266ad99a28bd3b97ef072113a01",
+      "COPPER": "0xa93f354d57859d473b130dc5c1e1e1e1e55dc1c7e78356c8bddcb09f7226e965",
+      "WHEAT": "0xd415f924f4dc40ae7c87cfccd5e97e0de345f60062e8f96ea086e1f1a2e5cbd8",
+      "CORN": "0x95241f154d34539741b19ce4bb8a9087b961b8640cb4c0ff0c4020bb5a8fb4eb",
+      "SOYBEANS": "0x66b70f19c16ed4406e9d5833ce27f2e47c7ec97dc8f652d90bc96797e82638e0",
+      "COFFEE": "0x72385e670ef5a87dd85e91db088e0a666c996ee0ca2e9bc0fb9f8b6e91e690f1",
+      "SUGAR": "0x2fb245b9a84554a0f15aa123cbb5f64cd263b59e9a87d80148cbf4caa2ea969d",
+      "PLATINUM": "0x67c3e8feca77b7077172ef994f8a08c13546c92dc5c8bb558f50ec1fb1c7f8e4",
+      "PALLADIUM": "0x2fb7c3504f4c7ef30df9a4e3c3e1e8f8a892c01e8d5df8a4dddaaed2d8e91fe8"
+    },
+    "indices": {
+      "S&P500": "0xd47bf8553c8349f45b283a029126bf7fcb36a1dd08c1fca80ad032c56e696fce",
+      "NASDAQ100": "0x13e3c40ae3ab9c1205339a5dc47e599b05d4277a17e4560e1662e5a1e672e61f",
+      "DOW30": "0xc74abea3f7b3a0021c7e0585095ffabf3c0eb926145d0229f73cbbc8536cf8c",
+      "RUSSELL2000": "0xd47bf8553c8349f45b283a029126bf7fcb36a1dd08c1fca80ad032c56e696fce",
+      "VIX": "0x71334dadd0065bdee3e2ac4e6f3a16247b0836cd7e087b83e45e47c63e812a5a",
+      "DAX": "0x7df75ceea1bf0e00c695e6c1dcefc13e3d3a1ba93e6a2c7b4bfbc067813e8d8f",
+      "FTSE100": "0x0e1a9d88a19a06a96e042e5d5a9e92f0b425f879e5e0e2a3e7d5e33e8e4fca45",
+      "NIKKEI225": "0x6879287e59f18dcb25c0e4d5e11bc8957cbf93ff88e2e2e8f18c2ca6a37e8f3f",
+      "HSI": "0xfc9e3a70e15720b2e5926e993a2ba4bdf888739f8c67a5ec5889ad1c4e4f0317"
+    }
+  },
+  "updateConfig": {
+    "minUpdateInterval": 400,
+    "maxPriceAge": 60000,
+    "confidenceThreshold": 0.01,
+    "enableAllAssets": true,
+    "priorityAssets": [
+      "BTC/USD",
+      "ETH/USD",
+      "SPY",
+      "AAPL",
+      "EUR/USD",
+      "GOLD"
+    ]
+  }
+}
