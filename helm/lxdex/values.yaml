@@ -1,0 +1,185 @@
+# Default values for lxdex
+replicaCount: 3
+
+image:
+  repository: registry.lux.network/lxdex
+  pullPolicy: IfNotPresent
+  tag: "v1.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: LoadBalancer
+  httpPort: 80
+  wsPort: 443
+  grpcPort: 50051
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: api.lux.network
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: ws.lux.network
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: lxdex-tls
+      hosts:
+        - api.lux.network
+        - ws.lux.network
+
+resources:
+  requests:
+    cpu: 8
+    memory: 16Gi
+  limits:
+    cpu: 32
+    memory: 64Gi
+    nvidia.com/gpu: 1  # Optional GPU support
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 9
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations:
+  - key: "gpu"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: In
+          values:
+          - lxdex
+      topologyKey: kubernetes.io/hostname
+
+persistence:
+  enabled: true
+  storageClass: "fast-ssd"
+  accessMode: ReadWriteOnce
+  size: 1Ti
+
+# LX DEX specific configuration
+lxdex:
+  consensus:
+    enabled: true
+    k: 3
+    n: 3
+    blockTime: "1ms"
+    finalityThreshold: 0.67
+  
+  engine:
+    type: "hybrid"  # go, cpp, hybrid, gpu
+    enableMLX: true
+    enableGPU: true
+    maxBatchSize: 10000
+  
+  orderbook:
+    maxOrdersPerUser: 1000
+    maxOrderSize: 100000
+    minOrderSize: 0.0001
+    pricePrecision: 7
+  
+  risk:
+    enabled: true
+    maxLeverage: 100
+    minMargin: 0.01
+    liquidationThreshold: 0.95
+  
+  markets:
+    - symbol: "BTC-USD"
+      tickSize: 0.01
+      minSize: 0.00001
+      maxSize: 1000
+    - symbol: "ETH-USD"
+      tickSize: 0.01
+      minSize: 0.0001
+      maxSize: 10000
+    - symbol: "LUX-USD"
+      tickSize: 0.0001
+      minSize: 1
+      maxSize: 1000000
+
+# External services
+postgresql:
+  enabled: true
+  auth:
+    database: lxdex
+    username: lxdex
+    password: changeme
+  primary:
+    persistence:
+      enabled: true
+      size: 100Gi
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: changeme
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+nats:
+  enabled: true
+  cluster:
+    enabled: true
+    replicas: 3
+  nats:
+    jetstream:
+      enabled: true
+      memoryStore:
+        enabled: true
+        size: 10Gi
+      fileStore:
+        enabled: true
+        size: 100Gi
+
+monitoring:
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
+    adminPassword: changeme
