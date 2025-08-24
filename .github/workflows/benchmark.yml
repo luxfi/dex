@@ -1,0 +1,68 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Run benchmarks
+      run: |
+        echo "Running performance benchmarks..."
+        go test -bench=. -benchmem -benchtime=10s -count=3 ./pkg/lx/... | tee benchmark.txt || true
+    
+    - name: Parse benchmark results
+      run: |
+        echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        grep -E "Benchmark" benchmark.txt | head -20 >> $GITHUB_STEP_SUMMARY || true
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        # Check for performance regression
+        echo "Checking for performance regression..."
+        if grep -q "BenchmarkOrderBook" benchmark.txt; then
+          LATENCY=$(grep "BenchmarkOrderBook" benchmark.txt | head -1 | awk '{print $3}')
+          echo "OrderBook latency: ${LATENCY} ns/op"
+          
+          # Convert to number and check if under 1000ns
+          LATENCY_NUM=${LATENCY%.*}
+          if [ "$LATENCY_NUM" -gt 1000 ] 2>/dev/null; then
+            echo "⚠️ Performance regression detected: ${LATENCY} > 1000ns"
+          else
+            echo "✅ Performance OK: ${LATENCY} < 1000ns"
+          fi
+        fi
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmark.txt
+        retention-days: 30
+    
+    - name: Store benchmark result
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'go'
+        output-file-path: benchmark.txt
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: false
+        fail-on-alert: false

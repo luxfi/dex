@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  dex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lx-dex
+    ports:
+      - "8080:8080"  # WebSocket API
+      - "9090:9090"  # REST API
+      - "50051:50051" # gRPC
+    environment:
+      - LOG_LEVEL=info
+      - ENABLE_METRICS=true
+      - MAX_CONNECTIONS=10000
+      - ORDER_BOOK_DEPTH=1000
+    volumes:
+      - ./data:/home/dex/data
+      - ./logs:/home/dex/logs
+    restart: unless-stopped
+    networks:
+      - dex-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dex-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - dex-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dex-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - dex-network
+    restart: unless-stopped
+
+networks:
+  dex-network:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
