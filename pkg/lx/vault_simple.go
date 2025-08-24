@@ -304,15 +304,30 @@ func (vm *SimpleVaultManager) StartStrategyExecution(ctx context.Context) {
 func (vm *SimpleVaultManager) ExecuteVaultOrder(vaultID string, order *Order) error {
 	vault, exists := vm.vaults[vaultID]
 	if !exists {
-		return fmt.Errorf("vault not found")
+		return fmt.Errorf("vault not found: %s", vaultID)
+	}
+
+	// Check if vault has members (as a proxy for being active)
+	if len(vault.MemberShares) == 0 {
+		return fmt.Errorf("vault %s has no members", vaultID)
 	}
 
 	// Set the order's user to the vault's subaccount
 	order.User = vault.SubaccountID
+	
+	// TODO: Check vault has sufficient balance through clearinghouse
+	// This would need a GetBalance method on ClearingHouse
+	// For now, skip the balance check
 
-	// The order goes through normal order book processing
-	// The clearinghouse tracks the vault's positions
-	// PnL updates the vault's total value
+	// TODO: Execute the order through the order book
+	// This would need integration with an order book instance
+	// For now, just update the vault's total value as a placeholder
+	
+	// Note: In a real implementation, this would:
+	// 1. Submit the order to the order book
+	// 2. Track trades and update PnL
+	// 3. Update vault positions
+	// 4. Track active orders
 
 	return nil
 }
