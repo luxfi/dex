@@ -1,0 +1,246 @@
+syntax = "proto3";
+
+package lxdex;
+
+option go_package = "github.com/luxfi/dex/pkg/grpc/pb";
+
+// LX DEX gRPC Service for internal Lux Network IPC
+service LXDEXService {
+  // Order Management
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc GetOrders(GetOrdersRequest) returns (GetOrdersResponse);
+  
+  // Market Data
+  rpc GetOrderBook(GetOrderBookRequest) returns (OrderBook);
+  rpc StreamOrderBook(StreamOrderBookRequest) returns (stream OrderBookUpdate);
+  rpc GetTrades(GetTradesRequest) returns (GetTradesResponse);
+  rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+  
+  // Account Management
+  rpc GetBalance(GetBalanceRequest) returns (Balance);
+  rpc GetPositions(GetPositionsRequest) returns (GetPositionsResponse);
+  
+  // Node Management
+  rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// Common Types
+enum OrderType {
+  LIMIT = 0;
+  MARKET = 1;
+  STOP = 2;
+  STOP_LIMIT = 3;
+  ICEBERG = 4;
+  PEG = 5;
+}
+
+enum OrderSide {
+  BUY = 0;
+  SELL = 1;
+}
+
+enum OrderStatus {
+  OPEN = 0;
+  PARTIAL = 1;
+  FILLED = 2;
+  CANCELLED = 3;
+  REJECTED = 4;
+}
+
+enum TimeInForce {
+  GTC = 0;  // Good Till Cancelled
+  IOC = 1;  // Immediate Or Cancel
+  FOK = 2;  // Fill Or Kill
+  DAY = 3;  // Day Order
+}
+
+// Messages
+message Order {
+  uint64 order_id = 1;
+  string symbol = 2;
+  OrderType type = 3;
+  OrderSide side = 4;
+  double price = 5;
+  double size = 6;
+  double filled = 7;
+  double remaining = 8;
+  OrderStatus status = 9;
+  string user_id = 10;
+  string client_id = 11;
+  int64 timestamp = 12;
+  TimeInForce time_in_force = 13;
+  bool post_only = 14;
+  bool reduce_only = 15;
+}
+
+message PlaceOrderRequest {
+  string symbol = 1;
+  OrderType type = 2;
+  OrderSide side = 3;
+  double price = 4;
+  double size = 5;
+  string user_id = 6;
+  string client_id = 7;
+  TimeInForce time_in_force = 8;
+  bool post_only = 9;
+  bool reduce_only = 10;
+  double stop_price = 11;
+  double limit_price = 12;
+}
+
+message PlaceOrderResponse {
+  uint64 order_id = 1;
+  OrderStatus status = 2;
+  string message = 3;
+}
+
+message CancelOrderRequest {
+  uint64 order_id = 1;
+  string user_id = 2;
+}
+
+message CancelOrderResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetOrderRequest {
+  uint64 order_id = 1;
+}
+
+message GetOrdersRequest {
+  string user_id = 1;
+  string symbol = 2;
+  OrderStatus status = 3;
+  int32 limit = 4;
+}
+
+message GetOrdersResponse {
+  repeated Order orders = 1;
+}
+
+message OrderBook {
+  string symbol = 1;
+  repeated PriceLevel bids = 2;
+  repeated PriceLevel asks = 3;
+  int64 timestamp = 4;
+}
+
+message PriceLevel {
+  double price = 1;
+  double size = 2;
+  int32 count = 3;
+}
+
+message OrderBookUpdate {
+  string symbol = 1;
+  repeated PriceLevel bid_updates = 2;
+  repeated PriceLevel ask_updates = 3;
+  int64 timestamp = 4;
+}
+
+message GetOrderBookRequest {
+  string symbol = 1;
+  int32 depth = 2;
+}
+
+message StreamOrderBookRequest {
+  string symbol = 1;
+  int32 depth = 2;
+}
+
+message Trade {
+  uint64 trade_id = 1;
+  string symbol = 2;
+  double price = 3;
+  double size = 4;
+  OrderSide side = 5;
+  uint64 buy_order_id = 6;
+  uint64 sell_order_id = 7;
+  string buyer_id = 8;
+  string seller_id = 9;
+  int64 timestamp = 10;
+}
+
+message GetTradesRequest {
+  string symbol = 1;
+  int32 limit = 2;
+}
+
+message GetTradesResponse {
+  repeated Trade trades = 1;
+}
+
+message StreamTradesRequest {
+  string symbol = 1;
+}
+
+message Balance {
+  string asset = 1;
+  double available = 2;
+  double locked = 3;
+  double total = 4;
+}
+
+message GetBalanceRequest {
+  string user_id = 1;
+  string asset = 2;
+}
+
+message Position {
+  string symbol = 1;
+  double size = 2;
+  double entry_price = 3;
+  double mark_price = 4;
+  double pnl = 5;
+  double margin = 6;
+}
+
+message GetPositionsRequest {
+  string user_id = 1;
+}
+
+message GetPositionsResponse {
+  repeated Position positions = 1;
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string version = 2;
+  string network = 3;
+  uint64 block_height = 4;
+  uint64 order_count = 5;
+  uint64 trade_count = 6;
+  int64 uptime = 7;
+  bool syncing = 8;
+  repeated string supported_markets = 9;
+}
+
+message GetNodeInfoRequest {}
+
+message Peer {
+  string peer_id = 1;
+  string address = 2;
+  int64 connected_at = 3;
+  uint64 bytes_sent = 4;
+  uint64 bytes_received = 5;
+}
+
+message GetPeersRequest {}
+
+message GetPeersResponse {
+  repeated Peer peers = 1;
+}
+
+message PingRequest {
+  int64 timestamp = 1;
+}
+
+message PingResponse {
+  int64 timestamp = 1;
+  string message = 2;
+}
