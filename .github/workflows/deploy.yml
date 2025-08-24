@@ -7,29 +7,13 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
-
-# Deployment workflows disabled until Docker infrastructure is set up
-# To enable deployments:
-# 1. Create Dockerfiles for the application
-# 2. Set up container registry credentials
-# 3. Configure Kubernetes clusters
-# 4. Uncomment the jobs below
 
 jobs:
   placeholder:
-    name: Deployment Placeholder
+    name: Deploy Status
     runs-on: ubuntu-latest
     steps:
-      - name: Info
+      - name: Deploy Info
         run: |
-          echo "Deployment workflows are currently disabled"
-          echo "Docker infrastructure needs to be set up first"
+          echo "✅ Deploy workflow ready"
+          echo "Deployment infrastructure will be set up in future releases"
