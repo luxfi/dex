@@ -1,0 +1,88 @@
+# Dependencies
+node_modules/
+vendor/
+target/
+
+# Build outputs
+dist/
+build/
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test outputs
+coverage/
+*.coverage
+*.test
+test-results/
+
+# Benchmark results
+benchmark-results/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Database
+*.db
+*.sqlite
+data/
+
+# Cache
+.cache/
+*.cache
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.cer
+
+# Go
+# go.sum - needed for CI, don't ignore
+
+# Rust
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+
+# Documentation
+docs/_build/
+docs/site/
+LLM.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+ui
