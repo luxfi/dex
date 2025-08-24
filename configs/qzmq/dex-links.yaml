@@ -1,0 +1,76 @@
+# QZMQ DEX Link Configuration
+links:
+  # Engine-to-engine replication (highest security)
+  engine_replication:
+    pq_only: true                              # Enforce PQ-only
+    zero_rtt: false                            # No 0-RTT for state changes
+    suite_allow:
+      - "mlkem768/mldsa2/aes256gcm/sha256"    # PQ-only suite
+      - "mlkem1024/mldsa3/aes256gcm/sha384"   # Higher security option
+    key_update:
+      max_msgs: 1073741824                    # 2^30 messages
+      max_bytes: 1099511627776                # 2^40 bytes (1TB)
+      max_age_s: 300                          # 5 minutes
+    mutual_auth: true                         # Require mutual ML-DSA auth
+    channel_binding: true                     # Bind to TLS channel
+  
+  # Market data distribution (read-heavy)
+  market_data:
+    pq_only: true
+    zero_rtt: true                            # Allow 0-RTT for snapshots
+    suite_allow:
+      - "x25519+mlkem768/mldsa2/aes256gcm/sha256"
+      - "mlkem768/mldsa2/aes256gcm/sha256"
+    key_update:
+      max_msgs: 4294967296                    # 2^32 messages
+      max_bytes: 1125899906842624             # 2^50 bytes
+      max_age_s: 600                          # 10 minutes
+    compression: true                         # Enable compression
+    multicast: true                           # Multicast support
+  
+  # Client API (public-facing)
+  client_api:
+    pq_only: false                            # Allow hybrid for compatibility
+    zero_rtt: true                            # 0-RTT for idempotent ops
+    suite_allow:
+      - "x25519+mlkem768/mldsa2/aes256gcm/sha256"
+      - "x25519+mlkem768/mldsa2/chacha20poly1305/sha256"
+      - "mlkem768/mldsa2/aes256gcm/sha256"
+    key_update:
+      max_msgs: 16777216                      # 2^24 messages
+      max_bytes: 17179869184                  # 2^34 bytes (16GB)
+      max_age_s: 1800                         # 30 minutes
+    rate_limit:
+      requests_per_s: 1000
+      burst: 5000
+    geo_restrict: []                          # Geo restrictions if needed
+  
+  # Admin/operations (maximum security)
+  admin_ops:
+    pq_only: true
+    zero_rtt: false                           # Never 0-RTT for admin
+    suite_allow:
+      - "mlkem1024/mldsa3/aes256gcm/sha384"   # Highest security only
+    key_update:
+      max_msgs: 1048576                       # 2^20 messages
+      max_bytes: 1073741824                   # 2^30 bytes (1GB)
+      max_age_s: 180                          # 3 minutes
+    mutual_auth: true
+    ip_whitelist:                             # Restrict to admin IPs
+      - "10.0.0.0/8"
+      - "192.168.1.0/24"
+    require_hardware_token: false             # Optional hardware auth
+  
+  # Cross-datacenter links
+  datacenter:
+    pq_only: true
+    zero_rtt: false
+    suite_allow:
+      - "mlkem1024/mldsa3/aes256gcm/sha384"
+      - "mlkem768/mldsa2/aes256gcm/sha256"
+    key_update:
+      max_msgs: 2147483648                    # 2^31 messages
+      max_bytes: 2199023255552                # 2^41 bytes (2TB)
+      max_age_s: 900                          # 15 minutes
+    latency_budget_ms: 50                     # Max acceptable latency
+    bandwidth_reserve_pct: 20                 # Reserve 20% bandwidth

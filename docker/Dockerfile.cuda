@@ -1,0 +1,65 @@
+# Multi-stage build for LX DEX with CUDA support
+FROM nvidia/cuda:12.3.0-devel-ubuntu22.04 AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    wget \
+    git \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN wget -q https://go.dev/dl/go1.22.5.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz && \
+    rm go1.22.5.linux-amd64.tar.gz
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV CGO_ENABLED=0
+
+# Set working directory
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binaries
+RUN go build -ldflags="-s -w" -o lx-dex ./cmd/demo
+RUN go build -ldflags="-s -w" -o dex-server ./cmd/dex-server
+
+# Final stage
+FROM nvidia/cuda:12.3.0-runtime-ubuntu22.04
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -g 1000 dex && \
+    useradd -u 1000 -g dex -s /bin/bash -m dex
+
+WORKDIR /app
+
+# Copy binaries from builder
+COPY --from=builder /build/lx-dex /app/lx-dex
+COPY --from=builder /build/dex-server /app/dex-server
+
+# Change ownership
+RUN chown -R dex:dex /app
+
+# Switch to non-root user
+USER dex
+
+# Expose ports
+EXPOSE 8080 8081
+
+# Environment for CUDA
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+
+# Default command
+CMD ["/app/dex-server"]

@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'dex-node'
+    static_configs:
+      - targets: ['dex-node:9090']
+        labels:
+          service: 'dex-backend'
+          
+  - job_name: 'dex-ui'
+    static_configs:
+      - targets: ['dex-ui:3000']
+        labels:
+          service: 'dex-frontend'
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'database'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'cache'

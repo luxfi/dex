@@ -1,0 +1,151 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: lxdex-node
+  namespace: lxdex-production
+spec:
+  serviceName: lxdex-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: lxdex
+      component: node
+  template:
+    metadata:
+      labels:
+        app: lxdex
+        component: node
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - lxdex
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: lxdex
+        image: registry.lux.network/lxdex:v1.0.0
+        imagePullPolicy: Always
+        command: ["/bin/luxd"]
+        args:
+          - "--config=/etc/lxdex/node.yaml"
+          - "--enable-mlx"
+          - "--enable-qzmq"
+          - "--node-id=$(POD_NAME)"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: lxdex-secrets
+              key: postgres_host
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: lxdex-secrets
+              key: postgres_password
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: lxdex-secrets
+              key: redis_host
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: lxdex-secrets
+              key: redis_password
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: lxdex-secrets
+              key: jwt_secret
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8081
+          name: websocket
+          protocol: TCP
+        - containerPort: 50051
+          name: grpc
+          protocol: TCP
+        - containerPort: 5555
+          name: qzmq-pub
+          protocol: TCP
+        - containerPort: 5556
+          name: qzmq-sub
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "8"
+            ephemeral-storage: "100Gi"
+          limits:
+            memory: "64Gi"
+            cpu: "32"
+            ephemeral-storage: "500Gi"
+            # GPU resources for MLX acceleration
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/lxdex
+        - name: data
+          mountPath: /data
+        - name: tls
+          mountPath: /etc/ssl/lxdex
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: lxdex-config
+      - name: tls
+        secret:
+          secretName: lxdex-tls
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd
+      resources:
+        requests:
+          storage: 1Ti
