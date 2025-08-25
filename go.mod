@@ -4,6 +4,7 @@ go 1.24.5
 
 toolchain go1.24.6
 
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/luxfi/database v1.1.13
