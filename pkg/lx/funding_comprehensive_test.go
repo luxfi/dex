@@ -45,11 +45,10 @@ func TestFundingEngineComprehensive(t *testing.T) {
 
 		// Start the engine
 		engine.Start()
+		defer engine.Stop() // Stop the engine when test ends
 
 		// Wait a bit for TWAP sampling to run
 		time.Sleep(100 * time.Millisecond)
-
-		// The engine will run in background - no manual stop needed
 	})
 
 	t.Run("FundingRateCalculation", func(t *testing.T) {
