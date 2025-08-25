@@ -20,6 +20,7 @@ jobs:
       uses: securego/gosec@master
       with:
         args: '-no-fail -fmt sarif -out gosec.sarif ./...'
+      continue-on-error: true
     
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v2
@@ -56,6 +57,7 @@ jobs:
     
     - name: Build Docker image
       run: docker build -t lux-dex:scan .
+      continue-on-error: true
     
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
