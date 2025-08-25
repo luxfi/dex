@@ -36,9 +36,6 @@ WORKDIR /home/dex
 # Copy binary from builder
 COPY --from=builder /app/dex-server .
 
-# Copy any config files if they exist
-COPY --from=builder /app/config ./config 2>/dev/null || true
-
 # Change ownership
 RUN chown -R dex:dex /home/dex
 
