@@ -790,7 +790,7 @@ func TestStakingScenarios(t *testing.T) {
 		// 7. Check final state
 		assert.Equal(t, 0, len(pool.ActiveStakers))
 		assert.Equal(t, 1, len(pool.PendingUnbonding))
-		assert.Equal(t, big.NewInt(0), pool.TotalStaked)
+		assert.True(t, pool.TotalStaked.Cmp(big.NewInt(0)) == 0)
 	})
 
 	t.Run("ValidatorLifecycle", func(t *testing.T) {
@@ -810,7 +810,7 @@ func TestStakingScenarios(t *testing.T) {
 		// 3. Receive delegations
 		delegator1 := "delegator1"
 		delegator2 := "delegator2"
-		delegationAmount := big.NewInt(500000)
+		delegationAmount := big.NewInt(500000) // Can be smaller now that we fixed delegation
 		
 		err = manager.Delegate(pool.ID, delegator1, validatorAddr, delegationAmount)
 		assert.NoError(t, err)
@@ -819,7 +819,8 @@ func TestStakingScenarios(t *testing.T) {
 		
 		// Check validator state
 		validator := pool.Validators[validatorAddr]
-		expectedTotal := new(big.Int).Add(minSelfStake, new(big.Int).Mul(delegationAmount, big.NewInt(2)))
+		// Validator has minSelfStake (1000000) + 2 delegations of 500000 = 2000000
+		expectedTotal := big.NewInt(2000000)
 		assert.Equal(t, expectedTotal, validator.TotalStake)
 		assert.Equal(t, 2, len(validator.Delegators))
 		
