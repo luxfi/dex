@@ -864,7 +864,8 @@ func (sm *StakingManager) distributeRewards() {
 
 			// Auto-compound if enabled
 			if position.CompoundingEnabled {
-				sm.Stake(poolID, user, rewards)
+				// Use internal method to avoid deadlock
+				sm.stakeInternal(poolID, user, rewards)
 			}
 		}
 
