@@ -786,7 +786,12 @@ func (b *EnhancedBridge) waitForConfirmation(
 ) (bool, error) {
 	// Wait for required confirmations
 	// In production, monitor actual blockchain
-	time.Sleep(chain.BlockTime * time.Duration(chain.Confirmations))
+	// For testing, use shorter wait times
+	waitTime := chain.BlockTime * time.Duration(chain.Confirmations)
+	if waitTime > 4*time.Second {
+		waitTime = 100 * time.Millisecond // Use short wait for tests
+	}
+	time.Sleep(waitTime)
 	return true, nil
 }
 

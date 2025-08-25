@@ -32,6 +32,8 @@ type FundingEngine struct {
 	lastFundingTime time.Time
 	nextFundingTime time.Time
 	isProcessing    bool
+	stopCh          chan struct{}
+	stopped         bool
 
 	mu sync.RWMutex
 }
@@ -107,6 +109,7 @@ func NewFundingEngine(clearinghouse *ClearingHouse, config *FundingConfig) *Fund
 		premiumTWAP:     make(map[string]*TWAPTracker),
 		config:          config,
 		clearinghouse:   clearinghouse,
+		stopCh:          make(chan struct{}),
 	}
 
 	// Initialize funding times
@@ -136,8 +139,26 @@ func DefaultFundingConfig() *FundingConfig {
 
 // Start begins the funding engine's continuous operation
 func (fe *FundingEngine) Start() {
+	fe.mu.Lock()
+	if fe.stopped {
+		fe.stopCh = make(chan struct{})
+		fe.stopped = false
+	}
+	fe.mu.Unlock()
+	
 	go fe.runFundingLoop()
 	go fe.runTWAPSampling()
+}
+
+// Stop stops the funding engine's operation
+func (fe *FundingEngine) Stop() {
+	fe.mu.Lock()
+	defer fe.mu.Unlock()
+	
+	if !fe.stopped {
+		close(fe.stopCh)
+		fe.stopped = true
+	}
 }
 
 // runFundingLoop processes funding at scheduled times
@@ -145,20 +166,25 @@ func (fe *FundingEngine) runFundingLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
+	for {
+		select {
+		case <-fe.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
 
-		// Check if it's funding time
-		if fe.isFundingTime(now) && !fe.isProcessing {
-			fe.isProcessing = true
-			go func() {
-				defer func() { fe.isProcessing = false }()
-				fe.ProcessFunding(now)
-			}()
+			// Check if it's funding time
+			if fe.isFundingTime(now) && !fe.isProcessing {
+				fe.isProcessing = true
+				go func() {
+					defer func() { fe.isProcessing = false }()
+					fe.ProcessFunding(now)
+				}()
+			}
+
+			// Update predicted funding rates
+			fe.updatePredictedRates()
 		}
-
-		// Update predicted funding rates
-		fe.updatePredictedRates()
 	}
 }
 
@@ -167,8 +193,13 @@ func (fe *FundingEngine) runTWAPSampling() {
 	ticker := time.NewTicker(fe.config.SampleInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		fe.samplePrices()
+	for {
+		select {
+		case <-fe.stopCh:
+			return
+		case <-ticker.C:
+			fe.samplePrices()
+		}
 	}
 }
 
