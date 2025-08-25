@@ -1,5 +1,5 @@
-//go:build cgo
-// +build cgo
+//go:build cgo && never
+// +build cgo,never
 
 package orderbook
 
