@@ -58,11 +58,7 @@ jobs:
         path: benchmark.txt
         retention-days: 30
     
-    - name: Store benchmark result
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'go'
-        output-file-path: benchmark.txt
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: false
-        fail-on-alert: false
+    - name: Store benchmark summary
+      run: |
+        echo "## Benchmark completed successfully" >> $GITHUB_STEP_SUMMARY
+        echo "Results stored in benchmark.txt artifact" >> $GITHUB_STEP_SUMMARY
