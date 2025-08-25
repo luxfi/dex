@@ -607,11 +607,33 @@ func (sm *StakingManager) Delegate(
 	}
 	validatorInfo.Delegators[delegator].Add(validatorInfo.Delegators[delegator], amount)
 
-	// Stake on behalf of delegator (use internal method since we already hold the lock)
-	position, err := sm.stakeInternal(poolID, delegator, amount)
-	if err != nil {
-		return err
+	// Stake on behalf of delegator - special handling for delegations
+	pool := sm.Pools[poolID]
+	position := pool.ActiveStakers[delegator]
+	if position == nil {
+		// New position for delegator
+		position = &StakePosition{
+			Owner:          delegator,
+			Amount:         big.NewInt(0),
+			Shares:         big.NewInt(0),
+			RewardsEarned:  big.NewInt(0),
+			RewardsClaimed: big.NewInt(0),
+			StakedAt:       time.Now(),
+			LastClaimTime:  time.Now(),
+			CompoundingEnabled: false,
+			Delegations:    make(map[string]*big.Int),
+		}
+		pool.ActiveStakers[delegator] = position
 	}
+	
+	// Add amount to position
+	position.Amount.Add(position.Amount, amount)
+	
+	// For simplicity, shares equal amount (1:1 ratio)
+	position.Shares.Add(position.Shares, amount)
+	
+	// Update pool totals
+	pool.TotalStaked.Add(pool.TotalStaked, amount)
 
 	// Track delegation in position
 	if position.Delegations[validator] == nil {
