@@ -25,7 +25,7 @@ func TestFundingEngineSpecificFunctions(t *testing.T) {
 			CurrentTWAP: 50000.0,
 		}
 		engine.indexPriceTWAP["BTC-PERP"] = &TWAPTracker{
-			Symbol:      "BTC-PERP", 
+			Symbol:      "BTC-PERP",
 			Window:      8 * time.Hour,
 			CurrentTWAP: 49950.0,
 		}
@@ -99,7 +99,7 @@ func TestFundingEngineSpecificFunctions(t *testing.T) {
 		tracker.mu.RLock()
 		sampleCount := len(tracker.Samples)
 		tracker.mu.RUnlock()
-		
+
 		assert.True(t, sampleCount > 0)
 	})
 
@@ -202,7 +202,7 @@ func TestFundingEngineSpecificFunctions(t *testing.T) {
 
 	t.Run("getMarkTWAP", func(t *testing.T) {
 		symbol := "BTC-PERP"
-		
+
 		// Set up TWAP tracker with current value
 		engine.mu.Lock()
 		engine.markPriceTWAP[symbol] = &TWAPTracker{
@@ -221,7 +221,7 @@ func TestFundingEngineSpecificFunctions(t *testing.T) {
 
 	t.Run("getIndexTWAP", func(t *testing.T) {
 		symbol := "ETH-PERP"
-		
+
 		// Set up TWAP tracker
 		engine.mu.Lock()
 		engine.indexPriceTWAP[symbol] = &TWAPTracker{
@@ -328,9 +328,9 @@ func TestFundingEngineEdgeCases(t *testing.T) {
 			time     time.Time
 			expected bool
 		}{
-			{time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC), true},   // 00:00
-			{time.Date(2023, 1, 1, 8, 0, 0, 0, time.UTC), true},   // 08:00
-			{time.Date(2023, 1, 1, 16, 0, 0, 0, time.UTC), true},  // 16:00
+			{time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC), true},    // 00:00
+			{time.Date(2023, 1, 1, 8, 0, 0, 0, time.UTC), true},    // 08:00
+			{time.Date(2023, 1, 1, 16, 0, 0, 0, time.UTC), true},   // 16:00
 			{time.Date(2023, 1, 1, 7, 59, 59, 0, time.UTC), false}, // 07:59:59
 			{time.Date(2023, 1, 1, 8, 1, 0, 0, time.UTC), false},   // 08:01:00
 			{time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC), false},  // 12:00
