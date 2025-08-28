@@ -11,47 +11,47 @@ import (
 func TestOracleSimpleFunctions(t *testing.T) {
 	t.Run("initializeDefaultSources", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Test the function that adds default sources
 		oracle.initializeDefaultSources()
-		
+
 		// Implementation is currently commented out, should remain empty
 		assert.Equal(t, len(oracle.PriceSources), 0)
 	})
 
 	t.Run("updateLoop", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Start update loop in background (should not panic)
 		go oracle.updateLoop()
-		
+
 		// Let it run briefly
 		time.Sleep(10 * time.Millisecond)
-		
+
 		// Stop it
 		oracle.Running = false
 	})
 
 	t.Run("updatePrices", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Should not panic even with no sources
 		oracle.updatePrices()
-		
+
 		assert.NotNil(t, oracle.CurrentPrices)
 	})
 
 	t.Run("updateCurrentPrice", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		priceData := &PriceData{
 			Symbol:    "BTC-USDT",
 			Price:     50000.0,
 			Timestamp: time.Now(),
 		}
-		
+
 		oracle.updateCurrentPrice("BTC-USDT", priceData)
-		
+
 		// Check that price was updated
 		currentPrice, exists := oracle.CurrentPrices["BTC-USDT"]
 		assert.True(t, exists)
@@ -60,59 +60,59 @@ func TestOracleSimpleFunctions(t *testing.T) {
 
 	t.Run("monitorSources", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Should not panic
 		oracle.monitorSources()
 	})
 
 	t.Run("checkSourceHealth", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Should not panic
 		oracle.checkSourceHealth()
 	})
 
 	t.Run("calculateAverages", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Should not panic
 		oracle.calculateAverages()
 	})
 
 	t.Run("updateAverages", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Should not panic
 		oracle.updateAverages()
 	})
 
 	t.Run("calculateTWAP", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		twap := oracle.calculateTWAP("BTC-USDT", 5*time.Minute)
 		assert.True(t, twap >= 0) // Should return 0 if no data
 	})
 
 	t.Run("calculateVWAP", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		vwap := oracle.calculateVWAP("BTC-USDT", 5*time.Minute)
 		assert.True(t, vwap >= 0) // Should return 0 if no data
 	})
 
 	t.Run("getTrackedSymbols", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		symbols := oracle.getTrackedSymbols()
 		assert.NotNil(t, symbols)
 		assert.Equal(t, 0, len(symbols)) // Should be empty initially
-		
+
 		// Add a price and try again
 		oracle.CurrentPrices["BTC-USDT"] = &PriceData{
 			Symbol: "BTC-USDT",
 			Price:  50000.0,
 		}
-		
+
 		symbols = oracle.getTrackedSymbols()
 		assert.Equal(t, 1, len(symbols))
 		assert.Contains(t, symbols, "BTC-USDT")
@@ -121,16 +121,16 @@ func TestOracleSimpleFunctions(t *testing.T) {
 	t.Run("sendAlert", func(t *testing.T) {
 		oracle := NewPriceOracle()
 		oracle.AlertChannel = make(chan *PriceAlert, 10)
-		
+
 		alert := &PriceAlert{
 			Symbol:    "BTC-USDT",
 			Message:   "Test alert",
 			Severity:  WarningAlert,
 			Timestamp: time.Now(),
 		}
-		
+
 		oracle.sendAlert(alert)
-		
+
 		// Check if alert was sent
 		select {
 		case receivedAlert := <-oracle.AlertChannel:
@@ -144,27 +144,27 @@ func TestOracleSimpleFunctions(t *testing.T) {
 	t.Run("sendAlertNilChannel", func(t *testing.T) {
 		oracle := NewPriceOracle()
 		oracle.AlertChannel = nil // No channel
-		
+
 		alert := &PriceAlert{
 			Symbol:   "BTC-USDT",
 			Message:  "Test alert",
 			Severity: WarningAlert,
 		}
-		
+
 		// Should not panic
 		oracle.sendAlert(alert)
 	})
 
 	t.Run("EmergencyPrices", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Test setting emergency price
 		oracle.EmergencyPrices["BTC-USDT"] = 45000.0
-		
+
 		price, exists := oracle.EmergencyPrices["BTC-USDT"]
 		assert.True(t, exists)
 		assert.Equal(t, 45000.0, price)
-		
+
 		// Test GetPrice with emergency price fallback
 		emergencyPrice := oracle.GetPrice("BTC-USDT")
 		assert.Equal(t, 45000.0, emergencyPrice)
@@ -172,7 +172,7 @@ func TestOracleSimpleFunctions(t *testing.T) {
 
 	t.Run("CircuitBreakerBasics", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Initialize circuit breaker
 		oracle.CircuitBreakers["BTC-USDT"] = &PriceCircuitBreaker{
 			Symbol:            "BTC-USDT",
@@ -184,7 +184,7 @@ func TestOracleSimpleFunctions(t *testing.T) {
 			Tripped:           false,
 			AutoResetDuration: 30 * time.Second,
 		}
-		
+
 		// Test accessing circuit breaker
 		breaker, exists := oracle.CircuitBreakers["BTC-USDT"]
 		assert.True(t, exists)
@@ -195,44 +195,44 @@ func TestOracleSimpleFunctions(t *testing.T) {
 
 	t.Run("TWAPVWAPBasics", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Test TWAP with no data
 		twapPrice := oracle.GetTWAP("BTC-USDT", 5*time.Minute)
 		assert.Equal(t, float64(0), twapPrice)
-		
+
 		// Test VWAP with no data
 		vwapPrice := oracle.GetVWAP("BTC-USDT", 5*time.Minute)
 		assert.Equal(t, float64(0), vwapPrice)
-		
+
 		// Add some TWAP data
 		oracle.TWAP["BTC-USDT"] = &TWAPData{
 			Symbol: "BTC-USDT",
 			Price:  50000.0,
 			Window: 5 * time.Minute,
 		}
-		
+
 		twapPrice = oracle.GetTWAP("BTC-USDT", 5*time.Minute)
 		assert.Equal(t, 50000.0, twapPrice)
-		
+
 		// Add some VWAP data
 		oracle.VWAP["BTC-USDT"] = &VWAPData{
 			Symbol: "BTC-USDT",
 			Price:  50100.0,
 			Window: 5 * time.Minute,
 		}
-		
+
 		vwapPrice = oracle.GetVWAP("BTC-USDT", 5*time.Minute)
 		assert.Equal(t, 50100.0, vwapPrice)
 	})
 
 	t.Run("PriceDataAccess", func(t *testing.T) {
 		oracle := NewPriceOracle()
-		
+
 		// Test with no data
 		_, err := oracle.GetPriceData("BTC-USDT")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no price data")
-		
+
 		// Add price data
 		priceData := &PriceData{
 			Symbol:    "BTC-USDT",
@@ -240,7 +240,7 @@ func TestOracleSimpleFunctions(t *testing.T) {
 			Timestamp: time.Now(),
 		}
 		oracle.CurrentPrices["BTC-USDT"] = priceData
-		
+
 		data, err := oracle.GetPriceData("BTC-USDT")
 		assert.NoError(t, err)
 		assert.NotNil(t, data)
@@ -266,7 +266,7 @@ func TestOracleDataStructures(t *testing.T) {
 			Confidence: 0.95,
 			IsStale:    false,
 		}
-		
+
 		assert.Equal(t, "BTC-USDT", price.Symbol)
 		assert.Equal(t, 50000.0, price.Price)
 		assert.Equal(t, 100.0, price.Volume)
@@ -286,7 +286,7 @@ func TestOracleDataStructures(t *testing.T) {
 			Prices:      []float64{49000, 50000, 51000},
 			Timestamps:  []time.Time{time.Now().Add(-5 * time.Minute), time.Now().Add(-2 * time.Minute), time.Now()},
 		}
-		
+
 		assert.Equal(t, "BTC-USDT", twap.Symbol)
 		assert.Equal(t, 50000.0, twap.Price)
 		assert.Equal(t, 5*time.Minute, twap.Window)
@@ -305,7 +305,7 @@ func TestOracleDataStructures(t *testing.T) {
 			StartTime:   time.Now().Add(-5 * time.Minute),
 			EndTime:     time.Now(),
 		}
-		
+
 		assert.Equal(t, "BTC-USDT", vwap.Symbol)
 		assert.Equal(t, 50000.0, vwap.Price)
 		assert.Equal(t, 300.0, vwap.TotalVolume)
