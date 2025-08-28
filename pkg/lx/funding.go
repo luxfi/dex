@@ -145,7 +145,7 @@ func (fe *FundingEngine) Start() {
 		fe.stopped = false
 	}
 	fe.mu.Unlock()
-	
+
 	go fe.runFundingLoop()
 	go fe.runTWAPSampling()
 }
@@ -154,7 +154,7 @@ func (fe *FundingEngine) Start() {
 func (fe *FundingEngine) Stop() {
 	fe.mu.Lock()
 	defer fe.mu.Unlock()
-	
+
 	if !fe.stopped {
 		close(fe.stopCh)
 		fe.stopped = true

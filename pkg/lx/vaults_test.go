@@ -113,7 +113,7 @@ func TestCreateVaultWithProfitShare(t *testing.T) {
 
 	t.Run("CreateAnotherVaultDifferentLeader", func(t *testing.T) {
 		// Create vault with different leader
-		copyVault, err := vm.CreateVaultWithProfitShare("leader456", "Another Vault", "desc", big.NewInt(200 * 1e6))
+		copyVault, err := vm.CreateVaultWithProfitShare("leader456", "Another Vault", "desc", big.NewInt(200*1e6))
 		assert.NoError(t, err)
 		assert.NotNil(t, copyVault)
 		assert.Equal(t, "leader456", copyVault.Leader)
@@ -126,7 +126,7 @@ func TestJoinVault(t *testing.T) {
 
 	// Create a copy vault
 	leader := "leader123"
-	vault, err := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100 * 1e6))
+	vault, err := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100*1e6))
 	require.NoError(t, err)
 
 	t.Run("JoinExistingVault", func(t *testing.T) {
@@ -170,7 +170,7 @@ func TestWithdrawFromVault(t *testing.T) {
 
 	// Create and fund a vault
 	leader := "leader123"
-	vault, _ := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100*1e6))
 
 	user := "user1"
 	depositAmount := big.NewInt(100 * 1e6)
@@ -191,7 +191,7 @@ func TestWithdrawFromVault(t *testing.T) {
 		newUser := "user2"
 		depositAmount2 := big.NewInt(100 * 1e6)
 		vm.JoinVault(vault.ID, newUser, depositAmount2)
-		
+
 		withdrawAmount, err := vm.WithdrawFromVault(vault.ID, newUser, 1.0) // 100%
 		require.NoError(t, err)
 		assert.NotNil(t, withdrawAmount)
@@ -268,11 +268,11 @@ func TestGetUserVaults(t *testing.T) {
 	leader2 := "leader234"
 	user := "user1"
 
-	vault1, _ := vm.CreateVaultWithProfitShare(leader1, "Vault 1", "desc", big.NewInt(100 * 1e6))
-	vault2, _ := vm.CreateVaultWithProfitShare(leader2, "Vault 2", "desc", big.NewInt(200 * 1e6))
+	vault1, _ := vm.CreateVaultWithProfitShare(leader1, "Vault 1", "desc", big.NewInt(100*1e6))
+	vault2, _ := vm.CreateVaultWithProfitShare(leader2, "Vault 2", "desc", big.NewInt(200*1e6))
 
-	vm.JoinVault(vault1.ID, user, big.NewInt(100 * 1e6))
-	vm.JoinVault(vault2.ID, user, big.NewInt(100 * 1e6))
+	vm.JoinVault(vault1.ID, user, big.NewInt(100*1e6))
+	vm.JoinVault(vault2.ID, user, big.NewInt(100*1e6))
 
 	t.Run("GetUserVaults", func(t *testing.T) {
 		vaults, err := vm.GetUserVaults(user)
@@ -292,7 +292,7 @@ func TestGetLeaderVaults(t *testing.T) {
 	vm := NewVaultManager(engine)
 
 	leader := "leader123"
-	vault, _ := vm.CreateVaultWithProfitShare(leader, "Leader Vault", "desc", big.NewInt(100 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare(leader, "Leader Vault", "desc", big.NewInt(100*1e6))
 
 	t.Run("GetLeaderVaults", func(t *testing.T) {
 		vaults, err := vm.GetLeaderVaults(leader)
@@ -313,7 +313,7 @@ func TestUpdateVaultValue(t *testing.T) {
 	vm := NewVaultManager(engine)
 
 	leader := "leader123"
-	vault, _ := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare(leader, "Test Vault", "desc", big.NewInt(100*1e6))
 
 	t.Run("UpdateValue", func(t *testing.T) {
 		newValue := big.NewInt(12000)
@@ -340,7 +340,7 @@ func TestExecuteVaultTrade(t *testing.T) {
 
 	// Create vault
 	leader := "leader123"
-	vault, _ := vm.CreateVaultWithProfitShare(leader, "Trading Vault", "desc", big.NewInt(100 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare(leader, "Trading Vault", "desc", big.NewInt(100*1e6))
 
 	t.Run("ExecuteTrade", func(t *testing.T) {
 		err := vm.ExecuteVaultTrade(vault.ID, "BTC-USDT", Buy, 0.1, Limit)
@@ -377,7 +377,7 @@ func BenchmarkJoinVault(b *testing.B) {
 	vm := NewVaultManager(engine)
 
 	// Create a vault
-	vault, _ := vm.CreateVaultWithProfitShare("leader", "Bench Vault", "desc", big.NewInt(1000 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare("leader", "Bench Vault", "desc", big.NewInt(1000*1e6))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -391,12 +391,12 @@ func BenchmarkWithdrawFromVault(b *testing.B) {
 	vm := NewVaultManager(engine)
 
 	// Create and populate vault
-	vault, _ := vm.CreateVaultWithProfitShare("leader", "Bench Vault", "desc", big.NewInt(1000 * 1e6))
+	vault, _ := vm.CreateVaultWithProfitShare("leader", "Bench Vault", "desc", big.NewInt(1000*1e6))
 
 	// Pre-add users
 	for i := 0; i < 1000; i++ {
 		user := fmt.Sprintf("user%d", i)
-		vm.JoinVault(vault.ID, user, big.NewInt(100 * 1e6))
+		vm.JoinVault(vault.ID, user, big.NewInt(100*1e6))
 	}
 
 	b.ResetTimer()
