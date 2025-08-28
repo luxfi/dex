@@ -656,7 +656,7 @@ func TestOrderHeapFunctions(t *testing.T) {
 		// For buy orders, higher price should have higher priority (Less returns true)
 		result := heap.Less(1, 0) // 101 > 100
 		assert.True(t, result)
-		
+
 		result = heap.Less(0, 1) // 100 < 101
 		assert.False(t, result)
 	})
@@ -665,7 +665,7 @@ func TestOrderHeapFunctions(t *testing.T) {
 		// For sell orders, lower price should have higher priority (Less returns true)
 		result := heap.Less(2, 3) // 102 < 103
 		assert.True(t, result)
-		
+
 		result = heap.Less(3, 2) // 103 > 102
 		assert.False(t, result)
 	})
@@ -673,9 +673,9 @@ func TestOrderHeapFunctions(t *testing.T) {
 	t.Run("SwapFunction", func(t *testing.T) {
 		originalFirst := heap[0].ID
 		originalSecond := heap[1].ID
-		
+
 		heap.Swap(0, 1)
-		
+
 		assert.Equal(t, originalSecond, heap[0].ID)
 		assert.Equal(t, originalFirst, heap[1].ID)
 	})
@@ -686,16 +686,16 @@ func TestAdvancedHiddenOrdersNotSupported(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
 
 	hiddenOrder := &AdvancedOrder{
-		ID:     1,
-		UserID: "user1",
-		Symbol: "TEST/USD",
-		Side:   Buy,
-		Type:   Hidden,
-		Price:  100.0,
-		Size:   10.0,
+		ID:            1,
+		UserID:        "user1",
+		Symbol:        "TEST/USD",
+		Side:          Buy,
+		Type:          Hidden,
+		Price:         100.0,
+		Size:          10.0,
 		RemainingSize: 10.0,
-		Status: StatusNew,
-		CreateTime: time.Now(),
+		Status:        StatusNew,
+		CreateTime:    time.Now(),
 	}
 
 	// Hidden orders are not currently supported in the switch case
@@ -741,7 +741,7 @@ func TestAdvancedPeggedOrders(t *testing.T) {
 	book.mu.RUnlock()
 }
 
-// Test additional market data and statistics functionality  
+// Test additional market data and statistics functionality
 func TestAdvancedMarketDataAndStats(t *testing.T) {
 	book := NewAdvancedOrderBook("TEST/USD")
 
@@ -821,7 +821,7 @@ func BenchmarkOrderHeapOperations(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Test Less function
 		heap.Less(i%999, (i+1)%999)
-		
+
 		// Test Swap function
 		heap.Swap(i%999, (i+1)%999)
 	}

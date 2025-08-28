@@ -53,7 +53,7 @@ func main() {
 	fmt.Println("Warming up caches and JIT...")
 	warmup(book)
 	warmupComplete.Store(true)
-	fmt.Println("✓ Warmup complete\n")
+	fmt.Println("✓ Warmup complete")
 
 	// Run benchmarks
 	fmt.Println("═══════════════════════════════════════════════════════════════════════")

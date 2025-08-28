@@ -53,7 +53,7 @@ func TestBridgeAdvancedFunctions(t *testing.T) {
 		// Execute transfer should complete successfully in test environment
 		err := bridge.executeTransfer(transfer)
 		assert.NoError(t, err) // Should succeed with proper setup
-		
+
 		// Check that status was updated to completed
 		assert.Equal(t, BridgeStatusCompleted, transfer.Status)
 	})
@@ -99,7 +99,7 @@ func TestBridgeAdvancedFunctions(t *testing.T) {
 
 		// Should return a transaction hash in test environment
 		txHash, err := bridge.executeOnChain(chainConfig, transfer)
-		assert.NoError(t, err) // Should succeed in test environment
+		assert.NoError(t, err)     // Should succeed in test environment
 		assert.NotEmpty(t, txHash) // Should return mock transaction hash
 	})
 
@@ -112,9 +112,9 @@ func TestBridgeAdvancedFunctions(t *testing.T) {
 
 		// Test with mock transaction hash
 		txHash := "0xtest123..."
-		
+
 		confirmed, err := bridge.waitForConfirmation(chainConfig, txHash)
-		assert.NoError(t, err) // Should succeed in test environment
+		assert.NoError(t, err)    // Should succeed in test environment
 		assert.True(t, confirmed) // Should return confirmed in test
 	})
 
@@ -130,7 +130,7 @@ func TestBridgeAdvancedFunctions(t *testing.T) {
 		// Create a test pool for fee distribution
 		availLiq, _ := new(big.Int).SetString("10000000000000000000", 10) // 10 ETH
 		pool := &BridgeLiquidityPool{
-			Asset:               "ETH",
+			Asset:              "ETH",
 			AvailableLiquidity: availLiq,
 			Providers:          make(map[string]*LiquidityProvider),
 		}
@@ -141,7 +141,7 @@ func TestBridgeAdvancedFunctions(t *testing.T) {
 	t.Run("GetHistoricalBars", func(t *testing.T) {
 		// Test alpaca source function with 0% coverage
 		source := NewAlpacaSource("test_key", "test_secret")
-		
+
 		start := time.Now().Add(-24 * time.Hour)
 		end := time.Now()
 		bars, err := source.GetHistoricalBars("AAPL", start, end, "day")
@@ -157,7 +157,7 @@ func TestOrderBookSubscriptionFunctions(t *testing.T) {
 	t.Run("Subscribe", func(t *testing.T) {
 		ch := make(chan MarketDataUpdate, 1)
 		ob.Subscribe(ch)
-		
+
 		// Verify subscription doesn't error
 		assert.NotNil(t, ch)
 	})
@@ -166,10 +166,10 @@ func TestOrderBookSubscriptionFunctions(t *testing.T) {
 		// Create and subscribe a channel
 		ch := make(chan MarketDataUpdate, 1)
 		ob.Subscribe(ch)
-		
+
 		// Unsubscribe the channel
 		ob.Unsubscribe(ch)
-		
+
 		// Should complete without error
 		assert.NotNil(t, ch)
 	})
@@ -271,7 +271,7 @@ func TestBridgeTransferStates(t *testing.T) {
 			Name:            "Wrapped Bitcoin",
 			Decimals:        8,
 			SourceContract:  "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
-			MinTransfer:     big.NewInt(100000), // 0.001 WBTC
+			MinTransfer:     big.NewInt(100000),      // 0.001 WBTC
 			MaxTransfer:     big.NewInt(10000000000), // 100 WBTC
 			WrappedContract: make(map[string]string),
 		}

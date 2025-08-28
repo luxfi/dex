@@ -383,7 +383,7 @@ func (sm *StakingManager) Stake(
 ) (*StakePosition, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	return sm.stakeInternal(poolID, user, amount)
 }
 
@@ -613,25 +613,25 @@ func (sm *StakingManager) Delegate(
 	if position == nil {
 		// New position for delegator
 		position = &StakePosition{
-			Owner:          delegator,
-			Amount:         big.NewInt(0),
-			Shares:         big.NewInt(0),
-			RewardsEarned:  big.NewInt(0),
-			RewardsClaimed: big.NewInt(0),
-			StakedAt:       time.Now(),
-			LastClaimTime:  time.Now(),
+			Owner:              delegator,
+			Amount:             big.NewInt(0),
+			Shares:             big.NewInt(0),
+			RewardsEarned:      big.NewInt(0),
+			RewardsClaimed:     big.NewInt(0),
+			StakedAt:           time.Now(),
+			LastClaimTime:      time.Now(),
 			CompoundingEnabled: false,
-			Delegations:    make(map[string]*big.Int),
+			Delegations:        make(map[string]*big.Int),
 		}
 		pool.ActiveStakers[delegator] = position
 	}
-	
+
 	// Add amount to position
 	position.Amount.Add(position.Amount, amount)
-	
+
 	// For simplicity, shares equal amount (1:1 ratio)
 	position.Shares.Add(position.Shares, amount)
-	
+
 	// Update pool totals
 	pool.TotalStaked.Add(pool.TotalStaked, amount)
 

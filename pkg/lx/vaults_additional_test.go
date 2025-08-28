@@ -39,7 +39,7 @@ func (ms *MockStrategy) GetPerformance() *StrategyPerformance {
 		TotalTrades:   0,
 		WinningTrades: 0,
 		LosingTrades:  0,
-		TotalPnL:     big.NewInt(0),
+		TotalPnL:      big.NewInt(0),
 	}
 }
 
@@ -94,14 +94,14 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 		smallConfig := config
 		smallConfig.ID = "small-vault"
 		smallConfig.MaxCapacity = big.NewInt(500)
-		
+
 		smallVault, err := manager.CreateVault(smallConfig)
 		assert.NoError(t, err)
-		
+
 		// First deposit should succeed
 		_, err = smallVault.Deposit("user1", big.NewInt(400))
 		assert.NoError(t, err)
-		
+
 		// Second deposit should fail due to capacity
 		_, err = smallVault.Deposit("user2", big.NewInt(200))
 		assert.Error(t, err)
@@ -111,11 +111,11 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 	t.Run("Withdraw", func(t *testing.T) {
 		// First deposit
 		vault.Deposit("user3", big.NewInt(2000))
-		
+
 		// Wait for lockup to expire (simulate)
 		position := vault.Depositors["user3"]
 		position.LockedUntil = time.Now().Add(-1 * time.Hour)
-		
+
 		amount, err := vault.Withdraw("user3", big.NewInt(500))
 		assert.NoError(t, err)
 		assert.NotNil(t, amount)
@@ -131,7 +131,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 	t.Run("WithdrawDuringLockup", func(t *testing.T) {
 		// Deposit with lockup
 		vault.Deposit("user4", big.NewInt(1500))
-		
+
 		// Try to withdraw immediately (should fail)
 		_, err := vault.Withdraw("user4", big.NewInt(100))
 		assert.Error(t, err)
@@ -143,7 +143,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 		vault.Deposit("user5", big.NewInt(1000))
 		position := vault.Depositors["user5"]
 		position.LockedUntil = time.Now().Add(-1 * time.Hour)
-		
+
 		// Try to withdraw more shares than available
 		_, err := vault.Withdraw("user5", big.NewInt(2000))
 		assert.Error(t, err)
@@ -159,7 +159,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 			RealizedPnL:   big.NewInt(0),
 			UnrealizedPnL: big.NewInt(200),
 		}
-		
+
 		amount := big.NewInt(500)
 		feeAdjustedAmount := vault.applyWithdrawalFees(amount, position)
 		assert.NotNil(t, feeAdjustedAmount)
@@ -184,10 +184,10 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 		capital := big.NewInt(1000)
 		// Need to provide strategy parameter - create a mock strategy
 		mockStrategy := &MockStrategy{
-			Name:      "test-strategy",
-			Weight:    1.0,
-			MaxRisk:   0.02,
-			IsActive:  true,
+			Name:     "test-strategy",
+			Weight:   1.0,
+			MaxRisk:  0.02,
+			IsActive: true,
 		}
 		allocation := vault.allocateCapital(mockStrategy, capital)
 		assert.NotNil(t, allocation)
@@ -221,7 +221,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 	})
 
 	t.Run("UpdatePerformance", func(t *testing.T) {
-		currentValue := big.NewInt(1200000) // $1.2M current value
+		currentValue := big.NewInt(1200000)   // $1.2M current value
 		vault.UpdatePerformance(currentValue) // Returns void, not error
 		// Just verify it doesn't panic
 		assert.NotNil(t, vault)
@@ -230,7 +230,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 	t.Run("VaultPositionAccess", func(t *testing.T) {
 		// First create a position
 		vault.Deposit("user7", big.NewInt(1000))
-		
+
 		// Direct access to depositors map
 		position, exists := vault.Depositors["user7"]
 		assert.True(t, exists)
@@ -258,7 +258,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 		originalState := vault.State
 		vault.State = VaultStatePaused
 		assert.Equal(t, VaultStatePaused, vault.State)
-		
+
 		vault.State = originalState
 		assert.Equal(t, VaultStateActive, vault.State)
 	})
@@ -275,7 +275,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 	t.Run("VaultStrategiesAccess", func(t *testing.T) {
 		// Test strategies access
 		assert.NotNil(t, vault.Strategies)
-		
+
 		// Add a mock strategy to test
 		mockStrategy := &MockStrategy{
 			Name:     "test-strategy",
@@ -283,7 +283,7 @@ func TestVaultAdditionalFunctions(t *testing.T) {
 			MaxRisk:  0.02,
 			IsActive: true,
 		}
-		
+
 		vault.Strategies = append(vault.Strategies, mockStrategy)
 		assert.Equal(t, 1, len(vault.Strategies))
 		assert.Equal(t, "test-strategy", vault.Strategies[0].GetName())
@@ -307,12 +307,12 @@ func TestVaultManagerFunctions(t *testing.T) {
 			Description: "Test vault for manager functions",
 			MinDeposit:  big.NewInt(100),
 		}
-		
+
 		vault, err := manager.CreateVault(config)
 		assert.NoError(t, err)
 		assert.NotNil(t, vault)
 		assert.Equal(t, config.ID, vault.ID)
-		
+
 		// Test duplicate creation
 		_, err = manager.CreateVault(config)
 		assert.Error(t, err)
@@ -326,7 +326,7 @@ func TestVaultManagerFunctions(t *testing.T) {
 		assert.NotNil(t, manager.userVaults)
 		assert.NotNil(t, manager.leaderVaults)
 		assert.NotNil(t, manager.engine)
-		
+
 		// Check that our test vault exists
 		vault, exists := manager.vaults["manager-test"]
 		assert.True(t, exists)
@@ -334,7 +334,7 @@ func TestVaultManagerFunctions(t *testing.T) {
 	})
 }
 
-// Test copy trading vault functions  
+// Test copy trading vault functions
 func TestCopyVaultFunctions(t *testing.T) {
 	engineConfig := EngineConfig{
 		EnablePerps:   true,
@@ -348,7 +348,7 @@ func TestCopyVaultFunctions(t *testing.T) {
 		// Test copy vault map exists
 		assert.NotNil(t, manager.copyVaults)
 		assert.NotNil(t, manager.leaderVaults)
-		
+
 		// Should be empty initially
 		assert.Equal(t, 0, len(manager.copyVaults))
 		assert.Equal(t, 0, len(manager.leaderVaults))

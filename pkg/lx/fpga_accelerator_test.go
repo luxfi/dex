@@ -97,7 +97,7 @@ func TestFPGAAccelerator(t *testing.T) {
 			Price:  50000,
 			Size:   1.5,
 		}
-		
+
 		encoded := accelerator.encodeOrder(order)
 		assert.NotNil(t, encoded)
 		assert.Greater(t, len(encoded), 0)
@@ -107,7 +107,7 @@ func TestFPGAAccelerator(t *testing.T) {
 		// Create some mock result data
 		data := make([]byte, 32)
 		data[0] = 1 // success flag
-		
+
 		result, err := accelerator.decodeResult(data)
 		assert.NotNil(t, result)
 		assert.NoError(t, err)
@@ -130,14 +130,13 @@ func TestFPGAAccelerator(t *testing.T) {
 	})
 }
 
-
 // Benchmark FPGA accelerator functions
 func BenchmarkFPGAAccelerator(b *testing.B) {
 	accelerator := NewFPGAAccelerator()
-	
+
 	order := &Order{
 		ID:     1,
-		Symbol: "BTC-USD", 
+		Symbol: "BTC-USD",
 		Side:   Buy,
 		Price:  50000,
 		Size:   1.0,
