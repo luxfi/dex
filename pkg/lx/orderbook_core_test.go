@@ -40,7 +40,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 	t.Run("processMarketOrderLocked_Rejected", func(t *testing.T) {
 		// Clear the order book
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Create market order with no liquidity (should be rejected)
 		marketOrder := &Order{
 			ID:        3,
@@ -57,7 +57,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersWithSelfTradePrevention", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add orders from same user (should trigger self-trade prevention)
 		ob.AddOrder(&Order{
 			ID:        4,
@@ -74,7 +74,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 			Type:      Limit,
 			Side:      Sell,
 			Size:      80,
-			Price:     49999, // Crossing price
+			Price:     49999,     // Crossing price
 			User:      "trader1", // Same user
 			Timestamp: time.Now().Add(1 * time.Millisecond),
 		})
@@ -86,7 +86,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersNormalMatching", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add crossing orders from different users
 		ob.AddOrder(&Order{
 			ID:        6,
@@ -110,7 +110,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 		trades := ob.MatchOrders()
 		assert.Greater(t, len(trades), 0) // Should create trades
-		
+
 		if len(trades) > 0 {
 			trade := trades[0]
 			assert.Equal(t, float64(80), trade.Size) // Size of smaller order
@@ -122,7 +122,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersPriceTimePriority", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add bid order first (older timestamp)
 		bidOrder := &Order{
 			ID:        8,
@@ -149,7 +149,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 		trades := ob.MatchOrders()
 		assert.Greater(t, len(trades), 0)
-		
+
 		if len(trades) > 0 {
 			trade := trades[0]
 			// Since bid order was first, trade price should be bid price
@@ -160,7 +160,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersPartialFill", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Large bid order
 		ob.AddOrder(&Order{
 			ID:        10,
@@ -185,7 +185,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 		trades := ob.MatchOrders()
 		assert.Equal(t, 1, len(trades))
-		
+
 		trade := trades[0]
 		assert.Equal(t, float64(80), trade.Size) // Smaller order size
 		assert.Equal(t, "full", trade.MatchType) // Ask order should be fully filled
@@ -193,7 +193,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersNoLiquidity", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// No orders in book
 		trades := ob.MatchOrders()
 		assert.Equal(t, 0, len(trades))
@@ -201,7 +201,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersNoCrossing", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add non-crossing orders
 		ob.AddOrder(&Order{
 			ID:        12,
@@ -229,7 +229,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 	t.Run("matchOrdersMultipleMatches", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add multiple small ask orders
 		ob.AddOrder(&Order{
 			ID:        14,
@@ -264,7 +264,7 @@ func TestOrderBookCoreFunctions(t *testing.T) {
 
 		trades := ob.MatchOrders()
 		assert.GreaterOrEqual(t, len(trades), 2) // Should match multiple orders
-		
+
 		totalTradeSize := float64(0)
 		for _, trade := range trades {
 			totalTradeSize += trade.Size
@@ -309,7 +309,7 @@ func TestOrderTreeFunctions(t *testing.T) {
 
 	t.Run("removeOrderFromTree", func(t *testing.T) {
 		tree = NewOrderTree(Buy) // Provide required Side parameter
-		
+
 		order := &Order{
 			ID:        3,
 			Price:     50000,
@@ -329,7 +329,7 @@ func TestOrderTreeFunctions(t *testing.T) {
 func TestOrderMatchingScenarios(t *testing.T) {
 	t.Run("IcebergOrderMatching", func(t *testing.T) {
 		ob := NewOrderBook("TEST-PAIR")
-		
+
 		// Add iceberg order (simplified without non-existent fields)
 		icebergOrder := &Order{
 			ID:        17,
@@ -340,9 +340,9 @@ func TestOrderMatchingScenarios(t *testing.T) {
 			User:      "iceberg_trader",
 			Timestamp: time.Now(),
 		}
-		
+
 		ob.AddOrder(icebergOrder)
-		
+
 		// Add large buy order
 		ob.AddOrder(&Order{
 			ID:        18,
@@ -360,7 +360,7 @@ func TestOrderMatchingScenarios(t *testing.T) {
 
 	t.Run("StopOrderHandling", func(t *testing.T) {
 		ob := NewOrderBook("TEST-PAIR")
-		
+
 		// Add stop sell order (should be handled by the system)
 		stopOrder := &Order{
 			ID:        19,
@@ -371,7 +371,7 @@ func TestOrderMatchingScenarios(t *testing.T) {
 			User:      "stop_trader",
 			Timestamp: time.Now(),
 		}
-		
+
 		orderID := ob.AddOrder(stopOrder)
 		// Order should be added successfully
 		assert.Greater(t, orderID, uint64(0))
@@ -379,7 +379,7 @@ func TestOrderMatchingScenarios(t *testing.T) {
 
 	t.Run("PostOnlyOrderHandling", func(t *testing.T) {
 		ob := NewOrderBook("TEST-PAIR")
-		
+
 		// Add ask order first
 		ob.AddOrder(&Order{
 			ID:        20,
@@ -390,7 +390,7 @@ func TestOrderMatchingScenarios(t *testing.T) {
 			User:      "seller1",
 			Timestamp: time.Now(),
 		})
-		
+
 		// Add post-only bid that would match (simplified test)
 		postOnlyOrder := &Order{
 			ID:        21,
@@ -401,7 +401,7 @@ func TestOrderMatchingScenarios(t *testing.T) {
 			User:      "post_only_trader",
 			Timestamp: time.Now(),
 		}
-		
+
 		orderID := ob.AddOrder(postOnlyOrder)
 		// Order should be added successfully
 		assert.Greater(t, orderID, uint64(0))
@@ -429,7 +429,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 
 	t.Run("MatchOrdersWithZeroSizedOrders", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add orders with zero remaining size (edge case)
 		order1 := &Order{
 			ID:        23,
@@ -441,7 +441,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 			User:      "buyer1",
 			Timestamp: time.Now(),
 		}
-		
+
 		order2 := &Order{
 			ID:        24,
 			Type:      Limit,
@@ -451,11 +451,11 @@ func TestOrderBookEdgeCases(t *testing.T) {
 			User:      "seller1",
 			Timestamp: time.Now(),
 		}
-		
+
 		// Add orders normally (don't access non-existent AllOrders)
 		ob.AddOrder(order1)
 		ob.AddOrder(order2)
-		
+
 		// Should not crash
 		trades := ob.MatchOrders()
 		assert.NotNil(t, trades)
@@ -464,7 +464,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 	t.Run("TradeIDIncrement", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
 		initialTradeID := ob.LastTradeID
-		
+
 		// Add matching orders
 		ob.AddOrder(&Order{
 			ID:        25,
@@ -495,7 +495,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 
 	t.Run("OrderStatusUpdates", func(t *testing.T) {
 		ob = NewOrderBook("TEST-PAIR")
-		
+
 		// Add large bid order
 		bidOrder := &Order{
 			ID:        27,
@@ -507,7 +507,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 			Timestamp: time.Now(),
 		}
 		ob.AddOrder(bidOrder)
-		
+
 		// Add smaller ask order (should partially fill bid)
 		askOrder := &Order{
 			ID:        28,
@@ -519,10 +519,10 @@ func TestOrderBookEdgeCases(t *testing.T) {
 			Timestamp: time.Now(),
 		}
 		ob.AddOrder(askOrder)
-		
+
 		trades := ob.MatchOrders()
 		assert.Greater(t, len(trades), 0)
-		
+
 		// Verify order status updates
 		if len(trades) > 0 {
 			// Ask order should be fully filled
@@ -537,7 +537,7 @@ func TestOrderBookEdgeCases(t *testing.T) {
 func TestOrderBookMatchingPerformance(t *testing.T) {
 	t.Run("HighVolumeMatching", func(t *testing.T) {
 		ob := NewOrderBook("TEST-PAIR")
-		
+
 		// Add many orders
 		numOrders := 100
 		for i := 0; i < numOrders; i++ {
@@ -551,7 +551,7 @@ func TestOrderBookMatchingPerformance(t *testing.T) {
 				User:      "buyer" + string(rune(i)),
 				Timestamp: time.Now(),
 			})
-			
+
 			// Add ask orders
 			ob.AddOrder(&Order{
 				ID:        uint64(i*2 + 2),
@@ -563,7 +563,7 @@ func TestOrderBookMatchingPerformance(t *testing.T) {
 				Timestamp: time.Now(),
 			})
 		}
-		
+
 		// Add crossing orders to trigger matching
 		ob.AddOrder(&Order{
 			ID:        uint64(numOrders*2 + 1),
@@ -574,11 +574,11 @@ func TestOrderBookMatchingPerformance(t *testing.T) {
 			User:      "big_buyer",
 			Timestamp: time.Now(),
 		})
-		
+
 		start := time.Now()
 		trades := ob.MatchOrders()
 		duration := time.Since(start)
-		
+
 		t.Logf("Matched %d trades in %v", len(trades), duration)
 		assert.Greater(t, len(trades), 0)
 		assert.Less(t, duration, 100*time.Millisecond) // Should be fast

@@ -28,7 +28,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("CreateVault", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:                "vault1",
 			Name:              "Test Vault",
@@ -61,7 +61,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_Deposit", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:           "vault2",
 			Name:         "Deposit Test Vault",
@@ -105,7 +105,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_Withdraw", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:           "vault3",
 			Name:         "Withdraw Test Vault",
@@ -140,7 +140,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_applyWithdrawalFees", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:             "vault4",
 			Name:           "Fee Test Vault",
@@ -152,16 +152,16 @@ func TestVaultFunctions(t *testing.T) {
 		vault, _ := manager.CreateVault(config)
 
 		position := &VaultPosition{
-			User:          "user1",
-			DepositValue:  big.NewInt(1000),
-			CurrentValue:  big.NewInt(1200), // 200 profit
-			LastUpdate:    time.Now().AddDate(0, 0, -30), // 30 days ago
+			User:         "user1",
+			DepositValue: big.NewInt(1000),
+			CurrentValue: big.NewInt(1200),              // 200 profit
+			LastUpdate:   time.Now().AddDate(0, 0, -30), // 30 days ago
 		}
 
 		originalAmount := big.NewInt(1200)
 		amount := new(big.Int).Set(originalAmount) // Create a copy
 		finalAmount := vault.applyWithdrawalFees(amount, position)
-		
+
 		// Should be less than original due to fees
 		assert.True(t, finalAmount.Cmp(originalAmount) < 0)
 		assert.True(t, finalAmount.Cmp(big.NewInt(0)) > 0)
@@ -169,7 +169,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_ExecuteStrategies", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:         "vault5",
 			Name:       "Strategy Test Vault",
@@ -196,7 +196,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_getAvailableCapital", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:         "vault6",
 			Name:       "Capital Test Vault",
@@ -217,7 +217,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_Rebalance", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:                "vault7",
 			Name:              "Rebalance Test Vault",
@@ -235,7 +235,7 @@ func TestVaultFunctions(t *testing.T) {
 
 	t.Run("Vault_UpdatePerformance", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:         "vault8",
 			Name:       "Performance Test Vault",
@@ -260,7 +260,7 @@ func TestVaultManagerComprehensiveFunctions(t *testing.T) {
 
 	t.Run("GetVault", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:         "getvault1",
 			Name:       "Get Vault Test",
@@ -284,7 +284,7 @@ func TestVaultManagerComprehensiveFunctions(t *testing.T) {
 
 	t.Run("ListVaults", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Initially empty
 		vaults := manager.ListVaults()
 		assert.Equal(t, 0, len(vaults))
@@ -292,7 +292,7 @@ func TestVaultManagerComprehensiveFunctions(t *testing.T) {
 		// Create vaults
 		config1 := VaultConfig{ID: "list1", Name: "List Vault 1", MinDeposit: big.NewInt(100)}
 		config2 := VaultConfig{ID: "list2", Name: "List Vault 2", MinDeposit: big.NewInt(100)}
-		
+
 		manager.CreateVault(config1)
 		manager.CreateVault(config2)
 
@@ -302,7 +302,7 @@ func TestVaultManagerComprehensiveFunctions(t *testing.T) {
 
 	t.Run("GetVaultPerformance", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		config := VaultConfig{
 			ID:         "perfvault1",
 			Name:       "Performance Vault Test",
@@ -336,10 +336,10 @@ func TestStrategyFunctions(t *testing.T) {
 		strategy := NewMarketMakingStrategy(config)
 		assert.NotNil(t, strategy)
 		assert.Equal(t, "MM Test Strategy", strategy.GetName())
-		
+
 		riskLimits := strategy.GetRiskLimits()
 		assert.NotNil(t, riskLimits)
-		
+
 		performance := strategy.GetPerformance()
 		assert.NotNil(t, performance)
 	})
@@ -368,7 +368,7 @@ func TestStrategyFunctions(t *testing.T) {
 		strategy := NewMomentumStrategy(config)
 		assert.NotNil(t, strategy)
 		assert.Equal(t, "Momentum Test Strategy", strategy.GetName())
-		
+
 		orders := strategy.Execute(NewOrderBook("ETH-USDT"), big.NewInt(5000))
 		assert.NotNil(t, orders)
 	})
@@ -382,7 +382,7 @@ func TestStrategyFunctions(t *testing.T) {
 		strategy := NewArbitrageStrategy(config)
 		assert.NotNil(t, strategy)
 		assert.Equal(t, "Arbitrage Test Strategy", strategy.GetName())
-		
+
 		orders := strategy.Execute(NewOrderBook("BTC-USDT"), big.NewInt(3000))
 		assert.NotNil(t, orders)
 	})
@@ -396,7 +396,7 @@ func TestStrategyFunctions(t *testing.T) {
 		strategy := NewMeanReversionStrategy(config)
 		assert.NotNil(t, strategy)
 		assert.Equal(t, "Mean Reversion Test Strategy", strategy.GetName())
-		
+
 		orders := strategy.Execute(NewOrderBook("AVAX-USDT"), big.NewInt(2000))
 		assert.NotNil(t, orders)
 	})
@@ -412,7 +412,7 @@ func TestPerformanceMetricsFunctions(t *testing.T) {
 
 	t.Run("calculateSharpe", func(t *testing.T) {
 		metrics := NewPerformanceMetrics()
-		
+
 		// Should not panic
 		metrics.calculateSharpe()
 		assert.NotNil(t, metrics)
@@ -420,7 +420,7 @@ func TestPerformanceMetricsFunctions(t *testing.T) {
 
 	t.Run("calculateMaxDrawdown", func(t *testing.T) {
 		metrics := NewPerformanceMetrics()
-		
+
 		// Should not panic
 		metrics.calculateMaxDrawdown()
 		assert.NotNil(t, metrics)
@@ -434,7 +434,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("CreateVaultWithProfitShare", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		leader := "leader1"
 		name := "Copy Vault Test"
 		description := "A test copy vault"
@@ -451,10 +451,10 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("JoinVault", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create copy vault first
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader1", "Join Test Vault", "Test", big.NewInt(100*1e6))
-		
+
 		// Test joining vault
 		err := manager.JoinVault(copyVault.ID, "follower1", big.NewInt(100*1e6))
 		assert.NoError(t, err)
@@ -470,7 +470,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("WithdrawFromVault", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create and join vault
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader2", "Withdraw Test", "Test", big.NewInt(100*1e6))
 		manager.JoinVault(copyVault.ID, "follower1", big.NewInt(100*1e6))
@@ -488,7 +488,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("GetVaultByID", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create vault
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader3", "GetByID Test", "Test", big.NewInt(100*1e6))
 
@@ -505,7 +505,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("GetUserVaults", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		user := "testuser1"
 
 		// Initially no vaults
@@ -526,7 +526,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("GetLeaderVaults", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		leader := "testleader1"
 
 		// Initially no vaults
@@ -546,7 +546,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("UpdateVaultValue", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create vault
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader5", "Update Value Test", "Test", big.NewInt(100*1e6))
 
@@ -562,7 +562,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("ExecuteVaultTrade", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create vault
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader6", "Trade Test", "Test", big.NewInt(100*1e6))
 
@@ -577,7 +577,7 @@ func TestCopyVaultComprehensiveFunctions(t *testing.T) {
 
 	t.Run("checkLeaderMinimumShare", func(t *testing.T) {
 		manager := NewVaultManager(engine)
-		
+
 		// Create vault
 		copyVault, _ := manager.CreateVaultWithProfitShare("leader7", "Min Share Test", "Test", big.NewInt(100*1e6))
 
@@ -606,7 +606,7 @@ func TestVaultUtilityFunctions(t *testing.T) {
 
 	t.Run("allocateCapital", func(t *testing.T) {
 		manager := NewVaultManager(nil)
-		
+
 		config := VaultConfig{
 			ID:         "capital_test",
 			Name:       "Capital Allocation Test",
@@ -614,7 +614,7 @@ func TestVaultUtilityFunctions(t *testing.T) {
 		}
 
 		vault, _ := manager.CreateVault(config)
-		
+
 		// Mock strategy
 		strategy := NewMarketMakingStrategy(StrategyConfig{Name: "Test Strategy"})
 		totalCapital := big.NewInt(10000)
@@ -627,7 +627,7 @@ func TestVaultUtilityFunctions(t *testing.T) {
 
 	t.Run("applyRiskLimits", func(t *testing.T) {
 		manager := NewVaultManager(nil)
-		
+
 		config := VaultConfig{
 			ID:         "risk_test",
 			Name:       "Risk Limits Test",
@@ -668,7 +668,7 @@ func TestVaultManagerStrategyCreation(t *testing.T) {
 		mmStrategy := manager.createStrategy(mmConfig)
 		assert.NotNil(t, mmStrategy)
 
-		// Test momentum strategy  
+		// Test momentum strategy
 		momentumConfig := StrategyConfig{
 			Type: "momentum",
 			Name: "Test Momentum Strategy",
@@ -678,7 +678,7 @@ func TestVaultManagerStrategyCreation(t *testing.T) {
 
 		// Test arbitrage strategy
 		arbConfig := StrategyConfig{
-			Type: "arbitrage", 
+			Type: "arbitrage",
 			Name: "Test Arbitrage Strategy",
 		}
 		arbStrategy := manager.createStrategy(arbConfig)
@@ -687,7 +687,7 @@ func TestVaultManagerStrategyCreation(t *testing.T) {
 		// Test mean reversion strategy
 		mrConfig := StrategyConfig{
 			Type: "mean_reversion",
-			Name: "Test Mean Reversion Strategy", 
+			Name: "Test Mean Reversion Strategy",
 		}
 		mrStrategy := manager.createStrategy(mrConfig)
 		assert.NotNil(t, mrStrategy)
