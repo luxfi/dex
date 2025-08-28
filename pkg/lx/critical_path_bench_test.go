@@ -98,7 +98,7 @@ func BenchmarkFPGAAcceleration(b *testing.B) {
 	if testing.Short() {
 		b.Skip("Skipping FPGA acceleration test in short mode")
 	}
-	
+
 	fpga := NewFPGAAccelerator()
 	if fpga == nil {
 		b.Skip("FPGA accelerator not available")
