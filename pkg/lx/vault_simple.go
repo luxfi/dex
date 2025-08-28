@@ -314,7 +314,7 @@ func (vm *SimpleVaultManager) ExecuteVaultOrder(vaultID string, order *Order) er
 
 	// Set the order's user to the vault's subaccount
 	order.User = vault.SubaccountID
-	
+
 	// TODO: Check vault has sufficient balance through clearinghouse
 	// This would need a GetBalance method on ClearingHouse
 	// For now, skip the balance check
@@ -322,7 +322,7 @@ func (vm *SimpleVaultManager) ExecuteVaultOrder(vaultID string, order *Order) er
 	// TODO: Execute the order through the order book
 	// This would need integration with an order book instance
 	// For now, just update the vault's total value as a placeholder
-	
+
 	// Note: In a real implementation, this would:
 	// 1. Submit the order to the order book
 	// 2. Track trades and update PnL

@@ -24,10 +24,10 @@ func TestMultisigCoreFunctions(t *testing.T) {
 
 	// Create test wallet
 	wallet, _ := manager.CreateWallet("test", []string{"owner1", "owner2"}, 2)
-	
+
 	t.Run("ProposeTransaction", func(t *testing.T) {
 		tx, err := manager.ProposeTransaction(
-			wallet.ID, "owner1", TxTypeTransfer, "recipient", 
+			wallet.ID, "owner1", TxTypeTransfer, "recipient",
 			big.NewInt(100), "ETH", []byte("data"), "test",
 		)
 		assert.NoError(t, err)
@@ -51,10 +51,10 @@ func TestMultisigCoreFunctions(t *testing.T) {
 			wallet.ID, "owner1", TxTypeTransfer, "recipient",
 			big.NewInt(50), "ETH", []byte("data"), "revoke test",
 		)
-		
+
 		// First confirm, then revoke
 		manager.ConfirmTransaction(wallet.ID, newTx.ID, "owner2")
-		err := manager.RevokeConfirmation(wallet.ID, newTx.ID, "owner2") 
+		err := manager.RevokeConfirmation(wallet.ID, newTx.ID, "owner2")
 		assert.NoError(t, err)
 	})
 
