@@ -206,46 +206,49 @@ func TestClearingEngineLiquidation(t *testing.T) {
 func TestClearingEngineSettlementBatch(t *testing.T) {
 	t.Skip("Skipping test - API mismatch")
 	return
-	engine := NewSettlementEngine(100, 10*time.Second)
 
-	t.Run("ProcessSettlementBatch", func(t *testing.T) {
-		// Create test orders
-		orders := []*SettledOrder{
-			{
-				OrderID:        1,
-				TxHash:         "0xabc123",
-				BlockNumber:    1000,
-				SettlementTime: time.Now(),
-				GasUsed:        big.NewInt(21000),
-			},
-			{
-				OrderID:        2,
-				TxHash:         "0xdef456",
-				BlockNumber:    1001,
-				SettlementTime: time.Now(),
-				GasUsed:        big.NewInt(21000),
-			},
-		}
+	// Unreachable code below - keeping for future reference
+	/*
+		engine := NewSettlementEngine(100, 10*time.Second)
+		t.Run("ProcessSettlementBatch", func(t *testing.T) {
+			// Create test orders
+			orders := []*SettledOrder{
+				{
+					OrderID:        1,
+					TxHash:         "0xabc123",
+					BlockNumber:    1000,
+					SettlementTime: time.Now(),
+					GasUsed:        big.NewInt(21000),
+				},
+				{
+					OrderID:        2,
+					TxHash:         "0xdef456",
+					BlockNumber:    1001,
+					SettlementTime: time.Now(),
+					GasUsed:        big.NewInt(21000),
+				},
+			}
 
-		// Process batch
-		batch := engine.CreateBatch(orders)
-		assert.NotNil(t, batch)
-		assert.Equal(t, uint64(1), batch.BatchID)
-		assert.Equal(t, 2, len(batch.Orders))
-		assert.Equal(t, SettlementPending, batch.Status)
+			// Process batch
+			batch := engine.CreateBatch(orders)
+			assert.NotNil(t, batch)
+			assert.Equal(t, uint64(1), batch.BatchID)
+			assert.Equal(t, 2, len(batch.Orders))
+			assert.Equal(t, SettlementPending, batch.Status)
 
-		// Execute batch
-		err := engine.ExecuteBatch(batch.BatchID)
-		assert.NoError(t, err)
+			// Execute batch
+			err := engine.ExecuteBatch(batch.BatchID)
+			assert.NoError(t, err)
 
-		// Check batch status
-		engine.mu.RLock()
-		updatedBatch := engine.batches[batch.BatchID]
-		engine.mu.RUnlock()
+			// Check batch status
+			engine.mu.RLock()
+			updatedBatch := engine.batches[batch.BatchID]
+			engine.mu.RUnlock()
 
-		assert.Equal(t, SettlementCompleted, updatedBatch.Status)
-		assert.NotZero(t, updatedBatch.CompletedAt)
-	})
+			assert.Equal(t, SettlementCompleted, updatedBatch.Status)
+			assert.NotZero(t, updatedBatch.CompletedAt)
+		})
+	*/
 }
 
 func TestNewClearingHouse(t *testing.T) {

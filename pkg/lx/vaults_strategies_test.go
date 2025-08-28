@@ -45,7 +45,7 @@ func TestVaultStrategyFunctions(t *testing.T) {
 			Type: "momentum",
 			Name: "Test Momentum Strategy",
 			Parameters: map[string]interface{}{
-				"lookback": 20,
+				"lookback":  20,
 				"threshold": 0.02,
 			},
 			RiskLimits: RiskLimits{
@@ -109,10 +109,10 @@ func TestVaultStrategyFunctions(t *testing.T) {
 			Type: "market_making",
 			Name: "MM Strategy Test",
 			Parameters: map[string]interface{}{
-				"spread":        0.002,
-				"order_size":    10.0,
-				"max_orders":    15,
-				"refresh_rate":  "1s",
+				"spread":       0.002,
+				"order_size":   10.0,
+				"max_orders":   15,
+				"refresh_rate": "1s",
 			},
 			RiskLimits: RiskLimits{
 				MaxPositionSize: 1000.0,
@@ -178,9 +178,9 @@ func TestVaultStrategyFunctions(t *testing.T) {
 			Type: "momentum",
 			Name: "Momentum Test",
 			Parameters: map[string]interface{}{
-				"lookback":   20,
-				"threshold":  0.02,
-				"max_size":   100.0,
+				"lookback":  20,
+				"threshold": 0.02,
+				"max_size":  100.0,
 			},
 			RiskLimits: RiskLimits{
 				MaxPositionSize: 1000.0,
@@ -261,8 +261,8 @@ func TestVaultStrategyFunctions(t *testing.T) {
 			Type: "mean_reversion",
 			Name: "Mean Reversion Test",
 			Parameters: map[string]interface{}{
-				"band_width": 0.02,
-				"lookback":   50,
+				"band_width":      0.02,
+				"lookback":        50,
 				"entry_threshold": 0.8,
 			},
 			RiskLimits: RiskLimits{
@@ -306,7 +306,7 @@ func TestStrategyPerformanceTracking(t *testing.T) {
 			TotalTrades:   100,
 			WinningTrades: 65,
 			LosingTrades:  35,
-			TotalPnL:     big.NewInt(5000000000), // 5,000 USDT profit
+			TotalPnL:      big.NewInt(5000000000), // 5,000 USDT profit
 		}
 
 		assert.Equal(t, 100, performance.TotalTrades)
@@ -329,7 +329,7 @@ func TestStrategyPerformanceTracking(t *testing.T) {
 		metrics.calculateSharpe()
 		// Should complete without error
 
-		// Test max drawdown calculation  
+		// Test max drawdown calculation
 		metrics.calculateMaxDrawdown()
 		// Should complete without error
 	})
@@ -396,8 +396,8 @@ func TestStrategyConfigValidation(t *testing.T) {
 		riskLimits := RiskLimits{
 			MaxPositionSize: 1000.0,
 			PositionLimits: map[string]float64{
-				"BTC-USDT": 100.0,
-				"ETH-USDT": 200.0,
+				"BTC-USDT":  100.0,
+				"ETH-USDT":  200.0,
 				"AVAX-USDT": 50.0,
 			},
 		}
