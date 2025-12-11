@@ -362,10 +362,15 @@ func (v *QChainVerifier) Healthy() bool {
 
 // Close stops the verifier.
 func (v *QChainVerifier) Close() error {
-	close(v.done)
 	v.mu.Lock()
+	if !v.polling {
+		v.mu.Unlock()
+		return nil // Already closed
+	}
 	v.polling = false
 	v.mu.Unlock()
+
+	close(v.done)
 	return nil
 }
 

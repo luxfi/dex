@@ -27,6 +27,9 @@ type Oracle struct {
 	minSources int
 	running    atomic.Bool
 	mu         sync.RWMutex
+
+	// Q-Chain quantum finality verifier (optional)
+	verifier *QChainVerifier
 }
 
 // NewOracle creates a price oracle with default configuration.
@@ -258,8 +261,72 @@ func (o *Oracle) Stop() {
 		return // Already stopped
 	}
 
+	// Stop verifier if running
+	if o.verifier != nil {
+		o.verifier.Close()
+	}
+
 	// Give time for goroutines to exit
 	time.Sleep(100 * time.Millisecond)
+}
+
+// SetVerifier attaches a Q-Chain quantum finality verifier.
+// When set, the Oracle automatically verifies prices against Q-Chain finality.
+func (o *Oracle) SetVerifier(v *QChainVerifier) {
+	o.mu.Lock()
+	o.verifier = v
+	o.mu.Unlock()
+}
+
+// Verifier returns the attached Q-Chain verifier (or nil if not set).
+func (o *Oracle) Verifier() *QChainVerifier {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.verifier
+}
+
+// VerifiedPrice returns price data with quantum finality status.
+// If a verifier is attached, includes finality verification.
+func (o *Oracle) VerifiedPrice(symbol string) (*VerifiedData, error) {
+	data, err := o.Data(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	vd := &VerifiedData{
+		Data:      data,
+		Finalized: false,
+	}
+
+	// If verifier attached, check finality
+	if o.verifier != nil {
+		// Determine which chain this price came from
+		chain := sourceToChain(data.Source)
+		if chain != "" {
+			if fin, err := o.verifier.Finality(chain); err == nil && fin.Finalized {
+				vd.Finalized = true
+				vd.Finality = fin
+			}
+		}
+	}
+
+	return vd, nil
+}
+
+// sourceToChain maps source names to chain identifiers for finality verification.
+func sourceToChain(source string) string {
+	switch source {
+	case "x-chain":
+		return "x-chain"
+	case "c-chain":
+		return "c-chain"
+	case "zoo-chain":
+		return "zoo-chain"
+	case "a-chain":
+		return "a-chain"
+	default:
+		return "" // External oracles don't have on-chain finality
+	}
 }
 
 
