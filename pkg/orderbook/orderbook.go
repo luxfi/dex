@@ -253,6 +253,7 @@ func (ob *GoOrderBook) insertBid(orderID uint64) {
 	for pos < len(ob.bids) {
 		bidOrder, exists := ob.orders[ob.bids[pos]]
 		if !exists || bidOrder == nil {
+			pos++ // Skip orphaned entries
 			continue
 		}
 		if bidOrder.Price < order.Price {
@@ -278,6 +279,7 @@ func (ob *GoOrderBook) insertAsk(orderID uint64) {
 	for pos < len(ob.asks) {
 		askOrder, exists := ob.orders[ob.asks[pos]]
 		if !exists || askOrder == nil {
+			pos++ // Skip orphaned entries
 			continue
 		}
 		if askOrder.Price > order.Price {
