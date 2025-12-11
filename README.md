@@ -5,13 +5,13 @@
 [![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 
-Ultra-high performance DEX with 434M+ orders/sec on Apple Silicon.
+Ultra-high performance DEX with 434M+ orders/sec with GPU acceleration.
 
 ## Features
 
 - **Ultra-high performance**: 13M+ orders/sec achieved with planet-scale architecture
 - **Sub-microsecond latency**: 75.9ns order matching, 636ns position updates
-- **Multi-engine architecture**: Pure Go, C++, and GPU (MLX/CUDA)
+- **Multi-engine architecture**: Pure Go, C++, and GPU (CUDA/MLX)
 - **Quantum-resistant consensus**: DAG with post-quantum signatures
 - **Cross-platform**: Linux, macOS (Intel & Apple Silicon), Windows
 - **Professional Market Data**: Real-time oracle integration with multiple sources
