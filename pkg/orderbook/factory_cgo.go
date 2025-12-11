@@ -1,16 +1,16 @@
-//go:build cgo && never
-// +build cgo,never
+//go:build cgo
+// +build cgo
 
 package orderbook
 
-// NewOrderBookImpl creates a CGO-backed orderbook when CGO is enabled
-func NewOrderBookImpl(cfg Config) OrderBook {
-	if cfg.Implementation == ImplCpp {
-		return NewCGOOrderBook(cfg)
+import "os"
+
+// NewOrderBook creates an order book.
+// With CGO enabled, uses C++ for performance.
+// Set LX_ORDERBOOK_IMPL=go to use pure Go instead.
+func NewOrderBook(cfg Config) OrderBook {
+	if os.Getenv("LX_ORDERBOOK_IMPL") == "go" {
+		return NewGoOrderBook(cfg)
 	}
-	return &GoOrderBook{
-		symbol: cfg.Symbol,
-		orders: make(map[uint64]*Order),
-		nextID: 1,
-	}
+	return NewCppOrderBook(cfg)
 }
