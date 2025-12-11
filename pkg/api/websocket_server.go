@@ -113,8 +113,8 @@ func NewWebSocketServer(config ServerConfig) *WebSocketServer {
 		liquidationEngine: config.LiquidationEngine,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				// Configure CORS as needed
-				return true
+				origin := r.Header.Get("Origin")
+				return isOriginAllowed(origin)
 			},
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -127,6 +127,40 @@ func NewWebSocketServer(config ServerConfig) *WebSocketServer {
 		ctx:           ctx,
 		cancel:        cancel,
 	}
+}
+
+// AllowedOrigins defines the list of allowed CORS origins
+// Empty slice means no restrictions (development mode - NOT FOR PRODUCTION)
+//
+// Architecture:
+// - lux.exchange: Main unified exchange interface (AMM + Order Book)
+// - dex.lux.network: Order book DEX sidecar API
+// - amm.lux.network: Uniswap V3 AMM on C-Chain (future)
+var AllowedOrigins = []string{
+	// Production - Main exchange interface
+	"https://lux.exchange",
+	// Production - Order book DEX sidecar
+	"https://dex.lux.network",
+	// Production - AMM (Uniswap V3 fork on C-Chain)
+	"https://amm.lux.network",
+	// Development
+	"https://localhost:3000",
+	"http://localhost:3000",
+	"http://localhost:8080",
+}
+
+// isOriginAllowed checks if the origin is in the allowed list
+func isOriginAllowed(origin string) bool {
+	// In development/testing, if no origins configured, allow all
+	if len(AllowedOrigins) == 0 {
+		return true
+	}
+	for _, allowed := range AllowedOrigins {
+		if allowed == origin || allowed == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 // ServerConfig contains server configuration
