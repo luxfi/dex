@@ -179,8 +179,8 @@ func (s *ChainlinkSource) Healthy() bool {
 // Name returns "chainlink".
 func (s *ChainlinkSource) Name() string { return "chainlink" }
 
-// Weight returns 2.0 (high trust due to decentralization).
-func (s *ChainlinkSource) Weight() float64 { return 2.0 }
+// Weight returns 1.0 (external oracle - reference only).
+func (s *ChainlinkSource) Weight() float64 { return 1.0 }
 
 // Close stops the source.
 func (s *ChainlinkSource) Close() error {

@@ -330,8 +330,8 @@ func (s *AChainSource) Healthy() bool {
 // Name returns "a-chain".
 func (s *AChainSource) Name() string { return "a-chain" }
 
-// Weight returns 1.3 (attestation chain - high trust).
-func (s *AChainSource) Weight() float64 { return 1.3 }
+// Weight returns 1.5 (validator attestations).
+func (s *AChainSource) Weight() float64 { return 1.5 }
 
 // Close stops the source.
 func (s *AChainSource) Close() error {
