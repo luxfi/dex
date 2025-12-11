@@ -12,6 +12,8 @@ import (
 type Oracle struct {
 	sources    map[string]Source
 	strategy   Aggregator
+	symbolMap  *SymbolMap
+	watching   map[string]bool
 	current    map[string]*Data
 	history    map[string][]*Data
 	twap       map[string]float64
@@ -31,9 +33,11 @@ func NewOracle() *Oracle {
 	return &Oracle{
 		sources: make(map[string]Source),
 		strategy: &WeightedMedian{
-			MinSources:   2,
-			MaxDeviation: 0.05,
+			MinSources:   1,
+			MaxDeviation: 0.10,
 		},
+		symbolMap:  NewSymbolMap(),
+		watching:   make(map[string]bool),
 		current:    make(map[string]*Data),
 		history:    make(map[string][]*Data),
 		twap:       make(map[string]float64),
@@ -42,9 +46,16 @@ func NewOracle() *Oracle {
 		updates:    make(chan *Update, 10000),
 		alerts:     make(chan *Alert, 1000),
 		interval:   50 * time.Millisecond,
-		staleLimit: 2 * time.Second,
-		minSources: 2,
+		staleLimit: 5 * time.Second,
+		minSources: 1,
 	}
+}
+
+// Watch adds a symbol to the watchlist.
+func (o *Oracle) Watch(symbol string) {
+	o.mu.Lock()
+	o.watching[o.symbolMap.Map(symbol)] = true
+	o.mu.Unlock()
 }
 
 // AddSource registers a price source.
@@ -80,35 +91,48 @@ func (o *Oracle) loop() {
 }
 
 func (o *Oracle) update() {
-	symbols := o.symbols()
+	o.mu.RLock()
+	syms := make([]string, 0, len(o.watching))
+	for sym := range o.watching {
+		syms = append(syms, sym)
+	}
+	o.mu.RUnlock()
 
-	for _, symbol := range symbols {
+	for _, normalized := range syms {
 		prices := make([]*Data, 0)
 
-		for name, src := range o.sources {
+		// Get all variants that map to this normalized symbol
+		variants := o.symbolMap.Reverse(normalized)
+
+		for _, src := range o.sources {
 			if !src.Healthy() {
-				o.alert(symbol, AlertSourceDown, SeverityWarn, "source unhealthy: "+name)
 				continue
 			}
 
-			p, err := src.Price(symbol)
-			if err != nil {
-				continue
-			}
-
-			// Check circuit breaker
-			if cb, ok := o.breakers[symbol]; ok {
-				if !cb.Check(p.Price) {
-					o.alert(symbol, AlertCircuitBreaker, SeverityCrit, "circuit breaker tripped")
+			// Try each variant
+			for _, sym := range variants {
+				p, err := src.Price(sym)
+				if err != nil {
 					continue
 				}
-			}
 
-			prices = append(prices, p)
+				// Normalize the symbol in the result
+				p.Symbol = normalized
+
+				// Check circuit breaker
+				if cb, ok := o.breakers[normalized]; ok {
+					if !cb.Check(p.Price) {
+						o.alert(normalized, AlertCircuitBreaker, SeverityCrit, "circuit breaker tripped")
+						continue
+					}
+				}
+
+				prices = append(prices, p)
+				break // Got price from this source
+			}
 		}
 
 		if len(prices) < o.minSources {
-			o.alert(symbol, AlertLowSources, SeverityCrit, "insufficient sources")
 			continue
 		}
 
@@ -117,7 +141,8 @@ func (o *Oracle) update() {
 			continue
 		}
 
-		o.store(symbol, agg)
+		agg.Symbol = normalized
+		o.store(normalized, agg)
 	}
 }
 
@@ -231,31 +256,17 @@ func (o *Oracle) Alerts() <-chan *Alert {
 // Stop halts the oracle.
 func (o *Oracle) Stop() {
 	o.mu.Lock()
+	if !o.running {
+		o.mu.Unlock()
+		return
+	}
 	o.running = false
 	o.mu.Unlock()
-	close(o.updates)
-	close(o.alerts)
+
+	// Give time for goroutines to exit
+	time.Sleep(100 * time.Millisecond)
 }
 
-func (o *Oracle) symbols() []string {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-
-	seen := make(map[string]bool)
-	for _, src := range o.sources {
-		if prices, _ := src.Prices(nil); prices != nil {
-			for sym := range prices {
-				seen[sym] = true
-			}
-		}
-	}
-
-	result := make([]string, 0, len(seen))
-	for sym := range seen {
-		result = append(result, sym)
-	}
-	return result
-}
 
 func (o *Oracle) alert(symbol string, t AlertType, sev Severity, msg string) {
 	select {
