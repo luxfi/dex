@@ -123,3 +123,14 @@ const (
 	SeverityWarn
 	SeverityCrit
 )
+
+// VerifiedData includes price data with quantum finality verification.
+type VerifiedData struct {
+	*Data
+
+	// Finalized indicates if the price has quantum finality from Q-Chain.
+	Finalized bool `json:"finalized"`
+
+	// Finality contains the Q-Chain finality proof (if verified).
+	Finality *QuantumFinality `json:"finality,omitempty"`
+}
