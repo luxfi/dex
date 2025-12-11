@@ -16,8 +16,8 @@ import (
 	"unsafe"
 )
 
-// NewOrderBookImpl creates a C++ implementation of the order book
-func NewOrderBookImpl(cfg Config) OrderBook {
+// NewCppOrderBook creates a C++ implementation of the order book
+func NewCppOrderBook(cfg Config) OrderBook {
 	return &cppOrderBook{
 		ptr: C.create_orderbook(),
 	}
