@@ -18,8 +18,8 @@ import (
 func main() {
 	var (
 		interval = flag.Duration("interval", 500*time.Millisecond, "display interval")
-		symbols  = flag.String("symbols", "LUX-USDC,LUX-USD,ETH-USD,BTC-USD", "symbols to watch")
-		sources  = flag.String("sources", "all", "sources: all,xchain,achain,cchain,pyth,chainlink")
+		symbols  = flag.String("symbols", "LUX-USDC,LZOO-USDC,LETH-USDC,ZOO-USDC", "symbols to watch")
+		sources  = flag.String("sources", "all", "sources: all,xchain,achain,cchain,zoo,pyth,chainlink")
 	)
 	flag.Parse()
 
@@ -86,6 +86,20 @@ func main() {
 		}
 		oracle.AddSource("pyth", pyth)
 		fmt.Println("✓ Pyth source added (real-time oracle)")
+	}
+
+	// Zoo Chain - Zoo Labs DEX
+	if useAll || contains(sourceList, "zoo") {
+		zoo := price.NewZooChainSource(
+			"http://localhost:9651/rpc",
+			"ws://localhost:9651/ws",
+		)
+		if err := zoo.Start(); err != nil {
+			log.Printf("Warning: Zoo Chain start failed: %v", err)
+		} else {
+			oracle.AddSource("zoo-chain", zoo)
+			fmt.Println("✓ Zoo Chain source started (Zoo Labs DEX)")
+		}
 	}
 
 	// Chainlink
