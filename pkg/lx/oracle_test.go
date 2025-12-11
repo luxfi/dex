@@ -2,6 +2,7 @@ package lx
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -337,7 +338,7 @@ func TestOracleStartStop(t *testing.T) {
 	// Start oracle
 	err := oracle.Start()
 	assert.NoError(t, err)
-	assert.True(t, oracle.Running)
+	assert.True(t, oracle.IsRunning())
 
 	// Try to start again
 	err = oracle.Start()
@@ -346,7 +347,7 @@ func TestOracleStartStop(t *testing.T) {
 
 	// Stop oracle
 	oracle.Stop()
-	assert.False(t, oracle.Running)
+	assert.False(t, oracle.IsRunning())
 }
 
 func TestCalculateHelperFunctions(t *testing.T) {
@@ -535,13 +536,13 @@ func TestPriceUpdateNotifications(t *testing.T) {
 		Source:    "test",
 	}
 
-	// Start listening for updates
-	updateReceived := false
+	// Start listening for updates - use atomic for race-safe access
+	var updateReceived atomic.Bool
 	go func() {
 		select {
 		case update := <-oracle.PriceUpdates:
 			if update != nil {
-				updateReceived = true
+				updateReceived.Store(true)
 				assert.Equal(t, "BTC-USDT", update.Symbol)
 				assert.Equal(t, 50000.0, update.OldPrice)
 				assert.Equal(t, 51000.0, update.NewPrice)
@@ -559,7 +560,7 @@ func TestPriceUpdateNotifications(t *testing.T) {
 	})
 
 	time.Sleep(50 * time.Millisecond)
-	assert.True(t, updateReceived)
+	assert.True(t, updateReceived.Load())
 }
 
 // TestPriceAlerts tests the alert system
@@ -576,13 +577,13 @@ func TestPriceAlerts(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 
-	// Listen for alert
-	alertReceived := false
+	// Listen for alert - use atomic for race-safe access
+	var alertReceived atomic.Bool
 	go func() {
 		select {
 		case a := <-oracle.AlertChannel:
 			if a != nil {
-				alertReceived = true
+				alertReceived.Store(true)
 				assert.NotEmpty(t, a.AlertID)
 				assert.Equal(t, "BTC-USDT", a.Symbol)
 				assert.Equal(t, PriceStale, a.AlertType)
@@ -594,5 +595,5 @@ func TestPriceAlerts(t *testing.T) {
 
 	oracle.sendAlert(alert)
 	time.Sleep(50 * time.Millisecond)
-	assert.True(t, alertReceived)
+	assert.True(t, alertReceived.Load())
 }
