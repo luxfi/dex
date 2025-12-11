@@ -320,8 +320,8 @@ func (s *CChainSource) Healthy() bool {
 // Name returns "c-chain".
 func (s *CChainSource) Name() string { return "c-chain" }
 
-// Weight returns 1.2 (on-chain truth).
-func (s *CChainSource) Weight() float64 { return 1.2 }
+// Weight returns 1.8 (on-chain AMM - high trust).
+func (s *CChainSource) Weight() float64 { return 1.8 }
 
 // Close stops the source.
 func (s *CChainSource) Close() error {
