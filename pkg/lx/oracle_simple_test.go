@@ -29,7 +29,7 @@ func TestOracleSimpleFunctions(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Stop it
-		oracle.Running = false
+		oracle.Stop()
 	})
 
 	t.Run("updatePrices", func(t *testing.T) {
