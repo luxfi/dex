@@ -109,7 +109,7 @@ func TestOracleFunctions(t *testing.T) {
 		assert.NotNil(t, oracle.PriceUpdates)
 		assert.NotNil(t, oracle.AlertChannel)
 		assert.NotNil(t, oracle.Metrics)
-		assert.False(t, oracle.Running)
+		assert.False(t, oracle.IsRunning())
 
 		// Check default configuration
 		assert.Equal(t, 50*time.Millisecond, oracle.UpdateInterval)
@@ -137,7 +137,7 @@ func TestOracleFunctions(t *testing.T) {
 
 		err := oracle.Start()
 		assert.NoError(t, err)
-		assert.True(t, oracle.Running)
+		assert.True(t, oracle.IsRunning())
 
 		// Test already running
 		err = oracle.Start()
@@ -152,10 +152,10 @@ func TestOracleFunctions(t *testing.T) {
 		oracle := NewPriceOracle()
 
 		oracle.Start()
-		assert.True(t, oracle.Running)
+		assert.True(t, oracle.IsRunning())
 
 		oracle.Stop()
-		assert.False(t, oracle.Running)
+		assert.False(t, oracle.IsRunning())
 	})
 
 	t.Run("GetPrice", func(t *testing.T) {

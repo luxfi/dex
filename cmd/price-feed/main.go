@@ -19,7 +19,7 @@ func main() {
 	var (
 		interval = flag.Duration("interval", 500*time.Millisecond, "display interval")
 		symbols  = flag.String("symbols", "LUX-USDC,LZOO-USDC,LETH-USDC,ZOO-USDC", "symbols to watch")
-		sources  = flag.String("sources", "all", "sources: all,xchain,achain,cchain,zoo,qchain,pyth,chainlink")
+		sources  = flag.String("sources", "all", "sources: all,xchain,achain,cchain,zoo,pyth,chainlink")
 		verify   = flag.Bool("verify", false, "verify quantum finality on Q-Chain")
 	)
 	flag.Parse()
@@ -103,18 +103,19 @@ func main() {
 		}
 	}
 
-	// Q-Chain - Quantum Finality
-	var qchain *price.QChainSource
-	if useAll || contains(sourceList, "qchain") || *verify {
-		qchain = price.NewQChainSource(
+	// Q-Chain - Quantum Finality Verifier (NOT a price source)
+	var qchain *price.QChainVerifier
+	if *verify {
+		qchain = price.NewQChainVerifier(
 			"http://localhost:9650/ext/bc/Q",
 			"ws://localhost:9650/ext/bc/Q/ws",
 		)
 		if err := qchain.Start(); err != nil {
 			log.Printf("Warning: Q-Chain start failed: %v", err)
 		} else {
-			oracle.AddSource("q-chain", qchain)
-			fmt.Println("✓ Q-Chain source started (quantum finality)")
+			// Note: Q-Chain is NOT added as a price source
+			// It only verifies finality of prices from other sources
+			fmt.Println("✓ Q-Chain verifier started (quantum finality)")
 		}
 	}
 

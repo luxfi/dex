@@ -18,6 +18,21 @@ type PriceInt int64
 
 const PriceMultiplier = 100000000
 
+// MaxSafePrice is the maximum price that can be safely converted to PriceInt
+// without overflow (math.MaxInt64 / PriceMultiplier)
+const MaxSafePrice = float64(math.MaxInt64) / PriceMultiplier
+
+// safePriceToInt converts a float64 price to PriceInt with overflow protection
+func safePriceToInt(price float64) (PriceInt, error) {
+	if price < 0 {
+		return 0, fmt.Errorf("negative price: %f", price)
+	}
+	if price > MaxSafePrice {
+		return 0, fmt.Errorf("price overflow: %f exceeds max safe price %f", price, MaxSafePrice)
+	}
+	return PriceInt(price * PriceMultiplier), nil
+}
+
 // OrderFlags constants (type defined in types_common.go)
 const (
 	OrderFlagNone       OrderFlags = 0
@@ -880,6 +895,13 @@ func (ob *OrderBook) validateOrder(order *Order) error {
 	if order.Size <= 0 {
 		return ErrInvalidSize
 	}
+	// Check for price overflow
+	if order.Price > MaxSafePrice {
+		return fmt.Errorf("price %f exceeds max safe price %f: %w", order.Price, MaxSafePrice, ErrInvalidPrice)
+	}
+	if order.StopPrice > MaxSafePrice {
+		return fmt.Errorf("stop price %f exceeds max safe price %f: %w", order.StopPrice, MaxSafePrice, ErrInvalidPrice)
+	}
 	return nil
 }
 
@@ -951,7 +973,10 @@ func (ob *OrderBook) cancelOrderInternal(order *Order) {
 	}
 }
 
-// CancelOrder cancels an order
+// ErrUnauthorized is returned when a user attempts to cancel an order they don't own
+var ErrUnauthorized = fmt.Errorf("unauthorized: order does not belong to user")
+
+// CancelOrder cancels an order - DEPRECATED: use CancelOrderWithAuth for authorization
 func (ob *OrderBook) CancelOrder(orderID uint64) error {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
@@ -959,6 +984,33 @@ func (ob *OrderBook) CancelOrder(orderID uint64) error {
 	order, exists := ob.Orders[orderID]
 	if !exists {
 		return ErrOrderNotFound
+	}
+
+	if order.Status != Open && order.Status != PartiallyFilled {
+		return fmt.Errorf("order not cancellable")
+	}
+
+	ob.cancelOrderInternal(order)
+	return nil
+}
+
+// CancelOrderWithAuth cancels an order with user authorization
+func (ob *OrderBook) CancelOrderWithAuth(orderID uint64, userID string) error {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	order, exists := ob.Orders[orderID]
+	if !exists {
+		return ErrOrderNotFound
+	}
+
+	// Verify the user owns this order
+	orderOwner := order.User
+	if orderOwner == "" {
+		orderOwner = order.UserID
+	}
+	if orderOwner != "" && orderOwner != userID {
+		return ErrUnauthorized
 	}
 
 	if order.Status != Open && order.Status != PartiallyFilled {
