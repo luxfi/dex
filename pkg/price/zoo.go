@@ -295,8 +295,8 @@ func (s *ZooChainSource) Healthy() bool {
 // Name returns "zoo-chain".
 func (s *ZooChainSource) Name() string { return "zoo-chain" }
 
-// Weight returns 1.1 (Zoo Chain DEX).
-func (s *ZooChainSource) Weight() float64 { return 1.1 }
+// Weight returns 1.7 (Zoo DEX AMM - high trust).
+func (s *ZooChainSource) Weight() float64 { return 1.7 }
 
 // Close stops the source.
 func (s *ZooChainSource) Close() error {
