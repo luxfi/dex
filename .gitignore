@@ -82,3 +82,8 @@ docs/_build/
 docs/site/
 
 ui
+
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+QWEN.md
