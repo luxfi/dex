@@ -1035,3 +1035,284 @@ func TestBaseQuoteNoSeparator(t *testing.T) {
 		t.Errorf("BaseQuote(INVALID) base = %q, want INVALID", base)
 	}
 }
+
+// === Q-Chain Verifier Integration Tests ===
+
+func TestOracleSetVerifier(t *testing.T) {
+	oracle := NewOracle()
+
+	// Initially no verifier
+	if oracle.Verifier() != nil {
+		t.Error("Expected no verifier initially")
+	}
+
+	// Create and attach verifier
+	verifier := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	oracle.SetVerifier(verifier)
+
+	// Verify it's attached
+	if oracle.Verifier() == nil {
+		t.Error("Expected verifier to be attached")
+	}
+}
+
+func TestOracleVerifiedPrice(t *testing.T) {
+	oracle := NewOracle()
+
+	// Add a source
+	src := NewXChainSource("http://localhost:9650", "ws://localhost:9650")
+	src.Start()
+	defer src.Close()
+	oracle.AddSource("x-chain", src)
+
+	// Watch symbol
+	oracle.Watch("LUX-USDC")
+
+	// Start oracle
+	oracle.Start()
+	defer oracle.Stop()
+
+	// Wait for data
+	time.Sleep(200 * time.Millisecond)
+
+	// Test without verifier
+	vd, err := oracle.VerifiedPrice("LUX-USDC")
+	if err != nil {
+		t.Fatalf("VerifiedPrice failed: %v", err)
+	}
+
+	if vd.Finalized {
+		t.Error("Expected Finalized=false without verifier")
+	}
+	if vd.Finality != nil {
+		t.Error("Expected nil Finality without verifier")
+	}
+	if vd.Data == nil {
+		t.Error("Expected Data to be set")
+	}
+}
+
+func TestOracleVerifiedPriceWithVerifier(t *testing.T) {
+	oracle := NewOracle()
+
+	// Add a source
+	src := NewXChainSource("http://localhost:9650", "ws://localhost:9650")
+	src.Start()
+	oracle.AddSource("x-chain", src)
+
+	// Add verifier
+	verifier := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	verifier.Start()
+	oracle.SetVerifier(verifier)
+
+	// Watch symbol
+	oracle.Watch("LUX-USDC")
+
+	// Start oracle
+	oracle.Start()
+
+	// Wait for data
+	time.Sleep(300 * time.Millisecond)
+
+	// Test with verifier
+	vd, err := oracle.VerifiedPrice("LUX-USDC")
+	if err != nil {
+		t.Fatalf("VerifiedPrice failed: %v", err)
+	}
+
+	// Data should exist
+	if vd.Data == nil {
+		t.Fatal("Expected Data to be set")
+	}
+
+	// Verifier should have finality (simulated) if source is x-chain
+	if vd.Data.Source == "x-chain" {
+		if !vd.Finalized {
+			t.Error("Expected Finalized=true for x-chain source with active verifier")
+		}
+		if vd.Finality == nil {
+			t.Error("Expected Finality to be set for x-chain source with active verifier")
+		}
+	}
+
+	// Cleanup - oracle.Stop() will close verifier, so don't double-close
+	oracle.Stop()
+	src.Close()
+}
+
+func TestOracleStopWithVerifier(t *testing.T) {
+	oracle := NewOracle()
+
+	// Add verifier
+	verifier := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	verifier.Start()
+	oracle.SetVerifier(verifier)
+
+	// Start oracle
+	oracle.Start()
+
+	// Stop should close verifier too
+	oracle.Stop()
+
+	// Verify verifier was closed (no panic)
+}
+
+func TestSourceToChain(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"x-chain", "x-chain"},
+		{"c-chain", "c-chain"},
+		{"zoo-chain", "zoo-chain"},
+		{"a-chain", "a-chain"},
+		{"pyth", ""},
+		{"chainlink", ""},
+		{"unknown", ""},
+	}
+
+	for _, tc := range tests {
+		got := sourceToChain(tc.source)
+		if got != tc.expected {
+			t.Errorf("sourceToChain(%q) = %q, want %q", tc.source, got, tc.expected)
+		}
+	}
+}
+
+func TestVerifiedDataFields(t *testing.T) {
+	now := time.Now()
+	vd := &VerifiedData{
+		Data: &Data{
+			Symbol:     "LUX-USDC",
+			Price:      15.50,
+			Timestamp:  now,
+			Source:     "x-chain",
+			Confidence: 0.95,
+		},
+		Finalized: true,
+		Finality: &QuantumFinality{
+			BlockHash:   "abc123",
+			BlockHeight: 12345,
+			Finalized:   true,
+			Latency:     50 * time.Millisecond,
+		},
+	}
+
+	if vd.Symbol != "LUX-USDC" {
+		t.Error("Symbol mismatch")
+	}
+	if !vd.Finalized {
+		t.Error("Finalized should be true")
+	}
+	if vd.Finality == nil {
+		t.Error("Finality should not be nil")
+	}
+	if vd.Finality.BlockHeight != 12345 {
+		t.Error("BlockHeight mismatch")
+	}
+}
+
+func TestQChainVerifierBasic(t *testing.T) {
+	v := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+
+	// Start verifier
+	if err := v.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer v.Close()
+
+	// Wait for finality data
+	time.Sleep(200 * time.Millisecond)
+
+	// Check health
+	if !v.Healthy() {
+		t.Error("Verifier should be healthy")
+	}
+
+	// Check supported chains
+	chains := v.Chains()
+	if len(chains) == 0 {
+		t.Error("Expected supported chains")
+	}
+
+	// Check validators
+	validators := v.Validators()
+	if len(validators) == 0 {
+		t.Error("Expected validators")
+	}
+}
+
+func TestQChainVerifierFinality(t *testing.T) {
+	v := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	v.Start()
+	defer v.Close()
+
+	// Wait for finality data
+	time.Sleep(200 * time.Millisecond)
+
+	// Get finality for x-chain
+	fin, err := v.Finality("x-chain")
+	if err != nil {
+		t.Fatalf("Finality failed: %v", err)
+	}
+
+	if fin == nil {
+		t.Fatal("Expected finality data")
+	}
+
+	if fin.BlockHash == "" {
+		t.Error("Expected block hash")
+	}
+	if fin.Latency == 0 {
+		t.Error("Expected latency > 0")
+	}
+}
+
+func TestQChainVerifierCrossChain(t *testing.T) {
+	v := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	v.Start()
+	defer v.Close()
+
+	// Wait for finality data
+	time.Sleep(200 * time.Millisecond)
+
+	// Cross-chain verify
+	chains := []string{"x-chain", "c-chain", "zoo-chain"}
+	allFinalized, results := v.CrossChainVerify(chains)
+
+	if !allFinalized {
+		t.Error("Expected all chains finalized (simulated)")
+	}
+	if len(results) != len(chains) {
+		t.Errorf("Expected %d results, got %d", len(chains), len(results))
+	}
+}
+
+func TestQChainVerifierSetQuorum(t *testing.T) {
+	v := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+
+	// Default quorum
+	v.SetQuorum(5)
+
+	// This shouldn't panic
+	v.Close()
+}
+
+func TestQChainVerifierFinalityLatency(t *testing.T) {
+	v := NewQChainVerifier("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+	v.Start()
+	defer v.Close()
+
+	// Wait for finality data
+	time.Sleep(200 * time.Millisecond)
+
+	latency := v.FinalityLatency()
+	if latency == 0 {
+		t.Error("Expected non-zero finality latency")
+	}
+}
+
+func TestQChainBackwardsCompatibility(t *testing.T) {
+	// Test that QChainSource alias works
+	var _ *QChainSource = NewQChainSource("http://localhost:9650/ext/bc/Q", "ws://localhost:9650/ext/bc/Q/ws")
+}
