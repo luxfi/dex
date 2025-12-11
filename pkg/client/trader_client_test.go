@@ -956,3 +956,584 @@ func BenchmarkProcessMessage(b *testing.B) {
 		client.processMessage(msg)
 	}
 }
+
+// Test handleTradeUpdate
+func TestHandleTradeUpdate(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":   "trade_update",
+		"symbol": "BTC/USDC",
+		"trade": map[string]interface{}{
+			"id":       "trade123",
+			"price":    50000.0,
+			"quantity": 1.5,
+		},
+	}
+
+	client.handleTradeUpdate(msg)
+
+	// Check if trade was stored
+	client.mu.RLock()
+	trades := client.trades["BTC/USDC"]
+	client.mu.RUnlock()
+	assert.Len(t, trades, 1)
+}
+
+// Test handleTradeUpdate without symbol
+func TestHandleTradeUpdateNoSymbol(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type": "trade_update",
+		"trade": map[string]interface{}{
+			"id":       "trade123",
+			"price":    50000.0,
+			"quantity": 1.5,
+		},
+	}
+
+	// Should not panic
+	client.handleTradeUpdate(msg)
+}
+
+// Test handleTradeUpdate with trade history limit
+func TestHandleTradeUpdateHistoryLimit(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	// Add more than 100 trades
+	for i := 0; i < 105; i++ {
+		msg := map[string]interface{}{
+			"type":   "trade_update",
+			"symbol": "BTC/USDC",
+			"trade": map[string]interface{}{
+				"id":    fmt.Sprintf("trade%d", i),
+				"price": float64(50000 + i),
+			},
+		}
+		client.handleTradeUpdate(msg)
+	}
+
+	// Check trade history is limited to 100
+	client.mu.RLock()
+	trades := client.trades["BTC/USDC"]
+	client.mu.RUnlock()
+	assert.LessOrEqual(t, len(trades), 100)
+}
+
+// Test handleOrderBookUpdate
+func TestHandleOrderBookUpdate(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":   "orderbook_update",
+		"symbol": "ETH/USDC",
+		"snapshot": map[string]interface{}{
+			"symbol": "ETH/USDC",
+			"bids":   []interface{}{},
+			"asks":   []interface{}{},
+		},
+	}
+
+	client.handleOrderBookUpdate(msg)
+
+	// Check if order book was stored
+	client.mu.RLock()
+	ob := client.orderBooks["ETH/USDC"]
+	client.mu.RUnlock()
+	assert.NotNil(t, ob)
+}
+
+// Test handleOrderBookUpdate missing symbol
+func TestHandleOrderBookUpdateNoSymbol(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type": "orderbook_update",
+		"snapshot": map[string]interface{}{
+			"bids": []interface{}{},
+		},
+	}
+
+	// Should not panic
+	client.handleOrderBookUpdate(msg)
+}
+
+// Test handleError
+func TestHandleError(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":  "error",
+		"error": "test error message",
+	}
+
+	client.handleError(msg)
+
+	// Check error was sent to channel
+	select {
+	case err := <-client.errorChan:
+		assert.Contains(t, err.Error(), "test error message")
+	default:
+		t.Fatal("expected error in channel")
+	}
+}
+
+// Test handleError no error field
+func TestHandleErrorNoField(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type": "error",
+	}
+
+	// Should not panic
+	client.handleError(msg)
+}
+
+// Test GetOrderUpdates channel access
+func TestGetOrderUpdates(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	ch := client.GetOrderUpdates()
+	assert.NotNil(t, ch)
+
+	// Send an update and verify
+	go func() {
+		client.orderUpdates <- &OrderUpdate{Message: "test"}
+	}()
+
+	select {
+	case update := <-ch:
+		assert.Equal(t, "test", update.Message)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for order update")
+	}
+}
+
+// Test GetPositionUpdates channel access
+func TestGetPositionUpdates(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	ch := client.GetPositionUpdates()
+	assert.NotNil(t, ch)
+
+	// Send an update and verify
+	go func() {
+		client.positionUpdates <- &PositionUpdate{Action: "opened"}
+	}()
+
+	select {
+	case update := <-ch:
+		assert.Equal(t, "opened", update.Action)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for position update")
+	}
+}
+
+// Test GetPriceUpdates channel access
+func TestGetPriceUpdates(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	ch := client.GetPriceUpdates()
+	assert.NotNil(t, ch)
+
+	// Send an update and verify
+	go func() {
+		client.priceUpdates <- &PriceUpdate{Symbol: "BTC/USDC", Price: 50000}
+	}()
+
+	select {
+	case update := <-ch:
+		assert.Equal(t, "BTC/USDC", update.Symbol)
+		assert.Equal(t, float64(50000), update.Price)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for price update")
+	}
+}
+
+// Test GetTradeUpdates channel access
+func TestGetTradeUpdates(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	ch := client.GetTradeUpdates()
+	assert.NotNil(t, ch)
+
+	// Send an update and verify
+	go func() {
+		client.tradeUpdates <- &TradeUpdate{Symbol: "ETH/USDC", Side: "buy"}
+	}()
+
+	select {
+	case update := <-ch:
+		assert.Equal(t, "ETH/USDC", update.Symbol)
+		assert.Equal(t, "buy", update.Side)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for trade update")
+	}
+}
+
+// Test GetErrors channel access
+func TestGetErrors(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	ch := client.GetErrors()
+	assert.NotNil(t, ch)
+
+	// Send an error and verify
+	go func() {
+		client.errorChan <- fmt.Errorf("test error")
+	}()
+
+	select {
+	case err := <-ch:
+		assert.Contains(t, err.Error(), "test error")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for error")
+	}
+}
+
+// Test processMessage with trade_update type
+func TestProcessMessageTradeUpdate(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":   "trade_update",
+		"symbol": "BTC/USDC",
+		"trade": map[string]interface{}{
+			"id":    "trade1",
+			"price": 51000.0,
+		},
+	}
+
+	client.processMessage(msg)
+
+	// Check if trade was stored
+	client.mu.RLock()
+	trades := client.trades["BTC/USDC"]
+	client.mu.RUnlock()
+	assert.Len(t, trades, 1)
+}
+
+// Test processMessage with orderbook_update type
+func TestProcessMessageOrderbookUpdate(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":   "orderbook_update",
+		"symbol": "SOL/USDC",
+		"snapshot": map[string]interface{}{
+			"symbol": "SOL/USDC",
+			"bids":   []interface{}{},
+			"asks":   []interface{}{},
+		},
+	}
+
+	client.processMessage(msg)
+
+	// Check if orderbook was stored
+	client.mu.RLock()
+	ob := client.orderBooks["SOL/USDC"]
+	client.mu.RUnlock()
+	assert.NotNil(t, ob)
+}
+
+// Test processMessage with error type
+func TestProcessMessageError(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":  "error",
+		"error": "some server error",
+	}
+
+	client.processMessage(msg)
+
+	// Check error was sent to channel
+	select {
+	case err := <-client.errorChan:
+		assert.Contains(t, err.Error(), "some server error")
+	default:
+		t.Fatal("expected error in channel")
+	}
+}
+
+// Test handlePriceUpdate with bid/ask
+func TestHandlePriceUpdateWithBidAsk(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	msg := map[string]interface{}{
+		"type":   "price_update",
+		"symbol": "BTC/USDC",
+		"price":  50000.0,
+		"bid":    49990.0,
+		"ask":    50010.0,
+		"volume": 1000.0,
+	}
+
+	client.handlePriceUpdate(msg)
+
+	// Check if price was stored
+	client.mu.RLock()
+	price := client.prices["BTC/USDC"]
+	client.mu.RUnlock()
+	assert.Equal(t, 50000.0, price)
+}
+
+// Test handlePriceUpdate callback
+func TestHandlePriceUpdateWithCallback(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	var received *PriceUpdate
+	client.OnPriceUpdate(func(update *PriceUpdate) {
+		received = update
+	})
+
+	msg := map[string]interface{}{
+		"type":   "price_update",
+		"symbol": "ETH/USDC",
+		"price":  3000.0,
+		"bid":    2999.0,
+		"ask":    3001.0,
+	}
+
+	client.handlePriceUpdate(msg)
+
+	// Check callback was called
+	require.NotNil(t, received)
+	assert.Equal(t, "ETH/USDC", received.Symbol)
+	assert.Equal(t, 3000.0, received.Price)
+	assert.Equal(t, 2999.0, received.Bid)
+	assert.Equal(t, 3001.0, received.Ask)
+}
+
+// Test handleOrderUpdate with callback
+func TestHandleOrderUpdateWithCallback(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	var received *OrderUpdate
+	client.OnOrderUpdate(func(update *OrderUpdate) {
+		received = update
+	})
+
+	msg := map[string]interface{}{
+		"type":   "order_update",
+		"status": float64(1),
+		"order": map[string]interface{}{
+			"id":       float64(456),
+			"symbol":   "BTC/USDC",
+			"price":    51000.0,
+			"quantity": 1.0,
+		},
+	}
+
+	client.handleOrderUpdate(msg)
+
+	// Check callback was called
+	require.NotNil(t, received)
+	assert.NotNil(t, received.Order)
+}
+
+// Test handlePositionUpdate with callback
+func TestHandlePositionUpdateWithCallback(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	var received *PositionUpdate
+	client.OnPositionUpdate(func(update *PositionUpdate) {
+		received = update
+	})
+
+	msg := map[string]interface{}{
+		"type":   "position_update",
+		"action": "modified",
+		"position": map[string]interface{}{
+			"id":       "pos999",
+			"symbol":   "BTC/USDC",
+			"leverage": 5.0,
+		},
+	}
+
+	client.handlePositionUpdate(msg)
+
+	// Check callback was called
+	require.NotNil(t, received)
+	assert.Equal(t, "modified", received.Action)
+}
+
+// Test handleTradeUpdate with callback
+func TestHandleTradeUpdateWithCallback(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	var received *TradeUpdate
+	client.OnTradeUpdate(func(update *TradeUpdate) {
+		received = update
+	})
+
+	msg := map[string]interface{}{
+		"type":   "trade_update",
+		"symbol": "SOL/USDC",
+		"trade": map[string]interface{}{
+			"id":       "tradeXYZ",
+			"price":    150.0,
+			"quantity": 10.0,
+		},
+	}
+
+	client.handleTradeUpdate(msg)
+
+	// Check callback was called
+	require.NotNil(t, received)
+	assert.Equal(t, "SOL/USDC", received.Symbol)
+}
+
+// Test position update with liquidated action
+func TestHandlePositionUpdateLiquidated(t *testing.T) {
+	config := ClientConfig{
+		APIEndpoint: "https://api.test.com",
+		WSEndpoint:  "wss://ws.test.com",
+	}
+
+	client, err := NewTraderClient(config)
+	require.NoError(t, err)
+
+	// Add a position first
+	client.mu.Lock()
+	client.positions["liqPos"] = &lx.MarginPosition{ID: "liqPos"}
+	client.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type":   "position_update",
+		"action": "liquidated",
+		"position": map[string]interface{}{
+			"id": "liqPos",
+		},
+	}
+
+	client.handlePositionUpdate(msg)
+
+	// Check if position was removed (liquidated = removed)
+	client.mu.RLock()
+	_, exists := client.positions["liqPos"]
+	client.mu.RUnlock()
+	assert.False(t, exists)
+}
