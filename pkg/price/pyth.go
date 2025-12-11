@@ -282,8 +282,8 @@ func (s *PythSource) Healthy() bool {
 // Name returns "pyth".
 func (s *PythSource) Name() string { return "pyth" }
 
-// Weight returns 1.5 (high frequency updates).
-func (s *PythSource) Weight() float64 { return 1.5 }
+// Weight returns 1.2 (external oracle).
+func (s *PythSource) Weight() float64 { return 1.2 }
 
 // Close shuts down the source.
 func (s *PythSource) Close() error {
