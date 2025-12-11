@@ -768,3 +768,270 @@ func BenchmarkNormalize(b *testing.B) {
 		Normalize(symbols[i%len(symbols)])
 	}
 }
+
+// === Additional Normalize Function Tests for 100% Coverage ===
+
+func TestAddAlias(t *testing.T) {
+	m := NewSymbolMap()
+
+	// Add custom alias
+	m.AddAlias("WLUX/USD", "LUX-USD")
+
+	// Verify alias works
+	result := m.Map("WLUX/USD")
+	if result != "LUX-USD" {
+		t.Errorf("AddAlias failed: got %q, want LUX-USD", result)
+	}
+}
+
+func TestBase(t *testing.T) {
+	tests := []struct {
+		symbol   string
+		expected string
+	}{
+		{"LUX-USD", "LUX"},
+		{"ETH-USDC", "ETH"},
+		{"BTC/USDT", "BTC"},
+		{"SOL", "SOL"}, // No separator
+	}
+
+	for _, tc := range tests {
+		got := Base(tc.symbol)
+		if got != tc.expected {
+			t.Errorf("Base(%q) = %q, want %q", tc.symbol, got, tc.expected)
+		}
+	}
+}
+
+func TestSameBase(t *testing.T) {
+	tests := []struct {
+		a, b     string
+		expected bool
+	}{
+		{"LUX-USD", "LUX-USDC", true},
+		{"ETH-USD", "ETH-BTC", true},
+		{"BTC-USD", "ETH-USD", false},
+		{"AVAX-USDT", "avax/usd", true}, // Case insensitive after normalize
+	}
+
+	for _, tc := range tests {
+		got := SameBase(tc.a, tc.b)
+		if got != tc.expected {
+			t.Errorf("SameBase(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.expected)
+		}
+	}
+}
+
+func TestSameQuote(t *testing.T) {
+	tests := []struct {
+		a, b     string
+		expected bool
+	}{
+		{"LUX-USD", "ETH-USD", true},
+		{"BTC-USDC", "SOL-USDC", true},
+		{"LUX-USD", "LUX-USDC", false},
+		{"eth/usdt", "BTC-USDT", true}, // Case insensitive after normalize
+	}
+
+	for _, tc := range tests {
+		got := SameQuote(tc.a, tc.b)
+		if got != tc.expected {
+			t.Errorf("SameQuote(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.expected)
+		}
+	}
+}
+
+func TestSymbolMapWithAlias(t *testing.T) {
+	m := NewSymbolMap()
+
+	// Test existing alias
+	result := m.Map("LUX/USD")
+	if result != "LUX-USD" {
+		t.Errorf("Map(LUX/USD) = %q, want LUX-USD", result)
+	}
+
+	// Test non-aliased symbol goes through normalize
+	result = m.Map("DOGE-BTC")
+	if result != "DOGE-BTC" {
+		t.Errorf("Map(DOGE-BTC) = %q, want DOGE-BTC", result)
+	}
+}
+
+func TestOracleAlert(t *testing.T) {
+	oracle := NewOracle()
+
+	// Start to enable alert sending
+	oracle.Start()
+	defer oracle.Stop()
+
+	// Add a circuit breaker
+	oracle.breakers["TEST-USD"] = &CircuitBreaker{
+		Symbol:    "TEST-USD",
+		MaxChange: 5.0,
+		Reset:     time.Second,
+	}
+
+	// The alert function is internal, but we can verify alerts channel works
+	alerts := oracle.Alerts()
+	if alerts == nil {
+		t.Error("Alerts channel should not be nil")
+	}
+}
+
+func TestXChainSourceName(t *testing.T) {
+	src := NewXChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	if src.Name() != "x-chain" {
+		t.Errorf("Name() = %q, want x-chain", src.Name())
+	}
+}
+
+func TestXChainSourceWeight(t *testing.T) {
+	src := NewXChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	weight := src.Weight()
+	if weight <= 0 {
+		t.Errorf("Weight() = %f, want > 0", weight)
+	}
+}
+
+func TestAChainSourceName(t *testing.T) {
+	src := NewAChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	if src.Name() != "a-chain" {
+		t.Errorf("Name() = %q, want a-chain", src.Name())
+	}
+}
+
+func TestAChainSourceWeight(t *testing.T) {
+	src := NewAChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	weight := src.Weight()
+	if weight <= 0 {
+		t.Errorf("Weight() = %f, want > 0", weight)
+	}
+}
+
+func TestCChainSourceName(t *testing.T) {
+	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	if src.Name() != "c-chain" {
+		t.Errorf("Name() = %q, want c-chain", src.Name())
+	}
+}
+
+func TestCChainSourceWeight(t *testing.T) {
+	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
+	defer src.Close()
+
+	weight := src.Weight()
+	if weight <= 0 {
+		t.Errorf("Weight() = %f, want > 0", weight)
+	}
+}
+
+func TestChainlinkSourceName(t *testing.T) {
+	src := NewChainlinkSource()
+	defer src.Close()
+
+	if src.Name() != "chainlink" {
+		t.Errorf("Name() = %q, want chainlink", src.Name())
+	}
+}
+
+func TestChainlinkSourceWeight(t *testing.T) {
+	src := NewChainlinkSource()
+	defer src.Close()
+
+	weight := src.Weight()
+	if weight <= 0 {
+		t.Errorf("Weight() = %f, want > 0", weight)
+	}
+}
+
+func TestOracleDataNotFound(t *testing.T) {
+	oracle := NewOracle()
+
+	_, err := oracle.Data("NONEXISTENT")
+	if err == nil {
+		t.Error("Expected error for non-existent symbol")
+	}
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestOraclePriceStale(t *testing.T) {
+	oracle := NewOracle()
+
+	// Manually inject stale price
+	oracle.mu.Lock()
+	oracle.current["TEST-USD"] = &Data{
+		Symbol:    "TEST-USD",
+		Price:     100.0,
+		Timestamp: time.Now().Add(-10 * time.Second), // Very stale
+	}
+	oracle.staleLimit = 1 * time.Second
+	oracle.mu.Unlock()
+
+	// Should return 0 for stale price
+	price := oracle.Price("TEST-USD")
+	if price != 0 {
+		t.Errorf("Expected 0 for stale price, got %f", price)
+	}
+}
+
+func TestWeightedMedianConfidence(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   1,
+		MaxDeviation: 0.10,
+	}
+
+	// Test confidence with multiple sources (high agreement)
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Source: "a"},
+		{Symbol: "TEST", Price: 100.1, Source: "b"},
+		{Symbol: "TEST", Price: 99.9, Source: "c"},
+	}
+
+	agg, err := wm.Aggregate(prices)
+	if err != nil {
+		t.Fatalf("Aggregate failed: %v", err)
+	}
+
+	if agg.Confidence <= 0 || agg.Confidence > 1.0 {
+		t.Errorf("Confidence should be between 0 and 1, got %f", agg.Confidence)
+	}
+}
+
+func TestDetectPairUnknown(t *testing.T) {
+	// Test symbol that doesn't match any known quote
+	result := detectPair("ABCXYZ")
+	if result != "ABCXYZ" {
+		t.Errorf("detectPair(ABCXYZ) = %q, want ABCXYZ", result)
+	}
+}
+
+func TestDetectPairShort(t *testing.T) {
+	// Test symbol too short to have base+quote
+	result := detectPair("USD")
+	if result != "USD" {
+		t.Errorf("detectPair(USD) = %q, want USD", result)
+	}
+}
+
+func TestBaseQuoteNoSeparator(t *testing.T) {
+	// Test with symbol that can't be split
+	base, quote := BaseQuote("INVALID")
+	if quote != "" {
+		t.Errorf("BaseQuote(INVALID) quote = %q, want empty", quote)
+	}
+	if base != "INVALID" {
+		t.Errorf("BaseQuote(INVALID) base = %q, want INVALID", base)
+	}
+}

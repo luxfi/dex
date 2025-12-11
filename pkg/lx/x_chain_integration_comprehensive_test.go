@@ -46,26 +46,35 @@ func TestXChainIntegrationFunctions(t *testing.T) {
 
 		err := integration.SubmitBatch(batch)
 		assert.NoError(t, err)
-		assert.Equal(t, SettlementPending, batch.Status)
+		assert.Equal(t, SettlementPending, batch.GetStatus())
 
-		// Check batch was added to pending
-		assert.Equal(t, 1, len(integration.pendingBatches))
-		assert.Equal(t, batch, integration.pendingBatches[12345])
+		// Check batch was added to pending (with lock)
+		integration.mu.RLock()
+		pendingCount := len(integration.pendingBatches)
+		pendingBatch := integration.pendingBatches[12345]
+		integration.mu.RUnlock()
+		assert.Equal(t, 1, pendingCount)
+		assert.Equal(t, batch, pendingBatch)
 
 		// Wait for processing to complete
 		time.Sleep(400 * time.Millisecond)
 
-		// Batch should be completed and moved to settled orders
-		assert.Equal(t, 0, len(integration.pendingBatches))
-		assert.Equal(t, 2, len(integration.settledOrders))
+		// Batch should be completed and moved to settled orders (with lock)
+		integration.mu.RLock()
+		pendingCount = len(integration.pendingBatches)
+		settledCount := len(integration.settledOrders)
+		settled1 := integration.settledOrders[1]
+		settled2 := integration.settledOrders[2]
+		integration.mu.RUnlock()
+
+		assert.Equal(t, 0, pendingCount)
+		assert.Equal(t, 2, settledCount)
 
 		// Check settled orders
-		settled1 := integration.settledOrders[1]
 		assert.NotNil(t, settled1)
 		assert.Equal(t, uint64(1), settled1.OrderID)
 		assert.NotEmpty(t, settled1.TxHash)
 
-		settled2 := integration.settledOrders[2]
 		assert.NotNil(t, settled2)
 		assert.Equal(t, uint64(2), settled2.OrderID)
 		assert.NotEmpty(t, settled2.TxHash)
@@ -126,21 +135,23 @@ func TestXChainIntegrationFunctions(t *testing.T) {
 		// Process batch directly
 		go integration.processBatch(batch)
 
-		// Wait for initial processing state
+		// Wait for initial processing state (use thread-safe accessor)
 		time.Sleep(150 * time.Millisecond)
-		assert.Equal(t, SettlementProcessing, batch.Status)
+		assert.Equal(t, SettlementProcessing, batch.GetStatus())
 
-		// Wait for completion
+		// Wait for completion (use thread-safe accessors)
 		time.Sleep(300 * time.Millisecond)
-		assert.Equal(t, SettlementComplete, batch.Status)
-		assert.NotEmpty(t, batch.TxHash)
-		assert.NotNil(t, batch.GasUsed)
+		assert.Equal(t, SettlementComplete, batch.GetStatus())
+		assert.NotEmpty(t, batch.GetTxHash())
+		assert.NotNil(t, batch.GetGasUsed())
 
-		// Check settled order was created
+		// Check settled order was created (need lock on integration)
+		integration.mu.RLock()
 		settled := integration.settledOrders[100]
+		integration.mu.RUnlock()
 		assert.NotNil(t, settled)
 		assert.Equal(t, uint64(100), settled.OrderID)
-		assert.Equal(t, batch.TxHash, settled.TxHash)
+		assert.Equal(t, batch.GetTxHash(), settled.TxHash)
 	})
 }
 
@@ -667,23 +678,23 @@ func TestUtilityFunctions(t *testing.T) {
 		// First attempt should succeed
 		result := manager.AddFailedBatch(batch)
 		assert.True(t, result)
-		assert.Equal(t, 1, manager.retryAttempts[batch.BatchID])
+		assert.Equal(t, 1, manager.GetRetryAttempts(batch.BatchID))
 
 		// Second attempt should succeed
 		result = manager.AddFailedBatch(batch)
 		assert.True(t, result)
-		assert.Equal(t, 2, manager.retryAttempts[batch.BatchID])
+		assert.Equal(t, 2, manager.GetRetryAttempts(batch.BatchID))
 
 		// Third attempt should fail (exceeded max retries)
 		result = manager.AddFailedBatch(batch)
 		assert.False(t, result)
-		assert.Equal(t, 2, manager.retryAttempts[batch.BatchID]) // Unchanged
+		assert.Equal(t, 2, manager.GetRetryAttempts(batch.BatchID)) // Unchanged
 
 		// Wait for retry to complete
 		time.Sleep(200 * time.Millisecond)
 
-		// Batch should be removed from failed batches after retry
-		assert.Equal(t, 0, len(manager.failedBatches))
+		// Batch should be removed from failed batches after retry (thread-safe)
+		assert.Equal(t, 0, manager.FailedBatchCount())
 	})
 
 	t.Run("scheduleRetry", func(t *testing.T) {
@@ -695,20 +706,20 @@ func TestUtilityFunctions(t *testing.T) {
 			Status:  SettlementFailed,
 		}
 
-		// Add batch manually
-		manager.failedBatches[batch.BatchID] = batch
+		// Add batch using thread-safe method
+		manager.AddFailedBatchForTest(batch)
 
 		// Schedule retry
 		go manager.scheduleRetry(batch.BatchID)
 
-		// Should still exist initially
-		assert.Equal(t, 1, len(manager.failedBatches))
+		// Should still exist initially (use thread-safe method)
+		assert.Equal(t, 1, manager.FailedBatchCount())
 
 		// Wait for retry delay
 		time.Sleep(100 * time.Millisecond)
 
-		// Batch should be removed after retry
-		assert.Equal(t, 0, len(manager.failedBatches))
+		// Batch should be removed after retry (use thread-safe method)
+		assert.Equal(t, 0, manager.FailedBatchCount())
 	})
 }
 
@@ -814,7 +825,7 @@ func TestXChainIntegrationScenarios(t *testing.T) {
 		// Wait for retries to complete
 		time.Sleep(200 * time.Millisecond)
 
-		// All retried batches should be removed
-		assert.Equal(t, 0, len(manager.failedBatches))
+		// All retried batches should be removed (use thread-safe method)
+		assert.Equal(t, 0, manager.FailedBatchCount())
 	})
 }
