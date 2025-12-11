@@ -14,6 +14,7 @@ type VaultManager struct {
 	userVaults   map[string][]string   // userAddress -> vaultIDs they're in
 	leaderVaults map[string][]string   // leaderAddress -> vaultIDs they lead
 	engine       *TradingEngine
+	orderBook    *OrderBook // Direct reference for vault execution
 	mu           sync.RWMutex
 }
 
@@ -1126,21 +1127,35 @@ func (vm *VaultManager) ExecuteVaultTrade(vaultID string, symbol string, side Si
 	}
 
 	// Create order for the entire vault (leader trades on behalf of all)
-	_ = Order{
+	vaultOrder := &Order{
 		Symbol:   symbol,
 		Side:     side,
 		Type:     orderType,
 		Size:     size,
+		Price:    0, // Will be set based on order type
 		User:     vault.Leader, // Leader executes on behalf of vault
 		ClientID: vaultID,      // Track that this is a vault order
 	}
 
-	// This would integrate with the actual order book
-	// The order is placed with the vault's total capital
-	// PnL from this trade will update the vault's total value
-	// which then affects all members proportionally
-
-	// TODO: vm.engine.orderBook.AddOrder(&vaultOrder)
+	// Execute the order through the appropriate order book
+	var orderID uint64
+	if vm.engine != nil && vm.engine.OrderBooks != nil {
+		if book, exists := vm.engine.OrderBooks[symbol]; exists {
+			orderID = book.AddOrder(vaultOrder)
+		}
+	} else if vm.orderBook != nil {
+		// Fallback to direct orderbook reference
+		orderID = vm.orderBook.AddOrder(vaultOrder)
+	}
+	
+	if orderID > 0 {
+		// Order was placed successfully
+		// Update performance metrics
+		vault.Performance.UpdatedAt = time.Now()
+		
+		// For now, just track that an order was placed
+		// In a real system, we'd track fills and update PnL accordingly
+	}
 
 	return nil
 }
