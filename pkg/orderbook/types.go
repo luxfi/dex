@@ -66,7 +66,15 @@ type Depth struct {
 	Asks []PriceLevel `json:"asks"`
 }
 
-// Config holds orderbook configuration
+// Implementation specifies the orderbook backend.
+type Implementation string
+
+const (
+	ImplGo  Implementation = "go"
+	ImplCpp Implementation = "cpp"
+)
+
+// Config holds orderbook configuration.
 type Config struct {
 	Implementation    Implementation
 	Symbol            string
