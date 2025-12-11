@@ -409,8 +409,8 @@ func (s *QChainSource) Healthy() bool {
 // Name returns "q-chain".
 func (s *QChainSource) Name() string { return "q-chain" }
 
-// Weight returns 1.4 (quantum finality - high trust).
-func (s *QChainSource) Weight() float64 { return 1.4 }
+// Weight returns 1.6 (quantum finality verification).
+func (s *QChainSource) Weight() float64 { return 1.6 }
 
 // Close stops the source.
 func (s *QChainSource) Close() error {

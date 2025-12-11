@@ -243,3 +243,528 @@ func TestWeightedMedian(t *testing.T) {
 		t.Errorf("Aggregated price %f outside expected range", agg.Price)
 	}
 }
+
+// === Additional Oracle Tests ===
+
+func TestOracleData(t *testing.T) {
+	oracle := NewOracle()
+
+	// No data - should error
+	_, err := oracle.Data("LUX-USD")
+	if err == nil {
+		t.Error("Expected error for non-existent symbol")
+	}
+}
+
+func TestOracleTWAP(t *testing.T) {
+	oracle := NewOracle()
+	twap := oracle.TWAP("LUX-USD")
+	if twap != 0 {
+		t.Errorf("TWAP for unknown symbol should be 0, got %f", twap)
+	}
+}
+
+func TestOracleVWAP(t *testing.T) {
+	oracle := NewOracle()
+	vwap := oracle.VWAP("LUX-USD")
+	if vwap != 0 {
+		t.Errorf("VWAP for unknown symbol should be 0, got %f", vwap)
+	}
+}
+
+func TestOracleUpdates(t *testing.T) {
+	oracle := NewOracle()
+	updates := oracle.Updates()
+	if updates == nil {
+		t.Error("Updates channel should not be nil")
+	}
+}
+
+func TestOracleAlerts(t *testing.T) {
+	oracle := NewOracle()
+	alerts := oracle.Alerts()
+	if alerts == nil {
+		t.Error("Alerts channel should not be nil")
+	}
+}
+
+func TestOracleStartStop(t *testing.T) {
+	oracle := NewOracle()
+
+	// Start multiple times should be idempotent
+	if err := oracle.Start(); err != nil {
+		t.Fatalf("First start failed: %v", err)
+	}
+	if err := oracle.Start(); err != nil {
+		t.Fatalf("Second start should be no-op: %v", err)
+	}
+
+	// Stop multiple times should be idempotent
+	oracle.Stop()
+	oracle.Stop() // Should not panic
+}
+
+func TestOracleWatch(t *testing.T) {
+	oracle := NewOracle()
+
+	// Watch symbol
+	oracle.Watch("BTC-USD")
+	oracle.Watch("ETH-USD")
+
+	// Check internal state (via watching map)
+	if oracle.Price("BTC-USD") != 0 {
+		t.Error("Price should be 0 before data")
+	}
+}
+
+// === WeightedMedian Extended Tests ===
+
+func TestWeightedMedianInsufficientSources(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   3,
+		MaxDeviation: 0.10,
+	}
+
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Source: "a"},
+	}
+
+	_, err := wm.Aggregate(prices)
+	if err == nil {
+		t.Error("Should fail with insufficient sources")
+	}
+}
+
+func TestWeightedMedianOutliers(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   2,
+		MaxDeviation: 0.05, // 5%
+	}
+
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Source: "a"},
+		{Symbol: "TEST", Price: 101.0, Source: "b"},
+		{Symbol: "TEST", Price: 200.0, Source: "c"}, // Outlier
+	}
+
+	agg, err := wm.Aggregate(prices)
+	if err != nil {
+		t.Fatalf("Aggregate failed: %v", err)
+	}
+
+	// Should exclude the outlier (200)
+	if agg.Price > 105 {
+		t.Errorf("Expected price near 100, got %f (outlier not filtered)", agg.Price)
+	}
+}
+
+func TestWeightedMedianTooManyOutliers(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   3,
+		MaxDeviation: 0.01, // Very strict 1%
+	}
+
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Source: "a"},
+		{Symbol: "TEST", Price: 150.0, Source: "b"}, // Outlier
+		{Symbol: "TEST", Price: 200.0, Source: "c"}, // Outlier
+	}
+
+	_, err := wm.Aggregate(prices)
+	if err == nil {
+		t.Error("Should fail with too many outliers")
+	}
+}
+
+func TestWeightedMedianValidate(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   1,
+		MaxDeviation: 0.10,
+	}
+
+	// Empty prices
+	err := wm.Validate([]*Data{})
+	if err == nil {
+		t.Error("Validate should fail for empty prices")
+	}
+
+	// Valid prices
+	err = wm.Validate([]*Data{{Symbol: "TEST", Price: 100.0}})
+	if err != nil {
+		t.Errorf("Validate should pass: %v", err)
+	}
+}
+
+func TestWeightedMedianWithVolume(t *testing.T) {
+	wm := &WeightedMedian{
+		MinSources:   1,
+		MaxDeviation: 0.10,
+	}
+
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Volume: 1000.0, Source: "a"},
+		{Symbol: "TEST", Price: 101.0, Volume: 500.0, Source: "b"},
+	}
+
+	agg, err := wm.Aggregate(prices)
+	if err != nil {
+		t.Fatalf("Aggregate failed: %v", err)
+	}
+
+	// Total volume should be sum
+	if agg.Volume != 1500.0 {
+		t.Errorf("Expected volume 1500, got %f", agg.Volume)
+	}
+}
+
+// === Circuit Breaker Extended Tests ===
+
+func TestCircuitBreakerTrippedState(t *testing.T) {
+	cb := &CircuitBreaker{
+		Symbol:    "TEST",
+		MaxChange: 10.0,
+		Reset:     100 * time.Millisecond,
+	}
+
+	// Set initial price
+	cb.Check(100.0)
+
+	// Trip the breaker
+	cb.Check(150.0)
+
+	if !cb.Tripped {
+		t.Error("Breaker should be tripped")
+	}
+
+	// Should reject prices while tripped
+	if cb.Check(105.0) {
+		t.Error("Should reject prices while tripped")
+	}
+}
+
+func TestCircuitBreakerAutoReset(t *testing.T) {
+	cb := &CircuitBreaker{
+		Symbol:    "TEST",
+		MaxChange: 10.0,
+		Reset:     50 * time.Millisecond,
+	}
+
+	// Set initial and trip
+	cb.Check(100.0)
+	cb.Check(150.0)
+
+	if !cb.Tripped {
+		t.Error("Breaker should be tripped")
+	}
+
+	// Wait for auto-reset
+	time.Sleep(100 * time.Millisecond)
+
+	// Should accept now
+	if !cb.Check(100.0) {
+		t.Error("Breaker should auto-reset")
+	}
+}
+
+func TestCircuitBreakerUpdateLastPrice(t *testing.T) {
+	cb := &CircuitBreaker{
+		Symbol:    "TEST",
+		MaxChange: 10.0,
+		Reset:     time.Second,
+	}
+
+	cb.Check(100.0)
+	cb.Check(105.0)
+
+	if cb.LastPrice != 105.0 {
+		t.Errorf("LastPrice should be 105, got %f", cb.LastPrice)
+	}
+}
+
+// === Helper Function Tests ===
+
+func TestCalcTWAP(t *testing.T) {
+	// Empty history
+	result := calcTWAP([]*Data{}, 5*time.Minute)
+	if result != 0 {
+		t.Errorf("TWAP of empty history should be 0, got %f", result)
+	}
+
+	// Recent data
+	now := time.Now()
+	history := []*Data{
+		{Price: 100.0, Timestamp: now.Add(-1 * time.Minute)},
+		{Price: 102.0, Timestamp: now.Add(-2 * time.Minute)},
+		{Price: 98.0, Timestamp: now.Add(-3 * time.Minute)},
+	}
+
+	result = calcTWAP(history, 5*time.Minute)
+	expected := 100.0 // (100 + 102 + 98) / 3
+	if result != expected {
+		t.Errorf("TWAP should be %f, got %f", expected, result)
+	}
+}
+
+func TestCalcTWAPWindowFiltering(t *testing.T) {
+	now := time.Now()
+	history := []*Data{
+		{Price: 100.0, Timestamp: now.Add(-1 * time.Minute)},
+		{Price: 200.0, Timestamp: now.Add(-10 * time.Minute)}, // Outside window
+	}
+
+	result := calcTWAP(history, 5*time.Minute)
+	if result != 100.0 {
+		t.Errorf("TWAP should only include recent data, got %f", result)
+	}
+}
+
+func TestCalcVWAP(t *testing.T) {
+	// Empty history
+	result := calcVWAP([]*Data{}, 5*time.Minute)
+	if result != 0 {
+		t.Errorf("VWAP of empty history should be 0, got %f", result)
+	}
+
+	// With volume data
+	now := time.Now()
+	history := []*Data{
+		{Price: 100.0, Volume: 1000.0, Timestamp: now.Add(-1 * time.Minute)},
+		{Price: 110.0, Volume: 500.0, Timestamp: now.Add(-2 * time.Minute)},
+	}
+
+	result = calcVWAP(history, 5*time.Minute)
+	// VWAP = (100*1000 + 110*500) / (1000 + 500) = 155000 / 1500 = 103.33
+	expected := 103.33
+	if result < 103.0 || result > 104.0 {
+		t.Errorf("VWAP should be ~%f, got %f", expected, result)
+	}
+}
+
+func TestCalcVWAPZeroVolume(t *testing.T) {
+	now := time.Now()
+	history := []*Data{
+		{Price: 100.0, Volume: 0.0, Timestamp: now.Add(-1 * time.Minute)},
+	}
+
+	result := calcVWAP(history, 5*time.Minute)
+	if result != 0 {
+		t.Errorf("VWAP with zero volume should be 0, got %f", result)
+	}
+}
+
+func TestAvg(t *testing.T) {
+	// Empty
+	if avg([]float64{}) != 0 {
+		t.Error("avg of empty should be 0")
+	}
+
+	// Normal
+	result := avg([]float64{1.0, 2.0, 3.0})
+	if result != 2.0 {
+		t.Errorf("avg should be 2.0, got %f", result)
+	}
+}
+
+func TestStddev(t *testing.T) {
+	// Empty
+	if stddev([]float64{}, 0) != 0 {
+		t.Error("stddev of empty should be 0")
+	}
+
+	// No variance
+	values := []float64{5.0, 5.0, 5.0}
+	result := stddev(values, 5.0)
+	if result != 0 {
+		t.Errorf("stddev of same values should be 0, got %f", result)
+	}
+
+	// With variance
+	values = []float64{1.0, 2.0, 3.0}
+	mean := 2.0
+	result = stddev(values, mean)
+	// sqrt((1 + 0 + 1) / 3) = sqrt(2/3) ≈ 0.816
+	if result < 0.8 || result > 0.9 {
+		t.Errorf("stddev should be ~0.816, got %f", result)
+	}
+}
+
+// === Data Type Tests ===
+
+func TestDataFields(t *testing.T) {
+	now := time.Now()
+	data := &Data{
+		Symbol:     "BTC-USD",
+		Price:      50000.0,
+		Bid:        49999.0,
+		Ask:        50001.0,
+		Volume:     1000000.0,
+		High24h:    51000.0,
+		Low24h:     49000.0,
+		Change24h:  2.5,
+		Timestamp:  now,
+		Source:     "exchange",
+		Confidence: 0.95,
+		Stale:      false,
+	}
+
+	if data.Symbol != "BTC-USD" {
+		t.Error("Symbol mismatch")
+	}
+	if data.Price != 50000.0 {
+		t.Error("Price mismatch")
+	}
+	if data.Confidence != 0.95 {
+		t.Error("Confidence mismatch")
+	}
+}
+
+func TestUpdateFields(t *testing.T) {
+	now := time.Now()
+	update := &Update{
+		Symbol:    "ETH-USD",
+		OldPrice:  3000.0,
+		NewPrice:  3100.0,
+		Source:    "aggregator",
+		Timestamp: now,
+		Change:    3.33,
+	}
+
+	if update.Symbol != "ETH-USD" {
+		t.Error("Symbol mismatch")
+	}
+	if update.Change != 3.33 {
+		t.Error("Change mismatch")
+	}
+}
+
+func TestAlertFields(t *testing.T) {
+	now := time.Now()
+	alert := &Alert{
+		ID:        "alert-1",
+		Symbol:    "BTC-USD",
+		Type:      AlertCircuitBreaker,
+		Message:   "Price movement too large",
+		Severity:  SeverityCrit,
+		Price:     50000.0,
+		Timestamp: now,
+	}
+
+	if alert.Type != AlertCircuitBreaker {
+		t.Error("Type mismatch")
+	}
+	if alert.Severity != SeverityCrit {
+		t.Error("Severity mismatch")
+	}
+}
+
+func TestAlertTypes(t *testing.T) {
+	if AlertStale != 0 {
+		t.Error("AlertStale should be 0")
+	}
+	if AlertDeviation != 1 {
+		t.Error("AlertDeviation should be 1")
+	}
+	if AlertSourceDown != 2 {
+		t.Error("AlertSourceDown should be 2")
+	}
+	if AlertCircuitBreaker != 3 {
+		t.Error("AlertCircuitBreaker should be 3")
+	}
+	if AlertLowSources != 4 {
+		t.Error("AlertLowSources should be 4")
+	}
+}
+
+func TestSeverityLevels(t *testing.T) {
+	if SeverityInfo != 0 {
+		t.Error("SeverityInfo should be 0")
+	}
+	if SeverityWarn != 1 {
+		t.Error("SeverityWarn should be 1")
+	}
+	if SeverityCrit != 2 {
+		t.Error("SeverityCrit should be 2")
+	}
+}
+
+// === Normalize Extended Tests ===
+
+func TestNormalizeEdgeCases(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"btcusd", "BTC-USD"},
+		{"BTC_USD", "BTC-USD"},
+		{"sol/usdt", "SOL-USDT"},
+	}
+
+	for _, tc := range tests {
+		got := Normalize(tc.input)
+		if got != tc.expected {
+			t.Errorf("Normalize(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+// === Benchmarks ===
+
+func BenchmarkWeightedMedianAggregate(b *testing.B) {
+	wm := &WeightedMedian{
+		MinSources:   1,
+		MaxDeviation: 0.10,
+	}
+
+	prices := []*Data{
+		{Symbol: "TEST", Price: 100.0, Source: "a", Volume: 1000.0},
+		{Symbol: "TEST", Price: 101.0, Source: "b", Volume: 800.0},
+		{Symbol: "TEST", Price: 99.5, Source: "c", Volume: 1200.0},
+		{Symbol: "TEST", Price: 100.5, Source: "d", Volume: 500.0},
+		{Symbol: "TEST", Price: 99.8, Source: "e", Volume: 900.0},
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = wm.Aggregate(prices)
+	}
+}
+
+func BenchmarkCircuitBreakerCheck(b *testing.B) {
+	cb := &CircuitBreaker{
+		Symbol:    "BENCH",
+		MaxChange: 10.0,
+		Reset:     time.Second,
+	}
+	cb.Check(100.0) // Initialize
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cb.Check(100.0 + float64(i%5))
+	}
+}
+
+func BenchmarkCalcTWAP(b *testing.B) {
+	now := time.Now()
+	history := make([]*Data, 1000)
+	for i := 0; i < 1000; i++ {
+		history[i] = &Data{
+			Price:     100.0 + float64(i%10),
+			Timestamp: now.Add(-time.Duration(i) * time.Second),
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		calcTWAP(history, 5*time.Minute)
+	}
+}
+
+func BenchmarkNormalize(b *testing.B) {
+	symbols := []string{"LUX/USD", "ETH-USDC", "btcusd", "AVAX_USDT"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Normalize(symbols[i%len(symbols)])
+	}
+}

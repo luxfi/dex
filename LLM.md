@@ -675,17 +675,64 @@ Multi-source price aggregation for sub-millisecond latency trading with quantum 
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Price Sources
+### Price Sources (Ordered by Trust Weight)
 
-| Source | Weight | Interval | Features |
-|--------|--------|----------|----------|
-| **X-Chain** | 1.5 | 50ms | Native DEX orderbook, highest priority |
-| **A-Chain** | 1.3 | 100ms | Validator attestations, quorum consensus |
-| **C-Chain** | 1.2 | 100ms | AMM pools, liquid tokens (LZOO, LETH, etc.) |
-| **Q-Chain** | 1.4 | 100ms | Quantum finality verification |
-| **Zoo Chain** | 1.1 | 100ms | Zoo Labs EVM DEX, ZOO token pairs |
-| **Pyth** | 1.0 | Real-time | WebSocket streaming |
-| **Chainlink** | 1.0 | 1s | Decentralized oracle polling |
+| Source | Weight | Type | Interval | Features |
+|--------|--------|------|----------|----------|
+| **X-Chain** | 2.0 | DEX | 50ms | Native DEX orderbook, highest trust |
+| **C-Chain** | 1.8 | AMM | 100ms | AMM pools, liquid tokens (LZOO, LETH, etc.) |
+| **Zoo Chain** | 1.7 | AMM | 100ms | Zoo Labs EVM DEX, ZOO token pairs |
+| **Q-Chain** | 1.6 | Finality | 100ms | Quantum finality verification |
+| **A-Chain** | 1.5 | Attestation | 100ms | Validator attestations, quorum consensus |
+| **Pyth** | 1.2 | Oracle | Real-time | External oracle, WebSocket streaming |
+| **Chainlink** | 1.0 | Oracle | 1s | External oracle, reference only |
+
+**Weight Priority**: DEX (native orderbook) > AMM (on-chain pools) > Attestations > External Oracles
+
+**Latency-Adjusted Weighting** (Planned):
+- Weights should be dynamically adjusted based on detected latency
+- Lower latency sources get boosted weight for time-sensitive decisions
+- High latency or stale feeds get weight penalties
+- Formula: `effective_weight = base_weight * (1 / (1 + latency_ms/100))`
+
+```go
+// Planned: Adaptive weight calculation based on measured latency
+func (s *Source) EffectiveWeight() float64 {
+    baseWeight := s.Weight()
+    latencyMs := s.MeasuredLatency().Milliseconds()
+
+    // Latency penalty: halve weight for every 100ms of latency
+    latencyFactor := 1.0 / (1.0 + float64(latencyMs)/100.0)
+
+    // Staleness penalty: reduce weight if data is old
+    age := time.Since(s.LastUpdate())
+    staleFactor := math.Max(0.1, 1.0 - float64(age.Seconds())/10.0)
+
+    return baseWeight * latencyFactor * staleFactor
+}
+```
+
+**Current Static Weights** (to be replaced with adaptive):
+- Native X-Chain (50ms) provides fastest updates for trading decisions
+- AMMs (100ms) are reliable for larger trades and reference
+- External oracles (1s+) are reference-only, not for time-sensitive trading
+
+### Future External DEX Integrations (Omni-DEX)
+
+Planned cross-chain DEX integrations for comprehensive price discovery:
+
+| DEX | Chain | Type | Priority |
+|-----|-------|------|----------|
+| **Uniswap V3** | Ethereum | AMM | P1 |
+| **SushiSwap** | Multi-chain | AMM | P1 |
+| **Hyperliquid** | Arbitrum | Perps DEX | P1 |
+| **Astar** | Polkadot | DEX | P2 |
+| **dYdX** | Cosmos | Perps | P2 |
+| **GMX** | Arbitrum | Perps | P2 |
+| **Raydium** | Solana | AMM | P3 |
+| **Orca** | Solana | AMM | P3 |
+
+This enables true omni-DEX price aggregation across all major chains and protocols.
 
 ### Liquid Token Pairs (C-Chain AMM)
 
@@ -859,6 +906,9 @@ Quantum finality latency: 50ms
 - [x] Add Zoo Chain EVM AMM source
 - [x] Add Q-Chain quantum finality verification
 - [x] Symbol normalization layer
+- [x] Adjust weights: DEX > AMM > Attestations > Oracles
+- [ ] Implement adaptive latency-based weighting
+- [ ] Add Uniswap/SushiSwap/Hyperliquid sources (omni-DEX)
 - [ ] Add REST API endpoints for price feeds
 - [ ] Complete WebSocket real-time streaming
 - [ ] Add Prometheus metrics endpoints
