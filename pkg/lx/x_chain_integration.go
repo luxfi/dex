@@ -29,6 +29,27 @@ type SettlementBatch struct {
 	mu          sync.RWMutex
 }
 
+// GetStatus returns the batch status (thread-safe)
+func (b *SettlementBatch) GetStatus() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.Status
+}
+
+// GetTxHash returns the transaction hash (thread-safe)
+func (b *SettlementBatch) GetTxHash() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.TxHash
+}
+
+// GetGasUsed returns the gas used (thread-safe)
+func (b *SettlementBatch) GetGasUsed() *big.Int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.GasUsed
+}
+
 // XChainIntegration manages cross-chain settlement and clearing
 type XChainIntegration struct {
 	chainID        uint64
@@ -695,16 +716,19 @@ func (r *RecoveryManager) AddFailedBatch(batch *SettlementBatch) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	attempts := r.retryAttempts[batch.BatchID]
+	// Capture batch ID while holding the lock to avoid race conditions
+	batchID := batch.BatchID
+
+	attempts := r.retryAttempts[batchID]
 	if attempts >= r.maxRetries {
 		return false
 	}
 
-	r.failedBatches[batch.BatchID] = batch
-	r.retryAttempts[batch.BatchID] = attempts + 1
+	r.failedBatches[batchID] = batch
+	r.retryAttempts[batchID] = attempts + 1
 
-	// Schedule retry
-	go r.scheduleRetry(batch.BatchID)
+	// Schedule retry using captured batchID
+	go r.scheduleRetry(batchID)
 
 	return true
 }
@@ -724,4 +748,25 @@ func (r *RecoveryManager) scheduleRetry(batchID uint64) {
 
 	// Retry the batch (would call settlement logic in production)
 	_ = batch
+}
+
+// FailedBatchCount returns the number of failed batches (thread-safe)
+func (r *RecoveryManager) FailedBatchCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.failedBatches)
+}
+
+// GetRetryAttempts returns the retry attempts for a batch (thread-safe)
+func (r *RecoveryManager) GetRetryAttempts(batchID uint64) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.retryAttempts[batchID]
+}
+
+// AddFailedBatchForTest adds a batch directly to failed batches (thread-safe, for testing)
+func (r *RecoveryManager) AddFailedBatchForTest(batch *SettlementBatch) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failedBatches[batch.BatchID] = batch
 }

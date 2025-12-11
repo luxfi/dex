@@ -410,8 +410,8 @@ func (b *EnhancedBridge) ValidateTransfer(
 		return errors.New("transfer not found")
 	}
 
-	// Verify validator
-	validatorInfo := b.findValidator(validator)
+	// Verify validator (use locked version since we already hold the lock)
+	validatorInfo := b.findValidatorLocked(validator)
 	if validatorInfo == nil || !validatorInfo.Active {
 		return errors.New("invalid or inactive validator")
 	}
@@ -668,8 +668,8 @@ func (b *EnhancedBridge) SubmitFraudProof(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Verify transfer exists
-	transfer := b.findTransfer(transferID)
+	// Verify transfer exists (use locked version since we already hold the lock)
+	transfer := b.findTransferLocked(transferID)
 	if transfer == nil {
 		return errors.New("transfer not found")
 	}
@@ -743,7 +743,15 @@ func (b *EnhancedBridge) getNextNonce() uint64 {
 	return uint64(time.Now().UnixNano())
 }
 
+// findValidator finds a validator by address (acquires RLock)
 func (b *EnhancedBridge) findValidator(address string) *BridgeValidator {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.findValidatorLocked(address)
+}
+
+// findValidatorLocked finds a validator by address (caller must hold lock)
+func (b *EnhancedBridge) findValidatorLocked(address string) *BridgeValidator {
 	for _, v := range b.BridgeValidators {
 		if v.Address == address {
 			return v
@@ -764,10 +772,19 @@ func (b *EnhancedBridge) verifySignature(
 
 func (b *EnhancedBridge) notifyValidators(transfer *BridgeTransfer) {
 	// Notify all active validators about new transfer
+	// Use RLock for safe read access to BridgeValidators
+	b.mu.RLock()
+	validators := make([]*BridgeValidator, 0, len(b.BridgeValidators))
 	for _, v := range b.BridgeValidators {
 		if v.Active && !v.Slashed {
-			// Send notification
+			validators = append(validators, v)
 		}
+	}
+	b.mu.RUnlock()
+
+	// Send notifications outside of lock to avoid blocking
+	for _, v := range validators {
+		_ = v // Send notification to v.Address
 	}
 }
 
@@ -817,6 +834,13 @@ func (b *EnhancedBridge) distributeFees(pool *BridgeLiquidityPool, fee *big.Int)
 }
 
 func (b *EnhancedBridge) findTransfer(id string) *BridgeTransfer {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.findTransferLocked(id)
+}
+
+// findTransferLocked finds a transfer by ID (caller must hold lock)
+func (b *EnhancedBridge) findTransferLocked(id string) *BridgeTransfer {
 	if t, exists := b.PendingTransfers[id]; exists {
 		return t
 	}
@@ -838,6 +862,8 @@ func (b *EnhancedBridge) validateFraudProof(
 	return true, big.NewInt(1000000) // 1M USDC slash
 }
 
+// slashValidators slashes validators who signed invalid transfer
+// NOTE: Caller must hold the lock
 func (b *EnhancedBridge) slashValidators(transfer *BridgeTransfer, amount *big.Int) {
 	// Slash validators who signed invalid transfer
 	numValidators := len(transfer.Validators)
@@ -848,7 +874,7 @@ func (b *EnhancedBridge) slashValidators(transfer *BridgeTransfer, amount *big.I
 	slashPerValidator := new(big.Int).Div(amount, big.NewInt(int64(numValidators)))
 
 	for validatorAddr := range transfer.Validators {
-		validator := b.findValidator(validatorAddr)
+		validator := b.findValidatorLocked(validatorAddr)
 		if validator != nil {
 			validator.Slashed = true
 			validator.Active = false
