@@ -280,8 +280,8 @@ func (s *XChainSource) Healthy() bool {
 // Name returns "x-chain".
 func (s *XChainSource) Name() string { return "x-chain" }
 
-// Weight returns 1.5 (native DEX chain - highest weight).
-func (s *XChainSource) Weight() float64 { return 1.5 }
+// Weight returns 2.0 (native DEX chain - highest weight).
+func (s *XChainSource) Weight() float64 { return 2.0 }
 
 // Close stops the source.
 func (s *XChainSource) Close() error {
