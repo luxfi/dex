@@ -8,16 +8,15 @@ import (
 	"time"
 )
 
-// QChainSource provides quantum finality verification from Lux Q-Chain.
-// Q-Chain is the quantum finality layer for cross-chain order verification.
-type QChainSource struct {
+// QChainVerifier provides quantum finality verification from Lux Q-Chain.
+// Q-Chain is the quantum finality layer for cross-chain order/price verification.
+// NOTE: This is NOT a price source - it verifies finality of data from other sources.
+type QChainVerifier struct {
 	rpcURL string
 	wsURL  string
 
 	finality   map[string]*QuantumFinality
 	inclusions map[string]*OrderInclusion
-	prices     map[string]*Data
-	last       map[string]time.Time
 
 	validators map[string]*QValidator
 	quorum     int
@@ -74,21 +73,25 @@ type QValidator struct {
 	LastSeen  time.Time
 }
 
-// NewQChainSource creates a Q-Chain finality source.
-func NewQChainSource(rpcURL, wsURL string) *QChainSource {
-	return &QChainSource{
+// NewQChainVerifier creates a Q-Chain finality verifier.
+func NewQChainVerifier(rpcURL, wsURL string) *QChainVerifier {
+	return &QChainVerifier{
 		rpcURL:     rpcURL,
 		wsURL:      wsURL,
 		finality:   make(map[string]*QuantumFinality),
 		inclusions: make(map[string]*OrderInclusion),
-		prices:     make(map[string]*Data),
-		last:       make(map[string]time.Time),
 		validators: qchainValidators(),
 		quorum:     3,
 		interval:   100 * time.Millisecond,
 		healthy:    true,
 		done:       make(chan struct{}),
 	}
+}
+
+// Deprecated: Use NewQChainVerifier instead.
+// NewQChainSource is kept for backwards compatibility.
+func NewQChainSource(rpcURL, wsURL string) *QChainVerifier {
+	return NewQChainVerifier(rpcURL, wsURL)
 }
 
 func qchainValidators() map[string]*QValidator {
@@ -140,34 +143,34 @@ func supportedChains() []string {
 }
 
 // Start begins polling Q-Chain finality.
-func (s *QChainSource) Start() error {
-	s.mu.Lock()
-	if s.polling {
-		s.mu.Unlock()
+func (v *QChainVerifier) Start() error {
+	v.mu.Lock()
+	if v.polling {
+		v.mu.Unlock()
 		return nil
 	}
-	s.polling = true
-	s.mu.Unlock()
+	v.polling = true
+	v.mu.Unlock()
 
-	go s.loop()
+	go v.loop()
 	return nil
 }
 
-func (s *QChainSource) loop() {
-	ticker := time.NewTicker(s.interval)
+func (v *QChainVerifier) loop() {
+	ticker := time.NewTicker(v.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-s.done:
+		case <-v.done:
 			return
 		case <-ticker.C:
-			s.poll()
+			v.poll()
 		}
 	}
 }
 
-func (s *QChainSource) poll() {
+func (v *QChainVerifier) poll() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -176,37 +179,25 @@ func (s *QChainSource) poll() {
 		wg.Add(1)
 		go func(c string) {
 			defer wg.Done()
-			s.fetchFinality(ctx, c)
+			v.fetchFinality(ctx, c)
 		}(chain)
 	}
 	wg.Wait()
 }
 
-func (s *QChainSource) fetchFinality(ctx context.Context, chain string) {
+func (v *QChainVerifier) fetchFinality(ctx context.Context, chain string) {
 	// In production: query Q-Chain for latest finality proof
 	// Simulate quantum finality
-	fin := s.simulateFinality(chain)
+	fin := v.simulateFinality(chain)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
 
-	s.finality[chain] = fin
-	s.last[chain] = time.Now()
-	s.healthy = true
-
-	// Update price data with finality info
-	symbol := chain + "-FINAL"
-	s.prices[symbol] = &Data{
-		Symbol:     symbol,
-		Price:      float64(fin.BlockHeight),
-		Confidence: s.finalityConfidence(fin),
-		Timestamp:  fin.Timestamp,
-		Source:     "q-chain",
-		Stale:      !fin.Finalized,
-	}
+	v.finality[chain] = fin
+	v.healthy = true
 }
 
-func (s *QChainSource) simulateFinality(chain string) *QuantumFinality {
+func (v *QChainVerifier) simulateFinality(chain string) *QuantumFinality {
 	now := time.Now()
 	height := uint64(now.Unix())
 
@@ -217,7 +208,7 @@ func (s *QChainSource) simulateFinality(chain string) *QuantumFinality {
 
 	// Simulate quantum signatures from validators
 	sigs := make([]QuantumSignature, 0)
-	for name, val := range s.validators {
+	for name, val := range v.validators {
 		if val.Active {
 			// Generate simulated public key (double the hash)
 			pubKey := append(hash[:], hash[:]...)
@@ -237,19 +228,19 @@ func (s *QChainSource) simulateFinality(chain string) *QuantumFinality {
 		StateRoot:   hex.EncodeToString(stateRoot[:]),
 		Timestamp:   now,
 		Signatures:  sigs,
-		Finalized:   len(sigs) >= s.quorum,
+		Finalized:   len(sigs) >= v.quorum,
 		Latency:     50 * time.Millisecond, // Simulated finality latency
 	}
 }
 
-func (s *QChainSource) finalityConfidence(fin *QuantumFinality) float64 {
+func (v *QChainVerifier) finalityConfidence(fin *QuantumFinality) float64 {
 	if !fin.Finalized {
 		return 0.5
 	}
 
 	// Confidence based on signatures and algorithms
 	sigCount := len(fin.Signatures)
-	totalValidators := len(s.validators)
+	totalValidators := len(v.validators)
 	if totalValidators == 0 {
 		return 0
 	}
@@ -269,43 +260,12 @@ func (s *QChainSource) finalityConfidence(fin *QuantumFinality) float64 {
 	return 0.8*coverage + 0.2*diversity
 }
 
-// Price returns finality data as price (block height).
-func (s *QChainSource) Price(symbol string) (*Data, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	p, ok := s.prices[symbol]
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	if time.Since(s.last[symbol]) > 5*time.Second {
-		copy := *p
-		copy.Stale = true
-		return &copy, nil
-	}
-
-	copy := *p
-	return &copy, nil
-}
-
-// Prices returns prices for multiple symbols.
-func (s *QChainSource) Prices(symbols []string) (map[string]*Data, error) {
-	result := make(map[string]*Data)
-	for _, sym := range symbols {
-		if p, err := s.Price(sym); err == nil {
-			result[sym] = p
-		}
-	}
-	return result, nil
-}
-
 // Finality returns the latest finality proof for a chain.
-func (s *QChainSource) Finality(chain string) (*QuantumFinality, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (v *QChainVerifier) Finality(chain string) (*QuantumFinality, error) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
-	fin, ok := s.finality[chain]
+	fin, ok := v.finality[chain]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -313,18 +273,18 @@ func (s *QChainSource) Finality(chain string) (*QuantumFinality, error) {
 }
 
 // VerifyInclusion verifies an order was included with quantum finality.
-func (s *QChainSource) VerifyInclusion(orderID, chain, txHash string) (*OrderInclusion, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (v *QChainVerifier) VerifyInclusion(orderID, chain, txHash string) (*OrderInclusion, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 
 	// Check if already verified
 	key := orderID + ":" + chain
-	if inc, ok := s.inclusions[key]; ok {
+	if inc, ok := v.inclusions[key]; ok {
 		return inc, nil
 	}
 
 	// Get chain finality
-	fin, ok := s.finality[chain]
+	fin, ok := v.finality[chain]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -340,16 +300,16 @@ func (s *QChainSource) VerifyInclusion(orderID, chain, txHash string) (*OrderInc
 		Verified:    fin.Finalized,
 	}
 
-	s.inclusions[key] = inc
+	v.inclusions[key] = inc
 	return inc, nil
 }
 
 // VerifyOrderPrice verifies a price was finalized on Q-Chain.
-func (s *QChainSource) VerifyOrderPrice(symbol string, price float64, chain string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (v *QChainVerifier) VerifyOrderPrice(symbol string, price float64, chain string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
-	fin, ok := s.finality[chain]
+	fin, ok := v.finality[chain]
 	if !ok || !fin.Finalized {
 		return false
 	}
@@ -359,15 +319,15 @@ func (s *QChainSource) VerifyOrderPrice(symbol string, price float64, chain stri
 }
 
 // CrossChainVerify verifies finality across multiple chains.
-func (s *QChainSource) CrossChainVerify(chains []string) (bool, map[string]*QuantumFinality) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (v *QChainVerifier) CrossChainVerify(chains []string) (bool, map[string]*QuantumFinality) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
 	results := make(map[string]*QuantumFinality)
 	allFinalized := true
 
 	for _, chain := range chains {
-		fin, ok := s.finality[chain]
+		fin, ok := v.finality[chain]
 		if !ok {
 			allFinalized = false
 			continue
@@ -382,60 +342,48 @@ func (s *QChainSource) CrossChainVerify(chains []string) (bool, map[string]*Quan
 }
 
 // Validators returns active Q-Chain validators.
-func (s *QChainSource) Validators() map[string]*QValidator {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (v *QChainVerifier) Validators() map[string]*QValidator {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
 	result := make(map[string]*QValidator)
-	for k, v := range s.validators {
-		result[k] = v
+	for k, val := range v.validators {
+		result[k] = val
 	}
 	return result
 }
 
-// Subscribe is a no-op (uses polling).
-func (s *QChainSource) Subscribe(symbol string) error { return nil }
-
-// Unsubscribe is a no-op.
-func (s *QChainSource) Unsubscribe(symbol string) error { return nil }
-
 // Healthy returns health status.
-func (s *QChainSource) Healthy() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.healthy
+func (v *QChainVerifier) Healthy() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.healthy
 }
 
-// Name returns "q-chain".
-func (s *QChainSource) Name() string { return "q-chain" }
-
-// Weight returns 1.6 (quantum finality verification).
-func (s *QChainSource) Weight() float64 { return 1.6 }
-
-// Close stops the source.
-func (s *QChainSource) Close() error {
-	close(s.done)
-	s.mu.Lock()
-	s.polling = false
-	s.mu.Unlock()
+// Close stops the verifier.
+func (v *QChainVerifier) Close() error {
+	close(v.done)
+	v.mu.Lock()
+	v.polling = false
+	v.mu.Unlock()
 	return nil
 }
 
 // SetQuorum sets minimum validator count for finality.
-func (s *QChainSource) SetQuorum(n int) {
-	s.mu.Lock()
-	s.quorum = n
-	s.mu.Unlock()
+func (v *QChainVerifier) SetQuorum(n int) {
+	v.mu.Lock()
+	v.quorum = n
+	v.mu.Unlock()
 }
 
 // FinalityLatency returns average finality latency.
-func (s *QChainSource) FinalityLatency() time.Duration {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (v *QChainVerifier) FinalityLatency() time.Duration {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
 	var total time.Duration
 	count := 0
-	for _, fin := range s.finality {
+	for _, fin := range v.finality {
 		total += fin.Latency
 		count++
 	}
@@ -447,6 +395,9 @@ func (s *QChainSource) FinalityLatency() time.Duration {
 }
 
 // Chains returns supported chains.
-func (s *QChainSource) Chains() []string {
+func (v *QChainVerifier) Chains() []string {
 	return supportedChains()
 }
+
+// Alias for backwards compatibility
+type QChainSource = QChainVerifier

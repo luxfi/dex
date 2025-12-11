@@ -651,27 +651,32 @@ Multi-source price aggregation for sub-millisecond latency trading with quantum 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     LUX DEX PRICE ORACLE                             │
 │                                                                       │
-│  Native Sources:                External Sources:                    │
+│  DEX/AMM Sources:               Oracle Sources:                      │
 │  ┌──────────────┐              ┌──────────────┐                     │
-│  │  X-Chain     │ Weight: 1.5  │    Pyth      │ Weight: 1.0         │
-│  │ Native DEX   │──┐           │   Network    │──┐                  │
+│  │  X-Chain     │ Weight: 2.0  │  A-Chain     │ Weight: 1.5         │
+│  │ Native DEX   │──┐           │ Validators   │──┐                  │
 │  └──────────────┘  │           └──────────────┘  │                  │
-│  ┌──────────────┐  │           ┌──────────────┐  │                  │
-│  │  A-Chain     │  │           │  Chainlink   │  │  ┌────────────┐  │
-│  │ Attestations │──┤ Weight:   │   Oracle     │──┼──│  Oracle    │  │
-│  │ (Validators) │  │  1.3      └──────────────┘  │  │ Aggregator │  │
-│  └──────────────┘  │                             │  │            │──→
-│  ┌──────────────┐  │  ┌────────┐                 │  │ • Weighted │  │
-│  │  C-Chain     │──┼──│        │                 │  │   Median   │  │
-│  │ AMM Pools    │  │  │  Q-Chain               │  │ • TWAP/VWAP│  │
-│  │ (Liquid)     │  │  │  Quantum               │  │ • Circuit  │  │
-│  └──────────────┘  │  │  Finality    ──────────┼──│   Breakers │  │
-│  ┌──────────────┐  │  │                        │  └────────────┘  │
-│  │  Zoo Chain   │──┘  │  Verifies:            │                    │
-│  │  EVM AMM     │     │  • Order inclusion    │                    │
-│  │ (Zoo Labs)   │     │  • Cross-chain state  │                    │
-│  └──────────────┘     │  • Quantum signatures │                    │
-│                       └────────────────────────┘                    │
+│  ┌──────────────┐  │           ┌──────────────┐  │  ┌────────────┐  │
+│  │  C-Chain     │  │           │    Pyth      │  │  │  Oracle    │  │
+│  │ AMM Pools    │──┤ Weight:   │   Network    │──┼──│ Aggregator │  │
+│  │ (Liquid)     │  │  1.8      └──────────────┘  │  │            │──→
+│  └──────────────┘  │           ┌──────────────┐  │  │ • Weighted │  │
+│  ┌──────────────┐  │           │  Chainlink   │  │  │   Median   │  │
+│  │  Zoo Chain   │──┘ Weight:   │   Oracle     │──┘  │ • TWAP/VWAP│  │
+│  │  EVM AMM     │     1.7      └──────────────┘     │ • Circuit  │  │
+│  │ (Zoo Labs)   │                                   │   Breakers │  │
+│  └──────────────┘                                   └────────────┘  │
+│                                                            │        │
+│  ┌──────────────────────────────────────────────────────────┘        │
+│  │                                                                   │
+│  ▼                                                                   │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Q-Chain Verifier (NOT a price source)                         │  │
+│  │  Verifies quantum finality for prices from other sources:      │  │
+│  │  • Post-quantum signatures (dilithium, sphincs+)               │  │
+│  │  • Cross-chain order inclusion proofs                          │  │
+│  │  • Validator quorum consensus                                  │  │
+│  └────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -682,12 +687,13 @@ Multi-source price aggregation for sub-millisecond latency trading with quantum 
 | **X-Chain** | 2.0 | DEX | 50ms | Native DEX orderbook, highest trust |
 | **C-Chain** | 1.8 | AMM | 100ms | AMM pools, liquid tokens (LZOO, LETH, etc.) |
 | **Zoo Chain** | 1.7 | AMM | 100ms | Zoo Labs EVM DEX, ZOO token pairs |
-| **Q-Chain** | 1.6 | Finality | 100ms | Quantum finality verification |
-| **A-Chain** | 1.5 | Attestation | 100ms | Validator attestations, quorum consensus |
+| **A-Chain** | 1.5 | Oracle | 100ms | Validator-attested network oracle |
 | **Pyth** | 1.2 | Oracle | Real-time | External oracle, WebSocket streaming |
 | **Chainlink** | 1.0 | Oracle | 1s | External oracle, reference only |
 
-**Weight Priority**: DEX (native orderbook) > AMM (on-chain pools) > Attestations > External Oracles
+**Weight Priority**: DEX (native orderbook) > AMM (on-chain pools) > Network Oracles > External Oracles
+
+**Note**: Q-Chain is NOT a price source. It's a **finality verification layer** that verifies prices/orders from other sources have achieved quantum finality with post-quantum signatures.
 
 **Latency-Adjusted Weighting** (Planned):
 - Weights should be dynamically adjusted based on detected latency

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,9 +46,19 @@ type PriceOracle struct {
 	Metrics      *OracleMetrics
 
 	// State
-	Running    bool
+	running    atomic.Bool // Use atomic for race-safe access
 	LastUpdate time.Time
 	mu         sync.RWMutex
+}
+
+// isRunning returns true if the oracle is running (race-safe, internal)
+func (po *PriceOracle) isRunning() bool {
+	return po.running.Load()
+}
+
+// IsRunning returns true if the oracle is running (race-safe, public for tests)
+func (po *PriceOracle) IsRunning() bool {
+	return po.running.Load()
 }
 
 // OraclePriceSource represents a price data source
@@ -447,13 +458,10 @@ func (po *PriceOracle) AddSource(name string, source OraclePriceSource) error {
 
 // Start starts the price oracle
 func (po *PriceOracle) Start() error {
-	po.mu.Lock()
-	if po.Running {
-		po.mu.Unlock()
+	// Use atomic CompareAndSwap for race-safe start
+	if !po.running.CompareAndSwap(false, true) {
 		return errors.New("oracle already running")
 	}
-	po.Running = true
-	po.mu.Unlock()
 
 	// Start price update loop
 	go po.updateLoop()
@@ -469,10 +477,13 @@ func (po *PriceOracle) Start() error {
 
 // Stop stops the price oracle
 func (po *PriceOracle) Stop() {
+	// Use atomic store for race-safe stop
+	if !po.running.CompareAndSwap(true, false) {
+		return // Already stopped
+	}
+
 	po.mu.Lock()
 	defer po.mu.Unlock()
-
-	po.Running = false
 	close(po.PriceUpdates)
 	close(po.AlertChannel)
 }
@@ -548,7 +559,7 @@ func (po *PriceOracle) updateLoop() {
 	ticker := time.NewTicker(po.UpdateInterval)
 	defer ticker.Stop()
 
-	for po.Running {
+	for po.isRunning() {
 		select {
 		case <-ticker.C:
 			po.updatePrices()
@@ -673,7 +684,7 @@ func (po *PriceOracle) monitorSources() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	for po.Running {
+	for po.isRunning() {
 		select {
 		case <-ticker.C:
 			po.checkSourceHealth()
@@ -706,7 +717,7 @@ func (po *PriceOracle) calculateAverages() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for po.Running {
+	for po.isRunning() {
 		select {
 		case <-ticker.C:
 			po.updateAverages()

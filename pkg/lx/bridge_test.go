@@ -157,16 +157,7 @@ func TestInitiateTransfer(t *testing.T) {
 func TestValidateTransfer(t *testing.T) {
 	bridge := createTestBridgeWithAssets(t)
 
-	// Create a transfer
-	ctx := context.Background()
-	from := "0xFromAddress"
-	to := "0xToAddress"
-	amount := big.NewInt(5000000000)
-
-	transfer, err := bridge.InitiateTransfer(ctx, "USDC", amount, "1", "2", from, to)
-	require.NoError(t, err)
-
-	// Add test validators
+	// Add test validators BEFORE initiating transfer to avoid race with notifyValidators goroutine
 	for i := 0; i < 3; i++ {
 		validator := &BridgeValidator{
 			Address:  "validator" + string(rune('1'+i)),
@@ -179,6 +170,15 @@ func TestValidateTransfer(t *testing.T) {
 		validator.PublicKey = &privateKey.PublicKey
 		bridge.BridgeValidators = append(bridge.BridgeValidators, validator)
 	}
+
+	// Create a transfer after validators are set up
+	ctx := context.Background()
+	from := "0xFromAddress"
+	to := "0xToAddress"
+	amount := big.NewInt(5000000000)
+
+	transfer, err := bridge.InitiateTransfer(ctx, "USDC", amount, "1", "2", from, to)
+	require.NoError(t, err)
 
 	t.Run("ValidValidation", func(t *testing.T) {
 		validatorAddr := "validator1"
