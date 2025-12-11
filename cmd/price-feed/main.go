@@ -17,10 +17,10 @@ import (
 
 func main() {
 	var (
-		interval = flag.Duration("interval", 500*time.Millisecond, "display interval")
-		symbols  = flag.String("symbols", "LUX-USDC,LZOO-USDC,LETH-USDC,ZOO-USDC", "symbols to watch")
-		sources  = flag.String("sources", "all", "sources: all,xchain,achain,cchain,zoo,pyth,chainlink")
-		verify   = flag.Bool("verify", false, "verify quantum finality on Q-Chain")
+		interval   = flag.Duration("interval", 500*time.Millisecond, "display interval")
+		symbols    = flag.String("symbols", "LUX-USDC,LZOO-USDC,LETH-USDC,ZOO-USDC", "symbols to watch")
+		sources    = flag.String("sources", "all", "sources: all,xchain,achain,cchain,zoo,pyth,chainlink")
+		noVerifier = flag.Bool("no-verify", false, "disable Q-Chain quantum finality verification")
 	)
 	flag.Parse()
 
@@ -103,19 +103,18 @@ func main() {
 		}
 	}
 
-	// Q-Chain - Quantum Finality Verifier (NOT a price source)
-	var qchain *price.QChainVerifier
-	if *verify {
-		qchain = price.NewQChainVerifier(
+	// Q-Chain - Quantum Finality Verifier (enabled by default)
+	// This is NOT a price source - it verifies finality of prices from other sources
+	if !*noVerifier {
+		qchain := price.NewQChainVerifier(
 			"http://localhost:9650/ext/bc/Q",
 			"ws://localhost:9650/ext/bc/Q/ws",
 		)
 		if err := qchain.Start(); err != nil {
 			log.Printf("Warning: Q-Chain start failed: %v", err)
 		} else {
-			// Note: Q-Chain is NOT added as a price source
-			// It only verifies finality of prices from other sources
-			fmt.Println("✓ Q-Chain verifier started (quantum finality)")
+			oracle.SetVerifier(qchain)
+			fmt.Println("✓ Q-Chain verifier attached (quantum finality)")
 		}
 	}
 
@@ -168,7 +167,8 @@ func main() {
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
 
-	if *verify && qchain != nil {
+	// Show header based on whether verifier is attached
+	if oracle.Verifier() != nil {
 		fmt.Printf("\n%-15s %-12s %-12s %-12s %-10s %-10s %-10s %s\n",
 			"SYMBOL", "PRICE", "TWAP", "VWAP", "CONF", "SOURCE", "FINALITY", "AGE")
 	} else {
@@ -185,22 +185,22 @@ func main() {
 			return
 
 		case <-ticker.C:
-			if *verify && qchain != nil {
-				displayWithFinality(oracle, qchain, syms)
-			} else {
-				display(oracle, syms)
-			}
+			display(oracle, syms)
 		}
 	}
 }
 
 func display(oracle *price.Oracle, symbols []string) {
+	hasVerifier := oracle.Verifier() != nil
+
 	for _, sym := range symbols {
-		data, err := oracle.Data(sym)
+		// Use VerifiedPrice to get finality status if verifier attached
+		verified, err := oracle.VerifiedPrice(sym)
 		if err != nil {
 			fmt.Printf("%-15s %-12s\n", sym, "--")
 			continue
 		}
+		data := verified.Data
 
 		age := time.Since(data.Timestamp)
 		ageStr := fmt.Sprintf("%dms", age.Milliseconds())
@@ -216,76 +216,44 @@ func display(oracle *price.Oracle, symbols []string) {
 			stale = " [STALE]"
 		}
 
-		fmt.Printf("%-15s $%-11.4f $%-11.4f $%-11.4f %-10.2f %-10s %s%s\n",
-			data.Symbol,
-			data.Price,
-			twap,
-			vwap,
-			data.Confidence,
-			data.Source,
-			ageStr,
-			stale,
-		)
+		if hasVerifier {
+			// Show finality status
+			finalityStr := "PENDING"
+			if verified.Finalized {
+				finalityStr = "QUANTUM"
+			}
+
+			fmt.Printf("%-15s $%-11.4f $%-11.4f $%-11.4f %-10.2f %-10s %-10s %s%s\n",
+				data.Symbol,
+				data.Price,
+				twap,
+				vwap,
+				data.Confidence,
+				data.Source,
+				finalityStr,
+				ageStr,
+				stale,
+			)
+		} else {
+			fmt.Printf("%-15s $%-11.4f $%-11.4f $%-11.4f %-10.2f %-10s %s%s\n",
+				data.Symbol,
+				data.Price,
+				twap,
+				vwap,
+				data.Confidence,
+				data.Source,
+				ageStr,
+				stale,
+			)
+		}
+	}
+
+	// Show finality latency if verifier attached
+	if hasVerifier {
+		latency := oracle.Verifier().FinalityLatency()
+		fmt.Printf("Quantum finality latency: %v\n", latency)
 	}
 	fmt.Println()
-}
-
-func displayWithFinality(oracle *price.Oracle, qchain *price.QChainSource, symbols []string) {
-	// Get cross-chain finality status
-	chains := []string{"x-chain", "c-chain", "zoo-chain"}
-	allFinalized, finality := qchain.CrossChainVerify(chains)
-
-	for _, sym := range symbols {
-		data, err := oracle.Data(sym)
-		if err != nil {
-			fmt.Printf("%-15s %-12s\n", sym, "--")
-			continue
-		}
-
-		age := time.Since(data.Timestamp)
-		ageStr := fmt.Sprintf("%dms", age.Milliseconds())
-		if age > time.Second {
-			ageStr = fmt.Sprintf("%.1fs", age.Seconds())
-		}
-
-		twap := oracle.TWAP(sym)
-		vwap := oracle.VWAP(sym)
-
-		// Determine finality status
-		finalityStr := "PENDING"
-		if allFinalized {
-			finalityStr = "QUANTUM"
-		} else {
-			// Check individual chain
-			for chain, fin := range finality {
-				if fin.Finalized {
-					finalityStr = chain[:1] + "-OK"
-					break
-				}
-			}
-		}
-
-		stale := ""
-		if data.Stale {
-			stale = " [STALE]"
-		}
-
-		fmt.Printf("%-15s $%-11.6f $%-11.6f $%-11.6f %-10.2f %-10s %-10s %s%s\n",
-			data.Symbol,
-			data.Price,
-			twap,
-			vwap,
-			data.Confidence,
-			data.Source,
-			finalityStr,
-			ageStr,
-			stale,
-		)
-	}
-
-	// Show finality latency
-	latency := qchain.FinalityLatency()
-	fmt.Printf("Quantum finality latency: %v\n\n", latency)
 }
 
 func contains(list []string, s string) bool {
