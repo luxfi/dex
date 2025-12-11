@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,7 +25,7 @@ type Oracle struct {
 	interval   time.Duration
 	staleLimit time.Duration
 	minSources int
-	running    bool
+	running    atomic.Bool
 	mu         sync.RWMutex
 }
 
@@ -67,13 +68,10 @@ func (o *Oracle) AddSource(name string, src Source) {
 
 // Start begins price aggregation.
 func (o *Oracle) Start() error {
-	o.mu.Lock()
-	if o.running {
-		o.mu.Unlock()
-		return nil
+	// Use atomic compare-and-swap to avoid race
+	if !o.running.CompareAndSwap(false, true) {
+		return nil // Already running
 	}
-	o.running = true
-	o.mu.Unlock()
 
 	go o.loop()
 	go o.calcAverages()
@@ -84,7 +82,7 @@ func (o *Oracle) loop() {
 	ticker := time.NewTicker(o.interval)
 	defer ticker.Stop()
 
-	for o.running {
+	for o.running.Load() {
 		<-ticker.C
 		o.update()
 	}
@@ -183,7 +181,7 @@ func (o *Oracle) calcAverages() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	for o.running {
+	for o.running.Load() {
 		<-ticker.C
 
 		o.mu.Lock()
@@ -255,13 +253,10 @@ func (o *Oracle) Alerts() <-chan *Alert {
 
 // Stop halts the oracle.
 func (o *Oracle) Stop() {
-	o.mu.Lock()
-	if !o.running {
-		o.mu.Unlock()
-		return
+	// Use atomic compare-and-swap to avoid race
+	if !o.running.CompareAndSwap(true, false) {
+		return // Already stopped
 	}
-	o.running = false
-	o.mu.Unlock()
 
 	// Give time for goroutines to exit
 	time.Sleep(100 * time.Millisecond)
