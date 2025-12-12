@@ -1,0 +1,472 @@
+---
+title: Perpetual Trading
+description: Trade perpetual futures contracts with up to 50x leverage on LX DEX
+---
+
+# Perpetual Trading
+
+> **Specification**: [LP-9004 Perpetuals & Derivatives Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-9004-perpetuals-derivatives-protocol.md)
+
+Perpetual futures (perps) are derivative contracts that track an underlying asset's price without expiration. Unlike traditional futures, perpetuals never settle—positions can be held indefinitely.
+
+## Overview
+
+| Feature | Value |
+|---------|-------|
+| Max Leverage | 50x |
+| Contract Type | Inverse & Linear |
+| Settlement | USDT, USDC |
+| Funding Interval | 8 hours |
+| Liquidation | Automatic |
+| Insurance Fund | Protocol-backed |
+
+## How Perpetuals Work
+
+```
+Perpetual Price ≈ Spot Price (via Funding Rate)
+
+When perp price > spot:
+  - Funding rate positive
+  - Longs pay shorts
+  - Encourages selling, brings price down
+
+When perp price < spot:
+  - Funding rate negative
+  - Shorts pay longs
+  - Encourages buying, brings price up
+```
+
+### Key Concepts
+
+| Term | Definition |
+|------|------------|
+| Mark Price | Fair price used for liquidation (oracle-based) |
+| Index Price | Spot price from major exchanges |
+| Funding Rate | Payment between longs/shorts every 8h |
+| Open Interest | Total value of outstanding positions |
+| Unrealized PnL | Profit/loss if position closed now |
+| Realized PnL | Actual profit/loss from closed trades |
+
+## Available Markets
+
+### Major Perpetuals
+
+| Market | Max Leverage | Min Size | Tick Size |
+|--------|-------------|----------|-----------|
+| BTC-USD-PERP | 50x | $10 | $0.50 |
+| ETH-USD-PERP | 50x | $10 | $0.10 |
+| LUX-USD-PERP | 30x | $10 | $0.0001 |
+
+### Alt Perpetuals
+
+| Market | Max Leverage | Min Size | Tick Size |
+|--------|-------------|----------|-----------|
+| SOL-USD-PERP | 30x | $10 | $0.01 |
+| AVAX-USD-PERP | 30x | $10 | $0.01 |
+| ARB-USD-PERP | 20x | $10 | $0.0001 |
+| OP-USD-PERP | 20x | $10 | $0.0001 |
+
+## Quick Start
+
+### Open a Long Position
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Long BTC perpetual with 10x leverage
+const position = await dex.perpetual.openPosition({
+  symbol: 'BTC-USD-PERP',
+  side: 'long',
+  size: '10000',        // $10,000 notional
+  leverage: 10,         // 10x leverage
+  type: 'market'
+})
+
+console.log(`Position ID: ${position.id}`)
+console.log(`Entry Price: $${position.entryPrice}`)
+console.log(`Collateral: $${position.collateral}`)
+console.log(`Liquidation: $${position.liquidationPrice}`)
+```
+
+### Open a Short Position
+
+```typescript
+// Short ETH with limit order
+const position = await dex.perpetual.openPosition({
+  symbol: 'ETH-USD-PERP',
+  side: 'short',
+  size: '5000',
+  leverage: 5,
+  type: 'limit',
+  price: '2500.00'      // Enter short at $2,500
+})
+```
+
+### With Stop Loss and Take Profit
+
+```typescript
+const position = await dex.perpetual.openPosition({
+  symbol: 'BTC-USD-PERP',
+  side: 'long',
+  size: '10000',
+  leverage: 10,
+  type: 'market',
+  stopLoss: {
+    price: '45000',
+    type: 'market'
+  },
+  takeProfit: {
+    price: '55000',
+    type: 'limit'
+  }
+})
+```
+
+## Funding Rate
+
+### Understanding Funding
+
+Funding payments occur every 8 hours (00:00, 08:00, 16:00 UTC):
+
+```
+Funding Payment = Position Size × Funding Rate
+
+Example:
+- Long Position: $100,000
+- Funding Rate: 0.01% (positive = longs pay)
+- Payment: $100,000 × 0.01% = $10 (paid to shorts)
+```
+
+### Track Funding Rates
+
+```typescript
+// Get current funding rate
+const funding = await dex.perpetual.getFunding('BTC-USD-PERP')
+
+console.log(`Symbol: ${funding.symbol}`)
+console.log(`Current Rate: ${funding.rate}% per 8h`)
+console.log(`Annualized: ${funding.rate * 3 * 365}%`)
+console.log(`Next Settlement: ${funding.nextTime}`)
+console.log(`Predicted Next: ${funding.predictedRate}%`)
+```
+
+### Funding History
+
+```typescript
+// Get position funding history
+const history = await dex.perpetual.getFundingHistory({
+  positionId: 'pos_123',
+  limit: 100
+})
+
+let totalFunding = 0
+history.forEach(f => {
+  totalFunding += parseFloat(f.amount)
+  console.log(`${f.timestamp}: ${f.amount} USDT`)
+})
+console.log(`Total Funding Paid/Received: ${totalFunding} USDT`)
+```
+
+## Position Management
+
+### View Open Positions
+
+```typescript
+const positions = await dex.perpetual.getPositions()
+
+positions.forEach(pos => {
+  console.log(`${pos.symbol}:`)
+  console.log(`  Side: ${pos.side}`)
+  console.log(`  Size: $${pos.size}`)
+  console.log(`  Entry: $${pos.entryPrice}`)
+  console.log(`  Mark: $${pos.markPrice}`)
+  console.log(`  Unrealized PnL: $${pos.unrealizedPnl}`)
+  console.log(`  ROE: ${pos.roe}%`)
+})
+```
+
+### Increase Position
+
+```typescript
+// Add to existing position
+const result = await dex.perpetual.increasePosition({
+  positionId: 'pos_123',
+  additionalSize: '5000',   // Add $5k to position
+  type: 'market'
+})
+
+console.log(`New Size: $${result.newSize}`)
+console.log(`New Avg Price: $${result.newAvgPrice}`)
+```
+
+### Decrease Position (Partial Close)
+
+```typescript
+// Reduce position by 50%
+const result = await dex.perpetual.decreasePosition({
+  positionId: 'pos_123',
+  reduceSize: '5000',
+  type: 'market'
+})
+
+console.log(`Closed Size: $${result.closedSize}`)
+console.log(`Realized PnL: $${result.realizedPnl}`)
+console.log(`Remaining: $${result.remainingSize}`)
+```
+
+### Close Position
+
+```typescript
+// Close entire position at market
+const result = await dex.perpetual.closePosition({
+  positionId: 'pos_123',
+  type: 'market'
+})
+
+console.log(`Final PnL: $${result.realizedPnl}`)
+console.log(`Collateral Returned: $${result.collateralReturned}`)
+```
+
+## Leverage and Margin
+
+### Adjust Leverage
+
+```typescript
+// Increase leverage (reduces collateral)
+await dex.perpetual.setLeverage({
+  positionId: 'pos_123',
+  leverage: 20
+})
+
+// Decrease leverage (requires more collateral)
+await dex.perpetual.setLeverage({
+  positionId: 'pos_123',
+  leverage: 5
+})
+```
+
+### Add/Remove Margin
+
+```typescript
+// Add margin to reduce liquidation risk
+await dex.perpetual.addMargin({
+  positionId: 'pos_123',
+  amount: '500'
+})
+
+// Remove excess margin
+await dex.perpetual.removeMargin({
+  positionId: 'pos_123',
+  amount: '200'
+})
+```
+
+## Liquidation
+
+### How Liquidation Works
+
+```
+Position is liquidated when:
+  Margin Ratio < Maintenance Margin
+
+Margin Ratio = (Collateral + Unrealized PnL) / Position Size
+
+Liquidation Process:
+1. Position force-closed at mark price
+2. Remaining collateral covers losses
+3. Liquidation fee (5%) to liquidator
+4. Shortfall covered by insurance fund
+```
+
+### Liquidation Price
+
+```
+Long Liquidation:
+Liq = Entry × (1 - Initial Margin + Maintenance Margin)
+
+Short Liquidation:
+Liq = Entry × (1 + Initial Margin - Maintenance Margin)
+
+Example (50x Long BTC at $50,000):
+Initial Margin = 2%
+Maintenance = 0.5%
+Liq = $50,000 × (1 - 0.02 + 0.005) = $49,250
+```
+
+### Monitor Liquidation Risk
+
+```typescript
+const position = await dex.perpetual.getPosition('pos_123')
+
+const liquidationRisk = {
+  marginRatio: position.marginRatio,
+  healthFactor: position.healthFactor,
+  liquidationPrice: position.liquidationPrice,
+  distanceToLiq: position.distanceToLiq
+}
+
+if (liquidationRisk.marginRatio < 5) {
+  console.log('WARNING: Position near liquidation!')
+  console.log(`Add margin or reduce position`)
+}
+```
+
+## Order Types
+
+### Market Order
+
+```typescript
+await dex.perpetual.placeOrder({
+  symbol: 'BTC-USD-PERP',
+  side: 'buy',
+  type: 'market',
+  size: '1000'
+})
+```
+
+### Limit Order
+
+```typescript
+await dex.perpetual.placeOrder({
+  symbol: 'BTC-USD-PERP',
+  side: 'buy',
+  type: 'limit',
+  price: '48000',
+  size: '1000',
+  postOnly: true      // Ensure maker fee
+})
+```
+
+### Stop Order
+
+```typescript
+await dex.perpetual.placeOrder({
+  symbol: 'BTC-USD-PERP',
+  side: 'sell',
+  type: 'stop',
+  stopPrice: '45000', // Trigger price
+  size: '1000',
+  reduceOnly: true    // Only close existing position
+})
+```
+
+### Take Profit
+
+```typescript
+await dex.perpetual.placeOrder({
+  symbol: 'BTC-USD-PERP',
+  side: 'sell',
+  type: 'takeProfit',
+  stopPrice: '55000',
+  size: '1000',
+  reduceOnly: true
+})
+```
+
+## Fees
+
+| Fee Type | Rate |
+|----------|------|
+| Maker | 0.02% |
+| Taker | 0.06% |
+| Liquidation | 0.10% |
+| Funding | Variable |
+
+### Fee Tiers
+
+| Volume (30d) | Maker | Taker |
+|-------------|-------|-------|
+| < $1M | 0.02% | 0.06% |
+| $1M - $10M | 0.01% | 0.05% |
+| $10M - $100M | 0.00% | 0.04% |
+| > $100M | -0.01% | 0.03% |
+
+## Risk Management
+
+<Callout type="warning">
+**Perpetual trading carries significant risk.** Leverage amplifies both gains and losses. You can lose more than your initial margin.
+</Callout>
+
+### Best Practices
+
+1. **Use appropriate leverage** - Start with 2-5x
+2. **Set stop losses** - Always define max loss
+3. **Monitor funding** - Can erode profits on long holds
+4. **Keep margin buffer** - Don't use 100% available
+5. **Track open interest** - High OI can mean crowded trades
+6. **Understand mark vs last** - Liquidation uses mark price
+
+### Position Sizing Formula
+
+```
+Position Size = Account × Risk% / (Entry - Stop) × Entry
+
+Example:
+- Account: $10,000
+- Risk: 1% ($100)
+- Entry: $50,000
+- Stop: $49,000 (2% away)
+
+Size = $10,000 × 1% / 2% = $5,000 position
+Leverage = $5,000 / $10,000 = 0.5x (conservative)
+```
+
+## Market Data
+
+### Real-time Prices
+
+```typescript
+// Subscribe to perpetual ticker
+dex.perpetual.subscribeTicker('BTC-USD-PERP', (ticker) => {
+  console.log(`Last: $${ticker.lastPrice}`)
+  console.log(`Mark: $${ticker.markPrice}`)
+  console.log(`Index: $${ticker.indexPrice}`)
+  console.log(`Funding: ${ticker.fundingRate}%`)
+  console.log(`Open Interest: $${ticker.openInterest}`)
+})
+```
+
+### Order Book
+
+```typescript
+// Get perpetual order book
+const book = await dex.perpetual.getOrderBook('BTC-USD-PERP', {
+  depth: 20
+})
+
+console.log('Best Bid:', book.bids[0])
+console.log('Best Ask:', book.asks[0])
+console.log('Spread:', book.spread)
+```
+
+## Insurance Fund
+
+The insurance fund covers liquidation shortfalls:
+
+```typescript
+// Check insurance fund status
+const fund = await dex.perpetual.getInsuranceFund()
+
+console.log(`Total: $${fund.total}`)
+console.log(`BTC Coverage: $${fund.btc}`)
+console.log(`ETH Coverage: $${fund.eth}`)
+```
+
+### Fund Mechanics
+
+```
+When liquidation has shortfall:
+1. Insurance fund covers the gap
+2. If fund depleted, ADL triggered
+3. Profitable traders auto-deleveraged
+```
+
+## Related Documentation
+
+- [Margin Trading](/docs/trading/margin) - Margin modes and leverage
+- [Order Types](/docs/trading/order-types) - All supported orders
+- [Fees](/docs/trading/fees) - Complete fee schedule
+- [Limits](/docs/trading/limits) - Position and leverage limits
+- [Risk Management](/docs/risk) - Risk controls
