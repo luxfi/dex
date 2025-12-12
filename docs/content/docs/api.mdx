@@ -5,13 +5,25 @@ description: Complete API documentation for LX DEX - WebSocket, REST, and gRPC A
 
 # LX DEX API Documentation
 
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+
 ## Overview
 
 LX DEX provides multiple API protocols for integration:
-- **WebSocket API** - Real-time market data and trading
-- **REST API** - Standard HTTP endpoints
-- **gRPC API** - High-performance binary protocol
-- **JSON-RPC 2.0** - Standard RPC interface
+- **JSON-RPC 2.0** - Primary RPC interface (`dex.*` namespace)
+- **gRPC** - High-performance binary protocol (port 9760)
+- **WebSocket** - Real-time push feeds
+- **REST** - Standard HTTP endpoints
+- **FIX** - Financial Information eXchange (institutional)
+
+## Implementation Status
+
+| Component | Source | Status |
+|-----------|--------|--------|
+| JSON-RPC API | [`pkg/api/jsonrpc.go`](https://github.com/luxfi/dex/blob/main/pkg/api/jsonrpc.go) | Complete |
+| WebSocket Server | [`pkg/api/websocket_server.go`](https://github.com/luxfi/dex/blob/main/pkg/api/websocket_server.go) | Complete |
+| Trader Client | [`pkg/client/trader_client.go`](https://github.com/luxfi/dex/blob/main/pkg/client/trader_client.go) | Complete |
+| gRPC Protocol | [`pkg/grpc/pb/`](https://github.com/luxfi/dex/tree/main/pkg/grpc/pb) | Complete |
 
 ## WebSocket API
 

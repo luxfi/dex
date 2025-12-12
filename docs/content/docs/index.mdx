@@ -7,9 +7,11 @@ description: Ultra-High Performance Decentralized Exchange - 434M+ orders/sec wi
 
 Ultra-high performance DEX with **434M+ orders/sec** on Apple Silicon.
 
+> **LP Specifications**: This implementation follows [LP-9000 DEX Series](https://github.com/luxfi/LPs/tree/main/LPs) - see [LP-9000](https://github.com/luxfi/LPs/blob/main/LPs/lp-9000-dex-core-specification.md), [LP-9001](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md), [LP-9002](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md), [LP-9003](https://github.com/luxfi/LPs/blob/main/LPs/lp-9003-high-performance-dex-protocol.md)
+
 ## Overview
 
-LX DEX is a planet-scale, fully on-chain decentralized exchange built on Lux Network, combining ultra-low latency matching, quantum-resistant security, and support for global markets in a unified system.
+LX DEX is a planet-scale, fully on-chain decentralized exchange built on Lux Network, combining ultra-low latency matching, quantum-resistant security, and support for global markets in a unified system. The DEX runs as a **standalone sidecar daemon** (`lxd`) separate from the Lux blockchain node, communicating via Warp messages for settlement.
 
 ## Key Performance
 
