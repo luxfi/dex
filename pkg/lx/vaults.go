@@ -1068,7 +1068,7 @@ func (vm *VaultManager) GetLeaderVaults(leaderAddress string) ([]*CopyVault, err
 }
 
 // UpdateVaultValue updates the vault's total value based on PnL from trading
-// This is how Hyperliquid handles it - the vault trades as one entity and value changes affect all members proportionally
+// The vault trades as one entity and value changes affect all members proportionally
 func (vm *VaultManager) UpdateVaultValue(vaultID string, newValue *big.Int) error {
 	vm.mu.RLock()
 	vault, exists := vm.copyVaults[vaultID]
@@ -1132,7 +1132,7 @@ func (vm *VaultManager) ExecuteVaultTrade(vaultID string, symbol string, side Si
 		Side:     side,
 		Type:     orderType,
 		Size:     size,
-		Price:    0, // Will be set based on order type
+		Price:    0,            // Will be set based on order type
 		User:     vault.Leader, // Leader executes on behalf of vault
 		ClientID: vaultID,      // Track that this is a vault order
 	}
@@ -1147,12 +1147,12 @@ func (vm *VaultManager) ExecuteVaultTrade(vaultID string, symbol string, side Si
 		// Fallback to direct orderbook reference
 		orderID = vm.orderBook.AddOrder(vaultOrder)
 	}
-	
+
 	if orderID > 0 {
 		// Order was placed successfully
 		// Update performance metrics
 		vault.Performance.UpdatedAt = time.Now()
-		
+
 		// For now, just track that an order was placed
 		// In a real system, we'd track fills and update PnL accordingly
 	}
