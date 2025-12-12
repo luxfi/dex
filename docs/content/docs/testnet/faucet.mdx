@@ -69,8 +69,8 @@ curl -X POST https://faucet.testnet.lux.network/api/request \
 
 ### SDK Request
 
-<Tabs items={['TypeScript', 'Python', 'Go']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 import { LXDexClient } from '@luxfi/dex-sdk';
 
@@ -90,8 +90,9 @@ const allowance = await client.faucet.getAllowance({
 });
 console.log('Remaining today:', allowance);
 ```
-  </Tab>
-  <Tab value="Python">
+
+#### Python
+
 ```python
 from luxfi_dex import LXDexClient
 
@@ -109,8 +110,9 @@ print(f"Received: {result.amounts}")
 allowance = client.faucet.get_allowance(address='your_wallet_address')
 print(f"Remaining today: {allowance}")
 ```
-  </Tab>
-  <Tab value="Go">
+
+#### Go
+
 ```go
 package main
 
@@ -136,8 +138,6 @@ func main() {
     fmt.Printf("Remaining today: %+v\n", allowance)
 }
 ```
-  </Tab>
-</Tabs>
 
 ## Rate Limits
 
