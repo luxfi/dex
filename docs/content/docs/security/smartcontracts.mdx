@@ -1,0 +1,748 @@
+---
+title: Smart Contract Security
+description: Smart contract security patterns, common vulnerabilities, and secure development practices for LX DEX
+---
+
+# Smart Contract Security
+
+LX DEX smart contracts are developed following industry best practices, formal verification, and multiple audit rounds. This document covers security patterns, common vulnerabilities, and our defensive programming approach.
+
+## Security Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               SMART CONTRACT SECURITY LAYERS                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Layer 1: Access Control                                        │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Role-Based Access │ Multi-Sig │ Timelock │ Pausable   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Layer 2: Input Validation                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Parameter Checks │ Bounds │ Reentrancy Guards         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Layer 3: Business Logic                                        │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  CEI Pattern │ Pull Payments │ Rate Limiting           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Layer 4: External Interactions                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Oracle Validation │ Flash Loan Protection │ Slippage  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Common Vulnerabilities & Mitigations
+
+### Reentrancy
+
+**Vulnerability**: External calls allowing recursive entry before state updates.
+
+```solidity
+// VULNERABLE
+contract VulnerableVault {
+    mapping(address => uint256) public balances;
+
+    function withdraw(uint256 amount) external {
+        require(balances[msg.sender] >= amount);
+
+        // External call BEFORE state update - VULNERABLE
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success);
+
+        balances[msg.sender] -= amount;  // Too late!
+    }
+}
+
+// SECURE - Checks-Effects-Interactions Pattern
+contract SecureVault {
+    mapping(address => uint256) public balances;
+
+    function withdraw(uint256 amount) external {
+        // CHECKS
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+
+        // EFFECTS - Update state BEFORE external call
+        balances[msg.sender] -= amount;
+
+        // INTERACTIONS - External call LAST
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+    }
+}
+
+// SECURE - Reentrancy Guard
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract GuardedVault is ReentrancyGuard {
+    mapping(address => uint256) public balances;
+
+    function withdraw(uint256 amount) external nonReentrant {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        balances[msg.sender] -= amount;
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+    }
+}
+```
+
+### Integer Overflow/Underflow
+
+**Vulnerability**: Arithmetic operations exceeding type bounds.
+
+```solidity
+// Solidity 0.8+ has built-in overflow checks
+// For older versions or unchecked blocks:
+
+// VULNERABLE (pre-0.8 or unchecked)
+contract VulnerableToken {
+    mapping(address => uint256) public balances;
+
+    function transfer(address to, uint256 amount) external {
+        unchecked {
+            // Underflow if balances[msg.sender] < amount
+            balances[msg.sender] -= amount;
+            // Overflow if balances[to] + amount > type(uint256).max
+            balances[to] += amount;
+        }
+    }
+}
+
+// SECURE - Use SafeMath or Solidity 0.8+
+contract SecureToken {
+    mapping(address => uint256) public balances;
+
+    function transfer(address to, uint256 amount) external {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+
+        // Solidity 0.8+ reverts on overflow/underflow automatically
+        balances[msg.sender] -= amount;
+        balances[to] += amount;
+    }
+}
+
+// For intentional wrapping, use unchecked carefully
+function incrementCounter(uint256 counter) internal pure returns (uint256) {
+    unchecked {
+        return counter + 1; // Allow wrapping if intended
+    }
+}
+```
+
+### Access Control Flaws
+
+**Vulnerability**: Missing or incorrect authorization checks.
+
+```solidity
+// VULNERABLE - No access control
+contract VulnerableAdmin {
+    address public treasury;
+
+    function setTreasury(address newTreasury) external {
+        treasury = newTreasury; // Anyone can call!
+    }
+}
+
+// SECURE - Role-based access control
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract SecureAdmin is AccessControl {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
+    address public treasury;
+    bool public paused;
+
+    constructor() {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ADMIN_ROLE, msg.sender);
+    }
+
+    function setTreasury(address newTreasury) external onlyRole(ADMIN_ROLE) {
+        require(newTreasury != address(0), "Invalid address");
+        treasury = newTreasury;
+        emit TreasuryUpdated(newTreasury);
+    }
+
+    function pause() external onlyRole(OPERATOR_ROLE) {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    event TreasuryUpdated(address indexed newTreasury);
+    event Paused(address indexed by);
+}
+```
+
+### Flash Loan Attacks
+
+**Vulnerability**: Manipulation of prices or governance within single transaction.
+
+```solidity
+// VULNERABLE - Spot price for critical operations
+contract VulnerableLending {
+    IUniswapV2Pair public pair;
+
+    function getCollateralValue(uint256 amount) public view returns (uint256) {
+        // Spot price - can be manipulated with flash loan
+        (uint112 reserve0, uint112 reserve1,) = pair.getReserves();
+        return amount * reserve1 / reserve0;
+    }
+
+    function liquidate(address user) external {
+        uint256 collateral = getCollateralValue(users[user].collateral);
+        // Attacker flash loans to manipulate price, liquidate, profit
+    }
+}
+
+// SECURE - TWAP Oracle
+contract SecureLending {
+    IUniswapV3Pool public pool;
+    uint32 public constant TWAP_PERIOD = 30 minutes;
+
+    function getCollateralValue(uint256 amount) public view returns (uint256) {
+        // Time-weighted average price - resistant to flash loans
+        (int24 arithmeticMeanTick,) = OracleLibrary.consult(
+            address(pool),
+            TWAP_PERIOD
+        );
+
+        uint256 price = OracleLibrary.getQuoteAtTick(
+            arithmeticMeanTick,
+            uint128(amount),
+            token0,
+            token1
+        );
+
+        return price;
+    }
+}
+
+// SECURE - Multi-block confirmation
+contract MultiBlockProtection {
+    struct PriceCheckpoint {
+        uint256 price;
+        uint256 blockNumber;
+    }
+
+    mapping(address => PriceCheckpoint) public checkpoints;
+    uint256 public constant MIN_BLOCKS = 3;
+
+    function initiateAction(uint256 expectedPrice) external {
+        checkpoints[msg.sender] = PriceCheckpoint({
+            price: expectedPrice,
+            blockNumber: block.number
+        });
+    }
+
+    function executeAction() external {
+        PriceCheckpoint memory cp = checkpoints[msg.sender];
+        require(block.number >= cp.blockNumber + MIN_BLOCKS, "Too soon");
+
+        uint256 currentPrice = getPrice();
+        require(
+            currentPrice >= cp.price * 99 / 100 &&
+            currentPrice <= cp.price * 101 / 100,
+            "Price deviation"
+        );
+
+        // Execute action
+    }
+}
+```
+
+### Oracle Manipulation
+
+**Vulnerability**: Reliance on single or manipulable price sources.
+
+```solidity
+// SECURE - Multi-oracle with deviation checks
+contract SecureOracle {
+    IChainlinkAggregator public chainlinkOracle;
+    IUniswapV3Pool public uniswapPool;
+    uint256 public constant MAX_DEVIATION = 5; // 5%
+    uint256 public constant STALENESS_THRESHOLD = 1 hours;
+
+    function getPrice() public view returns (uint256) {
+        // Primary: Chainlink
+        (
+            uint80 roundId,
+            int256 chainlinkPrice,
+            ,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = chainlinkOracle.latestRoundData();
+
+        require(chainlinkPrice > 0, "Invalid Chainlink price");
+        require(answeredInRound >= roundId, "Stale Chainlink data");
+        require(
+            block.timestamp - updatedAt < STALENESS_THRESHOLD,
+            "Chainlink data too old"
+        );
+
+        uint256 primaryPrice = uint256(chainlinkPrice);
+
+        // Secondary: Uniswap V3 TWAP
+        uint256 twapPrice = getTWAPPrice();
+
+        // Cross-validate
+        uint256 deviation = primaryPrice > twapPrice
+            ? (primaryPrice - twapPrice) * 100 / primaryPrice
+            : (twapPrice - primaryPrice) * 100 / twapPrice;
+
+        require(deviation <= MAX_DEVIATION, "Oracle price deviation");
+
+        return primaryPrice;
+    }
+
+    function getTWAPPrice() internal view returns (uint256) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 1800; // 30 minutes ago
+        secondsAgos[1] = 0;    // now
+
+        (int56[] memory tickCumulatives,) = uniswapPool.observe(secondsAgos);
+
+        int56 tickCumulativesDelta = tickCumulatives[1] - tickCumulatives[0];
+        int24 tick = int24(tickCumulativesDelta / 1800);
+
+        return OracleLibrary.getQuoteAtTick(tick, 1e18, token0, token1);
+    }
+}
+```
+
+### Front-Running Protection
+
+**Vulnerability**: MEV extraction through transaction ordering.
+
+```solidity
+// SECURE - Commit-Reveal Scheme
+contract CommitRevealOrder {
+    struct Commitment {
+        bytes32 hash;
+        uint256 blockNumber;
+        bool revealed;
+    }
+
+    mapping(address => Commitment) public commitments;
+    uint256 public constant REVEAL_DELAY = 2; // blocks
+
+    // Step 1: Commit hash of order
+    function commitOrder(bytes32 orderHash) external {
+        commitments[msg.sender] = Commitment({
+            hash: orderHash,
+            blockNumber: block.number,
+            revealed: false
+        });
+    }
+
+    // Step 2: Reveal and execute after delay
+    function revealOrder(
+        uint256 amount,
+        uint256 price,
+        bool isBuy,
+        bytes32 salt
+    ) external {
+        Commitment storage c = commitments[msg.sender];
+
+        require(!c.revealed, "Already revealed");
+        require(block.number >= c.blockNumber + REVEAL_DELAY, "Too early");
+
+        bytes32 expectedHash = keccak256(
+            abi.encodePacked(msg.sender, amount, price, isBuy, salt)
+        );
+        require(c.hash == expectedHash, "Invalid reveal");
+
+        c.revealed = true;
+
+        // Execute order
+        _executeOrder(msg.sender, amount, price, isBuy);
+    }
+}
+
+// SECURE - Submarine Sends (for high-value)
+contract SubmarineSend {
+    function revealAndExecute(
+        bytes32 commitId,
+        bytes calldata encryptedData,
+        bytes calldata proof
+    ) external {
+        // Verify commitment was mined in previous block
+        // Decrypt and execute
+        // Requires specialized infrastructure
+    }
+}
+```
+
+### Signature Replay
+
+**Vulnerability**: Reusing valid signatures across different contexts.
+
+```solidity
+// SECURE - EIP-712 Typed Data Signing
+contract SecureSignatures {
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+
+    bytes32 public constant ORDER_TYPEHASH = keccak256(
+        "Order(address maker,address token,uint256 amount,uint256 price,uint256 nonce,uint256 deadline)"
+    );
+
+    bytes32 public immutable DOMAIN_SEPARATOR;
+    mapping(address => uint256) public nonces;
+
+    constructor() {
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            DOMAIN_TYPEHASH,
+            keccak256("LX DEX"),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+    }
+
+    function executeSignedOrder(
+        address maker,
+        address token,
+        uint256 amount,
+        uint256 price,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(block.timestamp <= deadline, "Order expired");
+
+        bytes32 structHash = keccak256(abi.encode(
+            ORDER_TYPEHASH,
+            maker,
+            token,
+            amount,
+            price,
+            nonces[maker]++,  // Increment nonce to prevent replay
+            deadline
+        ));
+
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\x19\x01",
+            DOMAIN_SEPARATOR,
+            structHash
+        ));
+
+        address signer = ecrecover(digest, v, r, s);
+        require(signer == maker, "Invalid signature");
+
+        // Execute order
+        _executeOrder(maker, token, amount, price);
+    }
+}
+```
+
+## Secure Development Patterns
+
+### Pull Over Push Payments
+
+```solidity
+// SECURE - Pull payment pattern
+contract SecurePayments {
+    mapping(address => uint256) public pendingWithdrawals;
+
+    // Internal: Record payment
+    function _addPayment(address recipient, uint256 amount) internal {
+        pendingWithdrawals[recipient] += amount;
+        emit PaymentRecorded(recipient, amount);
+    }
+
+    // External: User pulls their funds
+    function withdraw() external {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "No funds");
+
+        pendingWithdrawals[msg.sender] = 0;
+
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit Withdrawn(msg.sender, amount);
+    }
+
+    event PaymentRecorded(address indexed recipient, uint256 amount);
+    event Withdrawn(address indexed recipient, uint256 amount);
+}
+```
+
+### Emergency Circuit Breaker
+
+```solidity
+// SECURE - Pausable with timelock
+import "@openzeppelin/contracts/security/Pausable.sol";
+
+contract EmergencyControl is Pausable, AccessControl {
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant UNPAUSER_ROLE = keccak256("UNPAUSER_ROLE");
+
+    uint256 public constant UNPAUSE_DELAY = 24 hours;
+    uint256 public unpauseRequestTime;
+
+    // Immediate pause for emergencies
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+        emit EmergencyPaused(msg.sender);
+    }
+
+    // Timelock for unpause
+    function requestUnpause() external onlyRole(UNPAUSER_ROLE) {
+        unpauseRequestTime = block.timestamp;
+        emit UnpauseRequested(msg.sender);
+    }
+
+    function executeUnpause() external onlyRole(UNPAUSER_ROLE) {
+        require(unpauseRequestTime != 0, "No request");
+        require(
+            block.timestamp >= unpauseRequestTime + UNPAUSE_DELAY,
+            "Timelock active"
+        );
+
+        unpauseRequestTime = 0;
+        _unpause();
+        emit Unpaused(msg.sender);
+    }
+
+    // Cancel unpause if threat persists
+    function cancelUnpause() external onlyRole(PAUSER_ROLE) {
+        unpauseRequestTime = 0;
+        emit UnpauseCancelled(msg.sender);
+    }
+
+    event EmergencyPaused(address indexed by);
+    event UnpauseRequested(address indexed by);
+    event Unpaused(address indexed by);
+    event UnpauseCancelled(address indexed by);
+}
+```
+
+### Upgradeable Contracts Security
+
+```solidity
+// SECURE - Transparent proxy with timelock
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+contract SecureUpgradeable is Initializable, UUPSUpgradeable, AccessControl {
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+
+    uint256 public constant UPGRADE_DELAY = 48 hours;
+    address public pendingImplementation;
+    uint256 public upgradeRequestTime;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize() public initializer {
+        __UUPSUpgradeable_init();
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // Step 1: Request upgrade
+    function requestUpgrade(address newImplementation) external onlyRole(UPGRADER_ROLE) {
+        require(newImplementation != address(0), "Invalid implementation");
+        require(newImplementation.code.length > 0, "Not a contract");
+
+        pendingImplementation = newImplementation;
+        upgradeRequestTime = block.timestamp;
+
+        emit UpgradeRequested(newImplementation);
+    }
+
+    // Step 2: Execute after timelock
+    function _authorizeUpgrade(address newImplementation)
+        internal
+        override
+        onlyRole(UPGRADER_ROLE)
+    {
+        require(newImplementation == pendingImplementation, "Wrong implementation");
+        require(
+            block.timestamp >= upgradeRequestTime + UPGRADE_DELAY,
+            "Timelock active"
+        );
+
+        pendingImplementation = address(0);
+        upgradeRequestTime = 0;
+    }
+
+    event UpgradeRequested(address indexed newImplementation);
+}
+```
+
+## Gas Optimization Security
+
+```solidity
+// Gas optimizations that maintain security
+contract GasOptimizedSecure {
+    // Use custom errors instead of strings
+    error InsufficientBalance(uint256 available, uint256 required);
+    error Unauthorized(address caller, bytes32 requiredRole);
+
+    // Pack structs efficiently
+    struct Order {
+        uint128 amount;      // 16 bytes
+        uint64 price;        // 8 bytes
+        uint32 timestamp;    // 4 bytes
+        uint16 flags;        // 2 bytes
+        bool active;         // 1 byte
+        // Total: 31 bytes (fits in 1 slot)
+    }
+
+    // Use unchecked where safe
+    function incrementNonce(uint256 current) internal pure returns (uint256) {
+        // Safe: nonce incrementing from 0 won't overflow uint256
+        unchecked {
+            return current + 1;
+        }
+    }
+
+    // Cache storage reads
+    function processOrder(uint256 orderId) external {
+        Order storage order = orders[orderId];
+
+        // Cache to memory for multiple reads
+        uint128 amount = order.amount;
+        uint64 price = order.price;
+
+        // Use cached values
+        uint256 total = uint256(amount) * uint256(price);
+
+        // Single storage write at end
+        order.active = false;
+    }
+}
+```
+
+## Testing & Verification
+
+### Foundry Test Example
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../src/Vault.sol";
+
+contract VaultSecurityTest is Test {
+    Vault vault;
+    address attacker;
+
+    function setUp() public {
+        vault = new Vault();
+        attacker = makeAddr("attacker");
+        vm.deal(address(vault), 100 ether);
+        vm.deal(attacker, 1 ether);
+    }
+
+    // Test reentrancy protection
+    function testReentrancyProtection() public {
+        ReentrancyAttacker attackContract = new ReentrancyAttacker(vault);
+        vm.deal(address(attackContract), 1 ether);
+
+        vm.prank(address(attackContract));
+        vault.deposit{value: 1 ether}();
+
+        vm.expectRevert("ReentrancyGuard: reentrant call");
+        vm.prank(address(attackContract));
+        attackContract.attack();
+    }
+
+    // Fuzz test for overflow
+    function testFuzz_NoOverflow(uint256 amount1, uint256 amount2) public {
+        vm.assume(amount1 < type(uint128).max);
+        vm.assume(amount2 < type(uint128).max);
+
+        // Should not overflow
+        vault.calculate(amount1, amount2);
+    }
+
+    // Invariant: total deposits == sum of balances
+    function invariant_DepositAccountingCorrect() public {
+        uint256 totalDeposits = vault.totalDeposits();
+        uint256 sumBalances = 0;
+
+        address[] memory users = vault.getUsers();
+        for (uint i = 0; i < users.length; i++) {
+            sumBalances += vault.balances(users[i]);
+        }
+
+        assertEq(totalDeposits, sumBalances);
+    }
+}
+
+contract ReentrancyAttacker {
+    Vault vault;
+    uint256 attackCount;
+
+    constructor(Vault _vault) {
+        vault = _vault;
+    }
+
+    function attack() external {
+        vault.withdraw(1 ether);
+    }
+
+    receive() external payable {
+        if (attackCount < 5 && address(vault).balance > 0) {
+            attackCount++;
+            vault.withdraw(1 ether);
+        }
+    }
+}
+```
+
+## Security Checklist
+
+### Pre-Deployment
+
+- [ ] All functions have proper access control
+- [ ] Reentrancy guards on external-calling functions
+- [ ] Integer overflow/underflow handled (Solidity 0.8+)
+- [ ] Input validation on all public/external functions
+- [ ] Events emitted for all state changes
+- [ ] No hardcoded addresses (use constructor/initializer)
+- [ ] Proper use of `msg.sender` vs `tx.origin`
+- [ ] Slippage protection on swaps
+- [ ] Oracle freshness checks
+- [ ] Flash loan attack vectors considered
+- [ ] Front-running mitigations in place
+- [ ] Emergency pause functionality
+- [ ] Upgrade timelock (if upgradeable)
+
+### Testing
+
+- [ ] Unit tests > 95% coverage
+- [ ] Fuzz tests for arithmetic operations
+- [ ] Invariant tests for critical properties
+- [ ] Fork tests against mainnet state
+- [ ] Gas profiling completed
+- [ ] Formal verification (for critical paths)
+
+### Audit Preparation
+
+- [ ] Code documented with NatSpec
+- [ ] Architecture documentation complete
+- [ ] Known issues documented
+- [ ] Test suite passing
+- [ ] No compiler warnings
+- [ ] Slither/Mythril clean or issues explained
+
+## References
+
+- [ConsenSys Smart Contract Best Practices](https://consensys.github.io/smart-contract-best-practices/)
+- [OpenZeppelin Contracts](https://docs.openzeppelin.com/contracts/)
+- [Solidity Security Considerations](https://docs.soliditylang.org/en/latest/security-considerations.html)
+- [Trail of Bits Building Secure Contracts](https://github.com/crytic/building-secure-contracts)

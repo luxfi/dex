@@ -1,0 +1,710 @@
+---
+title: Post-Quantum Cryptography
+description: Quantum-resistant cryptography implementation with Dilithium, Kyber, and Corona for LX DEX
+---
+
+# Post-Quantum Cryptography
+
+LX DEX implements NIST-approved post-quantum cryptographic algorithms to protect against future quantum computer attacks. Our hybrid approach provides security against both classical and quantum adversaries.
+
+## Quantum Threat Model
+
+### Timeline Assessment
+
+| Threat Level | Timeline | Capability | Mitigation |
+|--------------|----------|------------|------------|
+| **Current** | Now | No cryptographic quantum computers | Classical crypto sufficient |
+| **Near-term** | 5-10 years | Early fault-tolerant QC | Hybrid signatures |
+| **Mid-term** | 10-20 years | Cryptographically relevant QC | Full PQ migration |
+| **Long-term** | 20+ years | Large-scale quantum computers | PQ-only systems |
+
+### Vulnerable Algorithms
+
+| Algorithm | Quantum Attack | Status |
+|-----------|---------------|--------|
+| RSA-2048/4096 | Shor's algorithm | **Broken** with CRQC |
+| ECDSA (secp256k1) | Shor's algorithm | **Broken** with CRQC |
+| Ed25519 | Shor's algorithm | **Broken** with CRQC |
+| AES-256 | Grover's algorithm | Reduced to 128-bit |
+| SHA-256 | Grover's algorithm | Reduced to 128-bit |
+
+**CRQC**: Cryptographically Relevant Quantum Computer
+
+## NIST Post-Quantum Standards
+
+### Selected Algorithms
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 NIST PQ CRYPTOGRAPHY STANDARDS                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Digital Signatures (FIPS 204)                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ML-DSA (Dilithium)          Primary standard           │   │
+│  │  SLH-DSA (SPHINCS+)          Hash-based backup          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Key Encapsulation (FIPS 203)                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ML-KEM (Kyber)              Primary standard           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  LX DEX Extensions                                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Corona                    Threshold lattice sigs     │   │
+│  │  Hybrid BLS+RT               Warp message signing       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## ML-DSA (Dilithium) Implementation
+
+### Security Levels
+
+| Parameter Set | NIST Level | Signature Size | Public Key | Use Case |
+|--------------|------------|----------------|------------|----------|
+| ML-DSA-44 | Level 2 | 2,420 bytes | 1,312 bytes | General use |
+| ML-DSA-65 | Level 3 | 3,309 bytes | 1,952 bytes | **LX DEX default** |
+| ML-DSA-87 | Level 5 | 4,627 bytes | 2,592 bytes | High security |
+
+### Implementation
+
+```go
+package dilithium
+
+import (
+    "crypto/rand"
+    "github.com/cloudflare/circl/sign/dilithium/mode3"
+)
+
+// DilithiumSigner provides ML-DSA-65 (Level 3) signatures
+type DilithiumSigner struct {
+    publicKey  mode3.PublicKey
+    privateKey mode3.PrivateKey
+}
+
+// GenerateKeyPair creates new Dilithium key pair
+func GenerateKeyPair() (*DilithiumSigner, error) {
+    pub, priv, err := mode3.GenerateKey(rand.Reader)
+    if err != nil {
+        return nil, err
+    }
+
+    return &DilithiumSigner{
+        publicKey:  *pub,
+        privateKey: *priv,
+    }, nil
+}
+
+// Sign creates Dilithium signature
+func (s *DilithiumSigner) Sign(message []byte) []byte {
+    return mode3.Sign(&s.privateKey, message)
+}
+
+// Verify checks Dilithium signature
+func (s *DilithiumSigner) Verify(message, signature []byte) bool {
+    return mode3.Verify(&s.publicKey, message, signature)
+}
+
+// PublicKeyBytes returns serialized public key
+func (s *DilithiumSigner) PublicKeyBytes() []byte {
+    var buf [mode3.PublicKeySize]byte
+    s.publicKey.Pack(&buf)
+    return buf[:]
+}
+
+// Constants
+const (
+    PublicKeySize  = mode3.PublicKeySize  // 1,952 bytes
+    PrivateKeySize = mode3.PrivateKeySize // 4,032 bytes
+    SignatureSize  = mode3.SignatureSize  // 3,309 bytes
+)
+```
+
+### Order Signing with Dilithium
+
+```go
+package trading
+
+import (
+    "encoding/json"
+    "time"
+)
+
+// DilithiumSignedOrder contains order with PQ signature
+type DilithiumSignedOrder struct {
+    Order           *Order `json:"order"`
+    PublicKey       []byte `json:"public_key"`
+    Signature       []byte `json:"signature"`
+    SignatureScheme string `json:"scheme"` // "ml-dsa-65"
+}
+
+// SignOrder creates Dilithium-signed order
+func SignOrder(signer *DilithiumSigner, order *Order) (*DilithiumSignedOrder, error) {
+    // Canonical serialization
+    orderBytes, err := canonicalMarshal(order)
+    if err != nil {
+        return nil, err
+    }
+
+    return &DilithiumSignedOrder{
+        Order:           order,
+        PublicKey:       signer.PublicKeyBytes(),
+        Signature:       signer.Sign(orderBytes),
+        SignatureScheme: "ml-dsa-65",
+    }, nil
+}
+
+// VerifyOrder checks Dilithium signature on order
+func VerifyOrder(signed *DilithiumSignedOrder) (bool, error) {
+    if signed.SignatureScheme != "ml-dsa-65" {
+        return false, ErrUnsupportedScheme
+    }
+
+    var pubKey mode3.PublicKey
+    if err := pubKey.Unpack((*[mode3.PublicKeySize]byte)(signed.PublicKey)); err != nil {
+        return false, err
+    }
+
+    orderBytes, err := canonicalMarshal(signed.Order)
+    if err != nil {
+        return false, err
+    }
+
+    return mode3.Verify(&pubKey, orderBytes, signed.Signature), nil
+}
+```
+
+## ML-KEM (Kyber) Implementation
+
+### Security Levels
+
+| Parameter Set | NIST Level | Ciphertext Size | Public Key | Shared Secret |
+|--------------|------------|-----------------|------------|---------------|
+| ML-KEM-512 | Level 1 | 768 bytes | 800 bytes | 32 bytes |
+| ML-KEM-768 | Level 3 | 1,088 bytes | 1,184 bytes | 32 bytes |
+| ML-KEM-1024 | Level 5 | 1,568 bytes | 1,568 bytes | 32 bytes |
+
+### Implementation
+
+```go
+package kyber
+
+import (
+    "crypto/rand"
+    "github.com/cloudflare/circl/kem/kyber/kyber768"
+)
+
+// KyberKEM provides ML-KEM-768 key encapsulation
+type KyberKEM struct {
+    publicKey  kyber768.PublicKey
+    privateKey kyber768.PrivateKey
+}
+
+// GenerateKeyPair creates new Kyber key pair
+func GenerateKeyPair() (*KyberKEM, error) {
+    pub, priv, err := kyber768.GenerateKeyPair(rand.Reader)
+    if err != nil {
+        return nil, err
+    }
+
+    return &KyberKEM{
+        publicKey:  *pub,
+        privateKey: *priv,
+    }, nil
+}
+
+// Encapsulate creates ciphertext and shared secret
+func (k *KyberKEM) Encapsulate() (ciphertext, sharedSecret []byte, err error) {
+    ct, ss, err := kyber768.Encapsulate(&k.publicKey)
+    if err != nil {
+        return nil, nil, err
+    }
+    return ct, ss, nil
+}
+
+// Decapsulate recovers shared secret from ciphertext
+func (k *KyberKEM) Decapsulate(ciphertext []byte) ([]byte, error) {
+    return kyber768.Decapsulate(&k.privateKey, ciphertext)
+}
+
+// PublicKeyBytes returns serialized public key
+func (k *KyberKEM) PublicKeyBytes() []byte {
+    var buf [kyber768.PublicKeySize]byte
+    k.publicKey.Pack(&buf)
+    return buf[:]
+}
+
+// Constants
+const (
+    PublicKeySize  = kyber768.PublicKeySize  // 1,184 bytes
+    PrivateKeySize = kyber768.PrivateKeySize // 2,400 bytes
+    CiphertextSize = kyber768.CiphertextSize // 1,088 bytes
+    SharedKeySize  = kyber768.SharedKeySize  // 32 bytes
+)
+```
+
+### Hybrid Key Exchange (X25519 + Kyber)
+
+```go
+package hybrid
+
+import (
+    "crypto/sha3"
+    "golang.org/x/crypto/chacha20poly1305"
+    "golang.org/x/crypto/curve25519"
+)
+
+// HybridKeyExchange combines X25519 and Kyber
+type HybridKeyExchange struct {
+    x25519Private [32]byte
+    x25519Public  [32]byte
+    kyber         *KyberKEM
+}
+
+// NewHybridKeyExchange generates hybrid key pair
+func NewHybridKeyExchange() (*HybridKeyExchange, error) {
+    h := &HybridKeyExchange{}
+
+    // X25519 key generation
+    if _, err := rand.Read(h.x25519Private[:]); err != nil {
+        return nil, err
+    }
+    curve25519.ScalarBaseMult(&h.x25519Public, &h.x25519Private)
+
+    // Kyber key generation
+    var err error
+    h.kyber, err = GenerateKeyPair()
+    if err != nil {
+        return nil, err
+    }
+
+    return h, nil
+}
+
+// HybridPublicKey contains both public keys
+type HybridPublicKey struct {
+    X25519 [32]byte
+    Kyber  []byte
+}
+
+// PublicKey returns the hybrid public key
+func (h *HybridKeyExchange) PublicKey() *HybridPublicKey {
+    return &HybridPublicKey{
+        X25519: h.x25519Public,
+        Kyber:  h.kyber.PublicKeyBytes(),
+    }
+}
+
+// HybridEncapsulation contains both encapsulations
+type HybridEncapsulation struct {
+    X25519Ephemeral [32]byte
+    KyberCiphertext []byte
+}
+
+// EncapsulateTo creates hybrid shared secret with recipient
+func EncapsulateTo(recipientPubKey *HybridPublicKey) (*HybridEncapsulation, []byte, error) {
+    // X25519 ephemeral key exchange
+    var x25519Ephemeral, x25519Private [32]byte
+    if _, err := rand.Read(x25519Private[:]); err != nil {
+        return nil, nil, err
+    }
+    curve25519.ScalarBaseMult(&x25519Ephemeral, &x25519Private)
+
+    var x25519Shared [32]byte
+    curve25519.ScalarMult(&x25519Shared, &x25519Private, &recipientPubKey.X25519)
+
+    // Kyber encapsulation
+    var kyberPubKey kyber768.PublicKey
+    if err := kyberPubKey.Unpack((*[kyber768.PublicKeySize]byte)(recipientPubKey.Kyber)); err != nil {
+        return nil, nil, err
+    }
+
+    kyberCt, kyberShared, err := kyber768.Encapsulate(&kyberPubKey)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    // Combine: SHAKE256(x25519_shared || kyber_shared || "LX-DEX-HYBRID-v1")
+    hasher := sha3.NewShake256()
+    hasher.Write(x25519Shared[:])
+    hasher.Write(kyberShared)
+    hasher.Write([]byte("LX-DEX-HYBRID-v1"))
+
+    combinedSecret := make([]byte, 32)
+    hasher.Read(combinedSecret)
+
+    return &HybridEncapsulation{
+        X25519Ephemeral: x25519Ephemeral,
+        KyberCiphertext: kyberCt,
+    }, combinedSecret, nil
+}
+
+// Decapsulate recovers hybrid shared secret
+func (h *HybridKeyExchange) Decapsulate(enc *HybridEncapsulation) ([]byte, error) {
+    // X25519 decapsulation
+    var x25519Shared [32]byte
+    curve25519.ScalarMult(&x25519Shared, &h.x25519Private, &enc.X25519Ephemeral)
+
+    // Kyber decapsulation
+    kyberShared, err := h.kyber.Decapsulate(enc.KyberCiphertext)
+    if err != nil {
+        return nil, err
+    }
+
+    // Combine
+    hasher := sha3.NewShake256()
+    hasher.Write(x25519Shared[:])
+    hasher.Write(kyberShared)
+    hasher.Write([]byte("LX-DEX-HYBRID-v1"))
+
+    combinedSecret := make([]byte, 32)
+    hasher.Read(combinedSecret)
+
+    return combinedSecret, nil
+}
+```
+
+## Corona Threshold Signatures
+
+Corona is LX DEX's custom lattice-based threshold signature scheme, enabling MPC signing with quantum resistance.
+
+### Security Parameters
+
+| Security Level | N | Q | Threshold Support |
+|----------------|---|---|-------------------|
+| 128-bit | 512 | 12,289 | t-of-n |
+| 192-bit | 768 | 32,749 | t-of-n |
+| 256-bit | 1,024 | 65,521 | t-of-n |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               CORONA THRESHOLD SIGNING                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Key Generation (DKG)                                           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Party 1 ──┐                                            │   │
+│  │  Party 2 ──┼── Shamir Secret Sharing ── Combined PK     │   │
+│  │  Party n ──┘   (t-of-n threshold)                       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Signing Protocol                                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  1. Message broadcast to all parties                     │   │
+│  │  2. Each party creates partial signature                 │   │
+│  │  3. Collect t partial signatures                         │   │
+│  │  4. Combine into full Corona signature                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation
+
+```go
+package corona
+
+import (
+    "github.com/luxfi/threshold/protocols/corona"
+)
+
+// CoronaConfig defines security parameters
+type CoronaConfig struct {
+    N         int // Ring dimension
+    Q         int // Modulus
+    Threshold int // t in t-of-n
+    Parties   int // n total parties
+}
+
+// DefaultConfig returns 192-bit security config
+func DefaultConfig() *CoronaConfig {
+    return &CoronaConfig{
+        N:         768,
+        Q:         32749,
+        Threshold: 67, // 2/3 of 100
+        Parties:   100,
+    }
+}
+
+// CoronaParty represents one MPC participant
+type CoronaParty struct {
+    config     *CoronaConfig
+    privateKey *corona.PrivateKeyShare
+    publicKey  []byte // Combined public key
+    partyID    int
+}
+
+// NewParty creates new Corona party
+func NewParty(config *CoronaConfig, partyID int) *CoronaParty {
+    return &CoronaParty{
+        config:  config,
+        partyID: partyID,
+    }
+}
+
+// GenerateKeyShare participates in DKG
+func (p *CoronaParty) GenerateKeyShare(dkg *corona.DKG) error {
+    share, combinedPK, err := dkg.GenerateShare(p.partyID)
+    if err != nil {
+        return err
+    }
+
+    p.privateKey = share
+    p.publicKey = combinedPK
+    return nil
+}
+
+// CreatePartialSignature creates party's signature share
+func (p *CoronaParty) CreatePartialSignature(message []byte) (*corona.PartialSignature, error) {
+    return corona.PartialSign(p.privateKey, message)
+}
+
+// CombineSignatures combines t partial signatures
+func CombineSignatures(
+    config *CoronaConfig,
+    partialSigs []*corona.PartialSignature,
+) ([]byte, error) {
+    if len(partialSigs) < config.Threshold {
+        return nil, ErrInsufficientSignatures
+    }
+
+    return corona.Combine(partialSigs)
+}
+
+// Verify checks Corona signature
+func Verify(publicKey, message, signature []byte) bool {
+    return corona.Verify(publicKey, message, signature)
+}
+```
+
+## Hybrid BLS+Corona Warp Signatures
+
+For Warp cross-chain messaging, LX DEX uses hybrid BLS+Corona signatures:
+
+```go
+package warp
+
+// HybridBLSRTSignature combines classical and PQ signatures
+type HybridBLSRTSignature struct {
+    Signers            []byte   `json:"signers"`    // Bit vector
+    BLSSignature       [96]byte `json:"bls_sig"`    // BLS aggregate
+    CoronaSignature  []byte   `json:"rt_sig"`     // Corona signature
+    CoronaPublicKeys [][]byte `json:"rt_pubkeys"` // Per-signer RT keys
+}
+
+// Verify checks both BLS and Corona signatures
+func (s *HybridBLSRTSignature) Verify(
+    msg *UnsignedMessage,
+    networkID uint32,
+    validators []*Validator,
+    quorumNum, quorumDen uint64,
+) error {
+    // 1. Verify network ID
+    if msg.NetworkID != networkID {
+        return ErrNetworkIDMismatch
+    }
+
+    // 2. Parse signers bitset
+    signerIndices := parseSignerBitset(s.Signers)
+
+    // 3. Check quorum weight
+    var totalWeight, signerWeight uint64
+    var signerValidators []*Validator
+    for i, v := range validators {
+        totalWeight += v.Weight
+        if contains(signerIndices, i) {
+            signerWeight += v.Weight
+            signerValidators = append(signerValidators, v)
+        }
+    }
+
+    if signerWeight*quorumDen < totalWeight*quorumNum {
+        return ErrInsufficientQuorum
+    }
+
+    // 4. Verify BLS aggregate signature
+    msgHash := sha256.Sum256(msg.Bytes())
+    if !verifyBLSAggregate(signerValidators, msgHash[:], s.BLSSignature[:]) {
+        return ErrInvalidBLSSignature
+    }
+
+    // 5. Verify Corona signature
+    if !verifyCoronaMulti(s.CoronaPublicKeys, msgHash[:], s.CoronaSignature) {
+        return ErrInvalidCoronaSignature
+    }
+
+    return nil
+}
+```
+
+## Migration Strategy
+
+### Phase 1: Hybrid (Current)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              PHASE 1: HYBRID MODE (2024-2027)                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Signatures: Ed25519 + Dilithium (both required)                │
+│  Key Exchange: X25519 + Kyber (combined secret)                 │
+│  Warp: BLS + Corona (dual verification)                       │
+│                                                                  │
+│  Security: Protected against classical AND quantum attacks      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Phase 2: PQ-Primary (2027-2030)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              PHASE 2: PQ-PRIMARY (2027-2030)                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Signatures: Dilithium primary, Ed25519 optional                │
+│  Key Exchange: Kyber primary, X25519 fallback                   │
+│  Warp: Corona primary, BLS for legacy                         │
+│                                                                  │
+│  Classical components for backward compatibility only           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Phase 3: PQ-Only (2030+)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              PHASE 3: PQ-ONLY (2030+)                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Signatures: Dilithium only                                     │
+│  Key Exchange: Kyber only                                       │
+│  Warp: Corona only                                            │
+│                                                                  │
+│  Full quantum resistance, classical algorithms deprecated       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Performance Comparison
+
+### Signature Performance
+
+| Algorithm | Sign (ops/sec) | Verify (ops/sec) | Size |
+|-----------|---------------|------------------|------|
+| Ed25519 | 50,000 | 15,000 | 64 bytes |
+| Dilithium-3 | 8,000 | 12,000 | 3,309 bytes |
+| Hybrid | 6,500 | 10,000 | 3,373 bytes |
+
+### Key Exchange Performance
+
+| Algorithm | Encaps (ops/sec) | Decaps (ops/sec) | Ciphertext |
+|-----------|-----------------|------------------|------------|
+| X25519 | 25,000 | 25,000 | 32 bytes |
+| Kyber-768 | 15,000 | 18,000 | 1,088 bytes |
+| Hybrid | 12,000 | 14,000 | 1,120 bytes |
+
+### Bandwidth Impact
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               BANDWIDTH IMPACT ANALYSIS                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Order Signature Overhead:                                      │
+│  ├── Classical only: 64 bytes (Ed25519)                         │
+│  ├── PQ only: 3,309 bytes (Dilithium)                          │
+│  └── Hybrid: 3,373 bytes (52x increase)                        │
+│                                                                  │
+│  Warp Message Overhead (100 validators):                        │
+│  ├── BLS only: ~100 bytes                                      │
+│  ├── Corona only: ~5,000 bytes                               │
+│  └── Hybrid: ~5,100 bytes (51x increase)                       │
+│                                                                  │
+│  Mitigation: Signature aggregation, compression                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## SDK Integration
+
+### TypeScript
+
+```typescript
+import { DilithiumSigner, KyberKEM, HybridEncrypt } from '@luxfi/pq-crypto'
+
+// Generate Dilithium key pair
+const signer = await DilithiumSigner.generate()
+
+// Sign order
+const signedOrder = await signer.signOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  price: '50000',
+  quantity: '1.0'
+})
+
+// Hybrid encryption
+const hybrid = new HybridEncrypt()
+const { publicKey } = await hybrid.generateKeys()
+
+// Encrypt sensitive data
+const encrypted = await hybrid.encrypt(publicKey, sensitiveData)
+```
+
+### Python
+
+```python
+from lx_dex.crypto import DilithiumSigner, KyberKEM, HybridEncrypt
+
+# Generate Dilithium key pair
+signer = DilithiumSigner.generate()
+
+# Sign order
+signed_order = signer.sign_order({
+    'symbol': 'BTC-USD',
+    'side': 'buy',
+    'price': '50000',
+    'quantity': '1.0'
+})
+
+# Verify signature
+is_valid = DilithiumSigner.verify(signed_order)
+```
+
+## Best Practices
+
+### Key Management
+
+- [ ] Store PQ keys in HSM with PQ-capable firmware
+- [ ] Implement key rotation with 90-day maximum lifetime
+- [ ] Use hybrid keys during transition period
+- [ ] Backup keys with quantum-safe encryption
+
+### Implementation
+
+- [ ] Use NIST-approved implementations (CIRCL, liboqs)
+- [ ] Validate all cryptographic parameters
+- [ ] Implement constant-time operations
+- [ ] Test with known test vectors
+
+### Deployment
+
+- [ ] Enable hybrid mode by default
+- [ ] Monitor PQ algorithm performance
+- [ ] Plan migration timeline based on NIST guidance
+- [ ] Maintain backward compatibility during transition
+
+## References
+
+- [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography)
+- [FIPS 203: ML-KEM](https://csrc.nist.gov/publications/detail/fips/203/final)
+- [FIPS 204: ML-DSA](https://csrc.nist.gov/publications/detail/fips/204/final)
+- [CIRCL Library](https://github.com/cloudflare/circl)
+- [LP-333: Dynamic Signer Rotation](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)
