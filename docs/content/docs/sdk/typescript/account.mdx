@@ -12,10 +12,10 @@ Access account information, balances, positions, and margin data using the TypeS
 The SDK provides access to account data through the main client and specialized sub-clients:
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({
-  jsonRpcUrl: 'http://localhost:8080/rpc',
+const client = new Client({
+  rpcUrl: 'http://localhost:8080/rpc',
   wsUrl: 'ws://localhost:8081'
 });
 
@@ -31,11 +31,11 @@ const liquidationMonitor = client.liquidationMonitor;
 ### Get Margin Status
 
 ```typescript
-import { LXDexClient, MarginInfo } from '@luxfi/dex-sdk';
+import { Client, MarginInfo } from '@luxfi/trading';
 
 async function getMarginStatus(userId: string): Promise<MarginInfo> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const margin = await client.marketData.getMarginInfo(userId);
@@ -70,11 +70,11 @@ interface MarginInfo {
 ### Check Liquidation Risk
 
 ```typescript
-import { LXDexClient, LiquidationRisk } from '@luxfi/dex-sdk';
+import { Client, LiquidationRisk } from '@luxfi/trading';
 
 async function checkLiquidationRisk(userId: string): Promise<LiquidationRisk> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const risk = await client.marketData.checkLiquidationRisk(userId);
@@ -113,7 +113,7 @@ interface LiquidationRisk {
 ### Risk Level Actions
 
 ```typescript
-import { LiquidationRisk } from '@luxfi/dex-sdk';
+import { LiquidationRisk } from '@luxfi/trading';
 
 function handleRiskLevel(risk: LiquidationRisk): void {
   switch (risk.riskLevel) {
@@ -144,11 +144,11 @@ function handleRiskLevel(risk: LiquidationRisk): void {
 ### Query Liquidations
 
 ```typescript
-import { LXDexClient, LiquidationInfo } from '@luxfi/dex-sdk';
+import { Client, LiquidationInfo } from '@luxfi/trading';
 
 async function getRecentLiquidations(symbol: string): Promise<LiquidationInfo[]> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const liquidations = await client.marketData.getLiquidations(symbol, 100);
@@ -188,11 +188,11 @@ interface LiquidationInfo {
 ### Subscribe to Liquidations
 
 ```typescript
-import { LXDexClient, LiquidationInfo } from '@luxfi/dex-sdk';
+import { Client, LiquidationInfo } from '@luxfi/trading';
 
 async function monitorLiquidations(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -213,7 +213,7 @@ async function monitorLiquidations(): Promise<void> {
 ### Subscribe to Margin Calls
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 interface MarginCallEvent {
   userId: string;
@@ -223,8 +223,8 @@ interface MarginCallEvent {
 }
 
 async function monitorMarginCalls(userId: string): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -246,11 +246,11 @@ async function monitorMarginCalls(userId: string): Promise<void> {
 ### Get Settlement Batch
 
 ```typescript
-import { LXDexClient, SettlementBatch } from '@luxfi/dex-sdk';
+import { Client, SettlementBatch } from '@luxfi/trading';
 
 async function getSettlementInfo(batchId: number): Promise<SettlementBatch> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const batch = await client.marketData.getSettlementBatch(batchId);
@@ -289,11 +289,11 @@ interface SettlementBatch {
 ### Subscribe to Settlements
 
 ```typescript
-import { LXDexClient, SettlementBatch } from '@luxfi/dex-sdk';
+import { Client, SettlementBatch } from '@luxfi/trading';
 
 async function monitorSettlements(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -315,11 +315,11 @@ async function monitorSettlements(): Promise<void> {
 ### Get Insurance Fund Status
 
 ```typescript
-import { LXDexClient, InsuranceFundStatus } from '@luxfi/dex-sdk';
+import { Client, InsuranceFundStatus } from '@luxfi/trading';
 
 async function getInsuranceFundStatus(): Promise<InsuranceFundStatus> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const fund = await client.marketData.getInsuranceFundStatus();
@@ -353,7 +353,7 @@ interface InsuranceFundStatus {
 
 ```tsx
 import { useState, useEffect } from 'react';
-import { LXDexClient, MarginInfo } from '@luxfi/dex-sdk';
+import { Client, MarginInfo } from '@luxfi/trading';
 
 interface UseMarginResult {
   margin: MarginInfo | null;
@@ -363,7 +363,7 @@ interface UseMarginResult {
 }
 
 export function useMargin(
-  client: LXDexClient | null,
+  client: Client | null,
   userId: string
 ): UseMarginResult {
   const [margin, setMargin] = useState<MarginInfo | null>(null);
@@ -405,7 +405,7 @@ export function useMargin(
 
 ```tsx
 import { useState, useEffect } from 'react';
-import { LXDexClient, LiquidationRisk } from '@luxfi/dex-sdk';
+import { Client, LiquidationRisk } from '@luxfi/trading';
 
 interface UseLiquidationRiskResult {
   risk: LiquidationRisk | null;
@@ -414,7 +414,7 @@ interface UseLiquidationRiskResult {
 }
 
 export function useLiquidationRisk(
-  client: LXDexClient | null,
+  client: Client | null,
   userId: string
 ): UseLiquidationRiskResult {
   const [risk, setRisk] = useState<LiquidationRisk | null>(null);
@@ -524,7 +524,7 @@ export default AccountDashboard;
 ### Complete Account Monitor
 
 ```typescript
-import { LXDexClient, MarginInfo, LiquidationRisk, LiquidationInfo } from '@luxfi/dex-sdk';
+import { Client, MarginInfo, LiquidationRisk, LiquidationInfo } from '@luxfi/trading';
 
 interface AccountMonitorOptions {
   marginCheckInterval?: number;
@@ -536,7 +536,7 @@ interface AccountMonitorOptions {
 }
 
 export class AccountMonitor {
-  private client: LXDexClient;
+  private client: Client;
   private userId: string;
   private options: AccountMonitorOptions;
   private marginInterval: NodeJS.Timeout | null = null;
@@ -544,7 +544,7 @@ export class AccountMonitor {
   private running: boolean = false;
 
   constructor(
-    client: LXDexClient,
+    client: Client,
     userId: string,
     options: AccountMonitorOptions = {}
   ) {
@@ -631,8 +631,8 @@ export class AccountMonitor {
 
 // Usage
 async function runAccountMonitor(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 

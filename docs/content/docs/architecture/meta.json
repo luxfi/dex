@@ -2,7 +2,7 @@
   "title": "Architecture",
   "pages": [
     "index",
-    "sidecar",
+    "l2-chain",
     "chains",
     "dag",
     "state",

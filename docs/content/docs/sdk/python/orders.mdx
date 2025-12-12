@@ -26,9 +26,9 @@ OrderType.PEG         # Pegged to best bid/ask
 ### Limit Order
 
 ```python
-from luxfi_dex import LXDexClient, OrderType, Side, TimeInForce
+from luxfi_dex import Client, OrderType, Side, TimeInForce
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Basic limit order
 order = client.place_order(
@@ -240,10 +240,10 @@ cancelled_orders = client.cancel_all_orders(
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def cancel_orders():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Cancel multiple orders concurrently
         order_ids = ["ord_1", "ord_2", "ord_3", "ord_4", "ord_5"]
 
@@ -377,10 +377,10 @@ for result in results:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def place_batch_orders():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Prepare orders
         order_params = [
             ("BTC-USD", 49000.0, 1.0),
@@ -438,10 +438,10 @@ new_order = client.replace_order(
 ## Order Events Subscription
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.types import OrderEvent, OrderEventType
 
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc",
     ws_url="ws://localhost:8081"
 )
@@ -476,10 +476,10 @@ while True:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def monitor_orders():
-    async with AsyncLXDexClient(
+    async with AsyncClient(
         json_rpc_url="http://localhost:8080/rpc",
         ws_url="ws://localhost:8081"
     ) as client:
@@ -498,9 +498,9 @@ asyncio.run(monitor_orders())
 
 ```python
 import pandas as pd
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Get orders and convert to DataFrame
 orders = client.get_orders(symbol="BTC-USD", limit=100)
@@ -532,9 +532,9 @@ print(f"Total volume: {df['size'].sum():.4f}")
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Get filled orders
 filled_orders = client.get_orders(
@@ -578,7 +578,7 @@ print(by_side)
 ## Error Handling
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.exceptions import (
     InsufficientBalanceError,
     OrderNotFoundError,
@@ -587,7 +587,7 @@ from luxfi_dex.exceptions import (
     LXDexError
 )
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 def place_order_safe(
     symbol: str,
@@ -625,12 +625,12 @@ def place_order_safe(
 import nest_asyncio
 nest_asyncio.apply()
 
-from luxfi_dex import AsyncLXDexClient, OrderType, Side
+from luxfi_dex import AsyncClient, OrderType, Side
 import pandas as pd
 
 # Cell 2: Place orders
 async def trading_session():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Place ladder of buy orders
         prices = [49000, 48500, 48000, 47500, 47000]
         orders = []
@@ -659,7 +659,7 @@ display(df)
 
 # Cell 4: Cancel all orders
 async def cancel_all():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         for order in orders:
             try:
                 await client.cancel_order(order.order_id)

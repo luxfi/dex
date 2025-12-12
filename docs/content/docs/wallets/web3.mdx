@@ -31,16 +31,16 @@ LX supports all major Web3 wallets through standard interfaces:
 ### Installation
 
 ```bash
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 ```
 
 ### Basic Connection
 
 ```typescript
-import { LXDexClient, MetaMaskAdapter } from '@luxfi/dex-sdk';
+import { Client, MetaMaskAdapter } from '@luxfi/trading';
 
 const adapter = new MetaMaskAdapter();
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'https://dex.lux.network',
   wallet: adapter
 });
@@ -145,7 +145,7 @@ adapter.on('disconnect', () => {
 ### Setup
 
 ```typescript
-import { WalletConnectAdapter } from '@luxfi/dex-sdk';
+import { WalletConnectAdapter } from '@luxfi/trading';
 
 const adapter = new WalletConnectAdapter({
   projectId: 'YOUR_WALLETCONNECT_PROJECT_ID',
@@ -218,7 +218,7 @@ async function disconnect() {
 ## EIP-6963 Multi-Wallet Discovery
 
 ```typescript
-import { discoverWallets, WalletInfo } from '@luxfi/dex-sdk';
+import { discoverWallets, WalletInfo } from '@luxfi/trading';
 
 // Discover all available wallets
 const wallets = await discoverWallets();
@@ -255,7 +255,7 @@ async function connectWallet(wallet: WalletInfo) {
 
 ```typescript
 import { useState, useEffect, useCallback } from 'react';
-import { WalletAdapter, MetaMaskAdapter } from '@luxfi/dex-sdk';
+import { WalletAdapter, MetaMaskAdapter } from '@luxfi/trading';
 
 export function useWallet() {
   const [adapter, setAdapter] = useState<WalletAdapter | null>(null);
@@ -459,7 +459,7 @@ async function placeOrder(order: OrderParams) {
 ## Error Handling
 
 ```typescript
-import { WalletErrorCode } from '@luxfi/dex-sdk';
+import { WalletErrorCode } from '@luxfi/trading';
 
 const ERROR_MESSAGES: Record<number, string> = {
   4001: 'Transaction rejected by user',
@@ -561,7 +561,7 @@ async function ensureAllowance(
 ### Mock Wallet for Tests
 
 ```typescript
-import { MockWalletAdapter } from '@luxfi/dex-sdk/testing';
+import { MockWalletAdapter } from '@luxfi/trading/testing';
 
 const mockWallet = new MockWalletAdapter({
   accounts: ['0x1234...'],
@@ -570,7 +570,7 @@ const mockWallet = new MockWalletAdapter({
 });
 
 // Use in tests
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'http://localhost:8080',
   wallet: mockWallet
 });
