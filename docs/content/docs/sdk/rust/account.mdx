@@ -547,7 +547,7 @@ pub struct MarginInfo {
 impl MarginInfo {
     /// Check if position can be opened
     pub fn can_open_position(&self, required_margin: f64) -> bool {
-        self.free_margin &gt;= required_margin
+        self.free_margin >= required_margin
     }
 
     /// Distance to margin call (percentage)

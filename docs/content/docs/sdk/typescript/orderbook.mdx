@@ -296,7 +296,7 @@ function calculateMarketImpact(
   let levelsConsumed = 0;
 
   for (const level of levels) {
-    if (remainingSize &lt;= 0) break;
+    if (remainingSize <= 0) break;
 
     const fillSize = Math.min(remainingSize, level.size);
     totalCost += fillSize * level.price;
