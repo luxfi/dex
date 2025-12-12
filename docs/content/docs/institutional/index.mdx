@@ -91,6 +91,30 @@ LX DEX maintains the highest security certifications required by institutional c
 | Penetration Testing | Passed | Quarterly |
 | Smart Contract Audits | Passed | Per-release |
 
+### Custody & Key Management
+
+**Native Lux Infrastructure** (Colocated in Kansas City DC)
+
+| Solution | Type | Latency | Notes |
+|----------|------|---------|-------|
+| **Lux Threshold** | MPC (CMP/LSS) | Sub-millisecond (nanoseconds w/ optics) | Native, configurable threshold |
+| **Lux KMS** | Key Management | Sub-millisecond | Hardware-backed, colocated |
+| **Lux HSM** | Hardware Security Module | Sub-millisecond | FIPS 140-3 certified |
+
+<Callout type="info">
+**Colocation Advantage**: All Lux custody infrastructure is colocated in our Kansas City datacenter, providing the fastest and most secure key operations available. For institutional clients requiring third-party custody, we support integration with external providers.
+</Callout>
+
+**Third-Party MPC Providers** (External integration via REST API)
+
+| Provider | Protocol | Threshold | Typical Latency | Integration |
+|----------|----------|-----------|-----------------|-------------|
+| Fireblocks | MPC-CMP | Configurable | ~250ms | REST API |
+| BitGo | TSS | 2-of-3 | ~100ms | REST API |
+| Copper | MPC | Configurable | ~80ms | REST API |
+| Anchorage | HSM+MPC | Policy-based | ~150ms | REST API |
+| Utila | MPC | Configurable | ~100ms | REST API |
+
 ### Auditors
 
 - **Financial Audit**: Deloitte

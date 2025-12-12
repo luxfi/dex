@@ -605,7 +605,7 @@ async function placeGridOrders(): Promise<void> {
   const buyOrders: Partial<Order>[] = [];
   const sellOrders: Partial<Order>[] = [];
 
-  for (let i = 1; i &lt;= gridSize; i++) {
+  for (let i = 1; i <= gridSize; i++) {
     // Buy orders below current price
     buyOrders.push({
       symbol: 'BTC-USD',
