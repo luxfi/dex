@@ -5,6 +5,7 @@
     "...rust",
     "...python",
     "...typescript",
-    "...cpp"
+    "...cpp",
+    "...c"
   ]
 }
