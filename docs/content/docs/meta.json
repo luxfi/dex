@@ -7,7 +7,6 @@
     "---Core Concepts---",
     "architecture",
     "engine",
-    "orderbook",
     "consensus",
     "---Trading---",
     "trading",
@@ -42,9 +41,7 @@
     "reference",
     "---API Reference---",
     "api",
-    "...api",
     "---SDK Guide---",
-    "sdk",
     "...sdk"
   ]
 }
