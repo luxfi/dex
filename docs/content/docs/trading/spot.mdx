@@ -248,7 +248,7 @@ async function setupGrid(
 ) {
   const orders = []
 
-  for (let i = 1; i &lt;= levels; i++) {
+  for (let i = 1; i <= levels; i++) {
     // Buy orders below center
     const buyPrice = centerPrice - (gridSize * i)
     orders.push(dex.spot.buy({

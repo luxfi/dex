@@ -319,7 +319,7 @@ loop:
     // Load 4 prices into YMM1
     VMOVDQU (SI)(BX*8), Y1
 
-    // Compare: Y2 = (Y0 &gt;= Y1)
+    // Compare: Y2 = (Y0 >= Y1)
     VPCMPGTQ Y1, Y0, Y2
     VPCMPEQQ Y1, Y0, Y3
     VPOR    Y2, Y3, Y2
@@ -343,7 +343,7 @@ done:
 func MatchPricesFallback(orderPrice int64, prices []int64) uint64 {
     var result uint64
     for i, price := range prices {
-        if orderPrice &gt;= price {
+        if orderPrice >= price {
             result |= 1 << i
         }
     }

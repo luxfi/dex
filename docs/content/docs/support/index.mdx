@@ -1,0 +1,174 @@
+---
+title: Support Guide
+description: Get help with LX DEX - troubleshooting, FAQs, and support resources
+---
+
+# Support Guide
+
+This guide helps you resolve common issues and get support for LX DEX.
+
+## Before Opening a Ticket
+
+1. **Search the Docs** - Many answers are in our documentation
+2. **Check the FAQ** below for common issues
+3. **Review Error Messages** - They often indicate the solution
+4. **Try Testnet First** - Test strategies on testnet before mainnet
+
+## Getting Help
+
+### Official Channels
+
+- **GitHub Issues**: [github.com/luxfi/dex/issues](https://github.com/luxfi/dex/issues) - Bug reports and feature requests
+- **Discord**: Join our developer community for real-time help
+- **Documentation**: [dex.lux.network/docs](https://dex.lux.network/docs)
+
+### Response Times
+
+- GitHub Issues: 24-48 hours (weekdays)
+- Discord: Community-driven, typically within hours
+- Critical bugs: Prioritized response
+
+## Security Reminders
+
+<Callout type="error" title="Important Security Notice">
+- **Never share** your private keys, seed phrases, or API secrets
+- **Verify URLs** - only use official LX DEX endpoints
+- **No DMs** - LX team will never DM you first asking for credentials
+- **Official domains**: `lux.network`, `dex.lux.network`
+</Callout>
+
+## Common Issues
+
+### Connection Problems
+
+**WebSocket won't connect**
+```bash
+# Check if server is running
+curl http://localhost:8080/health
+
+# Verify WebSocket endpoint
+wscat -c ws://localhost:8081
+```
+
+**Solutions:**
+- Ensure `lxd` daemon is running
+- Check firewall settings
+- Verify correct port (8081 for WebSocket, 8080 for REST)
+
+### Order Issues
+
+**Order rejected**
+- Check sufficient balance
+- Verify price is within market bounds
+- Ensure order size meets minimum requirements
+
+**Order not filling**
+- Limit orders only fill at specified price or better
+- Check if market has sufficient liquidity
+- Review order book depth
+
+### API Authentication
+
+**Invalid signature errors**
+```typescript
+// Ensure timestamp is within 30 seconds
+const timestamp = Date.now();
+
+// Sign the correct payload
+const signature = sign(apiSecret, `${timestamp}${method}${path}${body}`);
+```
+
+**API key issues:**
+- Keys are case-sensitive
+- Check key hasn't expired
+- Verify key has required permissions
+
+### Balance Discrepancies
+
+**Balance not updating**
+- Allow 1-2 blocks for settlement (~1-2 seconds)
+- Check pending orders that may have reserved funds
+- Verify you're querying the correct account
+
+## FAQ
+
+### Trading
+
+**Q: What are the trading fees?**
+A: Maker: 0.02%, Taker: 0.05%. Volume discounts available.
+
+**Q: What order types are supported?**
+A: Limit, Market, Stop-Limit, Stop-Market, Iceberg, Post-Only, IOC, FOK.
+
+**Q: What's the minimum order size?**
+A: Varies by market. Check `/api/v1/markets` for each pair's minimum.
+
+### Technical
+
+**Q: What's the API rate limit?**
+A: 100 requests/second for REST, 1000 messages/second for WebSocket.
+
+**Q: How do I get historical data?**
+A: Use the REST API `/api/v1/trades` or `/api/v1/candles` endpoints.
+
+**Q: Is there a testnet?**
+A: Yes, connect to `testnet.dex.lux.network` for testing.
+
+### SDKs & Clients
+
+**Q: Which SDK should I use?**
+A:
+- **Go/Rust/C++**: Best for HFT and low-latency trading
+- **Python**: Best for scripting and data analysis
+- **TypeScript**: Best for web applications
+- **C**: Best for embedded systems
+
+**Q: Where are the CLI clients?**
+A: Available in `/client/` directory for Go, Rust, Python, TypeScript, C++, and C.
+
+## Troubleshooting Checklist
+
+```
+□ Is the LX DEX daemon (lxd) running?
+□ Are you connected to the correct network (mainnet/testnet)?
+□ Is your API key valid and not expired?
+□ Do you have sufficient balance for the operation?
+□ Are you within rate limits?
+□ Is your system clock synchronized (NTP)?
+□ Are firewall ports open (8080, 8081)?
+```
+
+## Reporting Bugs
+
+When reporting issues, include:
+
+1. **Environment**: OS, SDK version, client version
+2. **Steps to reproduce**: Exact sequence of actions
+3. **Expected behavior**: What should happen
+4. **Actual behavior**: What actually happened
+5. **Logs**: Relevant error messages or logs
+6. **Request/Response**: API payloads if applicable
+
+```bash
+# Get version info
+lxd --version
+lx-cli --version
+
+# Get system info
+uname -a
+```
+
+## Emergency Contacts
+
+For critical issues affecting funds or security:
+
+- **Security vulnerabilities**: security@lux.network
+- **Critical bugs**: Create GitHub issue with `[CRITICAL]` prefix
+- **Outages**: Check [status.lux.network](https://status.lux.network)
+
+## Related Documentation
+
+- [API Reference](/docs/api) - Complete API documentation
+- [SDK Guide](/docs/sdk) - SDK installation and usage
+- [Testnet](/docs/testnet) - Testing environment setup
+- [Security](/docs/security) - Security best practices
