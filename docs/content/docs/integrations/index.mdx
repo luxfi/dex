@@ -1,0 +1,69 @@
+---
+title: Trading Bot Integrations
+description: Connect LX DEX to popular trading bots and market making software
+---
+
+# Trading Bot Integrations
+
+LX DEX provides official connectors for popular trading bots and market making software, enabling algorithmic trading, market making, and automated strategies on our ultra-low latency DEX.
+
+## Available Integrations
+
+### Hummingbot Gateway
+
+The most popular open-source trading bot software. Our official Gateway connector supports:
+
+- **Router Schema**: DEX aggregation with optimal swap routing
+- **AMM Schema**: Liquidity pool operations for market making
+- **CLMM Schema**: Concentrated liquidity positions (Uniswap V3-style)
+- **Order Book**: Central limit order book trading
+
+[Get Started with Hummingbot →](/docs/integrations/hummingbot)
+
+## Why Use Trading Bots on LX DEX?
+
+### Ultra-Low Latency
+
+LX DEX's sub-100ns matching engine latency makes it ideal for:
+- High-frequency trading strategies
+- Arbitrage opportunities
+- Fast market making
+
+### Multiple Trading Venues
+
+Our hybrid architecture supports multiple trading styles:
+- AMM liquidity provision
+- Concentrated liquidity market making
+- Central limit order book trading
+- Cross-venue arbitrage
+
+### Real-Time Data
+
+WebSocket subscriptions provide instant updates:
+- Order book changes
+- Trade executions
+- Order status updates
+- Position changes
+
+## Integration Methods
+
+| Method | Use Case | Latency |
+|--------|----------|---------|
+| REST API | Simple integrations | ~50ms |
+| WebSocket | Real-time data | ~5ms |
+| gRPC | High-frequency trading | ~1ms |
+| FIX Protocol | Institutional trading | ~1ms |
+
+## Getting Started
+
+1. **Choose Your Bot**: Start with Hummingbot for a fully open-source solution
+2. **Install the Connector**: Follow our installation guides
+3. **Configure**: Set up API endpoints and trading parameters
+4. **Test**: Use testnet before trading with real funds
+5. **Deploy**: Run your strategies in production
+
+## Support
+
+- [Discord](https://discord.gg/lux): Join our trading community
+- [GitHub Issues](https://github.com/luxfi/dex/issues): Report bugs or request features
+- [Documentation](https://dex.lux.network/docs): Full API reference

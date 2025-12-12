@@ -1,0 +1,113 @@
+# LX DEX Hummingbot Gateway Configuration
+# https://dex.lux.network
+
+# Enable/disable the connector
+enabled: true
+
+# Chain configuration
+chain: lux
+networks:
+  - mainnet
+  - testnet
+
+# Trading types supported
+tradingTypes:
+  - ROUTER   # DEX aggregation swaps
+  - AMM      # Liquidity pool operations
+  - CLMM     # Concentrated liquidity
+  - CLOB     # Central limit order book
+
+# Network endpoints
+mainnet:
+  chainId: 93
+  apiEndpoint: https://api.dex.lux.network
+  wsEndpoint: wss://ws.dex.lux.network
+  grpcEndpoint: grpc.dex.lux.network:443
+  explorerUrl: https://explorer.lux.network
+
+testnet:
+  chainId: 9393
+  apiEndpoint: https://api.testnet.dex.lux.network
+  wsEndpoint: wss://ws.testnet.dex.lux.network
+  grpcEndpoint: grpc.testnet.dex.lux.network:443
+  explorerUrl: https://testnet.explorer.lux.network
+
+# Default trading parameters
+trading:
+  # Default slippage tolerance (percentage)
+  slippagePct: 0.5
+
+  # Maximum routing hops for swaps
+  maxHops: 3
+
+  # Quote expiration time (milliseconds)
+  quoteExpirationMs: 30000
+
+# Gas settings
+gas:
+  # Default gas limit for transactions
+  defaultGasLimit: "500000"
+
+  # Gas price source: "auto" or specific value in gwei
+  gasPriceSource: auto
+
+  # Maximum gas price willing to pay (gwei)
+  maxGasPrice: "100"
+
+# Rate limiting
+rateLimit:
+  # Requests per second
+  requestsPerSecond: 50
+
+  # Burst capacity
+  burstCapacity: 100
+
+# WebSocket configuration
+websocket:
+  # Enable WebSocket connections
+  enabled: true
+
+  # Reconnect on disconnect
+  autoReconnect: true
+
+  # Reconnection delay (milliseconds)
+  reconnectDelayMs: 1000
+
+  # Maximum reconnection attempts
+  maxReconnectAttempts: 10
+
+  # Ping interval (milliseconds)
+  pingIntervalMs: 30000
+
+# Fee tiers for CLMM pools (basis points)
+clmmFeeTiers:
+  - 100    # 0.01%
+  - 500    # 0.05%
+  - 3000   # 0.30%
+  - 10000  # 1.00%
+
+# Order book configuration
+orderbook:
+  # Default depth for order book snapshots
+  defaultDepth: 20
+
+  # Maximum depth
+  maxDepth: 500
+
+  # Aggregation levels
+  aggregationLevels:
+    - 0.01
+    - 0.1
+    - 1.0
+    - 10.0
+
+# Logging
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log API requests
+  logRequests: false
+
+  # Log WebSocket messages
+  logWebSocket: false

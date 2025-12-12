@@ -18,6 +18,8 @@
     "bridge",
     "...bridge",
     "contracts",
+    "---Integrations---",
+    "integrations",
     "---Infrastructure---",
     "connectivity",
     "data",
