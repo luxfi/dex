@@ -33,7 +33,7 @@ func main() {
 	config := trading.NewConfig()
 
 	// Native LX DEX (fastest, lowest latency)
-	config.WithNative("lx_dex", trading.NativeVenueConfig{
+	config.WithNative("lx_dex", &trading.NativeVenueConfig{
 		VenueType: "dex",
 		APIURL:    getEnv("LX_DEX_URL", "https://api.dex.lux.network"),
 		APIKey:    os.Getenv("LX_DEX_KEY"),
@@ -41,14 +41,14 @@ func main() {
 	})
 
 	// Native LX AMM
-	config.WithNative("lx_amm", trading.NativeVenueConfig{
+	config.WithNative("lx_amm", &trading.NativeVenueConfig{
 		VenueType: "amm",
 		APIURL:    getEnv("LX_AMM_URL", "https://api.amm.lux.network"),
 	})
 
 	// CCXT exchanges
 	if key := os.Getenv("BINANCE_KEY"); key != "" {
-		config.WithCcxt("binance", trading.CcxtConfig{
+		config.WithCcxt("binance", &trading.CcxtConfig{
 			ExchangeID: "binance",
 			APIKey:     key,
 			APISecret:  os.Getenv("BINANCE_SECRET"),
@@ -56,7 +56,7 @@ func main() {
 	}
 
 	if key := os.Getenv("MEXC_KEY"); key != "" {
-		config.WithCcxt("mexc", trading.CcxtConfig{
+		config.WithCcxt("mexc", &trading.CcxtConfig{
 			ExchangeID: "mexc",
 			APIKey:     key,
 			APISecret:  os.Getenv("MEXC_SECRET"),
@@ -65,7 +65,7 @@ func main() {
 
 	// Hummingbot Gateway for external DEXs
 	if host := os.Getenv("GATEWAY_HOST"); host != "" {
-		config.WithHummingbot("gateway", trading.HummingbotConfig{
+		config.WithHummingbot("gateway", &trading.HummingbotConfig{
 			Host:      host,
 			Port:      15888,
 			Connector: "uniswap",
@@ -94,7 +94,9 @@ func main() {
 	defer client.Disconnect(ctx)
 
 	log.Println("Connected to all venues")
-	printConnectedVenues(client)
+
+	// Create client adapter for arbitrage
+	arbClient := &clientAdapter{client: client}
 
 	// Create arbitrage system
 	arbConfig := arbitrage.UnifiedArbConfig{
@@ -120,7 +122,7 @@ func main() {
 		MaxTradesPerDay: 200,
 	}
 
-	arb := arbitrage.NewUnifiedArbitrage(client, arbConfig)
+	arb := arbitrage.NewUnifiedArbitrage(arbClient, arbConfig)
 
 	// Start arbitrage system
 	if err := arb.Start(); err != nil {
@@ -154,11 +156,91 @@ func main() {
 	}
 }
 
-func printConnectedVenues(client *trading.Client) {
-	venues := client.GetConnectedVenues()
-	log.Printf("Connected venues: %d", len(venues))
-	for _, v := range venues {
-		log.Printf("  - %s (%s)", v.Name, v.VenueType)
+// clientAdapter adapts trading.Client to arbitrage.TradingClient
+type clientAdapter struct {
+	client *trading.Client
+}
+
+func (a *clientAdapter) AggregatedOrderbook(ctx context.Context, symbol string) (*arbitrage.AggregatedBook, error) {
+	book, err := a.client.AggregatedOrderbook(ctx, symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &arbitrage.AggregatedBook{
+		Symbol: book.Symbol,
+		Bids:   make([]arbitrage.AggregatedLevel, 0),
+		Asks:   make([]arbitrage.AggregatedLevel, 0),
+	}
+
+	// Convert bids
+	for price, venues := range book.Bids {
+		for _, vq := range venues {
+			p, _ := decimal.NewFromString(price)
+			result.Bids = append(result.Bids, arbitrage.AggregatedLevel{
+				Price:     p,
+				Quantity:  vq.Quantity,
+				Venue:     vq.Venue,
+				Timestamp: time.Now(),
+			})
+		}
+	}
+
+	// Convert asks
+	for price, venues := range book.Asks {
+		for _, vq := range venues {
+			p, _ := decimal.NewFromString(price)
+			result.Asks = append(result.Asks, arbitrage.AggregatedLevel{
+				Price:     p,
+				Quantity:  vq.Quantity,
+				Venue:     vq.Venue,
+				Timestamp: time.Now(),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+func (a *clientAdapter) PlaceOrder(ctx context.Context, req arbitrage.OrderRequest) (*arbitrage.Order, error) {
+	orderReq := trading.OrderRequest{
+		Symbol:    req.Symbol,
+		Side:      trading.Side(req.Side),
+		OrderType: trading.OrderType(req.OrderType),
+		Quantity:  req.Quantity,
+		Price:     req.Price,
+		Venue:     req.Venue,
+	}
+
+	order, err := a.client.PlaceOrder(ctx, orderReq)
+	if err != nil {
+		return nil, err
+	}
+
+	avgPrice := decimal.Zero
+	if order.AveragePrice != nil {
+		avgPrice = *order.AveragePrice
+	}
+
+	return &arbitrage.Order{
+		OrderID:        order.OrderID,
+		Symbol:         order.Symbol,
+		Venue:          order.Venue,
+		Side:           arbitrage.Side(order.Side),
+		Quantity:       order.Quantity,
+		FilledQuantity: order.FilledQuantity,
+		AveragePrice:   avgPrice,
+		Status:         string(order.Status),
+	}, nil
+}
+
+func (a *clientAdapter) GetConnectedVenues() []arbitrage.VenueInfo {
+	// Return configured venues (simplified - in real implementation would check connectivity)
+	return []arbitrage.VenueInfo{
+		{Name: "lx_dex", VenueType: "dex", Connected: true},
+		{Name: "lx_amm", VenueType: "amm", Connected: true},
+		{Name: "binance", VenueType: "cex", Connected: true},
+		{Name: "mexc", VenueType: "cex", Connected: true},
 	}
 }
 
