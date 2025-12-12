@@ -5,7 +5,7 @@ description: Complete TypeScript type definitions and interfaces for the LX SDK
 
 # Type Reference
 
-Complete reference of all TypeScript types, interfaces, and enums exported by `@luxfi/dex-sdk`.
+Complete reference of all TypeScript types, interfaces, and enums exported by `@luxfi/trading`.
 
 ## Enumerations
 
@@ -229,10 +229,10 @@ interface NodeInfo {
 
 ## Configuration Types
 
-### LXDexConfig
+### ClientConfig
 
 ```typescript
-interface LXDexConfig {
+interface ClientConfig {
   /** JSON-RPC endpoint URL */
   jsonRpcUrl?: string;
 
@@ -598,19 +598,19 @@ type MarketDataProvider = typeof MarketDataProviders[keyof typeof MarketDataProv
 
 ## Class Exports
 
-### LXDexClient
+### Client
 
 Main client class for interacting with LX.
 
 ```typescript
-class LXDexClient {
+class Client {
   /** Market data sub-client */
   marketData: MarketDataClient;
 
   /** Liquidation monitoring sub-client */
   liquidationMonitor: LiquidationMonitor;
 
-  constructor(config?: LXDexConfig);
+  constructor(config?: ClientConfig);
 
   // Connection
   connect(): Promise<void>;
@@ -685,8 +685,8 @@ class LiquidationMonitor {
 
 ```typescript
 // Main export
-export { LXDexClient };
-export default LXDexClient;
+export { Client };
+export default Client;
 
 // Enums
 export { OrderType, OrderSide, OrderStatus, TimeInForce };
@@ -698,7 +698,7 @@ export {
   OrderBook,
   OrderBookLevel,
   NodeInfo,
-  LXDexConfig,
+  ClientConfig,
   MarketDataSource,
   MarketStats,
   MarginInfo,
@@ -778,7 +778,7 @@ type Result<T, E = Error> =
 
 // Usage
 async function safePlaceOrder(
-  client: LXDexClient,
+  client: Client,
   order: Partial<Order>
 ): Promise<Result<PlaceOrderResponse>> {
   try {

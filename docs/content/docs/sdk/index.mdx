@@ -113,9 +113,9 @@ pip install luxfi-dex
 ### Basic Usage
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(
+client = Client(
     json_rpc_url='http://localhost:8080/rpc',
     ws_url='ws://localhost:8081'
 )
@@ -150,10 +150,10 @@ for trade in trades:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def main():
-    client = AsyncLXDexClient(
+    client = AsyncClient(
         json_rpc_url='http://localhost:8080/rpc',
         ws_url='ws://localhost:8081'
     )
@@ -360,7 +360,7 @@ const dex = await DEX({
 ### JWT Authentication
 
 ```python
-client = LXDexClient(
+client = Client(
     jwt_token='eyJhbGciOiJIUzI1NiIs...'
 )
 ```

@@ -11,7 +11,7 @@ The LX is a high-performance decentralized exchange built for planet-scale throu
 
 ### First Principles
 
-1. **Separation of Concerns**: Trading engine runs as a standalone sidecar (`lxd`), separate from blockchain consensus
+1. **Native Lux Chain**: LX runs as a dedicated L2 chain on the Lux network, sharing consensus and finality with the main network
 2. **Deterministic Execution**: All state transitions are reproducible and verifiable
 3. **Lock-Free Where Possible**: Minimize contention with atomic operations and lock-free data structures
 4. **Zero-Copy Paths**: Eliminate memory copies in hot paths
@@ -55,7 +55,7 @@ The LX is a high-performance decentralized exchange built for planet-scale throu
 |                               |                                              |
 |                               v                                              |
 |   +================================================================+         |
-|   |                    lxd SIDECAR DAEMON                          |         |
+|   |                    LX L2 CHAIN (lxd node)                      |         |
 |   |  +----------------------------------------------------------+  |         |
 |   |  |                  TRADING ENGINE                          |  |         |
 |   |  |  +----------------------+  +-------------------------+   |  |         |
@@ -129,9 +129,9 @@ type Gateway interface {
 - **REST/JSON**: Standard HTTP API for compatibility
 - **FIX**: Financial Information eXchange for institutional clients
 
-### 2. Trading Engine (lxd Sidecar)
+### 2. Trading Engine (LX L2 Chain)
 
-The trading engine is the heart of the DEX, running as a standalone daemon:
+The trading engine is the heart of the DEX, running as a dedicated Lux L2 chain that shares consensus and finality with the main Lux network:
 
 ```go
 // TradingEngine orchestrates all trading operations
@@ -379,7 +379,7 @@ func (ob *OrderBook) AddOrder(ctx context.Context, order *Order) uint64 {
 
 Explore detailed documentation for each component:
 
-- [Sidecar Architecture](/docs/architecture/sidecar) - lxd daemon design
+- [L2 Chain Architecture](/docs/architecture/l2-chain) - LX chain design and Lux network integration
 - [6-Chain Architecture](/docs/architecture/chains) - Blockchain integration
 - [DAG Consensus](/docs/architecture/dag) - Parallel block processing
 - [State Management](/docs/architecture/state) - MerkleDB and snapshots
