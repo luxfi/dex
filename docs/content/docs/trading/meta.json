@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "order-types",
-    "spot"
+    "spot",
+    "arbitrage"
   ]
 }
