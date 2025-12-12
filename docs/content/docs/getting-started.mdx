@@ -137,22 +137,14 @@ curl -X POST http://localhost:8080/rpc \
 ### Using TypeScript SDK
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
-const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
-});
+const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
 // Place a buy order
-const order = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: 'limit',
-    side: 'buy',
-    price: 50000,
-    size: 1.0
-});
+const order = await dex.limitBuy('BTC-USD', '1.0', '50000')
 
-console.log('Order ID:', order.orderId);
+console.log('Order ID:', order.orderId)
 ```
 
 ### Using Python SDK

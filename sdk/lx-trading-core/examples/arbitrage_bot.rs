@@ -22,14 +22,9 @@ use rust_decimal_macros::dec;
 use tokio::sync::RwLock;
 use tokio::time::interval;
 
-use lx_trading_core::{
-    arbitrage::{
-        CrossChainConfig, CrossChainInfo, CrossChainRouter, CrossChainTransport,
-        ChainType, LxFirstArbitrage, LxFirstConfig, LxFirstOpportunity,
-        LxPrice, Scanner, ScannerConfig, UnifiedArbitrage, UnifiedArbConfig,
-        VenuePrice,
-    },
-    LxDex, LxDexConfig,
+use lx_trading::arbitrage::{
+    ChainType, CrossChainConfig, CrossChainInfo, CrossChainRouter, LxFirstArbitrage,
+    LxFirstConfig, LxFirstOpportunity, LxPrice, Scanner, ScannerConfig, VenuePrice,
 };
 
 // ============================================
@@ -37,9 +32,7 @@ use lx_trading_core::{
 // ============================================
 
 struct ArbitrageBot {
-    dex: Arc<LxDex>,
-    lx_first: Arc<RwLock<LxFirstArbitrage>>,
-    unified: Arc<RwLock<UnifiedArbitrage>>,
+    lx_first: Arc<LxFirstArbitrage>,
     scanner: Arc<RwLock<Scanner>>,
     router: Arc<CrossChainRouter>,
     running: Arc<RwLock<bool>>,
@@ -59,21 +52,6 @@ impl ArbitrageBot {
         println!("LX-FIRST ARBITRAGE BOT");
         println!("{}", "=".repeat(60));
         println!();
-
-        // Initialize DEX client
-        let endpoint = std::env::var("LX_DEX_ENDPOINT")
-            .unwrap_or_else(|_| "wss://dex.lux.network/ws".to_string());
-        let api_key = std::env::var("LX_API_KEY").ok();
-
-        let dex = Arc::new(
-            LxDex::new(LxDexConfig {
-                endpoint,
-                api_key,
-                ..Default::default()
-            })
-            .await?,
-        );
-        println!("[OK] Connected to LX DEX");
 
         // Initialize LX-First strategy
         let lx_config = LxFirstConfig {
@@ -96,33 +74,8 @@ impl ArbitrageBot {
             .into_iter()
             .collect(),
         };
-        let lx_first = Arc::new(RwLock::new(LxFirstArbitrage::new(lx_config)));
+        let lx_first = Arc::new(LxFirstArbitrage::new(lx_config));
         println!("[OK] LX-First strategy initialized");
-
-        // Initialize Unified Arbitrage
-        let unified_config = UnifiedArbConfig {
-            min_spread_bps: dec!(10),
-            min_profit: dec!(5),
-            max_position_size: dec!(10000),
-            max_total_exposure: dec!(100000),
-            symbols: vec![
-                "BTC-USDC".into(),
-                "ETH-USDC".into(),
-                "LUX-USDC".into(),
-            ],
-            venue_priority: vec![
-                "lx_dex".into(),
-                "binance".into(),
-                "mexc".into(),
-                "lx_amm".into(),
-            ],
-            scan_interval_ms: 100,
-            execute_timeout_ms: 5000,
-            max_daily_loss: dec!(1000),
-            max_trades_per_day: 100,
-        };
-        let unified = Arc::new(RwLock::new(UnifiedArbitrage::new(unified_config)));
-        println!("[OK] Unified arbitrage initialized");
 
         // Initialize Scanner
         let scanner_config = ScannerConfig {
@@ -196,9 +149,7 @@ impl ArbitrageBot {
         println!("[OK] Cross-chain router initialized");
 
         Ok(Self {
-            dex,
             lx_first,
-            unified,
             scanner,
             router,
             running: Arc::new(RwLock::new(false)),
@@ -207,18 +158,11 @@ impl ArbitrageBot {
     }
 
     async fn start(&self) -> Result<()> {
-        // Start all systems
-        {
-            let mut arb = self.lx_first.write().await;
-            arb.start();
-        }
-        {
-            let mut unified = self.unified.write().await;
-            unified.start().await?;
-        }
+        // Start systems
+        self.lx_first.start().await;
         {
             let mut scanner = self.scanner.write().await;
-            scanner.start().await?;
+            scanner.start().await;
         }
 
         *self.running.write().await = true;
@@ -240,15 +184,6 @@ impl ArbitrageBot {
             Self::simulate_price_feeds(lx_first, running).await;
         });
 
-        // Spawn opportunity handler
-        let lx_first = self.lx_first.clone();
-        let router = self.router.clone();
-        let stats = self.stats.clone();
-        let running = self.running.clone();
-        tokio::spawn(async move {
-            Self::handle_opportunities(lx_first, router, stats, running).await;
-        });
-
         // Spawn stats reporter
         let stats = self.stats.clone();
         let running = self.running.clone();
@@ -263,14 +198,7 @@ impl ArbitrageBot {
         println!("\nShutting down...");
         *self.running.write().await = false;
 
-        {
-            let mut arb = self.lx_first.write().await;
-            arb.stop();
-        }
-        {
-            let mut unified = self.unified.write().await;
-            unified.stop().await;
-        }
+        self.lx_first.stop().await;
         {
             let mut scanner = self.scanner.write().await;
             scanner.stop().await;
@@ -280,10 +208,10 @@ impl ArbitrageBot {
     }
 
     async fn simulate_price_feeds(
-        lx_first: Arc<RwLock<LxFirstArbitrage>>,
+        lx_first: Arc<LxFirstArbitrage>,
         running: Arc<RwLock<bool>>,
     ) {
-        use rand::Rng;
+        use rand::{rngs::StdRng, Rng, SeedableRng};
 
         let base_prices = [
             ("BTC-USDC", dec!(50000)),
@@ -292,6 +220,7 @@ impl ArbitrageBot {
         ];
 
         let mut interval = interval(Duration::from_millis(100));
+        let mut rng = StdRng::from_entropy();
 
         loop {
             interval.tick().await;
@@ -299,69 +228,45 @@ impl ArbitrageBot {
             if !*running.read().await {
                 break;
             }
-
-            let mut rng = rand::thread_rng();
 
             for (symbol, base) in &base_prices {
                 // Simulate LX DEX price (the oracle)
                 let variance: f64 = rng.gen_range(-0.001..0.001);
                 let lx_mid = *base * Decimal::try_from(1.0 + variance).unwrap();
 
-                {
-                    let mut arb = lx_first.write().await;
-                    arb.update_lx_price(LxPrice {
+                lx_first
+                    .update_lx_price(LxPrice {
                         symbol: symbol.to_string(),
                         bid: lx_mid * dec!(0.9999),
                         ask: lx_mid * dec!(1.0001),
                         mid: lx_mid,
                         timestamp: chrono::Utc::now().timestamp_millis(),
                         block_num: rng.gen_range(1000000..2000000),
-                    });
-                }
+                    })
+                    .await;
 
                 // Simulate stale CEX prices
                 for (venue, latency) in [("binance", 50i64), ("mexc", 100i64)] {
                     let divergence: f64 = rng.gen_range(-0.002..0.002);
                     let venue_mid = *base * Decimal::try_from(1.0 + divergence).unwrap();
 
-                    let mut arb = lx_first.write().await;
-                    arb.update_venue_price(VenuePrice {
-                        venue: venue.to_string(),
-                        symbol: symbol.to_string(),
-                        bid: venue_mid * dec!(0.9998),
-                        ask: venue_mid * dec!(1.0002),
-                        timestamp: chrono::Utc::now().timestamp_millis() - latency,
-                        latency: latency as i32,
-                        stale: false,
-                    });
+                    lx_first
+                        .update_venue_price(VenuePrice {
+                            venue: venue.to_string(),
+                            symbol: symbol.to_string(),
+                            bid: venue_mid * dec!(0.9998),
+                            ask: venue_mid * dec!(1.0002),
+                            timestamp: chrono::Utc::now().timestamp_millis() - latency,
+                            latency,
+                            stale: false,
+                        })
+                        .await;
                 }
             }
         }
     }
 
-    async fn handle_opportunities(
-        lx_first: Arc<RwLock<LxFirstArbitrage>>,
-        router: Arc<CrossChainRouter>,
-        stats: Arc<RwLock<Stats>>,
-        running: Arc<RwLock<bool>>,
-    ) {
-        // In a real implementation, opportunities would be received via callbacks
-        // For this example, we'll poll for demonstration
-        let mut interval = interval(Duration::from_millis(100));
-
-        loop {
-            interval.tick().await;
-
-            if !*running.read().await {
-                break;
-            }
-
-            // Check for opportunities (simplified)
-            // In production, use callbacks from lx_first.on_opportunity()
-        }
-    }
-
-    async fn execute_lx_first(
+    async fn handle_opportunity(
         opp: &LxFirstOpportunity,
         router: &CrossChainRouter,
         stats: &Arc<RwLock<Stats>>,
@@ -393,8 +298,8 @@ impl ArbitrageBot {
             let transport = router.determine_transport(&buy_chain, sell_chain);
             let latency = router.estimate_latency(&buy_chain, sell_chain);
 
-            println!("  Transport: {:?}", transport);
-            println!("  Est. Latency: {}ms", latency);
+            println!("  Transport: {transport:?}");
+            println!("  Est. Latency: {latency}ms");
 
             if opp.side == "buy" {
                 println!("  Buying on {}...", opp.stale_venue);
@@ -441,7 +346,7 @@ impl ArbitrageBot {
             println!("  Total PnL:     ${:.2}", s.total_pnl);
             if s.total_executions > 0 {
                 let avg_pnl = s.total_pnl / Decimal::from(s.total_executions);
-                println!("  Avg PnL:       ${:.2}", avg_pnl);
+                println!("  Avg PnL:       ${avg_pnl:.2}");
             }
             println!("{}", "-".repeat(40));
         }
@@ -460,8 +365,8 @@ impl ArbitrageBot {
             let win_rate =
                 (s.total_executions as f64 / s.total_opportunities as f64) * 100.0;
             let avg_pnl = s.total_pnl / Decimal::from(s.total_executions);
-            println!("Execution Rate:      {:.1}%", win_rate);
-            println!("Avg PnL per Trade:   ${:.2}", avg_pnl);
+            println!("Execution Rate:      {win_rate:.1}%");
+            println!("Avg PnL per Trade:   ${avg_pnl:.2}");
         }
         println!("{}", "=".repeat(50));
     }
