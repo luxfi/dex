@@ -1,0 +1,311 @@
+---
+title: Trading Limits
+description: Position limits, rate limits, and trading restrictions on LX DEX
+---
+
+# Trading Limits
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+
+LX DEX implements limits to ensure system stability, prevent market manipulation, and comply with risk management best practices.
+
+## Position Limits
+
+### Maximum Position Size
+
+| Asset | Max Long | Max Short | Max Total |
+|-------|----------|-----------|-----------|
+| BTC-USD | $100M | $100M | $150M |
+| ETH-USD | $50M | $50M | $75M |
+| LUX-USD | $25M | $25M | $40M |
+| Other Major | $10M | $10M | $15M |
+| Minor Pairs | $5M | $5M | $7.5M |
+
+### Per-Account Limits
+
+| Tier | Max Position | Max Open Orders | Max Leverage |
+|------|-------------|-----------------|--------------|
+| Standard | $1M | 100 | 20x |
+| Verified | $10M | 500 | 50x |
+| VIP | $50M | 2,000 | 50x |
+| Institutional | $100M | 10,000 | 50x |
+
+### Cross-Position Limits
+
+```
+Maximum Total Exposure = Sum of all position sizes
+
+Standard Account:
+- Max Total Exposure: $5M
+- Max Correlation Risk: $2M per sector
+
+Institutional Account:
+- Max Total Exposure: $500M
+- Max Correlation Risk: $100M per sector
+```
+
+## Order Limits
+
+### Order Size Limits
+
+| Type | Min Size | Max Size | Min Notional |
+|------|----------|----------|--------------|
+| Spot | 0.0001 BTC | 100 BTC | $10 |
+| Perpetual | $10 | $10M | $10 |
+| Margin | $10 | $10M | $10 |
+
+### Price Limits
+
+Orders are rejected if price deviates too far from mark price:
+
+| Market Type | Max Deviation |
+|-------------|---------------|
+| Major Pairs | ±5% |
+| Minor Pairs | ±10% |
+| Volatile Markets | ±20% |
+
+```
+Valid Price Range = Mark Price × (1 ± Max Deviation)
+
+Example (BTC at $50,000):
+- Minimum Valid: $47,500 (-5%)
+- Maximum Valid: $52,500 (+5%)
+```
+
+### Order Count Limits
+
+| Account Tier | Open Orders | Orders per Symbol | Modifications/sec |
+|-------------|-------------|-------------------|-------------------|
+| Standard | 100 | 20 | 5 |
+| Verified | 500 | 50 | 20 |
+| VIP | 2,000 | 200 | 50 |
+| Institutional | 10,000 | 1,000 | 200 |
+
+## Rate Limits
+
+### API Rate Limits
+
+| Endpoint Type | Standard | VIP | Institutional |
+|---------------|----------|-----|---------------|
+| Public Data | 100/sec | 500/sec | 2,000/sec |
+| Private Read | 50/sec | 200/sec | 1,000/sec |
+| Private Write | 10/sec | 50/sec | 200/sec |
+| WebSocket Subscriptions | 100 | 500 | 2,000 |
+
+### Order Rate Limits
+
+| Action | Standard | VIP | Institutional |
+|--------|----------|-----|---------------|
+| Place Order | 10/sec | 50/sec | 200/sec |
+| Cancel Order | 20/sec | 100/sec | 500/sec |
+| Modify Order | 5/sec | 25/sec | 100/sec |
+| Batch Orders | 5/sec | 20/sec | 100/sec |
+
+### Burst Allowance
+
+Short bursts above rate limits are allowed:
+
+```
+Burst Window: 10 seconds
+Burst Capacity: 5× sustained rate
+
+Example (Standard tier orders):
+- Sustained: 10/sec
+- Burst: 50 orders in 10 sec window
+- Recovery: Linear (10 orders/sec)
+```
+
+## Leverage Limits
+
+### Maximum Leverage by Asset
+
+| Asset Category | Max Leverage | Initial Margin | Maintenance |
+|---------------|--------------|----------------|-------------|
+| BTC, ETH | 50x | 2% | 0.5% |
+| Major Alts | 30x | 3.33% | 1% |
+| Minor Alts | 20x | 5% | 2% |
+| New Listings | 10x | 10% | 5% |
+
+### Dynamic Leverage
+
+Leverage limits decrease as position size increases:
+
+| Position Size | Max Leverage |
+|--------------|--------------|
+| < $100K | 50x |
+| $100K - $500K | 30x |
+| $500K - $1M | 20x |
+| $1M - $5M | 10x |
+| > $5M | 5x |
+
+```
+Effective Leverage = min(Requested Leverage, Max for Position Size)
+
+Example:
+- Requested: 50x
+- Position Size: $2M
+- Effective: 10x (capped by size)
+```
+
+## Withdrawal Limits
+
+### Per-Transaction Limits
+
+| Verification Level | Single Withdrawal | Daily Total |
+|-------------------|-------------------|-------------|
+| Basic | $10K | $50K |
+| Standard | $100K | $500K |
+| Enhanced | $1M | $5M |
+| Institutional | Unlimited | Unlimited |
+
+### Cooling Period
+
+Large withdrawals may require additional verification:
+
+| Amount | Cooling Period | Can Expedite |
+|--------|---------------|--------------|
+| < $10K | Instant | N/A |
+| $10K - $100K | 1 hour | Yes |
+| $100K - $1M | 6 hours | Yes |
+| > $1M | 24 hours | Manual review |
+
+## Market-Specific Limits
+
+### Circuit Breakers
+
+Trading pauses if price moves too rapidly:
+
+| Trigger | Threshold | Pause Duration |
+|---------|-----------|----------------|
+| Level 1 | 10% in 5 min | 5 minutes |
+| Level 2 | 20% in 15 min | 15 minutes |
+| Level 3 | 30% in 1 hour | 1 hour |
+
+### Open Interest Limits
+
+Maximum total open interest across all users:
+
+| Market | Max Long OI | Max Short OI |
+|--------|-------------|--------------|
+| BTC-USD | $5B | $5B |
+| ETH-USD | $2B | $2B |
+| Other | $500M | $500M |
+
+## Checking Your Limits
+
+### API Methods
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Get account limits
+const limits = await dex.getAccountLimits()
+
+console.log('Position Limits:')
+console.log(`  Max Position: $${limits.maxPosition}`)
+console.log(`  Current Usage: $${limits.currentExposure}`)
+console.log(`  Available: $${limits.availableExposure}`)
+
+console.log('Rate Limits:')
+console.log(`  Orders/sec: ${limits.orderRate.limit}`)
+console.log(`  Current: ${limits.orderRate.current}`)
+console.log(`  Resets: ${limits.orderRate.resetTime}`)
+
+console.log('Leverage:')
+console.log(`  Max Available: ${limits.maxLeverage}x`)
+```
+
+### Pre-Trade Validation
+
+```typescript
+// Check if order would be accepted
+const validation = await dex.validateOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000',
+  quantity: '10',
+  leverage: 20
+})
+
+if (!validation.valid) {
+  console.log('Order would be rejected:')
+  validation.errors.forEach(err => {
+    console.log(`  - ${err.code}: ${err.message}`)
+  })
+}
+```
+
+### Limit Upgrade Request
+
+```typescript
+// Request limit increase
+const request = await dex.requestLimitIncrease({
+  type: 'position',
+  currentLimit: '1000000',
+  requestedLimit: '5000000',
+  reason: 'Scaling trading operations',
+  documents: ['balance_proof.pdf']
+})
+
+console.log(`Request ID: ${request.id}`)
+console.log(`Status: ${request.status}`)
+console.log(`ETA: ${request.estimatedReviewTime}`)
+```
+
+## Error Codes
+
+| Code | Message | Resolution |
+|------|---------|------------|
+| `POSITION_LIMIT` | Position size exceeds limit | Reduce size or request upgrade |
+| `ORDER_LIMIT` | Too many open orders | Cancel existing orders |
+| `RATE_LIMIT` | Rate limit exceeded | Wait for reset or upgrade |
+| `LEVERAGE_LIMIT` | Leverage too high for size | Reduce leverage or size |
+| `PRICE_BOUNDS` | Price outside valid range | Adjust price closer to mark |
+| `MIN_NOTIONAL` | Order value too small | Increase order size |
+| `WITHDRAWAL_LIMIT` | Withdrawal exceeds limit | Split or request upgrade |
+
+## Best Practices
+
+### Managing Rate Limits
+
+1. **Use batch endpoints** - Single request for multiple orders
+2. **Implement exponential backoff** - Handle 429 responses gracefully
+3. **Cache public data** - Reduce redundant requests
+4. **Use WebSocket** - Real-time updates without polling
+
+### Staying Within Position Limits
+
+1. **Monitor exposure** - Track total position value
+2. **Set alerts** - Notify when approaching limits
+3. **Plan scaling** - Request upgrades before needed
+4. **Diversify** - Spread across multiple instruments
+
+### Handling Limit Errors
+
+```typescript
+try {
+  await dex.placeOrder(orderParams)
+} catch (error) {
+  if (error.code === 'RATE_LIMIT') {
+    // Wait and retry with exponential backoff
+    await sleep(error.retryAfter * 1000)
+    return dex.placeOrder(orderParams)
+  }
+  if (error.code === 'POSITION_LIMIT') {
+    // Reduce position or wait for existing to close
+    console.log(`Max position: ${error.limit}`)
+    console.log(`Requested: ${error.requested}`)
+  }
+  throw error
+}
+```
+
+## Related Documentation
+
+- [Trading Overview](/docs/trading) - General trading guide
+- [Fees](/docs/trading/fees) - Fee structure
+- [Risk Management](/docs/risk) - Risk controls
+- [API Reference](/docs/api) - Detailed API documentation

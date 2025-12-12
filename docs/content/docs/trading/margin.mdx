@@ -1,0 +1,253 @@
+---
+title: Margin Trading
+description: Leveraged trading with cross-margin and isolated margin modes on LX DEX
+---
+
+# Margin Trading
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+>
+> **Full Documentation**: [DeFi Margin Trading](/docs/defi/margin)
+
+Margin trading allows you to trade with borrowed funds, amplifying both potential gains and losses.
+
+## Overview
+
+| Feature | Value |
+|---------|-------|
+| Max Leverage | 50x (asset-dependent) |
+| Margin Modes | Cross and Isolated |
+| Collateral | USDT, USDC, BTC, ETH, LUX |
+| Liquidation | Automatic at maintenance margin |
+| Funding | 8-hour intervals |
+
+## Leverage by Asset
+
+| Asset | Max Leverage | Initial Margin | Maintenance |
+|-------|-------------|----------------|-------------|
+| BTC | 50x | 2% | 0.5% |
+| ETH | 50x | 2% | 0.5% |
+| LUX | 30x | 3.33% | 1% |
+| Major Alts | 30x | 3.33% | 1% |
+| Minor Alts | 20x | 5% | 2% |
+
+## Quick Start
+
+### Open a Long Position
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Open 10x long BTC position
+const position = await dex.margin.openPosition({
+  symbol: 'BTC-USD',
+  side: 'long',
+  collateral: '1000',    // $1,000 USDT
+  leverage: 10,          // 10x = $10,000 position
+  type: 'market'
+})
+
+console.log(`Position Size: $${position.size}`)
+console.log(`Entry Price: $${position.entryPrice}`)
+console.log(`Liquidation Price: $${position.liquidationPrice}`)
+```
+
+### Open a Short Position
+
+```typescript
+// Short ETH with limit order
+const position = await dex.margin.openPosition({
+  symbol: 'ETH-USD',
+  side: 'short',
+  collateral: '2000',
+  leverage: 5,
+  type: 'limit',
+  price: '2500.00'
+})
+```
+
+### Set Stop Loss and Take Profit
+
+```typescript
+const position = await dex.margin.openPosition({
+  symbol: 'BTC-USD',
+  side: 'long',
+  collateral: '1000',
+  leverage: 10,
+  type: 'market',
+  stopLoss: '45000',     // Exit if price drops to $45k
+  takeProfit: '55000'    // Exit if price reaches $55k
+})
+```
+
+## Margin Modes
+
+### Isolated Margin
+
+Each position has its own collateral pool. Liquidation of one position does not affect others.
+
+```typescript
+// Enable isolated margin
+await dex.margin.setMode('isolated')
+
+const pos1 = await dex.margin.openPosition({
+  symbol: 'BTC-USD',
+  collateral: '1000',
+  leverage: 10,
+  marginMode: 'isolated'
+})
+
+// If pos1 is liquidated, only its $1,000 is lost
+```
+
+### Cross Margin
+
+All positions share a single collateral pool. Profits from one position can prevent liquidation of another.
+
+```typescript
+// Enable cross margin
+await dex.margin.setMode('cross')
+
+// Deposit to cross margin pool
+await dex.margin.deposit({
+  asset: 'USDT',
+  amount: '10000'
+})
+
+// Positions share the $10,000 pool
+const pos1 = await dex.margin.openPosition({
+  symbol: 'BTC-USD',
+  size: '50000',
+  marginMode: 'cross'
+})
+```
+
+## Managing Positions
+
+### Add Collateral
+
+```typescript
+// Reduce leverage by adding collateral
+await dex.margin.addCollateral({
+  positionId: 'pos_123',
+  amount: '500'
+})
+```
+
+### Partial Close
+
+```typescript
+// Close 50% of position
+await dex.margin.closePosition({
+  positionId: 'pos_123',
+  percentage: 50
+})
+```
+
+### Full Close
+
+```typescript
+// Close entire position at market
+await dex.margin.closePosition({
+  positionId: 'pos_123',
+  type: 'market'
+})
+```
+
+## Liquidation
+
+### Liquidation Price Calculation
+
+```
+Long Position:
+Liq Price = Entry × (1 - (Collateral / Size) + Fees)
+
+Short Position:
+Liq Price = Entry × (1 + (Collateral / Size) - Fees)
+```
+
+### Monitor Health
+
+```typescript
+const position = await dex.margin.getPosition('pos_123')
+
+console.log(`Margin Ratio: ${position.marginRatio}%`)
+console.log(`Health Factor: ${position.healthFactor}`)
+console.log(`Distance to Liquidation: ${position.distanceToLiq}%`)
+
+if (position.healthFactor < 1.5) {
+  console.log('Warning: Position at risk of liquidation')
+}
+```
+
+## Funding Rates
+
+Perpetual positions pay/receive funding every 8 hours:
+
+```typescript
+// Get current funding rate
+const funding = await dex.getFundingRate('BTC-USD')
+
+console.log(`Current Rate: ${funding.rate}%`)
+console.log(`Next Settlement: ${funding.nextTime}`)
+
+// Positive rate: longs pay shorts
+// Negative rate: shorts pay longs
+```
+
+## Fees
+
+| Fee Type | Rate |
+|----------|------|
+| Open Position | 0.10% |
+| Close Position | 0.10% |
+| Liquidation | 5% of remaining collateral |
+| Funding | Variable (typically 0.01% / 8h) |
+
+## Risk Management
+
+<Callout type="warning">
+**Leverage amplifies risk.** A 50x position loses 50% of collateral with just a 1% adverse price move.
+</Callout>
+
+### Best Practices
+
+1. **Start with low leverage** - 2-5x while learning
+2. **Always use stop losses** - Define max loss before entry
+3. **Monitor funding rates** - Can compound significantly
+4. **Keep margin buffer** - Don't use 100% of available margin
+5. **Understand liquidation** - Know your liquidation price
+
+### Position Sizing
+
+```
+Recommended Position Size = Account Balance × Risk Per Trade / Stop Distance
+
+Example:
+- Account: $10,000
+- Risk: 2% ($200)
+- Stop Distance: 5%
+- Position Size: $200 / 5% = $4,000
+- Leverage: 4,000 / 10,000 = 0.4x (very conservative)
+```
+
+## API Reference
+
+For complete margin trading API documentation, see [DeFi Margin Trading](/docs/defi/margin) which includes:
+
+- Position lifecycle management
+- Solidity contract interfaces
+- Liquidation bot implementation
+- Cross-margin pool mechanics
+- Event subscriptions
+- Gas cost estimates
+
+## Related Documentation
+
+- [DeFi Margin (Full Guide)](/docs/defi/margin) - Complete margin trading documentation
+- [Perpetuals](/docs/trading/perpetuals) - Perpetual futures trading
+- [Order Types](/docs/trading/order-types) - All supported order types
+- [Fees](/docs/trading/fees) - Complete fee schedule
+- [Limits](/docs/trading/limits) - Position and leverage limits
