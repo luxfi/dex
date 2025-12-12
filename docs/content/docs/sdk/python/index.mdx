@@ -1,0 +1,322 @@
+---
+title: Python SDK
+description: High-performance Python client for LX DEX with sync and async support, pandas integration, and type hints
+---
+
+# Python SDK
+
+> **Package**: [`luxfi-dex`](https://pypi.org/project/luxfi-dex/) | **Source**: [GitHub](https://github.com/luxfi/dex/tree/main/sdk/python) | **Specification**: [LP-9002](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
+
+The Python SDK provides a complete interface to LX DEX with support for synchronous and asynchronous operations, pandas DataFrame integration, and comprehensive type annotations.
+
+## Features
+
+- **Sync and Async Clients** - Choose the right client for your application
+- **Type Hints** - Full Python 3.10+ type annotations with mypy support
+- **pandas Integration** - Native DataFrame support for market data analysis
+- **WebSocket Streaming** - Real-time market data with asyncio callbacks
+- **Exception Handling** - Typed exceptions for all error conditions
+- **Jupyter Support** - Async-ready for notebook environments
+
+## Requirements
+
+- Python 3.10+
+- Dependencies: `httpx`, `websockets`, `pydantic`, `pandas`, `numpy`
+
+## Installation
+
+```bash
+pip install luxfi-dex
+```
+
+Or with all optional dependencies:
+
+```bash
+pip install "luxfi-dex[all]"
+```
+
+For development:
+
+```bash
+pip install "luxfi-dex[dev]"
+```
+
+## Quick Start
+
+### Basic Usage
+
+```python
+from luxfi_dex import LXDexClient
+
+# Initialize client
+client = LXDexClient(
+    json_rpc_url="http://localhost:8080/rpc",
+    ws_url="ws://localhost:8081"
+)
+
+# Check connectivity
+info = client.get_info()
+print(f"Connected to node: {info.node_id}")
+print(f"Block height: {info.block_height}")
+
+# Get order book
+book = client.get_order_book("BTC-USD", depth=10)
+print(f"Best bid: {book.best_bid.price} ({book.best_bid.size})")
+print(f"Best ask: {book.best_ask.price} ({book.best_ask.size})")
+print(f"Spread: {book.spread}")
+```
+
+### Place an Order
+
+```python
+from luxfi_dex import LXDexClient, OrderType, Side
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+# Place a limit buy order
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    user_id="trader1"
+)
+
+print(f"Order ID: {order.order_id}")
+print(f"Status: {order.status}")
+print(f"Filled: {order.filled_size}/{order.size}")
+```
+
+### Async Usage
+
+```python
+import asyncio
+from luxfi_dex import AsyncLXDexClient, OrderType, Side
+
+async def main() -> None:
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        # Place order asynchronously
+        order = await client.place_order(
+            symbol="BTC-USD",
+            order_type=OrderType.LIMIT,
+            side=Side.BUY,
+            price=50000.0,
+            size=1.0
+        )
+        print(f"Order placed: {order.order_id}")
+
+        # Stream order book updates
+        async for book in client.stream_order_book("BTC-USD"):
+            print(f"Bid: {book.best_bid}, Ask: {book.best_ask}")
+            if book.spread > 100:
+                break
+
+asyncio.run(main())
+```
+
+## Configuration
+
+### Client Options
+
+```python
+from luxfi_dex import LXDexClient
+from luxfi_dex.config import ClientConfig, RetryConfig
+
+config = ClientConfig(
+    json_rpc_url="https://api.lux.network/rpc",
+    ws_url="wss://api.lux.network/ws",
+    api_key="your-api-key",
+    api_secret="your-api-secret",
+    timeout=30.0,
+    retry=RetryConfig(
+        max_retries=3,
+        backoff_base=1.0,
+        backoff_max=30.0
+    )
+)
+
+client = LXDexClient(config=config)
+```
+
+### Environment Variables
+
+```bash
+export LX_DEX_RPC_URL="https://api.lux.network/rpc"
+export LX_DEX_WS_URL="wss://api.lux.network/ws"
+export LX_DEX_API_KEY="your-api-key"
+export LX_DEX_API_SECRET="your-api-secret"
+```
+
+```python
+from luxfi_dex import LXDexClient
+
+# Automatically reads from environment
+client = LXDexClient.from_env()
+```
+
+## Type Definitions
+
+### Order Types
+
+```python
+from luxfi_dex.types import (
+    Order,
+    OrderType,
+    Side,
+    TimeInForce,
+    OrderStatus
+)
+
+# OrderType enum
+OrderType.LIMIT       # Limit order at specific price
+OrderType.MARKET      # Execute at best available price
+OrderType.STOP        # Trigger at stop price
+OrderType.STOP_LIMIT  # Stop that becomes limit
+OrderType.ICEBERG     # Hidden quantity order
+OrderType.PEG         # Pegged to best bid/ask
+
+# Side enum
+Side.BUY   # Buy order
+Side.SELL  # Sell order
+
+# TimeInForce enum
+TimeInForce.GTC  # Good Till Cancelled
+TimeInForce.IOC  # Immediate Or Cancel
+TimeInForce.FOK  # Fill Or Kill
+TimeInForce.DAY  # Day order
+```
+
+### Market Data Types
+
+```python
+from luxfi_dex.types import (
+    OrderBook,
+    OrderBookLevel,
+    Trade,
+    Ticker,
+    OHLCV
+)
+
+# Type aliases with full annotations
+type Price = float
+type Size = float
+type Timestamp = int  # Unix milliseconds
+```
+
+## Exception Handling
+
+```python
+from luxfi_dex import LXDexClient
+from luxfi_dex.exceptions import (
+    LXDexError,
+    ConnectionError,
+    AuthenticationError,
+    InsufficientBalanceError,
+    OrderNotFoundError,
+    RateLimitError,
+    ValidationError
+)
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+try:
+    order = client.place_order(
+        symbol="BTC-USD",
+        order_type="limit",
+        side="buy",
+        price=50000.0,
+        size=100.0
+    )
+except InsufficientBalanceError as e:
+    print(f"Insufficient funds: need {e.required}, have {e.available}")
+except RateLimitError as e:
+    print(f"Rate limited. Retry after {e.retry_after} seconds")
+except ValidationError as e:
+    print(f"Invalid request: {e.field} - {e.message}")
+except ConnectionError as e:
+    print(f"Connection failed: {e}")
+except LXDexError as e:
+    print(f"DEX error [{e.code}]: {e.message}")
+```
+
+## Jupyter Notebook Usage
+
+```python
+# Enable async in Jupyter
+import nest_asyncio
+nest_asyncio.apply()
+
+from luxfi_dex import AsyncLXDexClient
+import pandas as pd
+
+async def analyze_order_book():
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        book = await client.get_order_book("BTC-USD", depth=20)
+
+        # Convert to DataFrame
+        df = book.to_dataframe()
+        display(df.head(10))
+
+        # Calculate metrics
+        print(f"Total bid volume: {df[df['side'] == 'bid']['size'].sum():.2f}")
+        print(f"Total ask volume: {df[df['side'] == 'ask']['size'].sum():.2f}")
+
+await analyze_order_book()
+```
+
+## Network Environments
+
+### Mainnet
+
+```python
+client = LXDexClient(
+    json_rpc_url="https://api.lux.network/rpc",
+    ws_url="wss://api.lux.network/ws"
+)
+```
+
+### Testnet
+
+```python
+client = LXDexClient(
+    json_rpc_url="https://testnet-api.lux.network/rpc",
+    ws_url="wss://testnet-api.lux.network/ws"
+)
+```
+
+### Local Development
+
+```python
+client = LXDexClient(
+    json_rpc_url="http://localhost:8080/rpc",
+    ws_url="ws://localhost:8081"
+)
+```
+
+## SDK Components
+
+| Module | Description |
+|--------|-------------|
+| [Client](/docs/sdk/python/client) | LXDexClient and AsyncLXDexClient classes |
+| [Orders](/docs/sdk/python/orders) | Order placement, cancellation, and management |
+| [Order Book](/docs/sdk/python/orderbook) | Order book data and subscriptions |
+| [Trades](/docs/sdk/python/trades) | Trade history and streaming |
+| [Account](/docs/sdk/python/account) | Account and portfolio management |
+| [WebSocket](/docs/sdk/python/websocket) | Real-time data streaming |
+| [Async Patterns](/docs/sdk/python/async) | asyncio integration and concurrency |
+
+## Performance
+
+| Operation | Latency (p50) | Latency (p99) |
+|-----------|---------------|---------------|
+| Place Order | 2ms | 8ms |
+| Cancel Order | 1ms | 5ms |
+| Get Order Book | 1ms | 4ms |
+| WebSocket Update | <1ms | 2ms |
+
+## Support
+
+- **GitHub Issues**: [luxfi/dex/issues](https://github.com/luxfi/dex/issues)
+- **Discord**: [discord.gg/luxfi](https://discord.gg/luxfi)
+- **Documentation**: [dex.lux.network](https://dex.lux.network)

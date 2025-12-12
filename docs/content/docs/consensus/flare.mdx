@@ -1,0 +1,686 @@
+---
+title: Flare DAG Finalization
+description: Certificate and skip logic for DAG-based block finalization
+---
+
+# Flare DAG Finalization
+
+> **Specification**: [LP-0112 Flare DAG Finalization Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-0112-flare-dag-finalization-protocol.md)
+>
+> **Implementation**: [`github.com/luxfi/consensus/core/dag`](https://github.com/luxfi/consensus/tree/main/core/dag)
+
+Flare provides DAG finalization through certificate and skip analysis, determining which blocks achieve finality based on validator support patterns.
+
+## Overview
+
+Flare operates on the DAG structure to determine block finality through two mechanisms:
+
+1. **Certificates**: Block has >= 2f+1 validators supporting it in round r+1
+2. **Skip Certificates**: Block has >= 2f+1 validators NOT supporting it in round r+1
+
+```
++------------------------------------------------------------------+
+|                    Flare DAG Finalization                         |
++------------------------------------------------------------------+
+|                                                                   |
+|    Round r              Round r+1              Decision           |
+|                                                                   |
+|    +-------+            +-------+                                 |
+|    |Block A|  <------   |Block C| ----+                           |
+|    +-------+   support  +-------+     |                           |
+|        ^                    |         |                           |
+|        |                    |         v                           |
+|    +-------+            +-------+  Certificate                    |
+|    |Block B|  <------   |Block D|  (2f+1 support)                 |
+|    +-------+   support  +-------+     |                           |
+|                             |         v                           |
+|                         +-------+  COMMIT                         |
+|                         |Block E|                                 |
+|                         +-------+                                 |
+|                                                                   |
++------------------------------------------------------------------+
+```
+
+## Core Types
+
+### Decision Outcomes
+
+```go
+// Decision represents the outcome of cert/skip analysis
+type Decision int
+
+const (
+    DecideUndecided Decision = iota
+    DecideCommit    // Certificate found - block should be committed
+    DecideSkip      // Skip certificate found - block should be skipped
+)
+```
+
+### DAG View Interface
+
+```go
+// View provides access to DAG structure and vertex relationships
+type View interface {
+    // Get retrieves a vertex by ID
+    Get(VertexID) (Meta, bool)
+
+    // ByRound returns all vertices in a given round
+    ByRound(round uint64) []Meta
+
+    // Supports checks if a vertex supports another
+    Supports(from VertexID, author string, round uint64) bool
+}
+
+// Meta represents metadata for a DAG vertex
+type Meta interface {
+    ID() VertexID
+    Author() string
+    Round() uint64
+    Parents() []VertexID
+}
+
+// Params holds DAG consensus parameters
+type Params struct {
+    N int  // Total validators
+    F int  // Maximum Byzantine validators (N >= 3F + 1)
+}
+```
+
+## Certificate Logic
+
+### Certificate Detection
+
+A block has a certificate when >= 2f+1 validators in the next round reference it:
+
+```go
+// HasCertificate checks if a vertex has achieved certificate status
+func HasCertificate(v View, proposer Meta, p Params) bool {
+    r1 := proposer.Round() + 1
+    next := v.ByRound(r1)
+    support := 0
+
+    for _, m := range next {
+        if v.Supports(m.ID(), proposer.Author(), proposer.Round()) {
+            support++
+            if support >= 2*p.F+1 {
+                return true
+            }
+        }
+    }
+    return false
+}
+```
+
+### Skip Certificate Detection
+
+A block should be skipped when >= 2f+1 validators in the next round do NOT reference it:
+
+```go
+// HasSkip checks if a vertex should be skipped
+func HasSkip(v View, proposer Meta, p Params) bool {
+    r1 := proposer.Round() + 1
+    next := v.ByRound(r1)
+    nos := 0
+
+    for _, m := range next {
+        if !v.Supports(m.ID(), proposer.Author(), proposer.Round()) {
+            nos++
+            if nos >= 2*p.F+1 {
+                return true
+            }
+        }
+    }
+    return false
+}
+```
+
+### Classification
+
+```go
+// Flare implements the DAG finalization protocol
+type Flare struct {
+    p Params
+}
+
+func NewFlare(p Params) *Flare {
+    return &Flare{p: p}
+}
+
+// Classify determines the status of a proposer vertex
+func (f *Flare) Classify(v View, proposer Meta) Decision {
+    switch {
+    case HasCertificate(v, proposer, f.p):
+        return DecideCommit
+    case HasSkip(v, proposer, f.p):
+        return DecideSkip
+    default:
+        return DecideUndecided
+    }
+}
+```
+
+## Generic DAG Operations
+
+### Reachability
+
+```go
+// IsReachable checks if vertex 'from' can reach vertex 'to' in the DAG
+func IsReachable[V VID](store Store[V], from, to V) bool {
+    if from == to {
+        return true
+    }
+
+    visited := make(map[V]bool)
+    queue := []V{from}
+    visited[from] = true
+
+    for len(queue) > 0 {
+        current := queue[0]
+        queue = queue[1:]
+
+        for _, child := range store.Children(current) {
+            if child == to {
+                return true
+            }
+            if !visited[child] {
+                visited[child] = true
+                queue = append(queue, child)
+            }
+        }
+    }
+
+    return false
+}
+```
+
+### Safe Prefix Computation
+
+```go
+// ComputeSafePrefix returns vertices safe to commit based on DAG order
+func ComputeSafePrefix[V VID](store Store[V], frontier []V) []V {
+    if len(frontier) == 0 {
+        return []V{}
+    }
+
+    var safeVertices []V
+    head := store.Head()
+
+    for _, v := range head {
+        // Check if this vertex is an ancestor of all frontier vertices
+        isAncestorOfAll := true
+        for _, f := range frontier {
+            if !IsReachable(store, v, f) {
+                isAncestorOfAll = false
+                break
+            }
+        }
+
+        if isAncestorOfAll {
+            safeVertices = append(safeVertices, v)
+        }
+    }
+
+    return safeVertices
+}
+```
+
+### Frontier Selection
+
+```go
+// ChooseFrontier selects parents for a new vertex proposal
+func ChooseFrontier[V VID](frontier []V) []V {
+    if len(frontier) == 0 {
+        return []V{}
+    }
+
+    // For small frontiers, reference all vertices
+    if len(frontier) <= 3 {
+        return frontier
+    }
+
+    // For larger frontiers, choose 2f+1 for Byzantine tolerance
+    f := (len(frontier) - 1) / 3
+    required := 2*f + 1
+
+    if required >= len(frontier) {
+        return frontier
+    }
+
+    return frontier[:required]
+}
+```
+
+### Lowest Common Ancestor
+
+```go
+// LCA finds the lowest common ancestor of two vertices
+func LCA[V VID](store Store[V], a, b V) V {
+    // Find all ancestors of a
+    ancestorsA := make(map[V]uint64) // vertex -> height
+    queue := []V{a}
+    visited := make(map[V]bool)
+
+    for len(queue) > 0 {
+        current := queue[0]
+        queue = queue[1:]
+
+        if visited[current] {
+            continue
+        }
+        visited[current] = true
+
+        if block, ok := store.Get(current); ok {
+            ancestorsA[current] = block.Round()
+
+            for _, parent := range block.Parents() {
+                if !visited[parent] {
+                    queue = append(queue, parent)
+                }
+            }
+        }
+    }
+
+    // Find first common ancestor of b
+    queue = []V{b}
+    visited = make(map[V]bool)
+    var lca V
+    var lcaHeight uint64 = ^uint64(0)
+
+    for len(queue) > 0 {
+        current := queue[0]
+        queue = queue[1:]
+
+        if visited[current] {
+            continue
+        }
+        visited[current] = true
+
+        if height, isAncestor := ancestorsA[current]; isAncestor {
+            if height < lcaHeight {
+                lcaHeight = height
+                lca = current
+            }
+        }
+
+        if block, ok := store.Get(current); ok {
+            for _, parent := range block.Parents() {
+                if !visited[parent] {
+                    queue = append(queue, parent)
+                }
+            }
+        }
+    }
+
+    return lca
+}
+```
+
+### Antichain Computation
+
+```go
+// Antichain computes mutually unreachable vertices in the DAG
+func Antichain[V VID](store Store[V], vertices []V) []V {
+    if len(vertices) <= 1 {
+        return vertices
+    }
+
+    var antichain []V
+
+    for i, v1 := range vertices {
+        isInAntichain := true
+
+        for j, v2 := range vertices {
+            if i == j {
+                continue
+            }
+
+            // If v1 can reach v2 or v2 can reach v1, not in antichain
+            if IsReachable(store, v1, v2) || IsReachable(store, v2, v1) {
+                isInAntichain = false
+                break
+            }
+        }
+
+        if isInAntichain {
+            antichain = append(antichain, v1)
+        }
+    }
+
+    return antichain
+}
+```
+
+## Finalization Pipeline
+
+### DAG Frontier Update
+
+```go
+// UpdateDAGFrontier computes new frontier after finalizing vertices
+func UpdateDAGFrontier[V VID](store Store[V], finalized []V) []V {
+    if len(finalized) == 0 {
+        return store.Head()
+    }
+
+    // Mark finalized vertices
+    finalizedSet := make(map[V]bool)
+    for _, v := range finalized {
+        finalizedSet[v] = true
+    }
+
+    // Find tips that are not finalized
+    var newFrontier []V
+    candidates := store.Head()
+
+    visited := make(map[V]bool)
+    queue := make([]V, len(finalized))
+    copy(queue, finalized)
+
+    for len(queue) > 0 {
+        current := queue[0]
+        queue = queue[1:]
+
+        if visited[current] {
+            continue
+        }
+        visited[current] = true
+
+        children := store.Children(current)
+        for _, child := range children {
+            if !finalizedSet[child] && !visited[child] {
+                queue = append(queue, child)
+
+                // Check if child is a tip
+                childChildren := store.Children(child)
+                isTip := true
+                for _, cc := range childChildren {
+                    if !finalizedSet[cc] {
+                        isTip = false
+                        break
+                    }
+                }
+
+                if isTip {
+                    newFrontier = append(newFrontier, child)
+                }
+            }
+        }
+    }
+
+    if len(newFrontier) == 0 {
+        return candidates
+    }
+
+    return newFrontier
+}
+```
+
+### Finalizable Set Computation
+
+```go
+// ComputeFinalizableSet returns vertices ready for finalization
+func ComputeFinalizableSet[V VID](
+    store Store[V],
+    candidates []V,
+    params Params,
+) []V {
+    var finalizable []V
+
+    for _, v := range candidates {
+        if ClassifyGeneric(store, v, params) == DecideCommit {
+            finalizable = append(finalizable, v)
+        }
+    }
+
+    return finalizable
+}
+
+// ClassifyGeneric determines vertex status using generic types
+func ClassifyGeneric[V VID](store Store[V], vertex V, params Params) Decision {
+    switch {
+    case HasCertificateGeneric(store, vertex, params):
+        return DecideCommit
+    case HasSkipGeneric(store, vertex, params):
+        return DecideSkip
+    default:
+        return DecideUndecided
+    }
+}
+```
+
+## Block Structure
+
+### Parent Selection
+
+```go
+// SelectParents chooses optimal parents for a new block
+func (f *Flare) SelectParents(
+    frontier []V,
+    maxParents int,
+) []V {
+    // Filter to include only finalized or certified blocks
+    var candidates []V
+    for _, v := range frontier {
+        decision := f.Classify(f.view, f.getMeta(v))
+        if decision == DecideCommit || decision == DecideUndecided {
+            candidates = append(candidates, v)
+        }
+    }
+
+    // Select up to maxParents
+    if len(candidates) <= maxParents {
+        return candidates
+    }
+
+    // Prioritize by:
+    // 1. Certificate status (committed first)
+    // 2. Round number (higher first)
+    // 3. Transaction count (more txs first)
+    sort.Slice(candidates, func(i, j int) bool {
+        mi := f.getMeta(candidates[i])
+        mj := f.getMeta(candidates[j])
+
+        // Committed blocks first
+        di := f.Classify(f.view, mi)
+        dj := f.Classify(f.view, mj)
+        if di != dj {
+            return di == DecideCommit
+        }
+
+        // Higher round first
+        return mi.Round() > mj.Round()
+    })
+
+    return candidates[:maxParents]
+}
+```
+
+### Block Creation
+
+```go
+// CreateBlock creates a new block with optimal parent selection
+func (f *Flare) CreateBlock(
+    txs []Transaction,
+    proposer string,
+) (*Block, error) {
+    // Get current frontier
+    frontier := f.store.Head()
+
+    // Select parents
+    parents := f.SelectParents(frontier, f.maxParents)
+    if len(parents) == 0 {
+        return nil, ErrNoValidParents
+    }
+
+    // Compute height as max parent height + 1
+    maxHeight := uint64(0)
+    for _, p := range parents {
+        if meta, ok := f.store.Get(p); ok {
+            if meta.Round() > maxHeight {
+                maxHeight = meta.Round()
+            }
+        }
+    }
+
+    block := &Block{
+        ID:        computeBlockID(parents, txs),
+        Parents:   parents,
+        Round:     maxHeight + 1,
+        Author:    proposer,
+        Timestamp: time.Now().UnixMilli(),
+        TxRoot:    computeMerkleRoot(txs),
+    }
+
+    return block, nil
+}
+```
+
+## DEX Trade Ordering
+
+### Deterministic Transaction Order
+
+Flare ensures deterministic transaction ordering within finalized blocks:
+
+```go
+// OrderTransactions provides deterministic ordering for DEX trades
+func (f *Flare) OrderTransactions(block *Block) []Transaction {
+    txs := block.Transactions
+
+    // Sort by:
+    // 1. Priority fee (highest first)
+    // 2. Nonce (for same sender)
+    // 3. Transaction hash (tiebreaker)
+    sort.Slice(txs, func(i, j int) bool {
+        // Priority fee
+        if txs[i].PriorityFee() != txs[j].PriorityFee() {
+            return txs[i].PriorityFee() > txs[j].PriorityFee()
+        }
+
+        // Same sender: by nonce
+        if txs[i].Sender() == txs[j].Sender() {
+            return txs[i].Nonce() < txs[j].Nonce()
+        }
+
+        // Tiebreaker: hash
+        return bytes.Compare(txs[i].Hash(), txs[j].Hash()) < 0
+    })
+
+    return txs
+}
+```
+
+### MEV Protection
+
+```go
+// FairOrdering implements timestamp-based fair ordering
+func (f *Flare) FairOrdering(block *Block) []Transaction {
+    // Group transactions by timestamp bucket (sub-ms precision)
+    buckets := make(map[int64][]Transaction)
+    bucketSize := int64(time.Microsecond * 100) // 100us buckets
+
+    for _, tx := range block.Transactions {
+        bucket := tx.Timestamp() / bucketSize
+        buckets[bucket] = append(buckets[bucket], tx)
+    }
+
+    // Sort buckets
+    var bucketKeys []int64
+    for k := range buckets {
+        bucketKeys = append(bucketKeys, k)
+    }
+    sort.Slice(bucketKeys, func(i, j int) bool {
+        return bucketKeys[i] < bucketKeys[j]
+    })
+
+    // Within each bucket, use hash ordering (deterministic but unpredictable)
+    var ordered []Transaction
+    for _, k := range bucketKeys {
+        txs := buckets[k]
+        sort.Slice(txs, func(i, j int) bool {
+            return bytes.Compare(txs[i].Hash(), txs[j].Hash()) < 0
+        })
+        ordered = append(ordered, txs...)
+    }
+
+    return ordered
+}
+```
+
+## Performance
+
+### Finalization Metrics
+
+| Metric | Value | Description |
+|--------|-------|-------------|
+| Certificate Time | <0.3ms | Time to achieve 2f+1 support |
+| Skip Detection | <0.1ms | Time to detect skip condition |
+| Frontier Update | <0.05ms | Time to update DAG frontier |
+| Total Finalization | <0.5ms | End-to-end finalization |
+
+### Throughput
+
+```go
+// FinalizeMetrics tracks finalization performance
+type FinalizeMetrics struct {
+    BlocksFinalized    uint64
+    BlocksSkipped      uint64
+    AvgFinalizationMs  float64
+    MaxConcurrentBlocks int
+    TxPerSecond        uint64
+}
+
+// Typical performance:
+// BlocksFinalized:    1000/s
+// AvgFinalizationMs:  0.4ms
+// MaxConcurrentBlocks: 4
+// TxPerSecond:        150,000
+```
+
+## Security Analysis
+
+### Certificate Safety
+
+**Property**: If a block receives a certificate, no conflicting block can receive a certificate.
+
+**Proof**: Certificate requires 2f+1 validators. Two conflicting certificates would require 2*(2f+1) = 4f+2 validators. Since n = 3f+1, this is impossible (4f+2 > 3f+1 for f >= 1).
+
+### Liveness
+
+**Property**: Eventually, every proposed block either receives a certificate or a skip certificate.
+
+**Proof**: In each round, validators must either support or not support a block. After sufficient rounds, one threshold (2f+1 support or 2f+1 no-support) must be met.
+
+### DAG Consistency
+
+```go
+// VerifyDAGConsistency checks DAG invariants
+func (f *Flare) VerifyDAGConsistency() error {
+    // All parents must exist
+    for _, v := range f.store.All() {
+        block, _ := f.store.Get(v)
+        for _, parent := range block.Parents() {
+            if _, ok := f.store.Get(parent); !ok {
+                return ErrMissingParent
+            }
+        }
+    }
+
+    // No cycles (DAG property)
+    if hasCycle(f.store) {
+        return ErrCycleDetected
+    }
+
+    // Finalized blocks form a connected subgraph
+    if !finalizedConnected(f.store) {
+        return ErrDisconnectedFinalized
+    }
+
+    return nil
+}
+```
+
+## Related Documentation
+
+- [Consensus Overview](/docs/consensus) - System architecture
+- [Photon FPC Protocol](/docs/consensus/photon) - Validator voting
+- [1ms Finality](/docs/consensus/finality) - Settlement guarantees
+- [DEX Integration](/docs/consensus/integration) - Order execution

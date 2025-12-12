@@ -1,0 +1,667 @@
+---
+title: Account Management
+description: Account information, balances, positions, and margin data
+---
+
+# Account Management
+
+Access account information, balances, positions, and margin data using the TypeScript SDK.
+
+## Account Overview
+
+The SDK provides access to account data through the main client and specialized sub-clients:
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:8080/rpc',
+  wsUrl: 'ws://localhost:8081'
+});
+
+// Market data client for margin info
+const marketData = client.marketData;
+
+// Liquidation monitor for risk alerts
+const liquidationMonitor = client.liquidationMonitor;
+```
+
+## Margin Information
+
+### Get Margin Status
+
+```typescript
+import { LXDexClient, MarginInfo } from '@luxfi/dex-sdk';
+
+async function getMarginStatus(userId: string): Promise<MarginInfo> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const margin = await client.marketData.getMarginInfo(userId);
+
+  console.log('Margin Status:');
+  console.log(`  User ID: ${margin.userId}`);
+  console.log(`  Initial Margin: $${margin.initialMargin.toLocaleString()}`);
+  console.log(`  Maintenance Margin: $${margin.maintenanceMargin.toLocaleString()}`);
+  console.log(`  Margin Ratio: ${(margin.marginRatio * 100).toFixed(2)}%`);
+  console.log(`  Free Margin: $${margin.freeMargin.toLocaleString()}`);
+  console.log(`  Margin Level: ${margin.marginLevel.toFixed(2)}`);
+
+  return margin;
+}
+```
+
+### Margin Info Interface
+
+```typescript
+interface MarginInfo {
+  userId: string;
+  initialMargin: number;       // Required margin for positions
+  maintenanceMargin: number;   // Minimum margin to avoid liquidation
+  marginRatio: number;         // Current margin / required margin
+  freeMargin: number;          // Available for new positions
+  marginLevel: number;         // Equity / maintenance margin
+}
+```
+
+## Liquidation Risk
+
+### Check Liquidation Risk
+
+```typescript
+import { LXDexClient, LiquidationRisk } from '@luxfi/dex-sdk';
+
+async function checkLiquidationRisk(userId: string): Promise<LiquidationRisk> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const risk = await client.marketData.checkLiquidationRisk(userId);
+
+  console.log('Liquidation Risk Assessment:');
+  console.log(`  Risk Level: ${risk.riskLevel.toUpperCase()}`);
+  console.log(`  Margin Level: ${risk.marginLevel.toFixed(2)}`);
+  console.log(`  Liquidation Price: $${risk.liquidationPrice.toLocaleString()}`);
+
+  if (risk.timeToLiquidation !== null) {
+    console.log(`  Time to Liquidation: ${risk.timeToLiquidation}ms`);
+  }
+
+  if (risk.recommendations.length > 0) {
+    console.log('  Recommendations:');
+    risk.recommendations.forEach(r => console.log(`    - ${r}`));
+  }
+
+  return risk;
+}
+```
+
+### Liquidation Risk Interface
+
+```typescript
+interface LiquidationRisk {
+  userId: string;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  marginLevel: number;
+  liquidationPrice: number;
+  timeToLiquidation: number | null;  // Estimated time in ms
+  recommendations: string[];
+}
+```
+
+### Risk Level Actions
+
+```typescript
+import { LiquidationRisk } from '@luxfi/dex-sdk';
+
+function handleRiskLevel(risk: LiquidationRisk): void {
+  switch (risk.riskLevel) {
+    case 'low':
+      console.log('Position is healthy');
+      break;
+
+    case 'medium':
+      console.log('Warning: Consider reducing position size');
+      // Optional: Send notification
+      break;
+
+    case 'high':
+      console.log('Alert: High liquidation risk');
+      // Reduce position or add margin
+      break;
+
+    case 'critical':
+      console.log('CRITICAL: Immediate action required');
+      // Emergency position reduction
+      break;
+  }
+}
+```
+
+## Recent Liquidations
+
+### Query Liquidations
+
+```typescript
+import { LXDexClient, LiquidationInfo } from '@luxfi/dex-sdk';
+
+async function getRecentLiquidations(symbol: string): Promise<LiquidationInfo[]> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const liquidations = await client.marketData.getLiquidations(symbol, 100);
+
+  console.log(`Recent Liquidations for ${symbol}:`);
+  liquidations.forEach(liq => {
+    console.log(`  User: ${liq.userId}`);
+    console.log(`  Size: ${liq.size}`);
+    console.log(`  Liquidation Price: $${liq.liquidationPrice}`);
+    console.log(`  Mark Price: $${liq.markPrice}`);
+    console.log(`  Status: ${liq.status}`);
+    console.log(`  Time: ${liq.timestamp.toLocaleString()}`);
+    console.log('  ---');
+  });
+
+  return liquidations;
+}
+```
+
+### Liquidation Info Interface
+
+```typescript
+interface LiquidationInfo {
+  userId: string;
+  positionId: string;
+  symbol: string;
+  size: number;
+  liquidationPrice: number;
+  markPrice: number;
+  status: string;
+  timestamp: Date;
+}
+```
+
+## Real-Time Monitoring
+
+### Subscribe to Liquidations
+
+```typescript
+import { LXDexClient, LiquidationInfo } from '@luxfi/dex-sdk';
+
+async function monitorLiquidations(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  client.liquidationMonitor.subscribeLiquidations((liquidation: LiquidationInfo) => {
+    console.log('LIQUIDATION EVENT:');
+    console.log(`  User: ${liquidation.userId}`);
+    console.log(`  Symbol: ${liquidation.symbol}`);
+    console.log(`  Size: ${liquidation.size}`);
+    console.log(`  Price: $${liquidation.liquidationPrice}`);
+  });
+
+  console.log('Monitoring liquidations...');
+}
+```
+
+### Subscribe to Margin Calls
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+interface MarginCallEvent {
+  userId: string;
+  marginLevel: number;
+  requiredAction: string;
+  deadline: Date;
+}
+
+async function monitorMarginCalls(userId: string): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  client.liquidationMonitor.subscribeMarginCalls(userId, (event: MarginCallEvent) => {
+    console.log('MARGIN CALL:');
+    console.log(`  Margin Level: ${event.marginLevel}`);
+    console.log(`  Required Action: ${event.requiredAction}`);
+    console.log(`  Deadline: ${event.deadline.toLocaleString()}`);
+  });
+
+  console.log(`Monitoring margin calls for ${userId}...`);
+}
+```
+
+## Settlement Information
+
+### Get Settlement Batch
+
+```typescript
+import { LXDexClient, SettlementBatch } from '@luxfi/dex-sdk';
+
+async function getSettlementInfo(batchId: number): Promise<SettlementBatch> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const batch = await client.marketData.getSettlementBatch(batchId);
+
+  console.log('Settlement Batch:');
+  console.log(`  Batch ID: ${batch.batchId}`);
+  console.log(`  Status: ${batch.status}`);
+  console.log(`  Orders: ${batch.orderIds.length}`);
+
+  if (batch.txHash) {
+    console.log(`  TX Hash: ${batch.txHash}`);
+  }
+  if (batch.gasUsed) {
+    console.log(`  Gas Used: ${batch.gasUsed}`);
+  }
+
+  console.log(`  Timestamp: ${batch.timestamp.toLocaleString()}`);
+
+  return batch;
+}
+```
+
+### Settlement Batch Interface
+
+```typescript
+interface SettlementBatch {
+  batchId: number;
+  orderIds: number[];
+  status: string;
+  txHash?: string;
+  gasUsed?: number;
+  timestamp: Date;
+}
+```
+
+### Subscribe to Settlements
+
+```typescript
+import { LXDexClient, SettlementBatch } from '@luxfi/dex-sdk';
+
+async function monitorSettlements(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  client.liquidationMonitor.subscribeSettlements((settlement: SettlementBatch) => {
+    console.log('SETTLEMENT:');
+    console.log(`  Batch: ${settlement.batchId}`);
+    console.log(`  Orders: ${settlement.orderIds.length}`);
+    console.log(`  Status: ${settlement.status}`);
+  });
+
+  console.log('Monitoring settlements...');
+}
+```
+
+## Insurance Fund
+
+### Get Insurance Fund Status
+
+```typescript
+import { LXDexClient, InsuranceFundStatus } from '@luxfi/dex-sdk';
+
+async function getInsuranceFundStatus(): Promise<InsuranceFundStatus> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const fund = await client.marketData.getInsuranceFundStatus();
+
+  console.log('Insurance Fund Status:');
+  console.log(`  Total Fund: $${fund.totalFund.toLocaleString()}`);
+  console.log(`  Available: $${fund.availableFund.toLocaleString()}`);
+  console.log(`  Used: $${fund.usedFund.toLocaleString()}`);
+  console.log(`  Pending Claims: ${fund.pendingClaims}`);
+  console.log(`  Last Update: ${fund.lastUpdate.toLocaleString()}`);
+
+  return fund;
+}
+```
+
+### Insurance Fund Interface
+
+```typescript
+interface InsuranceFundStatus {
+  totalFund: number;
+  availableFund: number;
+  usedFund: number;
+  pendingClaims: number;
+  lastUpdate: Date;
+}
+```
+
+## React Hooks
+
+### useMargin Hook
+
+```tsx
+import { useState, useEffect } from 'react';
+import { LXDexClient, MarginInfo } from '@luxfi/dex-sdk';
+
+interface UseMarginResult {
+  margin: MarginInfo | null;
+  loading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+
+export function useMargin(
+  client: LXDexClient | null,
+  userId: string
+): UseMarginResult {
+  const [margin, setMargin] = useState<MarginInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchMargin = async (): Promise<void> => {
+    if (!client) return;
+
+    try {
+      const data = await client.marketData.getMarginInfo(userId);
+      setMargin(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch margin'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMargin();
+
+    // Refresh every 5 seconds
+    const interval = setInterval(fetchMargin, 5000);
+    return () => clearInterval(interval);
+  }, [client, userId]);
+
+  return {
+    margin,
+    loading,
+    error,
+    refresh: fetchMargin
+  };
+}
+```
+
+### useLiquidationRisk Hook
+
+```tsx
+import { useState, useEffect } from 'react';
+import { LXDexClient, LiquidationRisk } from '@luxfi/dex-sdk';
+
+interface UseLiquidationRiskResult {
+  risk: LiquidationRisk | null;
+  loading: boolean;
+  error: Error | null;
+}
+
+export function useLiquidationRisk(
+  client: LXDexClient | null,
+  userId: string
+): UseLiquidationRiskResult {
+  const [risk, setRisk] = useState<LiquidationRisk | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+
+    const checkRisk = async (): Promise<void> => {
+      try {
+        const data = await client.marketData.checkLiquidationRisk(userId);
+        setRisk(data);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Failed to check risk'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkRisk();
+
+    // Check more frequently for high-risk users
+    const getInterval = (): number => {
+      if (risk?.riskLevel === 'critical') return 1000;
+      if (risk?.riskLevel === 'high') return 2000;
+      if (risk?.riskLevel === 'medium') return 5000;
+      return 10000;
+    };
+
+    const interval = setInterval(checkRisk, getInterval());
+    return () => clearInterval(interval);
+  }, [client, userId, risk?.riskLevel]);
+
+  return { risk, loading, error };
+}
+```
+
+### Account Dashboard Component
+
+```tsx
+import React from 'react';
+import { useMargin, useLiquidationRisk } from './hooks';
+import { useDexClient } from './DexProvider';
+
+interface AccountDashboardProps {
+  userId: string;
+}
+
+function AccountDashboard({ userId }: AccountDashboardProps): JSX.Element {
+  const { client } = useDexClient();
+  const { margin, loading: marginLoading } = useMargin(client, userId);
+  const { risk, loading: riskLoading } = useLiquidationRisk(client, userId);
+
+  if (marginLoading || riskLoading) {
+    return <div>Loading account data...</div>;
+  }
+
+  return (
+    <div className="account-dashboard">
+      <div className="margin-info">
+        <h3>Margin Status</h3>
+        {margin && (
+          <dl>
+            <dt>Initial Margin</dt>
+            <dd>${margin.initialMargin.toLocaleString()}</dd>
+
+            <dt>Maintenance Margin</dt>
+            <dd>${margin.maintenanceMargin.toLocaleString()}</dd>
+
+            <dt>Free Margin</dt>
+            <dd>${margin.freeMargin.toLocaleString()}</dd>
+
+            <dt>Margin Level</dt>
+            <dd>{margin.marginLevel.toFixed(2)}</dd>
+          </dl>
+        )}
+      </div>
+
+      <div className={`risk-indicator ${risk?.riskLevel}`}>
+        <h3>Risk Level</h3>
+        {risk && (
+          <>
+            <div className="risk-badge">{risk.riskLevel.toUpperCase()}</div>
+            <p>Liquidation Price: ${risk.liquidationPrice.toLocaleString()}</p>
+
+            {risk.recommendations.length > 0 && (
+              <ul className="recommendations">
+                {risk.recommendations.map((rec, i) => (
+                  <li key={i}>{rec}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default AccountDashboard;
+```
+
+## Account Monitoring Class
+
+### Complete Account Monitor
+
+```typescript
+import { LXDexClient, MarginInfo, LiquidationRisk, LiquidationInfo } from '@luxfi/dex-sdk';
+
+interface AccountMonitorOptions {
+  marginCheckInterval?: number;
+  riskCheckInterval?: number;
+  onMarginUpdate?: (margin: MarginInfo) => void;
+  onRiskUpdate?: (risk: LiquidationRisk) => void;
+  onLiquidation?: (liquidation: LiquidationInfo) => void;
+  onMarginCall?: (event: unknown) => void;
+}
+
+export class AccountMonitor {
+  private client: LXDexClient;
+  private userId: string;
+  private options: AccountMonitorOptions;
+  private marginInterval: NodeJS.Timeout | null = null;
+  private riskInterval: NodeJS.Timeout | null = null;
+  private running: boolean = false;
+
+  constructor(
+    client: LXDexClient,
+    userId: string,
+    options: AccountMonitorOptions = {}
+  ) {
+    this.client = client;
+    this.userId = userId;
+    this.options = {
+      marginCheckInterval: 5000,
+      riskCheckInterval: 2000,
+      ...options
+    };
+  }
+
+  async start(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+
+    // Connect WebSocket for real-time events
+    await this.client.connect();
+
+    // Start margin monitoring
+    this.marginInterval = setInterval(async () => {
+      try {
+        const margin = await this.client.marketData.getMarginInfo(this.userId);
+        this.options.onMarginUpdate?.(margin);
+      } catch (error) {
+        console.error('Margin check failed:', error);
+      }
+    }, this.options.marginCheckInterval);
+
+    // Start risk monitoring
+    this.riskInterval = setInterval(async () => {
+      try {
+        const risk = await this.client.marketData.checkLiquidationRisk(this.userId);
+        this.options.onRiskUpdate?.(risk);
+
+        // Adjust check frequency based on risk level
+        if (risk.riskLevel === 'critical' && this.riskInterval) {
+          clearInterval(this.riskInterval);
+          this.riskInterval = setInterval(async () => {
+            const r = await this.client.marketData.checkLiquidationRisk(this.userId);
+            this.options.onRiskUpdate?.(r);
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Risk check failed:', error);
+      }
+    }, this.options.riskCheckInterval);
+
+    // Subscribe to liquidation events
+    this.client.liquidationMonitor.subscribeLiquidations((liq) => {
+      if (liq.userId === this.userId) {
+        this.options.onLiquidation?.(liq);
+      }
+    });
+
+    // Subscribe to margin calls
+    this.client.liquidationMonitor.subscribeMarginCalls(this.userId, (event) => {
+      this.options.onMarginCall?.(event);
+    });
+
+    console.log(`Account monitor started for ${this.userId}`);
+  }
+
+  stop(): void {
+    if (!this.running) return;
+    this.running = false;
+
+    if (this.marginInterval) {
+      clearInterval(this.marginInterval);
+      this.marginInterval = null;
+    }
+
+    if (this.riskInterval) {
+      clearInterval(this.riskInterval);
+      this.riskInterval = null;
+    }
+
+    this.client.liquidationMonitor.unsubscribe('liquidations');
+    this.client.liquidationMonitor.unsubscribe(`margin_calls:${this.userId}`);
+
+    console.log(`Account monitor stopped for ${this.userId}`);
+  }
+}
+
+// Usage
+async function runAccountMonitor(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  const monitor = new AccountMonitor(client, 'trader-001', {
+    onMarginUpdate: (margin) => {
+      console.log('Margin:', margin.marginLevel);
+    },
+    onRiskUpdate: (risk) => {
+      if (risk.riskLevel !== 'low') {
+        console.log('Risk alert:', risk.riskLevel);
+      }
+    },
+    onLiquidation: (liq) => {
+      console.log('LIQUIDATED:', liq);
+    },
+    onMarginCall: (event) => {
+      console.log('MARGIN CALL:', event);
+    }
+  });
+
+  await monitor.start();
+
+  // Stop after 1 hour
+  setTimeout(() => monitor.stop(), 3600000);
+}
+```
+
+## Next Steps
+
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time connections
+- [Order Management](/docs/sdk/typescript/orders) - Place and manage orders
+- [Type Reference](/docs/sdk/typescript/types) - Complete type definitions

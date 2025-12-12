@@ -1,0 +1,155 @@
+---
+title: Source Code
+description: Complete source code reference for all Lux Network repositories
+---
+
+# Source Code Reference
+
+All Lux Network software is open source, developed in the open on GitHub. This section provides comprehensive documentation of every repository in the ecosystem.
+
+## Repository Overview
+
+| Repository | Language | Description | Lines of Code |
+|------------|----------|-------------|---------------|
+| [luxfi/node](https://github.com/luxfi/node) | Go | Core blockchain node, all VMs | 500K+ |
+| [luxfi/dex](https://github.com/luxfi/dex) | Go | DEX matching engine | 50K+ |
+| [luxfi/consensus](https://github.com/luxfi/consensus) | Go | Consensus engines (Chain, DAG, PQ) | 80K+ |
+| [luxfi/bridge](https://github.com/luxfi/bridge) | TypeScript | Bridge application and UI | 40K+ |
+| [luxfi/threshold](https://github.com/luxfi/threshold) | Go | Threshold cryptography, MPC | 60K+ |
+| [luxfi/crypto](https://github.com/luxfi/crypto) | Go | Cryptographic primitives | 45K+ |
+| [luxfi/standard](https://github.com/luxfi/standard) | Solidity | Smart contract standards | 30K+ |
+| [luxfi/sdk](https://github.com/luxfi/sdk) | Go | Multi-language SDKs | 25K+ |
+| [luxfi/warp](https://github.com/luxfi/warp) | Go | Cross-chain messaging | 15K+ |
+
+## Organization Structure
+
+```
+github.com/luxfi/
+├── node/           # Core blockchain node
+│   ├── vms/        # Virtual machines (Platform, Exchange, Bridge, etc.)
+│   ├── chains/     # Chain management
+│   ├── network/    # P2P networking
+│   └── database/   # Storage layer
+├── consensus/      # Consensus engines
+│   ├── core/       # Core consensus logic
+│   ├── engine/     # Engine implementations
+│   └── ai/         # AI-enhanced consensus
+├── dex/            # DEX implementation
+│   ├── pkg/lx/     # Matching engine
+│   ├── cmd/        # CLI tools
+│   └── pkg/api/    # API server
+├── bridge/         # Bridge application
+│   ├── app/        # React frontend
+│   └── contracts/  # Bridge contracts
+├── threshold/      # MPC cryptography
+│   ├── protocols/  # LSS, CMP, Corona
+│   └── pkg/        # Core libraries
+├── crypto/         # Crypto primitives
+│   ├── bls/        # BLS signatures
+│   ├── corona/   # Post-quantum
+│   └── secp256k1/  # ECDSA
+├── standard/       # Smart contracts
+│   ├── contracts/  # Solidity source
+│   └── deploy/     # Deployment scripts
+├── sdk/            # Client SDKs
+│   └── various/    # Go, TS, Python, Rust
+└── warp/           # Cross-chain messaging
+    ├── message.go  # Message types
+    └── precompile/ # EVM precompiles
+```
+
+## Quick Links
+
+### Core Infrastructure
+- [Node Repository](/docs/source/node) - Complete node implementation
+- [Consensus Repository](/docs/source/consensus) - Consensus engines
+- [Crypto Repository](/docs/source/crypto) - Cryptographic primitives
+
+### Applications
+- [DEX Repository](/docs/source/dex) - Matching engine and trading
+- [Bridge Repository](/docs/source/bridge) - Cross-chain bridge
+
+### Libraries
+- [Threshold Repository](/docs/source/threshold) - MPC protocols
+- [SDK Repository](/docs/source/sdk) - Client libraries
+- [Standard Contracts](/docs/source/standard) - Smart contracts
+
+## Build Requirements
+
+### Go Projects
+```bash
+# Required: Go 1.23+
+go version  # Should show go1.23.x or higher
+
+# Build any Go project
+cd <repo>
+go build ./...
+go test ./...
+```
+
+### TypeScript Projects
+```bash
+# Required: Node 20+, pnpm
+node --version  # Should show v20.x or higher
+pnpm --version  # Should show 8.x or higher
+
+# Build
+pnpm install
+pnpm build
+```
+
+### Solidity Projects
+```bash
+# Required: Foundry
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+# Build
+forge build
+forge test
+```
+
+## Test Coverage
+
+All repositories maintain high test coverage:
+
+| Repository | Coverage | CI Status |
+|------------|----------|-----------|
+| node | 89.8% | Passing |
+| consensus | 92.1% | Passing |
+| dex | 100% | Passing |
+| threshold | 94.3% | Passing |
+| crypto | 96.7% | Passing |
+
+## License
+
+All Lux Network repositories are licensed under permissive open source licenses:
+
+- **Core Infrastructure**: Business Source License 1.1 (BSL)
+- **Libraries and SDKs**: MIT License
+- **Smart Contracts**: MIT License
+
+See individual repository LICENSE files for details.
+
+## Contributing
+
+We welcome contributions to all repositories. See [Contributing Guide](/docs/source/contributing) for:
+
+- Code style guidelines
+- Pull request process
+- Code review requirements
+- Testing standards
+
+## Security
+
+Security issues should be reported privately:
+
+- **Email**: security@lux.network
+- **Bug Bounty**: Active program with rewards up to $100,000
+- **Audit Reports**: Available in each repository's `audits/` directory
+
+## Support
+
+- **GitHub Issues**: File bugs and feature requests
+- **Discord**: Real-time developer chat
+- **Documentation**: https://docs.lux.network

@@ -1,0 +1,740 @@
+---
+title: Account Methods
+description: LP-9002 JSON-RPC account and balance methods
+---
+
+# Account Methods
+
+Methods for querying account balances and positions. All account methods require authentication.
+
+## lx_getBalance
+
+Get balance for a single asset.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `asset` | string | Yes | Asset symbol (e.g., "BTC", "USDT") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getBalance",
+  "params": {
+    "asset": "BTC"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "asset": "BTC",
+    "total": "1.50000000",
+    "available": "1.25000000",
+    "locked": "0.25000000",
+    "inOrders": "0.25000000",
+    "pending": "0",
+    "updatedAt": 1702300000000
+  }
+}
+```
+
+### Balance Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `asset` | string | Asset symbol |
+| `total` | string | Total balance (available + locked) |
+| `available` | string | Available for trading/withdrawal |
+| `locked` | string | Locked in orders or pending operations |
+| `inOrders` | string | Locked in open orders |
+| `pending` | string | Pending deposits/withdrawals |
+| `updatedAt` | integer | Last update timestamp (ms) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getBalance",
+    "params": {
+      "asset": "BTC"
+    }
+  }'
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32602 | Invalid params | Unknown asset |
+| -32020 | Authentication required | Missing credentials |
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+- **Authentication**: Required
+
+---
+
+## lx_getBalances
+
+Get balances for all assets.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `hideZero` | boolean | No | Hide zero balances (default: false) |
+| `assets` | array | No | Filter to specific assets |
+
+### Request (All Balances)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getBalances",
+  "params": {
+    "hideZero": true
+  }
+}
+```
+
+### Request (Specific Assets)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getBalances",
+  "params": {
+    "assets": ["BTC", "ETH", "USDT", "LUX"]
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "balances": [
+      {
+        "asset": "BTC",
+        "total": "1.50000000",
+        "available": "1.25000000",
+        "locked": "0.25000000",
+        "inOrders": "0.25000000",
+        "pending": "0",
+        "usdValue": "63000.00"
+      },
+      {
+        "asset": "ETH",
+        "total": "25.00000000",
+        "available": "20.00000000",
+        "locked": "5.00000000",
+        "inOrders": "5.00000000",
+        "pending": "0",
+        "usdValue": "56250.00"
+      },
+      {
+        "asset": "USDT",
+        "total": "50000.00000000",
+        "available": "35000.00000000",
+        "locked": "15000.00000000",
+        "inOrders": "15000.00000000",
+        "pending": "0",
+        "usdValue": "50000.00"
+      },
+      {
+        "asset": "LUX",
+        "total": "10000.00000000",
+        "available": "10000.00000000",
+        "locked": "0",
+        "inOrders": "0",
+        "pending": "0",
+        "usdValue": "15000.00"
+      }
+    ],
+    "totalUsdValue": "184250.00",
+    "updatedAt": 1702300000000
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getBalances",
+    "params": {
+      "hideZero": true
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+- **Note**: Heavy query for accounts with many assets
+
+---
+
+## lx_getPositions
+
+Get open positions (for margin/futures trading).
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | No | Filter by market |
+| `status` | string | No | "open", "liquidating", or "all" (default: "open") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getPositions",
+  "params": {
+    "status": "open"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "positions": [
+      {
+        "positionId": "770e8400-e29b-41d4-a716-446655440200",
+        "market": "BTC-USDT",
+        "side": "long",
+        "size": "0.5000",
+        "entryPrice": "41500.00",
+        "markPrice": "42000.50",
+        "liquidationPrice": "35000.00",
+        "margin": "2075.00",
+        "leverage": "10",
+        "unrealizedPnl": "250.25",
+        "unrealizedPnlPercent": "12.06",
+        "realizedPnl": "150.00",
+        "marginRatio": "0.0495",
+        "status": "open",
+        "createdAt": 1702200000000,
+        "updatedAt": 1702300000000
+      },
+      {
+        "positionId": "770e8400-e29b-41d4-a716-446655440201",
+        "market": "ETH-USDT",
+        "side": "short",
+        "size": "5.0000",
+        "entryPrice": "2280.00",
+        "markPrice": "2250.00",
+        "liquidationPrice": "2500.00",
+        "margin": "1140.00",
+        "leverage": "10",
+        "unrealizedPnl": "150.00",
+        "unrealizedPnlPercent": "13.16",
+        "realizedPnl": "0",
+        "marginRatio": "0.0507",
+        "status": "open",
+        "createdAt": 1702250000000,
+        "updatedAt": 1702300000000
+      }
+    ],
+    "totalUnrealizedPnl": "400.25",
+    "totalMargin": "3215.00",
+    "availableMargin": "46785.00",
+    "totalEquity": "50400.25"
+  }
+}
+```
+
+### Position Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `positionId` | string | Unique position identifier |
+| `market` | string | Trading pair |
+| `side` | string | "long" or "short" |
+| `size` | string | Position size in base asset |
+| `entryPrice` | string | Average entry price |
+| `markPrice` | string | Current mark price |
+| `liquidationPrice` | string | Estimated liquidation price |
+| `margin` | string | Position margin |
+| `leverage` | string | Effective leverage |
+| `unrealizedPnl` | string | Unrealized profit/loss |
+| `unrealizedPnlPercent` | string | Unrealized PnL percentage |
+| `realizedPnl` | string | Realized profit/loss |
+| `marginRatio` | string | Margin / notional value |
+| `status` | string | "open", "liquidating", "closed" |
+| `createdAt` | integer | Position open timestamp |
+| `updatedAt` | integer | Last update timestamp |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getPositions",
+    "params": {}
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+
+---
+
+## lx_getAccountSummary
+
+Get complete account summary including balances, positions, and margin status.
+
+### Parameters
+
+None.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getAccountSummary",
+  "params": {}
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "accountId": "880e8400-e29b-41d4-a716-446655440300",
+    "accountType": "unified",
+    "equity": {
+      "totalUsd": "184650.25",
+      "available": "131435.00",
+      "locked": "53215.25"
+    },
+    "margin": {
+      "totalMargin": "3215.00",
+      "usedMargin": "3215.00",
+      "availableMargin": "46785.00",
+      "marginLevel": "57.46",
+      "maintenanceMarginRatio": "0.02"
+    },
+    "pnl": {
+      "unrealizedPnl": "400.25",
+      "realizedPnlToday": "1250.00",
+      "realizedPnl7d": "5680.50",
+      "realizedPnl30d": "18920.00"
+    },
+    "trading": {
+      "makerFeeRate": "0.0002",
+      "takerFeeRate": "0.0005",
+      "tierLevel": 3,
+      "volume30d": "2500000.00"
+    },
+    "limits": {
+      "maxLeverage": "20",
+      "maxPositionValue": "5000000.00",
+      "dailyWithdrawLimit": "100000.00",
+      "dailyWithdrawUsed": "15000.00"
+    },
+    "updatedAt": 1702300000000
+  }
+}
+```
+
+### Account Summary Fields
+
+| Section | Field | Description |
+|---------|-------|-------------|
+| equity | totalUsd | Total account value in USD |
+| equity | available | Available for trading |
+| equity | locked | Locked in orders/positions |
+| margin | totalMargin | Total margin allocated |
+| margin | usedMargin | Margin in use |
+| margin | availableMargin | Margin available for new positions |
+| margin | marginLevel | Account health (higher is safer) |
+| pnl | unrealizedPnl | Unrealized profit/loss |
+| pnl | realizedPnlToday | Today's realized PnL |
+| trading | makerFeeRate | Your maker fee rate |
+| trading | takerFeeRate | Your taker fee rate |
+| trading | tierLevel | Fee tier level |
+| limits | maxLeverage | Maximum allowed leverage |
+| limits | dailyWithdrawLimit | Daily withdrawal limit |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getAccountSummary",
+    "params": {}
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+
+---
+
+## lx_getDepositAddress
+
+Get deposit address for an asset.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `asset` | string | Yes | Asset symbol |
+| `network` | string | No | Network (e.g., "ERC20", "BEP20", "LUX") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getDepositAddress",
+  "params": {
+    "asset": "USDT",
+    "network": "LUX"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "asset": "USDT",
+    "network": "LUX",
+    "address": "lux1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    "memo": null,
+    "minDeposit": "10.00",
+    "confirmations": 12,
+    "estimatedArrival": "5 minutes",
+    "createdAt": 1702300000000
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getDepositAddress",
+    "params": {
+      "asset": "USDT",
+      "network": "LUX"
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+
+---
+
+## lx_getDeposits
+
+Get deposit history.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `asset` | string | No | Filter by asset |
+| `status` | string | No | "pending", "completed", "failed" |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+| `limit` | integer | No | Max results (default: 100) |
+| `offset` | integer | No | Pagination offset |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getDeposits",
+  "params": {
+    "status": "completed",
+    "limit": 50
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "deposits": [
+      {
+        "depositId": "990e8400-e29b-41d4-a716-446655440400",
+        "asset": "USDT",
+        "network": "LUX",
+        "amount": "10000.00",
+        "fee": "0",
+        "status": "completed",
+        "txHash": "0x123abc...",
+        "address": "lux1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+        "confirmations": 15,
+        "requiredConfirmations": 12,
+        "createdAt": 1702290000000,
+        "completedAt": 1702290500000
+      }
+    ],
+    "total": 25,
+    "hasMore": false
+  }
+}
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+
+---
+
+## lx_getWithdrawals
+
+Get withdrawal history.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `asset` | string | No | Filter by asset |
+| `status` | string | No | "pending", "processing", "completed", "failed" |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+| `limit` | integer | No | Max results (default: 100) |
+| `offset` | integer | No | Pagination offset |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getWithdrawals",
+  "params": {
+    "limit": 50
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "withdrawals": [
+      {
+        "withdrawalId": "aa0e8400-e29b-41d4-a716-446655440500",
+        "asset": "BTC",
+        "network": "BTC",
+        "amount": "0.50000000",
+        "fee": "0.00010000",
+        "status": "completed",
+        "txHash": "abc123...",
+        "toAddress": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+        "createdAt": 1702280000000,
+        "completedAt": 1702282000000
+      }
+    ],
+    "total": 10,
+    "hasMore": false
+  }
+}
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+
+---
+
+## lx_requestWithdrawal
+
+Request a withdrawal (requires 2FA if enabled).
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `asset` | string | Yes | Asset to withdraw |
+| `network` | string | Yes | Withdrawal network |
+| `amount` | string | Yes | Amount to withdraw |
+| `address` | string | Yes | Destination address |
+| `memo` | string | No | Memo/tag (for chains that require it) |
+| `twoFactorCode` | string | Conditional | 2FA code if enabled |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_requestWithdrawal",
+  "params": {
+    "asset": "USDT",
+    "network": "LUX",
+    "amount": "1000.00",
+    "address": "lux1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    "twoFactorCode": "123456"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "withdrawalId": "bb0e8400-e29b-41d4-a716-446655440600",
+    "asset": "USDT",
+    "network": "LUX",
+    "amount": "1000.00",
+    "fee": "1.00",
+    "netAmount": "999.00",
+    "address": "lux1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    "status": "pending",
+    "createdAt": 1702300000000
+  }
+}
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32002 | Insufficient balance | Not enough funds |
+| -32040 | Invalid address | Address validation failed |
+| -32041 | 2FA required | Missing 2FA code |
+| -32042 | Invalid 2FA code | Wrong 2FA code |
+| -32043 | Withdrawal limit exceeded | Daily limit reached |
+
+### Rate Limit
+
+- **Limit**: 5 requests per second
+
+---
+
+## OpenRPC Schema Reference
+
+```json
+{
+  "name": "lx_getBalances",
+  "summary": "Get all account balances",
+  "params": [
+    {
+      "name": "hideZero",
+      "required": false,
+      "schema": {"type": "boolean", "default": false}
+    },
+    {
+      "name": "assets",
+      "required": false,
+      "schema": {"type": "array", "items": {"type": "string"}}
+    }
+  ],
+  "result": {
+    "name": "BalancesResult",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "balances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "asset": {"type": "string"},
+              "total": {"type": "string"},
+              "available": {"type": "string"},
+              "locked": {"type": "string"}
+            }
+          }
+        },
+        "totalUsdValue": {"type": "string"},
+        "updatedAt": {"type": "integer"}
+      }
+    }
+  }
+}
+```

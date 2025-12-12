@@ -1,0 +1,583 @@
+---
+title: Order Types
+description: Complete reference for all order types - limit, market, stop, iceberg, TWAP, and advanced algorithmic orders
+---
+
+# Order Types
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+
+LX DEX supports a comprehensive set of order types for all trading strategies.
+
+## Basic Order Types
+
+### Limit Order
+
+Execute at a specified price or better. The order rests on the book until filled or cancelled.
+
+**Behavior:**
+- Buy limit: Executes at limit price or lower
+- Sell limit: Executes at limit price or higher
+- Unfilled portion remains on order book
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '1.5',
+  timeInForce: 'GTC'
+})
+```
+
+**Example Scenario:**
+```
+Current BTC price: $50,500
+You place: Buy 1 BTC @ $50,000 (limit)
+
+Result: Order rests on book at $50,000
+        Executes when ask drops to $50,000 or below
+```
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Price certainty | May not fill |
+| Lower fees (maker) | Requires price monitoring |
+| No slippage | Market may move away |
+
+---
+
+### Market Order
+
+Execute immediately at the best available price. Guarantees execution but not price.
+
+**Behavior:**
+- Fills against existing orders on opposite side
+- May execute at multiple price levels (slippage)
+- Immediate execution or rejection
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'market',
+  quantity: '1.0'
+})
+```
+
+**Example Scenario:**
+```
+Order Book:
+  Ask: $50,100 x 0.5 BTC
+  Ask: $50,150 x 1.0 BTC
+  Ask: $50,200 x 2.0 BTC
+
+You place: Market Buy 1.2 BTC
+
+Fills:
+  0.5 BTC @ $50,100 = $25,050
+  0.7 BTC @ $50,150 = $35,105
+  ---
+  1.2 BTC total = $60,155
+  Average price = $50,129.17
+```
+
+<Callout type="warning">
+**Slippage Warning**: Market orders on illiquid pairs may execute at unfavorable prices. Use limit orders for large sizes.
+</Callout>
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Guaranteed fill | Price uncertainty |
+| Instant execution | Slippage on large orders |
+| Simple to use | Higher fees (taker) |
+
+---
+
+### Stop Order (Stop-Market)
+
+Triggers a market order when the stop price is reached. Used for stop-losses and breakout entries.
+
+**Behavior:**
+- Inactive until stop price is triggered
+- Becomes market order when triggered
+- Trigger based on last traded price
+
+```typescript
+// Stop-loss: Sell if price drops to $45,000
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'stop',
+  stopPrice: '45000.00',
+  quantity: '1.0'
+})
+```
+
+**Trigger Conditions:**
+| Order Side | Trigger Condition |
+|------------|------------------|
+| Sell Stop | Last price <= Stop price |
+| Buy Stop | Last price >= Stop price |
+
+**Example Scenario:**
+```
+You hold: 1 BTC bought at $50,000
+Stop-loss: Sell stop @ $45,000
+
+Price drops: $50,000 -> $47,000 -> $45,000 (TRIGGERED)
+Stop becomes market sell, executes at ~$44,950 (best bid)
+```
+
+---
+
+### Stop-Limit Order
+
+Triggers a limit order (not market) when stop price is reached. Provides price protection after trigger.
+
+**Behavior:**
+- Inactive until stop price triggered
+- Becomes limit order at specified limit price
+- May not fill if price moves past limit
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'stopLimit',
+  stopPrice: '45000.00',  // Trigger price
+  price: '44500.00',      // Limit price after trigger
+  quantity: '1.0'
+})
+```
+
+**Example Scenario:**
+```
+Stop price: $45,000 (trigger)
+Limit price: $44,500 (execution)
+
+Price drops to $45,000 -> Stop triggers
+Limit sell @ $44,500 placed on book
+
+If price gaps to $44,000:
+  Order remains unfilled (limit not reached)
+
+If price rebounds to $44,500:
+  Order fills at $44,500
+```
+
+<Callout type="info">
+**Stop vs Stop-Limit**: Use stop-market when execution is priority (stop-loss). Use stop-limit when price protection is priority (may not fill in fast markets).
+</Callout>
+
+---
+
+## Advanced Order Types
+
+### Trailing Stop
+
+A dynamic stop that follows the price by a fixed amount or percentage. Locks in profits as price moves favorably.
+
+**Behavior:**
+- Trail amount: Fixed distance from peak price
+- Moves only in favorable direction
+- Triggers when price reverses by trail amount
+
+```typescript
+// Trailing stop: Follow price with $500 trail
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'trailingStop',
+  trailAmount: '500.00',  // Fixed amount
+  quantity: '1.0'
+})
+
+// Percentage trail
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'trailingStop',
+  trailPercent: '2.0',    // 2% trail
+  quantity: '1.0'
+})
+```
+
+**Example Scenario:**
+```
+Entry: Buy BTC @ $50,000
+Trail: $500
+
+Price movement:
+  $50,000 -> Stop at $49,500
+  $51,000 -> Stop moves to $50,500 (peak - $500)
+  $52,500 -> Stop moves to $52,000
+  $52,000 -> TRIGGERED (price dropped $500 from peak)
+
+Result: Sold at ~$52,000 (locked in $2,000 profit)
+```
+
+---
+
+### Iceberg Order
+
+Display only a portion of the total order quantity. Prevents market impact from large orders.
+
+**Behavior:**
+- Total quantity hidden from order book
+- Only display quantity visible
+- Auto-replenishes as display fills
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '100.0',       // Total quantity
+  displayQuantity: '5.0',  // Visible quantity
+  iceberg: true
+})
+```
+
+**Example Scenario:**
+```
+Total order: Buy 100 BTC @ $50,000
+Display: 5 BTC
+
+Order book shows: Bid 5 BTC @ $50,000
+
+After 5 BTC fills:
+  Order book shows: Bid 5 BTC @ $50,000 (replenished)
+
+After 100 BTC total filled:
+  Order completed
+```
+
+| Display Size | Use Case |
+|--------------|----------|
+| 10-20% of total | Standard institutional |
+| 5-10% of total | High-impact avoidance |
+| 1-5% of total | Maximum stealth |
+
+---
+
+### TWAP Order (Time-Weighted Average Price)
+
+Execute a large order over time to minimize market impact. Slices order into smaller pieces.
+
+**Behavior:**
+- Divides order into time slices
+- Executes at regular intervals
+- Targets volume-weighted average price
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'twap',
+  quantity: '50.0',
+  duration: 3600,          // 1 hour in seconds
+  slices: 12,              // 12 child orders (every 5 min)
+  priceLimit: '52000.00'   // Max price cap
+})
+```
+
+**Example Scenario:**
+```
+Total: Buy 50 BTC over 1 hour
+Slices: 12 (every 5 minutes)
+Each slice: ~4.17 BTC
+
+Timeline:
+  00:00 - Buy 4.17 BTC @ market ($50,100)
+  00:05 - Buy 4.17 BTC @ market ($50,050)
+  00:10 - Buy 4.17 BTC @ market ($50,200)
+  ...
+  00:55 - Buy 4.17 BTC @ market ($50,150)
+
+Result: 50 BTC at average price of ~$50,120
+        vs single market order slippage
+```
+
+---
+
+### Post-Only Order
+
+Ensure order is always a maker (adds liquidity). Rejects if it would immediately match.
+
+**Behavior:**
+- Only rests on book, never crosses
+- Guarantees maker fee tier
+- Rejects if would be taker
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '1.0',
+  postOnly: true
+})
+```
+
+**Example Scenario:**
+```
+Best Ask: $50,100
+
+Post-only buy @ $50,000:
+  Result: Order rests on book (maker)
+
+Post-only buy @ $50,150:
+  Result: REJECTED (would cross spread)
+```
+
+---
+
+### Bracket Order
+
+Entry order with attached take-profit and stop-loss. Creates OCO (one-cancels-other) exits.
+
+**Behavior:**
+- Entry order executes first
+- Take-profit and stop-loss activate after fill
+- First exit to trigger cancels the other
+
+```typescript
+const order = await dex.placeBracketOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '1.0',
+  takeProfit: '55000.00',  // Sell at $55,000
+  stopLoss: '47000.00'     // Stop-sell at $47,000
+})
+```
+
+**Example Scenario:**
+```
+Entry: Buy 1 BTC @ $50,000
+Take-profit: Sell @ $55,000
+Stop-loss: Sell stop @ $47,000
+
+Scenario A - Price rises to $55,000:
+  Take-profit triggers, sells at $55,000
+  Stop-loss automatically cancelled
+  Profit: $5,000
+
+Scenario B - Price drops to $47,000:
+  Stop-loss triggers, sells at ~$47,000
+  Take-profit automatically cancelled
+  Loss: ~$3,000
+```
+
+---
+
+## Time-in-Force Options
+
+### GTC (Good Till Cancelled)
+
+Order remains active until filled or manually cancelled.
+
+```typescript
+timeInForce: 'GTC'
+```
+
+- **Duration**: Indefinite
+- **Use case**: Patient limit orders
+- **Note**: Check order status periodically
+
+---
+
+### IOC (Immediate or Cancel)
+
+Fill whatever is available immediately, cancel the rest.
+
+```typescript
+timeInForce: 'IOC'
+```
+
+**Example:**
+```
+Order: Buy 10 BTC @ $50,000 IOC
+Available at $50,000: 3 BTC
+
+Result:
+  Filled: 3 BTC @ $50,000
+  Cancelled: 7 BTC (unfilled)
+```
+
+- **Use case**: Opportunistic fills
+- **Partial fills**: Allowed
+
+---
+
+### FOK (Fill or Kill)
+
+Fill the entire order immediately or cancel entirely. No partial fills.
+
+```typescript
+timeInForce: 'FOK'
+```
+
+**Example:**
+```
+Order: Buy 10 BTC @ $50,000 FOK
+Available at $50,000: 3 BTC
+
+Result: Entire order CANCELLED (insufficient liquidity)
+
+If available was 10+ BTC:
+Result: Filled 10 BTC @ $50,000
+```
+
+- **Use case**: All-or-nothing execution
+- **Partial fills**: Not allowed
+
+---
+
+### GTD (Good Till Date)
+
+Order expires at specified timestamp.
+
+```typescript
+timeInForce: 'GTD',
+expireTime: '2024-12-31T23:59:59Z'
+```
+
+- **Use case**: Time-limited strategies
+- **Format**: ISO 8601 timestamp
+
+---
+
+### DAY
+
+Order expires at end of trading day (00:00 UTC).
+
+```typescript
+timeInForce: 'DAY'
+```
+
+- **Use case**: Intraday trading
+- **Expiry**: 00:00 UTC daily
+
+---
+
+## Order Flags
+
+### Reduce-Only
+
+Only reduce existing position, never increase.
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'limit',
+  price: '55000.00',
+  quantity: '1.0',
+  reduceOnly: true  // Only closes long position
+})
+```
+
+**Example:**
+```
+Position: Long 5 BTC
+Order: Sell 10 BTC reduce-only
+
+Result: Only 5 BTC sold (reduces to 0)
+        Remaining 5 BTC quantity ignored
+```
+
+---
+
+### Hidden
+
+Order not visible in public order book.
+
+```typescript
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '10.0',
+  hidden: true
+})
+```
+
+- **Visibility**: Not shown in market data
+- **Priority**: Same as visible orders
+- **Fee**: May have higher maker fee
+
+---
+
+## Order Type Comparison
+
+| Order Type | Execution | Price Control | Slippage | Fee |
+|------------|-----------|---------------|----------|-----|
+| Market | Guaranteed | None | Yes | Taker |
+| Limit | Not guaranteed | Full | No | Maker |
+| Stop | Guaranteed | None | Yes | Taker |
+| Stop-Limit | Not guaranteed | Full | No | Maker |
+| Trailing Stop | Guaranteed | Dynamic | Yes | Taker |
+| Iceberg | Not guaranteed | Full | No | Maker |
+| TWAP | Time-distributed | Limited | Minimized | Mixed |
+| Post-Only | Not guaranteed | Full | No | Maker |
+
+## Order Lifecycle
+
+```
+                  SUBMITTED
+                      |
+                      v
++------------------------------------------+
+|               VALIDATION                  |
+|  - Balance check                         |
+|  - Risk limits                           |
+|  - Price bounds                          |
++------------------------------------------+
+           |                    |
+           v                    v
+       ACCEPTED              REJECTED
+           |                    |
+           v                    v
++------------------+     (Terminal State)
+|   ORDER BOOK     |
+|   (Resting)      |
++------------------+
+     |    |    |
+     v    v    v
+  PARTIAL  FILLED  CANCELLED
+  FILLED     |        |
+     |       v        v
+     |  (Terminal) (Terminal)
+     v
+   FILLED
+     |
+     v
+  (Terminal)
+```
+
+## Best Practices
+
+1. **Use limit orders** for precise entries and exits
+2. **Use stop-losses** on every position
+3. **Use post-only** for market making strategies
+4. **Use iceberg** for large orders to minimize impact
+5. **Use reduce-only** when closing positions to prevent reversals
+6. **Test with small sizes** before scaling up
+
+## Error Codes
+
+| Code | Meaning | Solution |
+|------|---------|----------|
+| `INVALID_ORDER_TYPE` | Order type not supported | Check supported types |
+| `INVALID_PRICE` | Price outside bounds | Adjust price |
+| `INVALID_QUANTITY` | Quantity below minimum | Increase quantity |
+| `INSUFFICIENT_BALANCE` | Not enough funds | Deposit more |
+| `POST_ONLY_REJECTED` | Would cross spread | Lower buy / raise sell price |
+| `REDUCE_ONLY_REJECTED` | No position to reduce | Check position |

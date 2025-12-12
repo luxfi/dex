@@ -1,0 +1,689 @@
+---
+title: Order Book
+description: Order book snapshots, subscriptions, and real-time updates
+---
+
+# Order Book
+
+Access real-time order book data through both REST API and WebSocket subscriptions.
+
+## Order Book Structure
+
+```typescript
+interface OrderBookLevel {
+  price: number;   // Price level
+  size: number;    // Total size at this price
+  count?: number;  // Number of orders (optional)
+}
+
+interface OrderBook {
+  symbol: string;           // Trading pair
+  bids: OrderBookLevel[];   // Buy orders (highest first)
+  asks: OrderBookLevel[];   // Sell orders (lowest first)
+  timestamp: number;        // Unix timestamp in ms
+}
+```
+
+## Getting Order Book Snapshots
+
+### Basic Snapshot
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+async function getOrderBookSnapshot(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const book = await client.getOrderBook('BTC-USD', 10);
+
+  console.log('Symbol:', book.symbol);
+  console.log('Timestamp:', new Date(book.timestamp));
+  console.log('\nBids (Buy Orders):');
+  book.bids.forEach((level, i) => {
+    console.log(`  ${i + 1}. ${level.price} @ ${level.size}`);
+  });
+
+  console.log('\nAsks (Sell Orders):');
+  book.asks.forEach((level, i) => {
+    console.log(`  ${i + 1}. ${level.price} @ ${level.size}`);
+  });
+}
+```
+
+### Custom Depth
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+async function getDeepOrderBook(): Promise<OrderBook> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // Get 50 levels on each side
+  const book = await client.getOrderBook('BTC-USD', 50);
+
+  return book;
+}
+
+async function getShallowOrderBook(): Promise<OrderBook> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // Get just top 3 levels (best bid/ask)
+  const book = await client.getOrderBook('BTC-USD', 3);
+
+  return book;
+}
+```
+
+## Best Bid/Ask
+
+### Get Best Bid
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function getBestBid(): Promise<number> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const bestBid = await client.getBestBid('BTC-USD');
+  console.log('Best Bid Price:', bestBid);
+
+  return bestBid;
+}
+```
+
+### Get Best Ask
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function getBestAsk(): Promise<number> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const bestAsk = await client.getBestAsk('BTC-USD');
+  console.log('Best Ask Price:', bestAsk);
+
+  return bestAsk;
+}
+```
+
+### Get Spread
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+interface SpreadInfo {
+  bid: number;
+  ask: number;
+  spread: number;
+  spreadPercent: number;
+  midPrice: number;
+}
+
+async function getSpread(symbol: string): Promise<SpreadInfo> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const [bid, ask] = await Promise.all([
+    client.getBestBid(symbol),
+    client.getBestAsk(symbol)
+  ]);
+
+  const spread = ask - bid;
+  const midPrice = (bid + ask) / 2;
+  const spreadPercent = (spread / midPrice) * 100;
+
+  return {
+    bid,
+    ask,
+    spread,
+    spreadPercent,
+    midPrice
+  };
+}
+
+// Usage
+async function displaySpread(): Promise<void> {
+  const info = await getSpread('BTC-USD');
+
+  console.log('Market Spread:');
+  console.log(`  Best Bid: $${info.bid.toLocaleString()}`);
+  console.log(`  Best Ask: $${info.ask.toLocaleString()}`);
+  console.log(`  Spread: $${info.spread.toFixed(2)} (${info.spreadPercent.toFixed(4)}%)`);
+  console.log(`  Mid Price: $${info.midPrice.toLocaleString()}`);
+}
+```
+
+## Real-Time Subscriptions
+
+### Subscribe to Order Book Updates
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+async function subscribeToOrderBook(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  // Connect WebSocket
+  await client.connect();
+
+  // Subscribe to order book updates
+  client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
+    console.log('Order book update received');
+    console.log('  Best Bid:', book.bids[0]?.price, '@', book.bids[0]?.size);
+    console.log('  Best Ask:', book.asks[0]?.price, '@', book.asks[0]?.size);
+    console.log('  Timestamp:', new Date(book.timestamp));
+  });
+
+  console.log('Subscribed to BTC-USD order book');
+}
+```
+
+### Unsubscribe
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+async function unsubscribeExample(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  // Define callback
+  const handleUpdate = (book: OrderBook): void => {
+    console.log('Update:', book.timestamp);
+  };
+
+  // Subscribe
+  client.subscribeOrderBook('BTC-USD', handleUpdate);
+
+  // Later: unsubscribe from specific callback
+  setTimeout(() => {
+    client.unsubscribe('orderbook:BTC-USD', handleUpdate);
+    console.log('Unsubscribed from order book');
+  }, 60000);
+}
+```
+
+## Order Book Analysis
+
+### Calculate Liquidity Depth
+
+```typescript
+import { LXDexClient, OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+
+interface LiquidityDepth {
+  bidLiquidity: number;
+  askLiquidity: number;
+  totalLiquidity: number;
+  bidDepthUSD: number;
+  askDepthUSD: number;
+}
+
+function calculateLiquidity(book: OrderBook): LiquidityDepth {
+  const bidLiquidity = book.bids.reduce((sum, level) => sum + level.size, 0);
+  const askLiquidity = book.asks.reduce((sum, level) => sum + level.size, 0);
+
+  const bidDepthUSD = book.bids.reduce(
+    (sum, level) => sum + (level.price * level.size),
+    0
+  );
+  const askDepthUSD = book.asks.reduce(
+    (sum, level) => sum + (level.price * level.size),
+    0
+  );
+
+  return {
+    bidLiquidity,
+    askLiquidity,
+    totalLiquidity: bidLiquidity + askLiquidity,
+    bidDepthUSD,
+    askDepthUSD
+  };
+}
+
+async function analyzeLiquidity(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const book = await client.getOrderBook('BTC-USD', 50);
+  const liquidity = calculateLiquidity(book);
+
+  console.log('Liquidity Analysis:');
+  console.log(`  Bid Liquidity: ${liquidity.bidLiquidity.toFixed(4)} BTC`);
+  console.log(`  Ask Liquidity: ${liquidity.askLiquidity.toFixed(4)} BTC`);
+  console.log(`  Total: ${liquidity.totalLiquidity.toFixed(4)} BTC`);
+  console.log(`  Bid Depth: $${liquidity.bidDepthUSD.toLocaleString()}`);
+  console.log(`  Ask Depth: $${liquidity.askDepthUSD.toLocaleString()}`);
+}
+```
+
+### Calculate Market Impact
+
+```typescript
+import { LXDexClient, OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+
+interface MarketImpact {
+  averagePrice: number;
+  priceImpact: number;
+  priceImpactPercent: number;
+  levelsConsumed: number;
+}
+
+function calculateMarketImpact(
+  levels: OrderBookLevel[],
+  orderSize: number
+): MarketImpact {
+  let remainingSize = orderSize;
+  let totalCost = 0;
+  let levelsConsumed = 0;
+
+  for (const level of levels) {
+    if (remainingSize <= 0) break;
+
+    const fillSize = Math.min(remainingSize, level.size);
+    totalCost += fillSize * level.price;
+    remainingSize -= fillSize;
+    levelsConsumed++;
+  }
+
+  if (remainingSize > 0) {
+    throw new Error('Insufficient liquidity for order size');
+  }
+
+  const averagePrice = totalCost / orderSize;
+  const bestPrice = levels[0].price;
+  const priceImpact = Math.abs(averagePrice - bestPrice);
+  const priceImpactPercent = (priceImpact / bestPrice) * 100;
+
+  return {
+    averagePrice,
+    priceImpact,
+    priceImpactPercent,
+    levelsConsumed
+  };
+}
+
+async function analyzeMarketImpact(
+  symbol: string,
+  orderSize: number,
+  side: 'buy' | 'sell'
+): Promise<MarketImpact> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const book = await client.getOrderBook(symbol, 100);
+  const levels = side === 'buy' ? book.asks : book.bids;
+
+  return calculateMarketImpact(levels, orderSize);
+}
+
+// Usage
+async function displayMarketImpact(): Promise<void> {
+  try {
+    const impact = await analyzeMarketImpact('BTC-USD', 10, 'buy');
+
+    console.log('Market Impact for 10 BTC buy:');
+    console.log(`  Average Price: $${impact.averagePrice.toFixed(2)}`);
+    console.log(`  Price Impact: $${impact.priceImpact.toFixed(2)}`);
+    console.log(`  Impact %: ${impact.priceImpactPercent.toFixed(4)}%`);
+    console.log(`  Levels Consumed: ${impact.levelsConsumed}`);
+  } catch (error) {
+    console.error('Cannot fill order:', error);
+  }
+}
+```
+
+### Order Book Imbalance
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+interface OrderBookImbalance {
+  bidVolume: number;
+  askVolume: number;
+  imbalance: number;  // Positive = more buyers, Negative = more sellers
+  imbalanceRatio: number;
+  signal: 'bullish' | 'bearish' | 'neutral';
+}
+
+function calculateImbalance(book: OrderBook, depth: number = 10): OrderBookImbalance {
+  const bidVolume = book.bids
+    .slice(0, depth)
+    .reduce((sum, l) => sum + l.size, 0);
+
+  const askVolume = book.asks
+    .slice(0, depth)
+    .reduce((sum, l) => sum + l.size, 0);
+
+  const totalVolume = bidVolume + askVolume;
+  const imbalance = bidVolume - askVolume;
+  const imbalanceRatio = totalVolume > 0 ? imbalance / totalVolume : 0;
+
+  let signal: 'bullish' | 'bearish' | 'neutral';
+  if (imbalanceRatio > 0.2) {
+    signal = 'bullish';
+  } else if (imbalanceRatio < -0.2) {
+    signal = 'bearish';
+  } else {
+    signal = 'neutral';
+  }
+
+  return {
+    bidVolume,
+    askVolume,
+    imbalance,
+    imbalanceRatio,
+    signal
+  };
+}
+
+async function monitorImbalance(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
+    const imb = calculateImbalance(book);
+
+    console.log(`Imbalance: ${(imb.imbalanceRatio * 100).toFixed(1)}% [${imb.signal.toUpperCase()}]`);
+    console.log(`  Bids: ${imb.bidVolume.toFixed(4)} | Asks: ${imb.askVolume.toFixed(4)}`);
+  });
+}
+```
+
+## React Hooks
+
+### useOrderBook Hook
+
+```tsx
+import { useState, useEffect, useCallback } from 'react';
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+interface UseOrderBookOptions {
+  depth?: number;
+  pollInterval?: number;  // For REST polling (ms)
+  useWebSocket?: boolean;
+}
+
+interface UseOrderBookResult {
+  orderBook: OrderBook | null;
+  loading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+
+export function useOrderBook(
+  client: LXDexClient | null,
+  symbol: string,
+  options: UseOrderBookOptions = {}
+): UseOrderBookResult {
+  const { depth = 10, pollInterval, useWebSocket = true } = options;
+
+  const [orderBook, setOrderBook] = useState<OrderBook | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchOrderBook = useCallback(async () => {
+    if (!client) return;
+
+    try {
+      const book = await client.getOrderBook(symbol, depth);
+      setOrderBook(book);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [client, symbol, depth]);
+
+  useEffect(() => {
+    if (!client) return;
+
+    // Initial fetch
+    fetchOrderBook();
+
+    if (useWebSocket) {
+      // Subscribe to real-time updates
+      client.subscribeOrderBook(symbol, (book: OrderBook) => {
+        setOrderBook(book);
+        setLoading(false);
+      });
+
+      return () => {
+        client.unsubscribe(`orderbook:${symbol}`);
+      };
+    } else if (pollInterval) {
+      // Poll at interval
+      const interval = setInterval(fetchOrderBook, pollInterval);
+      return () => clearInterval(interval);
+    }
+  }, [client, symbol, useWebSocket, pollInterval, fetchOrderBook]);
+
+  return {
+    orderBook,
+    loading,
+    error,
+    refresh: fetchOrderBook
+  };
+}
+```
+
+### Usage in Component
+
+```tsx
+import React from 'react';
+import { useOrderBook } from './hooks/useOrderBook';
+import { useDexClient } from './DexProvider';
+
+function OrderBookDisplay(): JSX.Element {
+  const { client } = useDexClient();
+  const { orderBook, loading, error } = useOrderBook(client, 'BTC-USD', {
+    depth: 15,
+    useWebSocket: true
+  });
+
+  if (loading) {
+    return <div>Loading order book...</div>;
+  }
+
+  if (error) {
+    return <div>Error: {error.message}</div>;
+  }
+
+  if (!orderBook) {
+    return <div>No data available</div>;
+  }
+
+  return (
+    <div className="order-book">
+      <div className="asks">
+        <h3>Asks</h3>
+        {orderBook.asks.slice().reverse().map((level, i) => (
+          <div key={i} className="level ask">
+            <span className="price">{level.price.toFixed(2)}</span>
+            <span className="size">{level.size.toFixed(4)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="spread">
+        Spread: {(orderBook.asks[0]?.price - orderBook.bids[0]?.price).toFixed(2)}
+      </div>
+
+      <div className="bids">
+        <h3>Bids</h3>
+        {orderBook.bids.map((level, i) => (
+          <div key={i} className="level bid">
+            <span className="price">{level.price.toFixed(2)}</span>
+            <span className="size">{level.size.toFixed(4)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### useBestPrices Hook
+
+```tsx
+import { useState, useEffect } from 'react';
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+interface BestPrices {
+  bid: number | null;
+  ask: number | null;
+  spread: number | null;
+  midPrice: number | null;
+}
+
+export function useBestPrices(
+  client: LXDexClient | null,
+  symbol: string
+): BestPrices {
+  const [prices, setPrices] = useState<BestPrices>({
+    bid: null,
+    ask: null,
+    spread: null,
+    midPrice: null
+  });
+
+  useEffect(() => {
+    if (!client) return;
+
+    client.subscribeOrderBook(symbol, (book: OrderBook) => {
+      const bid = book.bids[0]?.price ?? null;
+      const ask = book.asks[0]?.price ?? null;
+
+      const spread = bid !== null && ask !== null ? ask - bid : null;
+      const midPrice = bid !== null && ask !== null ? (bid + ask) / 2 : null;
+
+      setPrices({ bid, ask, spread, midPrice });
+    });
+
+    return () => {
+      client.unsubscribe(`orderbook:${symbol}`);
+    };
+  }, [client, symbol]);
+
+  return prices;
+}
+```
+
+## Order Book Visualization Data
+
+### Generate Depth Chart Data
+
+```typescript
+import { OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+
+interface DepthPoint {
+  price: number;
+  cumulativeSize: number;
+  side: 'bid' | 'ask';
+}
+
+function generateDepthChartData(book: OrderBook): DepthPoint[] {
+  const points: DepthPoint[] = [];
+
+  // Bids (accumulate from best bid down)
+  let cumBid = 0;
+  for (const level of book.bids) {
+    cumBid += level.size;
+    points.push({
+      price: level.price,
+      cumulativeSize: cumBid,
+      side: 'bid'
+    });
+  }
+
+  // Asks (accumulate from best ask up)
+  let cumAsk = 0;
+  for (const level of book.asks) {
+    cumAsk += level.size;
+    points.push({
+      price: level.price,
+      cumulativeSize: cumAsk,
+      side: 'ask'
+    });
+  }
+
+  return points.sort((a, b) => a.price - b.price);
+}
+```
+
+### Price Level Aggregation
+
+```typescript
+import { OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+
+function aggregateOrderBook(
+  book: OrderBook,
+  tickSize: number
+): OrderBook {
+  const aggregateLevels = (levels: OrderBookLevel[]): OrderBookLevel[] => {
+    const aggregated = new Map<number, number>();
+
+    for (const level of levels) {
+      const roundedPrice = Math.floor(level.price / tickSize) * tickSize;
+      const existing = aggregated.get(roundedPrice) || 0;
+      aggregated.set(roundedPrice, existing + level.size);
+    }
+
+    return Array.from(aggregated.entries())
+      .map(([price, size]) => ({ price, size }))
+      .sort((a, b) => b.price - a.price);  // Descending for bids
+  };
+
+  return {
+    symbol: book.symbol,
+    bids: aggregateLevels(book.bids),
+    asks: aggregateLevels(book.asks).sort((a, b) => a.price - b.price),
+    timestamp: book.timestamp
+  };
+}
+
+// Usage: Aggregate to $100 increments
+async function getAggregatedBook(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const book = await client.getOrderBook('BTC-USD', 100);
+  const aggregated = aggregateOrderBook(book, 100);
+
+  console.log('Aggregated Order Book ($100 ticks):');
+  aggregated.bids.slice(0, 5).forEach(l => {
+    console.log(`  Bid: ${l.price} @ ${l.size.toFixed(4)}`);
+  });
+}
+```
+
+## Next Steps
+
+- [Trade History](/docs/sdk/typescript/trades) - Access executed trades
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time connections
+- [Account Management](/docs/sdk/typescript/account) - Balances and positions

@@ -1,0 +1,651 @@
+---
+title: Client Initialization
+description: Connection management, configuration options, and reconnection strategies for the Go SDK
+---
+
+# Client Initialization
+
+The LX DEX Go client supports multiple transport protocols with automatic failover and comprehensive configuration options.
+
+## Creating a Client
+
+### Basic Initialization
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    // Minimal configuration - JSON-RPC only
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+    )
+    if err != nil {
+        log.Fatal("Failed to create client:", err)
+    }
+    defer c.Disconnect()
+
+    // Client is ready for JSON-RPC operations
+    ctx := context.Background()
+    if err := c.Ping(ctx); err != nil {
+        log.Fatal("Server not responding:", err)
+    }
+}
+```
+
+### Full Configuration
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        // Protocol endpoints
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithWebSocketURL("ws://localhost:8081"),
+        client.WithGRPCURL("localhost:50051"),
+
+        // Authentication
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal("Failed to create client:", err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    // Connect to gRPC (primary protocol for orders)
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Printf("gRPC unavailable, falling back to JSON-RPC: %v", err)
+    }
+
+    // Connect to WebSocket (for real-time data)
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Printf("WebSocket unavailable: %v", err)
+    }
+
+    log.Println("Client fully connected")
+}
+```
+
+## Configuration Options
+
+### WithJSONRPCURL
+
+Sets the JSON-RPC endpoint URL. This is the fallback protocol when gRPC is unavailable.
+
+```go
+client.WithJSONRPCURL("http://localhost:8080")
+
+// With custom path
+client.WithJSONRPCURL("http://api.lux.network/rpc")
+
+// HTTPS for production
+client.WithJSONRPCURL("https://api.lux.network/rpc")
+```
+
+### WithWebSocketURL
+
+Sets the WebSocket endpoint for real-time streaming data.
+
+```go
+client.WithWebSocketURL("ws://localhost:8081")
+
+// Secure WebSocket for production
+client.WithWebSocketURL("wss://api.lux.network/ws")
+```
+
+### WithGRPCURL
+
+Sets the gRPC endpoint for high-performance operations.
+
+```go
+client.WithGRPCURL("localhost:50051")
+
+// Remote endpoint
+client.WithGRPCURL("api.lux.network:50051")
+```
+
+### WithAPIKey
+
+Sets the API key for authenticated requests.
+
+```go
+client.WithAPIKey("your-api-key")
+```
+
+## Connection Management
+
+### Connecting to gRPC
+
+gRPC provides the lowest latency for order operations.
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    // Connect with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect to gRPC:", err)
+    }
+
+    log.Println("gRPC connected successfully")
+}
+```
+
+### Connecting to WebSocket
+
+WebSocket provides real-time streaming for market data.
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect to WebSocket:", err)
+    }
+
+    log.Println("WebSocket connected successfully")
+}
+```
+
+### Connection Status
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx := context.Background()
+
+    // Check server health via JSON-RPC
+    if err := c.Ping(ctx); err != nil {
+        log.Printf("JSON-RPC unavailable: %v", err)
+    } else {
+        log.Println("JSON-RPC: OK")
+    }
+
+    // Get node info
+    info, err := c.GetInfo(ctx)
+    if err != nil {
+        log.Printf("Failed to get node info: %v", err)
+    } else {
+        log.Printf("Node: %s, Network: %s, Syncing: %v",
+            info.Version, info.Network, info.Syncing)
+    }
+}
+```
+
+## Reconnection Strategies
+
+### Automatic Reconnection
+
+Implement automatic reconnection with exponential backoff:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "math"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type ReconnectingClient struct {
+    client     *client.Client
+    grpcURL    string
+    wsURL      string
+    maxRetries int
+    baseDelay  time.Duration
+}
+
+func NewReconnectingClient(grpcURL, wsURL string) (*ReconnectingClient, error) {
+    c, err := client.NewClient(
+        client.WithGRPCURL(grpcURL),
+        client.WithWebSocketURL(wsURL),
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    return &ReconnectingClient{
+        client:     c,
+        grpcURL:    grpcURL,
+        wsURL:      wsURL,
+        maxRetries: 10,
+        baseDelay:  100 * time.Millisecond,
+    }, nil
+}
+
+func (rc *ReconnectingClient) ConnectWithRetry(ctx context.Context) error {
+    for attempt := 0; attempt < rc.maxRetries; attempt++ {
+        // Calculate exponential backoff with jitter
+        delay := rc.baseDelay * time.Duration(math.Pow(2, float64(attempt)))
+        if delay > 30*time.Second {
+            delay = 30 * time.Second
+        }
+
+        // Add jitter (0-25% of delay)
+        jitter := time.Duration(float64(delay) * 0.25 * (float64(time.Now().UnixNano()%100) / 100))
+        delay += jitter
+
+        if attempt > 0 {
+            log.Printf("Reconnection attempt %d/%d in %v", attempt+1, rc.maxRetries, delay)
+
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case <-time.After(delay):
+            }
+        }
+
+        // Try gRPC first
+        if err := rc.client.ConnectGRPC(ctx); err != nil {
+            log.Printf("gRPC connection failed: %v", err)
+            continue
+        }
+
+        // Then WebSocket
+        if err := rc.client.ConnectWebSocket(ctx); err != nil {
+            log.Printf("WebSocket connection failed: %v", err)
+            // Continue even if WebSocket fails - gRPC is primary
+        }
+
+        log.Println("Connected successfully")
+        return nil
+    }
+
+    return fmt.Errorf("failed to connect after %d attempts", rc.maxRetries)
+}
+
+func (rc *ReconnectingClient) Close() error {
+    return rc.client.Disconnect()
+}
+
+func main() {
+    rc, err := NewReconnectingClient("localhost:50051", "ws://localhost:8081")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer rc.Close()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+    defer cancel()
+
+    if err := rc.ConnectWithRetry(ctx); err != nil {
+        log.Fatal("Failed to establish connection:", err)
+    }
+}
+```
+
+### Health Check Loop
+
+Maintain connection health with periodic checks:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "sync"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type HealthMonitor struct {
+    client   *client.Client
+    interval time.Duration
+    mu       sync.RWMutex
+    healthy  bool
+    stopCh   chan struct{}
+}
+
+func NewHealthMonitor(c *client.Client, interval time.Duration) *HealthMonitor {
+    return &HealthMonitor{
+        client:   c,
+        interval: interval,
+        healthy:  true,
+        stopCh:   make(chan struct{}),
+    }
+}
+
+func (hm *HealthMonitor) Start(ctx context.Context) {
+    ticker := time.NewTicker(hm.interval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-hm.stopCh:
+            return
+        case <-ticker.C:
+            hm.checkHealth(ctx)
+        }
+    }
+}
+
+func (hm *HealthMonitor) checkHealth(ctx context.Context) {
+    checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    err := hm.client.Ping(checkCtx)
+
+    hm.mu.Lock()
+    wasHealthy := hm.healthy
+    hm.healthy = err == nil
+    hm.mu.Unlock()
+
+    if wasHealthy && !hm.healthy {
+        log.Println("Connection became unhealthy")
+    } else if !wasHealthy && hm.healthy {
+        log.Println("Connection recovered")
+    }
+}
+
+func (hm *HealthMonitor) IsHealthy() bool {
+    hm.mu.RLock()
+    defer hm.mu.RUnlock()
+    return hm.healthy
+}
+
+func (hm *HealthMonitor) Stop() {
+    close(hm.stopCh)
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    monitor := NewHealthMonitor(c, 10*time.Second)
+    go monitor.Start(ctx)
+    defer monitor.Stop()
+
+    // Check health before operations
+    if !monitor.IsHealthy() {
+        log.Println("Skipping operation - connection unhealthy")
+        return
+    }
+
+    // Perform operations...
+}
+```
+
+## Connection Pooling
+
+For high-throughput applications, use a connection pool:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "sync"
+    "sync/atomic"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type ClientPool struct {
+    clients []*client.Client
+    size    int
+    counter uint64
+    mu      sync.RWMutex
+}
+
+func NewClientPool(size int, grpcURL string) (*ClientPool, error) {
+    pool := &ClientPool{
+        clients: make([]*client.Client, size),
+        size:    size,
+    }
+
+    ctx := context.Background()
+    for i := 0; i < size; i++ {
+        c, err := client.NewClient(
+            client.WithGRPCURL(grpcURL),
+        )
+        if err != nil {
+            pool.Close()
+            return nil, err
+        }
+
+        if err := c.ConnectGRPC(ctx); err != nil {
+            pool.Close()
+            return nil, err
+        }
+
+        pool.clients[i] = c
+    }
+
+    return pool, nil
+}
+
+// Get returns a client using round-robin selection
+func (p *ClientPool) Get() *client.Client {
+    idx := atomic.AddUint64(&p.counter, 1) % uint64(p.size)
+    return p.clients[idx]
+}
+
+// Execute runs a function with a pooled client
+func (p *ClientPool) Execute(fn func(*client.Client) error) error {
+    c := p.Get()
+    return fn(c)
+}
+
+func (p *ClientPool) Close() error {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+
+    var lastErr error
+    for _, c := range p.clients {
+        if c != nil {
+            if err := c.Disconnect(); err != nil {
+                lastErr = err
+            }
+        }
+    }
+    return lastErr
+}
+
+func main() {
+    pool, err := NewClientPool(10, "localhost:50051")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer pool.Close()
+
+    ctx := context.Background()
+
+    // Execute operation using pooled client
+    err = pool.Execute(func(c *client.Client) error {
+        order := &client.Order{
+            Symbol: "BTC-USD",
+            Type:   client.OrderTypeLimit,
+            Side:   client.OrderSideBuy,
+            Price:  50000.00,
+            Size:   0.1,
+        }
+        _, err := c.PlaceOrder(ctx, order)
+        return err
+    })
+    if err != nil {
+        log.Printf("Order failed: %v", err)
+    }
+}
+```
+
+## Graceful Shutdown
+
+Handle application shutdown gracefully:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithWebSocketURL("ws://localhost:8081"),
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    // Connect to all protocols
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Printf("gRPC unavailable: %v", err)
+    }
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Printf("WebSocket unavailable: %v", err)
+    }
+
+    // Handle shutdown signals
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+    // WaitGroup for tracking in-flight operations
+    var wg sync.WaitGroup
+
+    // Start background workers
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        // Worker logic here
+        <-ctx.Done()
+        log.Println("Worker shutting down...")
+    }()
+
+    // Wait for shutdown signal
+    <-sigCh
+    log.Println("Shutdown signal received")
+
+    // Cancel context to stop workers
+    cancel()
+
+    // Wait for operations to complete with timeout
+    done := make(chan struct{})
+    go func() {
+        wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        log.Println("All operations completed")
+    case <-time.After(30 * time.Second):
+        log.Println("Shutdown timeout, forcing exit")
+    }
+
+    // Disconnect client
+    if err := c.Disconnect(); err != nil {
+        log.Printf("Error during disconnect: %v", err)
+    }
+
+    log.Println("Shutdown complete")
+}
+```
+
+## Next Steps
+
+- [Orders](/docs/sdk/go/orders) - Learn how to place and manage orders
+- [Order Book](/docs/sdk/go/orderbook) - Subscribe to market data
+- [WebSocket](/docs/sdk/go/websocket) - Real-time streaming

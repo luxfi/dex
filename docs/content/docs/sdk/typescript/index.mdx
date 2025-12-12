@@ -1,0 +1,204 @@
+---
+title: TypeScript SDK
+description: Complete TypeScript SDK for LX DEX - installation, configuration, and quick start guide
+---
+
+# TypeScript SDK
+
+The `@luxfi/dex-sdk` package provides a complete TypeScript client for interacting with LX DEX. It supports both browser and Node.js environments with full type safety.
+
+## Installation
+
+```bash
+npm install @luxfi/dex-sdk
+```
+
+Or with other package managers:
+
+```bash
+# pnpm
+pnpm add @luxfi/dex-sdk
+
+# yarn
+yarn add @luxfi/dex-sdk
+
+# bun
+bun add @luxfi/dex-sdk
+```
+
+## Requirements
+
+- Node.js 18+ or modern browser
+- TypeScript 5.0+ (optional but recommended)
+
+## Quick Start
+
+### Basic Setup
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+// Create client with default configuration
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:8080/rpc',
+  wsUrl: 'ws://localhost:8081'
+});
+
+// Test connectivity
+const pong = await client.ping();
+console.log('Connected:', pong);
+```
+
+### Place Your First Order
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function main(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  try {
+    // Place a limit buy order
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.LIMIT,
+      side: OrderSide.BUY,
+      price: 50000,
+      size: 0.1,
+      userID: 'trader-001'
+    });
+
+    console.log('Order placed:', result.orderId);
+    console.log('Status:', result.status);
+
+    // Get order details
+    const order = await client.getOrder(result.orderId);
+    console.log('Order details:', order);
+
+  } catch (error) {
+    console.error('Failed to place order:', error);
+  }
+}
+
+main();
+```
+
+### Subscribe to Real-Time Data
+
+```typescript
+import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+
+async function subscribeToMarket(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  // Connect WebSocket
+  await client.connect();
+
+  // Subscribe to order book updates
+  client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
+    console.log('Best Bid:', book.bids[0]?.price, '@', book.bids[0]?.size);
+    console.log('Best Ask:', book.asks[0]?.price, '@', book.asks[0]?.size);
+  });
+
+  // Subscribe to trades
+  client.subscribeTrades('BTC-USD', (trade: Trade) => {
+    const side = trade.side === 0 ? 'BUY' : 'SELL';
+    console.log(`Trade: ${side} ${trade.size} @ ${trade.price}`);
+  });
+}
+
+subscribeToMarket();
+```
+
+## Environment Configuration
+
+### Development (Local Node)
+
+```typescript
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:8080/rpc',
+  wsUrl: 'ws://localhost:8081'
+});
+```
+
+### Testnet
+
+```typescript
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:18080/rpc',
+  wsUrl: 'ws://localhost:18081'
+});
+```
+
+### Production
+
+```typescript
+const client = new LXDexClient({
+  jsonRpcUrl: 'https://api.lux.network/rpc',
+  wsUrl: 'wss://api.lux.network/ws',
+  apiKey: process.env.LX_API_KEY
+});
+```
+
+## Module Structure
+
+The SDK exports the following modules:
+
+| Export | Description |
+|--------|-------------|
+| `LXDexClient` | Main client class for all operations |
+| `OrderType` | Enum for order types (LIMIT, MARKET, etc.) |
+| `OrderSide` | Enum for order sides (BUY, SELL) |
+| `OrderStatus` | Enum for order statuses |
+| `TimeInForce` | Enum for time-in-force options |
+| `MarketDataClient` | Sub-client for market data operations |
+| `LiquidationMonitor` | Sub-client for liquidation monitoring |
+
+## Error Handling
+
+All SDK methods throw typed errors that can be caught and handled:
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function safeOperation(): Promise<void> {
+  const client = new LXDexClient();
+
+  try {
+    const order = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: 0,
+      side: 0,
+      price: 50000,
+      size: 1.0
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      // Handle specific error types
+      if (error.message.includes('insufficient')) {
+        console.error('Insufficient balance');
+      } else if (error.message.includes('rate limit')) {
+        console.error('Rate limited - please wait');
+      } else {
+        console.error('Order failed:', error.message);
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+- [Client Configuration](/docs/sdk/typescript/client) - Detailed client setup options
+- [Order Management](/docs/sdk/typescript/orders) - Place, cancel, and manage orders
+- [Order Book](/docs/sdk/typescript/orderbook) - Real-time order book data
+- [Trade History](/docs/sdk/typescript/trades) - Access trade data
+- [Account Management](/docs/sdk/typescript/account) - Balances and positions
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time subscriptions
+- [Type Reference](/docs/sdk/typescript/types) - Complete type definitions
