@@ -1,0 +1,209 @@
+name: SDK Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.2.1)'
+        required: true
+        type: string
+      packages:
+        description: 'Packages to publish'
+        required: true
+        type: choice
+        options:
+          - all
+          - npm
+          - pypi
+          - crates
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write  # For PyPI trusted publishing
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+  RUST_VERSION: 'stable'
+
+jobs:
+  validate:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Validate version format
+        id: validate
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "ERROR: Invalid version format: $VERSION"
+            echo "Expected: X.Y.Z or X.Y.Z-suffix"
+            exit 1
+          fi
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          if [ "$MAJOR" -ge 2 ]; then
+            echo "ERROR: Version v$VERSION >= 2.0.0 not allowed (Go modules v2+ requirement)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✓ Version $VERSION is valid"
+
+  publish-npm:
+    name: Publish to npm
+    needs: validate
+    if: inputs.packages == 'all' || inputs.packages == 'npm'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      # Publish @luxfi/dex
+      - name: Build @luxfi/dex
+        working-directory: sdk/typescript
+        run: |
+          npm ci
+          npm run build
+          npm version ${{ needs.validate.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Publish @luxfi/dex
+        if: inputs.dry_run == false
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Publish @luxfi/dex (dry run)
+        if: inputs.dry_run == true
+        working-directory: sdk/typescript
+        run: npm publish --access public --dry-run
+
+      # Publish @luxfi/trading
+      - name: Build @luxfi/trading
+        working-directory: sdk/lx-trading-ts
+        run: |
+          npm ci
+          npm run build
+          npm version ${{ needs.validate.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Publish @luxfi/trading
+        if: inputs.dry_run == false
+        working-directory: sdk/lx-trading-ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Publish @luxfi/trading (dry run)
+        if: inputs.dry_run == true
+        working-directory: sdk/lx-trading-ts
+        run: npm publish --access public --dry-run
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: validate
+    if: inputs.packages == 'all' || inputs.packages == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/lux-dex/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Update version and build
+        working-directory: sdk/python
+        run: |
+          # Update version in setup.py
+          sed -i "s/version=\".*\"/version=\"${{ needs.validate.outputs.version }}\"/" setup.py
+          python -m build
+
+      - name: Publish to PyPI
+        if: inputs.dry_run == false
+        working-directory: sdk/python
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Publish to PyPI (dry run)
+        if: inputs.dry_run == true
+        working-directory: sdk/python
+        run: twine check dist/*
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: validate
+    if: inputs.packages == 'all' || inputs.packages == 'crates'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Update version
+        working-directory: sdk/rust
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ needs.validate.outputs.version }}\"/" Cargo.toml
+
+      - name: Publish to crates.io
+        if: inputs.dry_run == false
+        working-directory: sdk/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --allow-dirty
+
+      - name: Publish to crates.io (dry run)
+        if: inputs.dry_run == true
+        working-directory: sdk/rust
+        run: cargo publish --dry-run --allow-dirty
+
+  summary:
+    name: Publish Summary
+    needs: [validate, publish-npm, publish-pypi, publish-crates]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## SDK Publish Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version**: ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry Run**: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Registry | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| @luxfi/dex | npm | ${{ needs.publish-npm.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| @luxfi/trading | npm | ${{ needs.publish-npm.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| lux-dex | PyPI | ${{ needs.publish-pypi.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| lux-dex | crates.io | ${{ needs.publish-crates.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo "### Install Commands" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "npm install @luxfi/dex@${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "npm install @luxfi/trading@${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "pip install lux-dex==${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "cargo add lux-dex@${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
