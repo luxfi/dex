@@ -15,13 +15,13 @@ LX DEX is a planet-scale, fully on-chain decentralized exchange built on Lux Net
 
 | Metric | Target | Achieved | Status |
 |--------|--------|----------|---------|
-| Order Latency (GPU) | <1μs | **2 ns** | ✅ 500x better |
-| Order Latency (CPU) | <1μs | **487 ns** | ✅ 2x better |
-| Throughput (CPU) | 1M/sec | **1.01M/sec** | ✅ Exceeded |
-| Throughput (GPU) | 100M/sec | **434M/sec** | ✅ 4.34x |
-| Test Coverage | 100% | **100%** | ✅ Complete |
+| Order Latency (GPU) | Sub-microsecond | **2 ns** | 500x better |
+| Order Latency (CPU) | Sub-microsecond | **487 ns** | 2x better |
+| Throughput (CPU) | 1M/sec | **1.01M/sec** | Exceeded |
+| Throughput (GPU) | 100M/sec | **434M/sec** | 4.34x |
+| Test Coverage | 100% | **100%** | Complete |
 
-*With MLX GPU acceleration on Apple Silicon M2 Ultra
+*With MLX GPU acceleration on Apple Silicon M2 Ultra*
 
 ## Features
 
@@ -223,7 +223,7 @@ go test -bench=BenchmarkGPU -benchmem ./pkg/lx/
 **Latest Results** (Apple M2 Ultra):
 - CPU: 1,013,824 orders/sec
 - GPU/MLX: 434,782,609 orders/sec
-- Memory: <1GB for 100K orders
+- Memory: Under 1GB for 100K orders
 
 ## Requirements
 

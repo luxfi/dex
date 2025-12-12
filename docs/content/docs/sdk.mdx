@@ -1,0 +1,401 @@
+---
+title: SDK Guide
+description: Client libraries for integrating with LX DEX - TypeScript, Python, Go, and Rust SDKs
+---
+
+# LX DEX SDK Documentation
+
+## Overview
+
+LX DEX provides multiple SDKs and APIs for integration:
+- **TypeScript/JavaScript** - Web and Node.js applications
+- **Python** - Data analysis and algorithmic trading
+- **Go** - High-performance server applications
+- **Rust** - Systems programming (coming soon)
+
+## Quick Start
+
+### Start the DEX Node
+
+```bash
+# Build the node
+make build
+
+# Run the node
+./bin/luxd
+```
+
+This starts:
+- JSON-RPC API on port 8080
+- gRPC server on port 50051
+- WebSocket server on port 8081
+- P2P networking on port 5000
+
+## TypeScript SDK
+
+### Installation
+
+```bash
+npm install @luxfi/dex-sdk
+# or
+pnpm add @luxfi/dex-sdk
+# or
+yarn add @luxfi/dex-sdk
+```
+
+### Basic Usage
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+});
+
+// Place an order
+const order = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: 'limit',
+    side: 'buy',
+    price: 50000,
+    size: 1.0
+});
+
+console.log('Order placed:', order.orderId);
+```
+
+### WebSocket Subscriptions
+
+```typescript
+// Subscribe to order book
+client.subscribeOrderBook('BTC-USD', (book) => {
+    console.log('Best bid:', book.bids[0]);
+    console.log('Best ask:', book.asks[0]);
+});
+
+// Subscribe to trades
+client.subscribeTrades('BTC-USD', (trade) => {
+    console.log('New trade:', trade);
+});
+
+// Subscribe to your orders
+client.subscribeUserOrders((order) => {
+    console.log('Order update:', order);
+});
+```
+
+### Advanced Configuration
+
+```typescript
+const client = new LXDexClient({
+    jsonRpcUrl: 'https://api.lux.network/rpc',
+    wsUrl: 'wss://api.lux.network/ws',
+    apiKey: 'your-api-key',
+    apiSecret: 'your-api-secret',
+    timeout: 30000,
+    retry: {
+        maxRetries: 3,
+        backoffMs: 1000
+    }
+});
+```
+
+## Python SDK
+
+### Installation
+
+```bash
+pip install luxfi-dex
+```
+
+### Basic Usage
+
+```python
+from luxfi_dex import LXDexClient
+
+client = LXDexClient(
+    json_rpc_url='http://localhost:8080/rpc',
+    ws_url='ws://localhost:8081'
+)
+
+# Place an order
+order = client.place_order(
+    symbol='BTC-USD',
+    order_type='limit',
+    side='buy',
+    price=50000,
+    size=1.0
+)
+
+print(f'Order placed: {order.order_id}')
+```
+
+### Get Market Data
+
+```python
+# Get order book
+book = client.get_order_book('BTC-USD', depth=10)
+print(f"Best bid: {book['bids'][0]}")
+print(f"Best ask: {book['asks'][0]}")
+
+# Get recent trades
+trades = client.get_trades('BTC-USD', limit=100)
+for trade in trades:
+    print(f"{trade['side']} {trade['size']} @ {trade['price']}")
+```
+
+### Async Support
+
+```python
+import asyncio
+from luxfi_dex import AsyncLXDexClient
+
+async def main():
+    client = AsyncLXDexClient(
+        json_rpc_url='http://localhost:8080/rpc',
+        ws_url='ws://localhost:8081'
+    )
+    
+    # Place order asynchronously
+    order = await client.place_order(
+        symbol='BTC-USD',
+        order_type='limit',
+        side='buy',
+        price=50000,
+        size=1.0
+    )
+    
+    # Stream market data
+    async for book in client.stream_order_book('BTC-USD'):
+        print(f"Bid: {book.best_bid}, Ask: {book.best_ask}")
+
+asyncio.run(main())
+```
+
+## Go SDK
+
+### Installation
+
+```bash
+go get github.com/luxfi/dex/sdk/go
+```
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+        lxdex.WithGRPC("localhost:50051"),
+    )
+
+    ctx := context.Background()
+    
+    // Place an order
+    order, err := client.PlaceOrder(ctx, &lxdex.Order{
+        Symbol: "BTC-USD",
+        Type:   lxdex.OrderTypeLimit,
+        Side:   lxdex.Buy,
+        Price:  50000,
+        Size:   1.0,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Order placed: %s\n", order.OrderID)
+}
+```
+
+### Streaming Data
+
+```go
+// Stream order book
+stream, err := client.StreamOrderBook(ctx, "BTC-USD")
+if err != nil {
+    log.Fatal(err)
+}
+
+for {
+    update, err := stream.Recv()
+    if err != nil {
+        break
+    }
+    fmt.Printf("Order book update: %+v\n", update)
+}
+```
+
+### gRPC Integration
+
+```go
+import (
+    "context"
+    "google.golang.org/grpc"
+    pb "github.com/luxfi/dex/pkg/grpc/pb"
+)
+
+// Connect to gRPC server
+conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+defer conn.Close()
+
+client := pb.NewLXDEXServiceClient(conn)
+
+// Place an order via gRPC
+resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
+    Symbol: "BTC-USD",
+    Type:   pb.OrderType_LIMIT,
+    Side:   pb.OrderSide_BUY,
+    Price:  50000,
+    Size:   1.0,
+    UserId: "trader1",
+})
+```
+
+## Order Types
+
+| Type | Value | Description |
+|------|-------|-------------|
+| LIMIT | 0 | Order at specific price |
+| MARKET | 1 | Execute at best price |
+| STOP | 2 | Trigger at stop price |
+| STOP_LIMIT | 3 | Stop becomes limit |
+| ICEBERG | 4 | Hidden quantity order |
+| PEG | 5 | Pegged to best bid/ask |
+
+## Order Sides
+
+| Side | Value | Description |
+|------|-------|-------------|
+| BUY | 0 | Buy order |
+| SELL | 1 | Sell order |
+
+## Time in Force
+
+| TIF | Description |
+|-----|-------------|
+| GTC | Good Till Cancelled |
+| IOC | Immediate Or Cancel |
+| FOK | Fill Or Kill |
+| DAY | Day Order |
+
+## Error Handling
+
+### TypeScript
+
+```typescript
+try {
+    const order = await client.placeOrder({...});
+} catch (error) {
+    if (error.code === 'INSUFFICIENT_BALANCE') {
+        console.error('Not enough funds');
+    } else if (error.code === 'RATE_LIMIT_EXCEEDED') {
+        console.error('Too many requests');
+    }
+}
+```
+
+### Python
+
+```python
+from luxfi_dex.exceptions import InsufficientBalanceError, RateLimitError
+
+try:
+    order = client.place_order(...)
+except InsufficientBalanceError:
+    print('Not enough funds')
+except RateLimitError:
+    print('Too many requests')
+except Exception as e:
+    print(f'Error: {e}')
+```
+
+### Go
+
+```go
+order, err := client.PlaceOrder(ctx, &lxdex.Order{...})
+if err != nil {
+    switch e := err.(type) {
+    case *lxdex.InsufficientBalanceError:
+        log.Printf("Not enough funds: need %f, have %f", e.Required, e.Available)
+    case *lxdex.RateLimitError:
+        log.Printf("Rate limited, retry after %v", e.RetryAfter)
+    default:
+        log.Printf("Error: %v", err)
+    }
+}
+```
+
+## Rate Limits
+
+| Endpoint | Limit |
+|----------|-------|
+| Orders | 100/sec per user |
+| Cancellations | 100/sec per user |
+| Market Data | 1000 req/min |
+| WebSocket | 10 connections/IP |
+
+## Authentication
+
+### API Key Setup
+
+```typescript
+const client = new LXDexClient({
+    apiKey: 'your-api-key',
+    apiSecret: 'your-api-secret'
+});
+```
+
+### JWT Authentication
+
+```python
+client = LXDexClient(
+    jwt_token='eyJhbGciOiJIUzI1NiIs...'
+)
+```
+
+## Testing
+
+### Test Network
+
+```bash
+# Start test node
+./bin/luxd --testnet
+
+# Use test endpoints
+JSON-RPC: http://localhost:18080/rpc
+gRPC: localhost:15051
+WebSocket: ws://localhost:18081
+```
+
+### Example Test Script
+
+```bash
+# Run SDK tests
+npm test           # TypeScript
+python -m pytest   # Python
+go test ./...      # Go
+```
+
+## Performance
+
+- **Order Matching**: 597ns latency (C++ engine)
+- **Throughput**: 100M+ orders/second (with MLX GPU)
+- **Block Time**: 1ms finality
+- **Network**: Quantum-secure with BLS signatures
+
+## Support
+
+- GitHub: https://github.com/luxfi/dex
+- Documentation: https://dex.lux.network
+- Discord: https://discord.gg/luxfi
