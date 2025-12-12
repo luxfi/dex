@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * LX DEX Trading Client
+ * LX Trading Client
  *
- * Programmatic trading client for LX DEX supporting multiple protocols:
+ * Programmatic trading client for LX supporting multiple protocols:
  * - WebSocket: Real-time streaming, subscriptions, interactive trading
  * - gRPC: High-throughput RPC calls for automated trading systems
  *
@@ -709,7 +709,7 @@ export function createClient(
 
 function printHelp(): void {
   console.log(`
-LX DEX Trading Client Commands:
+LX Trading Client Commands:
 
   place_order <symbol> <side> <type> <price> <size>
     Example: place_order BTC-USD buy limit 50000 0.1
@@ -752,7 +752,7 @@ async function runInteractive(client: ITradingClient, isWebSocket: boolean): Pro
     output: process.stdout,
   });
 
-  console.log('LX DEX Trading Client - Type \'help\' for commands');
+  console.log('LX Trading Client - Type \'help\' for commands');
 
   const prompt = (): void => {
     rl.question('> ', async (line) => {
@@ -909,7 +909,7 @@ async function main(): Promise<void> {
 
   program
     .name('lx-client')
-    .description('LX DEX Trading Client - Programmatic trading via WebSocket or gRPC')
+    .description('LX Trading Client - Programmatic trading via WebSocket or gRPC')
     .version('1.0.0')
     .option('-p, --protocol <protocol>', 'Protocol: ws or grpc', 'ws')
     .option('-u, --url <url>', 'Server URL (ws://host:port or host:port for gRPC)')
@@ -1134,7 +1134,7 @@ async function main(): Promise<void> {
     try {
       await client.connect();
       if (opts.verbose) {
-        console.log(`Connected to LX DEX via ${opts.protocol || 'ws'}`);
+        console.log(`Connected to LX via ${opts.protocol || 'ws'}`);
       }
 
       if (opts.key && opts.secret) {

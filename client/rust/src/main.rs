@@ -1,6 +1,6 @@
-//! LX DEX CLI Client
+//! LX CLI Client
 //!
-//! Command-line trading interface for LX DEX WebSocket API.
+//! Command-line trading interface for LX WebSocket API.
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
@@ -41,7 +41,7 @@ struct Order {
     size: f64,
 }
 
-/// WebSocket client for LX DEX
+/// WebSocket client for LX
 struct Client {
     sender: Sender<String>,
     responses: Arc<Mutex<HashMap<String, Message>>>,
@@ -274,7 +274,7 @@ fn print_message(msg: &Message) {
 fn print_help() {
     println!(
         r#"
-LX DEX CLI Commands:
+LX CLI Commands:
 
   place_order <symbol> <side> <type> <price> <size>
     Example: place_order BTC-USD buy limit 50000 0.1
@@ -304,7 +304,7 @@ LX DEX CLI Commands:
 }
 
 fn run_interactive(client: &Client) {
-    println!("LX DEX CLI - Type 'help' for commands");
+    println!("LX CLI - Type 'help' for commands");
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
@@ -413,7 +413,7 @@ fn run_interactive(client: &Client) {
 
 #[derive(Parser)]
 #[command(name = "lx-cli")]
-#[command(about = "LX DEX CLI Client", long_about = None)]
+#[command(about = "LX CLI Client", long_about = None)]
 struct Cli {
     /// WebSocket server URL
     #[arg(short, long, default_value = "ws://localhost:8081")]
@@ -479,7 +479,7 @@ fn main() -> Result<()> {
     client.wait_connected()?;
 
     if cli.verbose {
-        eprintln!("Connected to LX DEX");
+        eprintln!("Connected to LX");
     }
 
     // Authenticate if credentials provided

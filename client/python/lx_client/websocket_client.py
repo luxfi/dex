@@ -1,7 +1,7 @@
 """
-LX DEX Trading Client - WebSocket Implementation
+LX Trading Client - WebSocket Implementation
 
-Async WebSocket client for LX DEX trading API.
+Async WebSocket client for LX trading API.
 """
 
 import asyncio
@@ -33,7 +33,7 @@ from lx_client.base import (
 
 class WebSocketClient(TradingClient):
     """
-    WebSocket-based trading client for LX DEX.
+    WebSocket-based trading client for LX.
 
     Uses async/await for all operations with websockets library.
 

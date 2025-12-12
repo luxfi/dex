@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Multi-node ZMQ test runner for LX DEX
+# Multi-node ZMQ test runner for LX
 # This script launches multiple nodes and runs tests against them
 
 set -e

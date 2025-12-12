@@ -1,5 +1,5 @@
 /**
- * LX DEX Connector Tests
+ * LX Connector Tests
  */
 
 import { LXDex } from '../lxdex';

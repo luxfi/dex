@@ -1,5 +1,5 @@
 /*
- * LX DEX C SDK - Orderbook utilities
+ * LX C SDK - Orderbook utilities
  * Local orderbook management and helper functions.
  */
 

@@ -1,7 +1,7 @@
-# LX DEX Whitepaper - Executive Summary
+# LX Whitepaper - Executive Summary
 
 ## Title
-**LX DEX: A 100M+ Trades/Second Decentralized Exchange**  
+**LX: A 100M+ Trades/Second Decentralized Exchange**  
 *Achieving 597ns Latency Through Quantum-Resistant DAG Consensus*
 
 ## Key Achievements
@@ -81,7 +81,7 @@
 | Serum (Solana) | 65K/s | 400ms | Yes |
 | dYdX v4 | 100K/s | 100ms | Partial |
 | Binance (CEX) | 10M/s | 10ms | No |
-| **LX DEX** | **100M+/s** | **597ns** | **Yes** |
+| **LX** | **100M+/s** | **597ns** | **Yes** |
 
 ## Key Optimizations
 
@@ -156,7 +156,7 @@
 
 ## Conclusion
 
-LX DEX demonstrates that decentralized exchanges can exceed centralized exchange performance without compromising security. Through novel integration of cutting-edge technologies, we achieve:
+LX demonstrates that decentralized exchanges can exceed centralized exchange performance without compromising security. Through novel integration of cutting-edge technologies, we achieve:
 
 - **100,000x improvement** over existing DEXs
 - **10x better performance** than leading CEXs

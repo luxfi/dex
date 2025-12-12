@@ -1,6 +1,6 @@
 ---
 title: Wallet Integration
-description: Complete guide to wallet integration for LX DEX - Web3, MPC, hardware, custodial, and smart contract wallets
+description: Complete guide to wallet integration for LX - Web3, MPC, hardware, custodial, and smart contract wallets
 ---
 
 # Wallet Integration
@@ -9,7 +9,7 @@ description: Complete guide to wallet integration for LX DEX - Web3, MPC, hardwa
 
 ## Overview
 
-LX DEX supports comprehensive wallet integration for all user types:
+LX supports comprehensive wallet integration for all user types:
 
 | Wallet Type | Use Case | Security Model | Latency |
 |-------------|----------|----------------|---------|
@@ -24,10 +24,10 @@ LX DEX supports comprehensive wallet integration for all user types:
 ## Architecture
 
 ```
-                    LX DEX Wallet Architecture
+                    LX Wallet Architecture
 
 +------------------+     +------------------+     +------------------+
-|   User Device    |     |   LX DEX API     |     |   Settlement     |
+|   User Device    |     |   LX API     |     |   Settlement     |
 |                  |     |                  |     |                  |
 |  +------------+  |     |  +------------+  |     |  +------------+  |
 |  | Wallet SDK |  |---->|  | Auth Layer |  |---->|  | C-Chain    |  |
@@ -184,7 +184,7 @@ const token = await client.verifySession(signature);
 // Orders require EIP-712 typed data signature
 const orderData = {
   domain: {
-    name: 'LX DEX',
+    name: 'LX',
     version: '1',
     chainId: LUX_CHAIN_ID,
     verifyingContract: DEX_CONTRACT_ADDRESS

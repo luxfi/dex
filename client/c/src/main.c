@@ -1,9 +1,9 @@
 /*
- * LX DEX C CLI Trading Client
+ * LX C CLI Trading Client
  * Copyright (c) 2025 Lux Partners Limited
  *
  * Ultra-fast command-line trading client for HFT and embedded systems.
- * Connects to LX DEX WebSocket API for real-time trading.
+ * Connects to LX WebSocket API for real-time trading.
  *
  * Usage:
  *   lx-cli -i                          # Interactive REPL mode
@@ -931,7 +931,7 @@ static int run_interactive(cli_ctx_t *ctx) {
     pthread_t svc_thread;
     pthread_create(&svc_thread, NULL, service_thread, ctx);
 
-    printf("LX DEX CLI v%s - Type 'help' for commands\n", CLI_VERSION);
+    printf("LX CLI v%s - Type 'help' for commands\n", CLI_VERSION);
     printf("> ");
     fflush(stdout);
 
@@ -989,7 +989,7 @@ static int run_command(cli_ctx_t *ctx, int argc, char **argv) {
  */
 static void print_help(void) {
     printf("\n");
-    printf("LX DEX CLI v%s - Trading Commands\n", CLI_VERSION);
+    printf("LX CLI v%s - Trading Commands\n", CLI_VERSION);
     printf("=====================================\n\n");
     printf("Trading:\n");
     printf("  place_order <symbol> <side> <type> <price> <size>\n");

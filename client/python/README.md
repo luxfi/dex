@@ -1,6 +1,6 @@
-# LX DEX Python Trading Client
+# LX Python Trading Client
 
-Multi-protocol trading client for LX DEX. Supports WebSocket and gRPC protocols with async/await.
+Multi-protocol trading client for LX. Supports WebSocket and gRPC protocols with async/await.
 
 ## Installation
 

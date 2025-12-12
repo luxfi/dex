@@ -4,7 +4,7 @@
 set -e
 
 echo "========================================"
-echo "   LX DEX - Ensuring 100% Test Pass    "
+echo "   LX - Ensuring 100% Test Pass    "
 echo "========================================"
 echo ""
 

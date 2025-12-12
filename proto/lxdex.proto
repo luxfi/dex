@@ -4,7 +4,7 @@ package lxdex;
 
 option go_package = "github.com/luxfi/dex/pkg/grpc/pb";
 
-// LX DEX gRPC Service for internal Lux Network IPC
+// LX gRPC Service for internal Lux Network IPC
 service LXDEXService {
   // Order Management
   rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);

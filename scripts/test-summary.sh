@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "================================"
-echo "LX DEX - Test Suite Summary"
+echo "LX - Test Suite Summary"
 echo "================================"
 echo ""
 

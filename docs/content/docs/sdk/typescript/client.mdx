@@ -5,7 +5,7 @@ description: LXDexClient class configuration, initialization options, and connec
 
 # LXDexClient Configuration
 
-The `LXDexClient` class is the main entry point for interacting with LX DEX. This guide covers all configuration options and initialization patterns.
+The `LXDexClient` class is the main entry point for interacting with LX. This guide covers all configuration options and initialization patterns.
 
 ## Basic Initialization
 
@@ -170,7 +170,7 @@ class TradingBot {
     try {
       await this.client.connect();
       this.connected = true;
-      console.log('Connected to LX DEX');
+      console.log('Connected to LX');
     } catch (error) {
       console.error('Connection failed:', error);
       throw error;
@@ -184,7 +184,7 @@ class TradingBot {
 
     this.client.disconnect();
     this.connected = false;
-    console.log('Disconnected from LX DEX');
+    console.log('Disconnected from LX');
   }
 
   isConnected(): boolean {
