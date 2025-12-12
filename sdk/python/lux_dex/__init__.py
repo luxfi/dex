@@ -1,7 +1,7 @@
 """
-LX DEX Python SDK
+LX Python SDK
 
-A Python client library for interacting with the LX DEX trading platform.
+A Python client library for interacting with the LX trading platform.
 """
 
 from .client import LXDexClient

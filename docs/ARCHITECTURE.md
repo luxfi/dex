@@ -1,8 +1,8 @@
-# LX DEX Architecture
+# LX Architecture
 
 ## Overview
 
-The LX DEX is built on a highly scalable, modular architecture designed to achieve planet-scale performance with sub-microsecond latency. The system uses a multi-layer approach with specialized components for different aspects of trading.
+The LX is built on a highly scalable, modular architecture designed to achieve planet-scale performance with sub-microsecond latency. The system uses a multi-layer approach with specialized components for different aspects of trading.
 
 ## System Architecture
 

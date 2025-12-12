@@ -1,6 +1,6 @@
-# LX DEX Rust CLI Client
+# LX Rust CLI Client
 
-Command-line trading interface for LX DEX.
+Command-line trading interface for LX.
 
 ## Build
 

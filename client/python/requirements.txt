@@ -1,4 +1,4 @@
-# LX DEX Trading Client Dependencies
+# LX Trading Client Dependencies
 
 # WebSocket protocol support
 websockets>=12.0

@@ -1,11 +1,11 @@
 ---
 title: Hummingbot Strategies
-description: Trading strategies for LX DEX with Hummingbot
+description: Trading strategies for LX with Hummingbot
 ---
 
-# Hummingbot Strategies for LX DEX
+# Hummingbot Strategies for LX
 
-This guide covers popular trading strategies you can run on LX DEX using Hummingbot.
+This guide covers popular trading strategies you can run on LX using Hummingbot.
 
 ## Strategy Overview
 
@@ -58,9 +58,9 @@ hanging_orders_cancel_pct: 5%
 >>> start
 ```
 
-### Optimal Parameters for LX DEX
+### Optimal Parameters for LX
 
-Due to LX DEX's low latency, you can use tighter spreads:
+Due to LX's low latency, you can use tighter spreads:
 
 | Market Condition | Bid Spread | Ask Spread | Refresh Time |
 |------------------|------------|------------|--------------|
@@ -70,7 +70,7 @@ Due to LX DEX's low latency, you can use tighter spreads:
 
 ## Cross-Exchange Market Making
 
-Arbitrage between LX DEX and centralized exchanges.
+Arbitrage between LX and centralized exchanges.
 
 ### Configuration
 
@@ -104,7 +104,7 @@ hedging_delay: 0.5s
 
 ## AMM Liquidity Provision
 
-Provide liquidity to LX DEX AMM pools.
+Provide liquidity to LX AMM pools.
 
 ### Using the API Directly
 
@@ -265,7 +265,7 @@ class DexCexArbitrage:
         self.min_profit_bps = 10  # Minimum 0.1% profit
 
     async def find_opportunities(self, pair: str):
-        # Get LX DEX price
+        # Get LX price
         lxdex_quote = await self.lxdex.get_quote({
             "baseToken": pair.split("/")[0],
             "quoteToken": pair.split("/")[1],
@@ -416,5 +416,5 @@ Keep a trading journal of your strategies and results.
 ## Getting Help
 
 - **[Hummingbot Documentation](https://docs.hummingbot.org)**
-- **[LX DEX Discord](https://discord.gg/lux)**
+- **[LX Discord](https://discord.gg/lux)**
 - **[Strategy Examples](https://github.com/hummingbot/hummingbot/tree/master/scripts)**

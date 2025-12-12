@@ -1,11 +1,11 @@
 ---
 title: Smart Contract Security
-description: Smart contract security patterns, common vulnerabilities, and secure development practices for LX DEX
+description: Smart contract security patterns, common vulnerabilities, and secure development practices for LX
 ---
 
 # Smart Contract Security
 
-LX DEX smart contracts are developed following industry best practices, formal verification, and multiple audit rounds. This document covers security patterns, common vulnerabilities, and our defensive programming approach.
+LX smart contracts are developed following industry best practices, formal verification, and multiple audit rounds. This document covers security patterns, common vulnerabilities, and our defensive programming approach.
 
 ## Security Architecture
 
@@ -399,7 +399,7 @@ contract SecureSignatures {
     constructor() {
         DOMAIN_SEPARATOR = keccak256(abi.encode(
             DOMAIN_TYPEHASH,
-            keccak256("LX DEX"),
+            keccak256("LX"),
             keccak256("1"),
             block.chainid,
             address(this)

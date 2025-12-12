@@ -1,6 +1,6 @@
-# LX DEX TypeScript Trading Client
+# LX TypeScript Trading Client
 
-Programmatic trading client for LX DEX supporting multiple protocols:
+Programmatic trading client for LX supporting multiple protocols:
 - **WebSocket**: Real-time streaming, market data subscriptions, interactive trading
 - **gRPC**: High-throughput RPC calls for automated trading systems
 

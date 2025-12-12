@@ -1,6 +1,6 @@
-# LX DEX C SDK
+# LX C SDK
 
-High-performance C client for LX DEX trading.
+High-performance C client for LX trading.
 
 ## Features
 

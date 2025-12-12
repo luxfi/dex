@@ -1,5 +1,5 @@
 /*
- * LX DEX C SDK - Basic Example
+ * LX C SDK - Basic Example
  *
  * Demonstrates connecting to the DEX, subscribing to market data,
  * and placing orders.
@@ -152,7 +152,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    printf("LX DEX C SDK Example v%s\n", lxdex_version());
+    printf("LX C SDK Example v%s\n", lxdex_version());
     printf("Connecting to: %s\n", ws_url);
 
     /* Setup signal handlers */

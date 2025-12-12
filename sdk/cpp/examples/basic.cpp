@@ -1,4 +1,4 @@
-// LX DEX C++ SDK - Basic Usage Example
+// LX C++ SDK - Basic Usage Example
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    std::cout << "LX DEX C++ SDK Example\n";
+    std::cout << "LX C++ SDK Example\n";
     std::cout << "======================\n\n";
 
     // Configure client

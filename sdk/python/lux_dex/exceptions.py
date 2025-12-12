@@ -1,10 +1,10 @@
 """
-Exception definitions for LX DEX Python SDK
+Exception definitions for LX Python SDK
 """
 
 
 class LXDexException(Exception):
-    """Base exception for LX DEX SDK"""
+    """Base exception for LX SDK"""
     pass
 
 

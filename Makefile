@@ -1,4 +1,4 @@
-# LX DEX Makefile
+# LX Makefile
 # Complete build, test, and deployment automation
 
 SHELL := /bin/bash
@@ -36,7 +36,7 @@ all: clean fmt vet test build
 	@echo "✅ Build complete!"
 
 help:
-	@echo "LX DEX Makefile Commands:"
+	@echo "LX Makefile Commands:"
 	@echo ""
 	@echo "Development:"
 	@echo "  make build         - Build all binaries"

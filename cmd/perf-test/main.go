@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== LX DEX Performance Test ===")
+	fmt.Println("=== LX Performance Test ===")
 	fmt.Println("Testing order matching engine performance...")
 	fmt.Println()
 

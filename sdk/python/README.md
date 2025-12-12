@@ -1,6 +1,6 @@
-# LX DEX Python SDK
+# LX Python SDK
 
-Official Python SDK for the LX DEX - High-performance decentralized exchange with perpetual contracts.
+Official Python SDK for the LX - High-performance decentralized exchange with perpetual contracts.
 
 ## Installation
 

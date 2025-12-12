@@ -1,6 +1,6 @@
 ---
 title: MPC Wallets
-description: Threshold signature and MPC wallet integration for institutional trading on LX DEX
+description: Threshold signature and MPC wallet integration for institutional trading on LX
 ---
 
 # MPC Wallet Integration
@@ -37,7 +37,7 @@ Multi-Party Computation (MPC) wallets provide institutional-grade security by di
 MPC Wallet Architecture
 
 +------------------+     +------------------+     +------------------+
-|   Trading App    |     |   MPC Provider   |     |   LX DEX         |
+|   Trading App    |     |   MPC Provider   |     |   LX         |
 |                  |     |                  |     |                  |
 |  +------------+  |     |  +------------+  |     |  +------------+  |
 |  | Order      |  |---->|  | Policy     |  |---->|  | Verify     |  |
@@ -83,7 +83,7 @@ const client = new LXDexClient({
 // Create dedicated vault for DEX trading
 async function createTradingVault(): Promise<string> {
   const vault = await fireblocks.createVaultAccount({
-    name: 'LX DEX Trading',
+    name: 'LX Trading',
     autoFuel: true,
     hiddenOnUI: false
   });
@@ -211,7 +211,7 @@ const client = new LXDexClient({
 // Create BitGo wallet for trading
 async function createBitGoWallet(): Promise<string> {
   const wallet = await bitgo.createWallet({
-    label: 'LX DEX Trading',
+    label: 'LX Trading',
     passphrase: process.env.WALLET_PASSPHRASE,
     enterprise: process.env.BITGO_ENTERPRISE_ID
   });

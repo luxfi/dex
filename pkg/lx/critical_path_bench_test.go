@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Critical Path Benchmarks for LX DEX
+// Critical Path Benchmarks for LX
 // These benchmarks test the most performance-critical code paths
 
 // BenchmarkCriticalOrderMatching tests the core matching engine performance

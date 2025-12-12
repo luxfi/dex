@@ -1,4 +1,4 @@
-# LX DEX C CLI Trading Client
+# LX C CLI Trading Client
 # Build for HFT and embedded systems
 
 CC ?= cc
@@ -56,7 +56,7 @@ uninstall:
 clean:
 	rm -rf $(BUILD_DIR)
 
-# Test - requires running LX DEX server
+# Test - requires running LX server
 test: $(BUILD_DIR)/$(BIN)
 	@echo "Testing connection..."
 	./$(BUILD_DIR)/$(BIN) --timeout 2000 ping || echo "Server not running (expected)"
@@ -71,7 +71,7 @@ bench: $(BUILD_DIR)/$(BIN)
 	@for i in 1 2 3 4 5; do ./$(BUILD_DIR)/$(BIN) ping 2>/dev/null; done
 
 help:
-	@echo "LX DEX C CLI Build System"
+	@echo "LX C CLI Build System"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all       Build optimized binary (default)"

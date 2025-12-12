@@ -1,9 +1,9 @@
 #!/bin/bash
-# Quick deployment script for LX DEX v2.0.0
+# Quick deployment script for LX v2.0.0
 
 set -e
 
-echo "🚀 LX DEX v2.0.0 - Production Deployment"
+echo "🚀 LX v2.0.0 - Production Deployment"
 echo "========================================="
 echo ""
 
@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}Building LX DEX binary locally...${NC}"
+echo -e "${BLUE}Building LX binary locally...${NC}"
 cd /Users/z/work/lux/dex
 
 # Build the binary
@@ -25,7 +25,7 @@ echo ""
 
 # Check if running locally or deploying
 if [ "$1" == "local" ]; then
-    echo -e "${BLUE}Starting LX DEX locally...${NC}"
+    echo -e "${BLUE}Starting LX locally...${NC}"
     ./bin/lxdex \
         --engine auto \
         --markets all \
@@ -34,7 +34,7 @@ if [ "$1" == "local" ]; then
         --log-level info &
     
     PID=$!
-    echo -e "${GREEN}✅ LX DEX started with PID: $PID${NC}"
+    echo -e "${GREEN}✅ LX started with PID: $PID${NC}"
     echo ""
     echo "Performance Metrics:"
     echo "===================="
@@ -123,7 +123,7 @@ fi
 
 echo ""
 echo "==================================="
-echo "LX DEX v2.0.0 - Production Ready"
+echo "LX v2.0.0 - Production Ready"
 echo "==================================="
 echo "• LX clearinghouse: ✅"
 echo "• Cross/isolated margin: ✅"

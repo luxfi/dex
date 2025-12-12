@@ -1,7 +1,7 @@
 """
-LX DEX Trading Client - gRPC Implementation
+LX Trading Client - gRPC Implementation
 
-Async gRPC client for LX DEX trading API.
+Async gRPC client for LX trading API.
 """
 
 import asyncio
@@ -65,7 +65,7 @@ _TIME_IN_FORCE_TO_PROTO = {
 
 class GrpcClient(TradingClient):
     """
-    gRPC-based trading client for LX DEX.
+    gRPC-based trading client for LX.
 
     Uses async/await with grpcio-aio for all operations.
 

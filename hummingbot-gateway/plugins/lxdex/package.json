@@ -1,7 +1,7 @@
 {
   "name": "hummingbot-gateway-lxdex-plugin",
   "version": "1.0.0",
-  "description": "Hummingbot Gateway plugin for LX DEX - Ultra-low latency DEX with CLOB, AMM, and CLMM support",
+  "description": "Hummingbot Gateway plugin for LX - Ultra-low latency DEX with CLOB, AMM, and CLMM support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

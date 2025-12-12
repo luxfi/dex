@@ -5,7 +5,7 @@ description: Institutional-grade custody with MPC technology, cold storage, and 
 
 # Custody Solutions
 
-LX DEX provides institutional custody infrastructure combining the security of cold storage with the operational flexibility required for active trading. Our custody solution eliminates counterparty risk while maintaining regulatory compliance.
+LX provides institutional custody infrastructure combining the security of cold storage with the operational flexibility required for active trading. Our custody solution eliminates counterparty risk while maintaining regulatory compliance.
 
 ## Architecture Overview
 
@@ -38,7 +38,7 @@ LX DEX provides institutional custody infrastructure combining the security of c
 
 ### Multi-Party Computation (MPC)
 
-LX DEX uses threshold MPC signatures where no single party ever holds a complete private key. Keys are generated and stored as distributed shares across geographically separated infrastructure.
+LX uses threshold MPC signatures where no single party ever holds a complete private key. Keys are generated and stored as distributed shares across geographically separated infrastructure.
 
 <Callout type="info">
 **No Single Point of Failure**: Even if multiple key shares are compromised, attackers cannot reconstruct the private key without meeting the threshold.
@@ -85,8 +85,8 @@ Key shares are distributed across multiple security domains:
 | Share Location | Control | Hardware | Geography |
 |---------------|---------|----------|-----------|
 | Client HSM | Client | Thales Luna | Client premises |
-| LX Primary | LX DEX | AWS CloudHSM | US-East |
-| LX Secondary | LX DEX | Azure HSM | EU-West |
+| LX Primary | LX | AWS CloudHSM | US-East |
+| LX Secondary | LX | Azure HSM | EU-West |
 | Backup 1 | Escrow Agent | Futurex | Singapore |
 | Backup 2 | Escrow Agent | Utimaco | Switzerland |
 
@@ -287,7 +287,7 @@ For cold vault key generation, we conduct formal key ceremonies:
 ## Insurance Coverage
 
 <Callout type="warning">
-LX DEX maintains comprehensive insurance coverage for custodied assets.
+LX maintains comprehensive insurance coverage for custodied assets.
 </Callout>
 
 ### Coverage Details
@@ -312,7 +312,7 @@ Coverage applies when assets are:
 
 ### vs Centralized Exchange Custody
 
-| Feature | LX DEX Custody | CEX Custody |
+| Feature | LX Custody | CEX Custody |
 |---------|---------------|-------------|
 | Key Control | Client + LX (MPC) | Exchange only |
 | Counterparty Risk | None | Full exchange risk |
@@ -323,7 +323,7 @@ Coverage applies when assets are:
 
 ### vs Self-Custody
 
-| Feature | LX DEX Custody | Self-Custody |
+| Feature | LX Custody | Self-Custody |
 |---------|---------------|--------------|
 | Key Recovery | MPC backup shares | Seed phrase only |
 | Operational Security | Institutional-grade | DIY |
@@ -334,7 +334,7 @@ Coverage applies when assets are:
 
 ### vs Third-Party Custodians
 
-| Feature | LX DEX Custody | Third-Party |
+| Feature | LX Custody | Third-Party |
 |---------|---------------|-------------|
 | Settlement Speed | T+0 (atomic) | T+1 to T+3 |
 | Trading Integration | Native | API bridge |
@@ -452,7 +452,7 @@ Each institutional client receives sealed recovery packages:
 - Stored at two independent escrow agents
 
 <Callout type="info">
-**Full Control**: In a worst-case scenario where LX DEX ceases operations, clients can recover their assets independently using their key shares and backup packages.
+**Full Control**: In a worst-case scenario where LX ceases operations, clients can recover their assets independently using their key shares and backup packages.
 </Callout>
 
 ## Contact

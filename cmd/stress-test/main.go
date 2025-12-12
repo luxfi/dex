@@ -46,7 +46,7 @@ func main() {
 	)
 	flag.Parse()
 
-	fmt.Println("🔥 LX DEX Extreme Stress Test")
+	fmt.Println("🔥 LX Extreme Stress Test")
 	fmt.Println("================================")
 	fmt.Printf("Traders: %d\n", *traders)
 	fmt.Printf("Duration: %v\n", *duration)

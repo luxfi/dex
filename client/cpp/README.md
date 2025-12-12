@@ -1,6 +1,6 @@
-# LX DEX C++ CLI Trading Client
+# LX C++ CLI Trading Client
 
-Command-line trading interface for LX DEX WebSocket API.
+Command-line trading interface for LX WebSocket API.
 
 ## Build
 
@@ -100,7 +100,7 @@ quit / exit
 
 ```
 $ ./lx-cli -k mykey -s mysecret
-LX DEX CLI - Type 'help' for commands
+LX CLI - Type 'help' for commands
 > ping
 Pong: 1234 us
 > place_order BTC-USD buy limit 50000 0.1

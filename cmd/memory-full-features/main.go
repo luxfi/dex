@@ -237,7 +237,7 @@ func main() {
 	debug.FreeOSMemory()
 
 	fmt.Println("╔════════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║     COMPLETE LX DEX Memory Analysis - ALL Features for Millions       ║")
+	fmt.Println("║     COMPLETE LX Memory Analysis - ALL Features for Millions       ║")
 	fmt.Println("╚════════════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 

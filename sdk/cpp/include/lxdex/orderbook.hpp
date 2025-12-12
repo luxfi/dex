@@ -1,4 +1,4 @@
-// LX DEX C++ SDK - Orderbook Interface
+// LX C++ SDK - Orderbook Interface
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 
