@@ -1,0 +1,392 @@
+name: SDK Release
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.22'
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+  RUST_VERSION: 'stable'
+
+jobs:
+  # Validate version is < v2.0.0 (Go modules v2+ requirement)
+  validate-version:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Extract and validate version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/sdk-v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          if [ "$MAJOR" -ge 2 ]; then
+            echo "ERROR: Version v$VERSION requires /v$MAJOR in import paths for Go modules"
+            echo "Use v1.x.x versions only"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version v$VERSION is valid"
+
+  # Create GitHub Release
+  create-release:
+    name: Create Release
+    needs: validate-version
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Release Notes
+        id: notes
+        run: |
+          cat << 'EOF' > release-notes.md
+          # LX Trading SDK v${{ needs.validate-version.outputs.version }}
+
+          ## Multi-Language SDK Suite
+
+          This release includes SDK implementations for:
+          - **Go** - High-performance native implementation
+          - **TypeScript/Node.js** - Full-featured async client
+          - **Python** - Async-first with type hints
+          - **Rust** - Zero-cost abstractions, FFI support
+          - **C++** - High-frequency trading optimized
+
+          ## Features
+          - Unified API across all languages
+          - Native LX DEX/AMM adapters
+          - CCXT exchange integration (200+ exchanges)
+          - Hummingbot Gateway connector
+          - Cross-chain arbitrage support
+          - Advanced execution algorithms (TWAP, VWAP, Iceberg, etc.)
+          - Real-time risk management
+          - Financial mathematics library
+
+          ## Installation
+
+          ### Go
+          ```bash
+          go get github.com/luxfi/trading@v${{ needs.validate-version.outputs.version }}
+          ```
+
+          ### TypeScript/Node.js
+          ```bash
+          npm install @luxfi/trading@${{ needs.validate-version.outputs.version }}
+          ```
+
+          ### Python
+          ```bash
+          pip install lx-trading==${{ needs.validate-version.outputs.version }}
+          ```
+
+          ### Rust
+          ```toml
+          [dependencies]
+          lx-trading = "${{ needs.validate-version.outputs.version }}"
+          ```
+
+          ### C++
+          Download the pre-built binaries below or build from source.
+
+          EOF
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LX Trading SDK v${{ needs.validate-version.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(needs.validate-version.outputs.version, '-') }}
+
+  # Build Go SDK
+  build-go:
+    name: Go SDK
+    needs: [validate-version, create-release]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: ubuntu-latest
+            goos: windows
+            goarch: amd64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        working-directory: sdk/lx-trading-go
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+
+          # Build example trading bot
+          go build -ldflags="-s -w" -o dist/lx-trading-bot${EXT} ./examples/arbitrage_bot || true
+
+          # Package
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cd dist && zip ../lx-trading-go-${{ matrix.goos }}-${{ matrix.goarch }}.zip *
+          else
+            tar -czf lx-trading-go-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz -C dist .
+          fi
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: |
+            sdk/lx-trading-go/lx-trading-go-*.tar.gz
+            sdk/lx-trading-go/lx-trading-go-*.zip
+
+  # Build TypeScript SDK
+  build-typescript:
+    name: TypeScript SDK
+    needs: [validate-version, create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install and Build
+        working-directory: sdk/lx-trading-ts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package
+        working-directory: sdk/lx-trading-ts
+        run: |
+          npm pack
+          mv luxfi-trading-*.tgz lx-trading-ts-${{ needs.validate-version.outputs.version }}.tgz
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: sdk/lx-trading-ts/lx-trading-ts-*.tgz
+
+  # Build Python SDK (wheels for multiple platforms)
+  build-python:
+    name: Python SDK (${{ matrix.os }})
+    needs: [validate-version, create-release]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install build wheel
+
+      - name: Build wheel
+        working-directory: sdk/lx-trading-py
+        run: |
+          python -m build --wheel
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: sdk/lx-trading-py/dist/*.whl
+
+  # Build Rust SDK
+  build-rust:
+    name: Rust SDK (${{ matrix.target }})
+    needs: [validate-version, create-release]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        working-directory: sdk/lx-trading-core
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        working-directory: sdk/lx-trading-core
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.target }}/release/*.dll dist/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.lib dist/ 2>/dev/null || true
+            cd dist && 7z a ../lx-trading-rust-${{ matrix.target }}.zip *
+          else
+            cp target/${{ matrix.target }}/release/*.so dist/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.dylib dist/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.a dist/ 2>/dev/null || true
+            tar -czf lx-trading-rust-${{ matrix.target }}.tar.gz -C dist .
+          fi
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: |
+            sdk/lx-trading-core/lx-trading-rust-*.tar.gz
+            sdk/lx-trading-core/lx-trading-rust-*.zip
+
+  # Build C++ SDK
+  build-cpp:
+    name: C++ SDK (${{ matrix.os }})
+    needs: [validate-version, create-release]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+          - os: macos-13
+            platform: darwin-amd64
+          - os: macos-14
+            platform: darwin-arm64
+          - os: windows-latest
+            platform: windows-amd64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libssl-dev libcurl4-openssl-dev
+
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew install cmake openssl curl
+
+      - name: Configure and Build
+        working-directory: sdk/lx-trading-cpp
+        shell: bash
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DLX_TRADING_BUILD_TESTS=OFF
+          cmake --build . --config Release -j
+
+      - name: Package
+        working-directory: sdk/lx-trading-cpp
+        shell: bash
+        run: |
+          mkdir -p dist/lib dist/include
+          cp -r include/* dist/include/
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp build/Release/*.lib dist/lib/ 2>/dev/null || cp build/*.lib dist/lib/ 2>/dev/null || true
+            cp build/Release/*.dll dist/lib/ 2>/dev/null || cp build/*.dll dist/lib/ 2>/dev/null || true
+            cd dist && 7z a ../lx-trading-cpp-${{ matrix.platform }}.zip *
+          else
+            cp build/*.a dist/lib/ 2>/dev/null || true
+            cp build/*.so dist/lib/ 2>/dev/null || true
+            cp build/*.dylib dist/lib/ 2>/dev/null || true
+            tar -czf lx-trading-cpp-${{ matrix.platform }}.tar.gz -C dist .
+          fi
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: |
+            sdk/lx-trading-cpp/lx-trading-cpp-*.tar.gz
+            sdk/lx-trading-cpp/lx-trading-cpp-*.zip
+
+  # Generate checksums
+  generate-checksums:
+    name: Generate Checksums
+    needs: [validate-version, build-go, build-typescript, build-python, build-rust, build-cpp]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-files
+          gh release download sdk-v${{ needs.validate-version.outputs.version }} -D release-files -R ${{ github.repository }} || true
+
+      - name: Generate checksums
+        run: |
+          cd release-files
+          sha256sum * > SHA256SUMS.txt 2>/dev/null || true
+          cat SHA256SUMS.txt
+
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
+          files: release-files/SHA256SUMS.txt
