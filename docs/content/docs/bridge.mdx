@@ -1,0 +1,387 @@
+---
+title: Cross-Chain Bridge
+description: Universal asset bridge for cross-chain transfers between major blockchains
+---
+
+# Cross-Chain Bridge
+
+The LX DEX bridge enables seamless asset transfers between multiple blockchains.
+
+## Overview
+
+The bridge supports:
+- **Multi-chain transfers** across major blockchains
+- **Lock-and-mint** mechanism for wrapped assets
+- **MPC threshold signatures** for security
+- **Sub-minute finality** for transfers
+
+## Supported Chains
+
+| Chain | Status | Assets |
+|-------|--------|--------|
+| Lux Network | Native | LUX, all DEX assets |
+| Ethereum | Live | ETH, ERC-20 tokens |
+| Arbitrum | Live | ARB, ERC-20 tokens |
+| Optimism | Live | OP, ERC-20 tokens |
+| Polygon | Live | MATIC, ERC-20 tokens |
+| BNB Chain | Live | BNB, BEP-20 tokens |
+| Avalanche | Live | AVAX, ARC-20 tokens |
+| Solana | Beta | SOL, SPL tokens |
+| Cosmos | Beta | ATOM, IBC tokens |
+
+## Bridge Flow
+
+```
+Source Chain                    Bridge Network                Destination Chain
++-------------+                +----------------+             +--------------+
+|             |                |                |             |              |
+| Lock Assets | -------------> | Verify & Sign  | ----------> | Mint Wrapped |
+|             |                | (MPC Network)  |             | Assets       |
++-------------+                +----------------+             +--------------+
+      |                               |                              |
+      v                               v                              v
+ User sends                    3/5 validators                  User receives
+ to bridge                     confirm tx                      bridged tokens
+ contract
+```
+
+## Transfer Assets
+
+### Bridge to Lux
+
+```go
+// Bridge ETH from Ethereum to Lux
+transfer, err := bridge.TransferToLux(ctx, &TransferParams{
+    SourceChain: "ethereum",
+    Asset:       "ETH",
+    Amount:      "10.0",
+    Recipient:   "lux1...",  // Lux address
+})
+
+// Track transfer status
+status, err := bridge.GetTransferStatus(ctx, transfer.ID)
+fmt.Printf("Status: %s\n", status.Status)
+fmt.Printf("Confirmations: %d/%d\n", status.Confirmations, status.Required)
+```
+
+### Bridge from Lux
+
+```go
+// Bridge wrapped ETH from Lux to Ethereum
+transfer, err := bridge.TransferFromLux(ctx, &TransferParams{
+    DestChain:  "ethereum",
+    Asset:      "wETH",
+    Amount:     "10.0",
+    Recipient:  "0x...",  // Ethereum address
+})
+```
+
+### Cross-Chain Swap
+
+Bridge and swap in one transaction:
+
+```go
+// Swap ETH on Ethereum for LUX on Lux Network
+result, err := bridge.CrossChainSwap(ctx, &SwapParams{
+    SourceChain: "ethereum",
+    SourceAsset: "ETH",
+    SourceAmount: "1.0",
+    DestChain:    "lux",
+    DestAsset:    "LUX",
+    MinReceived:  "950.0",  // Slippage protection
+    Recipient:    "lux1...",
+})
+```
+
+## Bridge Architecture
+
+### Lock Contract (Source Chain)
+
+```solidity
+// Simplified Ethereum bridge contract
+contract LuxBridge {
+    mapping(bytes32 => bool) public processedTransfers;
+    address[] public validators;
+    uint256 public threshold = 3;
+    
+    function lock(
+        address token,
+        uint256 amount,
+        string calldata destAddress
+    ) external payable {
+        // Transfer tokens to bridge
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        
+        emit TokensLocked(
+            msg.sender,
+            token,
+            amount,
+            destAddress,
+            block.timestamp
+        );
+    }
+    
+    function unlock(
+        address token,
+        uint256 amount,
+        address recipient,
+        bytes[] calldata signatures
+    ) external {
+        bytes32 hash = keccak256(abi.encodePacked(token, amount, recipient));
+        require(!processedTransfers[hash], "Already processed");
+        require(verifySignatures(hash, signatures), "Invalid signatures");
+        
+        processedTransfers[hash] = true;
+        IERC20(token).transfer(recipient, amount);
+    }
+}
+```
+
+### MPC Network
+
+The bridge is secured by an MPC (Multi-Party Computation) network:
+
+```go
+// Bridge validator configuration
+type BridgeValidator struct {
+    NodeID    string
+    PublicKey []byte
+    Stake     uint64
+}
+
+// 3-of-5 threshold signing
+type MPCConfig struct {
+    Threshold   int  // 3
+    TotalNodes  int  // 5
+    SignTimeout time.Duration
+}
+```
+
+### Wrapped Assets
+
+Bridged assets are represented as wrapped tokens on Lux:
+
+| Original | Wrapped | Contract |
+|----------|---------|----------|
+| ETH | wETH.lux | `lux1eth...` |
+| BTC | wBTC.lux | `lux1btc...` |
+| USDC | wUSDC.lux | `lux1usdc...` |
+
+## Transfer Status
+
+Track transfer progress:
+
+```go
+// Poll for status
+for {
+    status, err := bridge.GetTransferStatus(ctx, transferID)
+    
+    switch status.Status {
+    case "pending":
+        fmt.Println("Waiting for source confirmation...")
+    case "confirming":
+        fmt.Printf("Confirmations: %d/%d\n", 
+            status.Confirmations, status.Required)
+    case "signing":
+        fmt.Println("MPC validators signing...")
+    case "relaying":
+        fmt.Println("Relaying to destination chain...")
+    case "completed":
+        fmt.Printf("Transfer complete! Tx: %s\n", status.DestTxHash)
+        return
+    case "failed":
+        fmt.Printf("Transfer failed: %s\n", status.Error)
+        return
+    }
+    
+    time.Sleep(5 * time.Second)
+}
+```
+
+## Fees
+
+### Transfer Fees
+
+| Route | Base Fee | Min Fee |
+|-------|----------|---------|
+| ETH -> Lux | 0.1% | 0.001 ETH |
+| Lux -> ETH | 0.1% | $5 USD |
+| Cross-chain swap | 0.2% | $10 USD |
+
+### Gas Sponsorship
+
+For small transfers, gas can be sponsored:
+
+```go
+transfer, err := bridge.TransferToLux(ctx, &TransferParams{
+    // ...
+    SponsorGas: true,  // Bridge pays destination gas
+})
+```
+
+## Security
+
+### Validator Requirements
+
+- Minimum 100,000 LUX stake
+- Multi-location deployment
+- Hardware security modules (HSM)
+- 99.9% uptime requirement
+
+### Transfer Limits
+
+| Asset | Per Transfer | Daily Limit |
+|-------|--------------|-------------|
+| ETH | 100 ETH | 1,000 ETH |
+| BTC | 10 BTC | 100 BTC |
+| Stablecoins | $1M | $10M |
+
+### Emergency Pause
+
+Bridge can be paused by governance:
+
+```go
+// Check bridge status
+status, err := bridge.GetBridgeStatus(ctx, "ethereum")
+
+if status.Paused {
+    fmt.Printf("Bridge paused: %s\n", status.PauseReason)
+}
+```
+
+## API Reference
+
+### TransferToLux
+
+```go
+func (b *Bridge) TransferToLux(ctx context.Context, params *TransferParams) (*Transfer, error)
+```
+
+### TransferFromLux
+
+```go
+func (b *Bridge) TransferFromLux(ctx context.Context, params *TransferParams) (*Transfer, error)
+```
+
+### CrossChainSwap
+
+```go
+func (b *Bridge) CrossChainSwap(ctx context.Context, params *SwapParams) (*SwapResult, error)
+```
+
+### GetTransferStatus
+
+```go
+func (b *Bridge) GetTransferStatus(ctx context.Context, transferID string) (*TransferStatus, error)
+```
+
+### GetSupportedChains
+
+```go
+func (b *Bridge) GetSupportedChains(ctx context.Context) ([]*ChainInfo, error)
+```
+
+### GetFeeEstimate
+
+```go
+func (b *Bridge) GetFeeEstimate(ctx context.Context, params *FeeParams) (*FeeEstimate, error)
+```
+
+## Events
+
+```go
+// Listen for bridge events
+bridge.OnTransferInitiated(func(event *TransferEvent) {
+    fmt.Printf("Transfer initiated: %s\n", event.ID)
+    fmt.Printf("From: %s (%s)\n", event.SourceChain, event.SourceAddress)
+    fmt.Printf("Amount: %s %s\n", event.Amount, event.Asset)
+})
+
+bridge.OnTransferCompleted(func(event *TransferEvent) {
+    fmt.Printf("Transfer completed: %s\n", event.ID)
+    fmt.Printf("Destination tx: %s\n", event.DestTxHash)
+})
+
+bridge.OnTransferFailed(func(event *TransferEvent) {
+    fmt.Printf("Transfer failed: %s\n", event.ID)
+    fmt.Printf("Reason: %s\n", event.Error)
+})
+```
+
+## SDK Integration
+
+### TypeScript
+
+```typescript
+import { LuxBridge } from '@luxfi/bridge-sdk';
+
+const bridge = new LuxBridge({
+    network: 'mainnet',
+});
+
+// Bridge ETH to Lux
+const transfer = await bridge.transfer({
+    sourceChain: 'ethereum',
+    asset: 'ETH',
+    amount: '1.0',
+    recipient: 'lux1...',
+});
+
+// Wait for completion
+await transfer.wait();
+console.log('Transfer complete!');
+```
+
+### Python
+
+```python
+from luxfi_bridge import LuxBridge
+
+bridge = LuxBridge(network='mainnet')
+
+# Bridge ETH to Lux
+transfer = bridge.transfer(
+    source_chain='ethereum',
+    asset='ETH',
+    amount='1.0',
+    recipient='lux1...'
+)
+
+# Wait for completion
+transfer.wait()
+print('Transfer complete!')
+```
+
+## Troubleshooting
+
+### Transfer Stuck
+
+If transfer is stuck in "confirming" state:
+
+1. Check source chain confirmations
+2. Verify bridge validators are online
+3. Contact support with transfer ID
+
+### Insufficient Balance
+
+```go
+// Check bridge liquidity before transfer
+liquidity, err := bridge.GetLiquidity(ctx, "ethereum", "ETH")
+
+if liquidity.Available < transferAmount {
+    fmt.Printf("Insufficient liquidity: %s available\n", liquidity.Available)
+}
+```
+
+### Wrong Network
+
+Always verify network before signing:
+
+```go
+// Verify chain ID
+chainInfo, err := bridge.GetChainInfo(ctx, "ethereum")
+
+if chainInfo.ChainID != 1 {
+    return fmt.Errorf("wrong network: expected mainnet")
+}
+```
