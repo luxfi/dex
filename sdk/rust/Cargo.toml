@@ -1,0 +1,49 @@
+[package]
+name = "lux-dex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lux Network <dev@lux.network>"]
+description = "Rust SDK for LX DEX - High-performance decentralized exchange"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/luxfi/dex"
+documentation = "https://docs.lux.network/dex/sdk/rust"
+keywords = ["dex", "trading", "orderbook", "lux", "blockchain"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
+readme = "README.md"
+
+[lib]
+name = "lux_dex"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Error handling
+thiserror = "2"
+
+# Utilities
+url = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = "0.3"
+
+[features]
+default = []

@@ -1,0 +1,701 @@
+---
+title: C SDK
+description: Pure C SDK for LX DEX - FFI bindings, embedded systems, and cross-platform integration
+---
+
+# C SDK
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | **Source**: [luxfi/dex/sdk/c](https://github.com/luxfi/dex/tree/main/sdk/c)
+
+The LX DEX C SDK provides a pure C11 interface for building trading applications. Designed for embedded systems, FFI bindings to other languages, and environments where C++ is unavailable.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Pure C11** | No C++ dependencies, works with any C compiler |
+| **Minimal footprint** | < 50KB static library, suitable for embedded |
+| **FFI-friendly** | Clean ABI for language bindings (Python ctypes, Ruby FFI, etc.) |
+| **Cross-platform** | Linux, macOS, Windows, FreeBSD, embedded Linux |
+| **Thread-safe** | Explicit thread safety with clear ownership semantics |
+| **Zero external deps** | Only libwebsockets for networking (optional bundled) |
+
+## Requirements
+
+- **Compiler**: GCC 7+, Clang 8+, or MSVC 2019+
+- **C Standard**: C11 (C99 compatibility mode available)
+- **CMake**: 3.10+
+- **Dependencies**: libwebsockets (pkg-config detected)
+
+## Installation
+
+### pkg-config (Linux/macOS)
+
+```bash
+# Install dependencies
+# Debian/Ubuntu
+sudo apt install libwebsockets-dev
+
+# macOS
+brew install libwebsockets
+
+# Build and install
+git clone https://github.com/luxfi/dex.git
+cd dex/sdk/c
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+sudo make install
+```
+
+### CMake FetchContent
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+    lxdex_c
+    GIT_REPOSITORY https://github.com/luxfi/dex.git
+    GIT_TAG        v1.0.0
+    SOURCE_SUBDIR  sdk/c
+)
+
+FetchContent_MakeAvailable(lxdex_c)
+
+target_link_libraries(your_app PRIVATE lxdex)
+```
+
+### Manual Integration
+
+Copy the header and source files directly:
+
+```bash
+# Header-only integration (single file)
+cp include/lxdex.h /your/project/include/
+
+# Full integration
+cp -r include/ src/ /your/project/vendor/lxdex/
+```
+
+## CMakeLists.txt Example
+
+### Minimal Project
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+project(trading_bot LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LXDEX REQUIRED lxdex)
+
+add_executable(trading_bot main.c)
+target_link_libraries(trading_bot ${LXDEX_LIBRARIES})
+target_include_directories(trading_bot PRIVATE ${LXDEX_INCLUDE_DIRS})
+```
+
+### With FetchContent
+
+```cmake
+cmake_minimum_required(VERSION 3.14)
+project(trading_bot LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+
+include(FetchContent)
+
+FetchContent_Declare(
+    lxdex
+    GIT_REPOSITORY https://github.com/luxfi/dex.git
+    GIT_TAG        v1.0.0
+    SOURCE_SUBDIR  sdk/c
+)
+
+FetchContent_MakeAvailable(lxdex)
+
+add_executable(trading_bot main.c)
+target_link_libraries(trading_bot PRIVATE lxdex)
+```
+
+## Quick Start
+
+### Basic Connection
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    // Initialize library
+    if (lxdex_init() != LXDEX_OK) {
+        fprintf(stderr, "Failed to initialize library\n");
+        return 1;
+    }
+
+    // Create client configuration
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws",
+        .api_key = getenv("LX_API_KEY"),
+        .connect_timeout_ms = 5000,
+        .request_timeout_ms = 1000
+    };
+
+    // Create client
+    struct lxdex_client *client = lxdex_client_new(&config);
+    if (!client) {
+        fprintf(stderr, "Failed to create client\n");
+        lxdex_shutdown();
+        return 1;
+    }
+
+    // Connect
+    int err = lxdex_client_connect(client);
+    if (err != LXDEX_OK) {
+        fprintf(stderr, "Connection failed: %s\n", lxdex_strerror(err));
+        lxdex_client_free(client);
+        lxdex_shutdown();
+        return 1;
+    }
+
+    printf("Connected to LX DEX\n");
+
+    // Cleanup
+    lxdex_client_disconnect(client);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+### Place an Order
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+
+int main(void) {
+    lxdex_init();
+
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws",
+        .api_key = getenv("LX_API_KEY")
+    };
+
+    struct lxdex_client *client = lxdex_client_new(&config);
+    lxdex_client_connect(client);
+
+    // Create order
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 50000.0,
+        .size = 0.1,
+        .time_in_force = LXDEX_TIF_GTC
+    };
+
+    // Place order
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Order placed: ID=%llu, Status=%s\n",
+               result.order_id, lxdex_status_str(result.status));
+    } else {
+        fprintf(stderr, "Order failed: %s\n", lxdex_strerror(err));
+    }
+
+    lxdex_client_free(client);
+    lxdex_shutdown();
+    return 0;
+}
+```
+
+### Subscribe to Market Data
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <signal.h>
+
+static volatile int running = 1;
+
+void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+}
+
+void on_orderbook(const struct lxdex_orderbook *book, void *user_data) {
+    (void)user_data;
+
+    if (book->bid_count > 0 && book->ask_count > 0) {
+        printf("BTC-USD: Bid %.2f (%f) | Ask %.2f (%f)\n",
+               book->bids[0].price, book->bids[0].size,
+               book->asks[0].price, book->asks[0].size);
+    }
+}
+
+int main(void) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    lxdex_init();
+
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws"
+    };
+
+    struct lxdex_client *client = lxdex_client_new(&config);
+    lxdex_client_connect(client);
+
+    // Subscribe to order book
+    struct lxdex_subscription *sub = lxdex_subscribe_orderbook(
+        client,
+        "BTC-USD",
+        10,              // depth
+        on_orderbook,
+        NULL             // user_data
+    );
+
+    if (!sub) {
+        fprintf(stderr, "Subscription failed\n");
+        lxdex_client_free(client);
+        lxdex_shutdown();
+        return 1;
+    }
+
+    // Event loop
+    while (running) {
+        lxdex_client_poll(client, 100);  // 100ms timeout
+    }
+
+    // Cleanup
+    lxdex_unsubscribe(sub);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+## API Reference
+
+### Initialization
+
+```c
+// Initialize library (call once at startup)
+int lxdex_init(void);
+
+// Shutdown library (call once at exit)
+void lxdex_shutdown(void);
+
+// Get library version
+const char *lxdex_version(void);
+```
+
+### Client Lifecycle
+
+```c
+// Create client
+struct lxdex_client *lxdex_client_new(const struct lxdex_config *config);
+
+// Destroy client
+void lxdex_client_free(struct lxdex_client *client);
+
+// Connect to server
+int lxdex_client_connect(struct lxdex_client *client);
+
+// Disconnect from server
+void lxdex_client_disconnect(struct lxdex_client *client);
+
+// Poll for events (non-blocking)
+int lxdex_client_poll(struct lxdex_client *client, int timeout_ms);
+
+// Check connection status
+int lxdex_client_is_connected(const struct lxdex_client *client);
+```
+
+### Order Operations
+
+```c
+// Place order
+int lxdex_place_order(
+    struct lxdex_client *client,
+    const struct lxdex_order *order,
+    struct lxdex_order_result *result
+);
+
+// Cancel order
+int lxdex_cancel_order(
+    struct lxdex_client *client,
+    uint64_t order_id,
+    struct lxdex_cancel_result *result
+);
+
+// Cancel all orders
+int lxdex_cancel_all(
+    struct lxdex_client *client,
+    const char *symbol,  // NULL for all symbols
+    struct lxdex_cancel_all_result *result
+);
+
+// Get order status
+int lxdex_get_order(
+    struct lxdex_client *client,
+    uint64_t order_id,
+    struct lxdex_order_info *info
+);
+
+// Get open orders
+int lxdex_get_open_orders(
+    struct lxdex_client *client,
+    const char *symbol,  // NULL for all symbols
+    struct lxdex_order_info *orders,
+    size_t *count
+);
+```
+
+### Market Data
+
+```c
+// Get order book snapshot
+int lxdex_get_orderbook(
+    struct lxdex_client *client,
+    const char *symbol,
+    int depth,
+    struct lxdex_orderbook *book
+);
+
+// Subscribe to order book updates
+struct lxdex_subscription *lxdex_subscribe_orderbook(
+    struct lxdex_client *client,
+    const char *symbol,
+    int depth,
+    lxdex_orderbook_callback callback,
+    void *user_data
+);
+
+// Subscribe to trades
+struct lxdex_subscription *lxdex_subscribe_trades(
+    struct lxdex_client *client,
+    const char *symbol,
+    lxdex_trade_callback callback,
+    void *user_data
+);
+
+// Unsubscribe
+void lxdex_unsubscribe(struct lxdex_subscription *sub);
+```
+
+### Error Handling
+
+```c
+// Error codes
+enum {
+    LXDEX_OK = 0,
+    LXDEX_ERR_INVALID_ARG = -1,
+    LXDEX_ERR_NO_MEMORY = -2,
+    LXDEX_ERR_CONNECTION = -3,
+    LXDEX_ERR_TIMEOUT = -4,
+    LXDEX_ERR_AUTH = -5,
+    LXDEX_ERR_RATE_LIMIT = -6,
+    LXDEX_ERR_INSUFFICIENT_BALANCE = -7,
+    LXDEX_ERR_ORDER_NOT_FOUND = -8,
+    LXDEX_ERR_INTERNAL = -100
+};
+
+// Get error message
+const char *lxdex_strerror(int err);
+
+// Get last error from client
+int lxdex_client_last_error(const struct lxdex_client *client);
+const char *lxdex_client_last_error_msg(const struct lxdex_client *client);
+```
+
+## Data Types
+
+### Configuration
+
+```c
+struct lxdex_config {
+    const char *url;                  // WebSocket URL
+    const char *api_key;              // API key (NULL for public)
+    const char *api_secret;           // API secret (NULL for public)
+    int connect_timeout_ms;           // Connection timeout (default: 5000)
+    int request_timeout_ms;           // Request timeout (default: 1000)
+    int reconnect_enabled;            // Auto-reconnect (default: 1)
+    int reconnect_max_attempts;       // Max reconnect attempts (default: 10)
+};
+```
+
+### Order
+
+```c
+struct lxdex_order {
+    const char *symbol;               // Trading pair (e.g., "BTC-USD")
+    enum lxdex_side side;             // LXDEX_SIDE_BUY or LXDEX_SIDE_SELL
+    enum lxdex_order_type type;       // LXDEX_ORDER_LIMIT, LXDEX_ORDER_MARKET, etc.
+    double price;                     // Price (ignored for market orders)
+    double size;                      // Quantity
+    enum lxdex_tif time_in_force;     // GTC, IOC, FOK, DAY
+    const char *client_id;            // Optional client order ID
+    double stop_price;                // For stop orders
+    int post_only;                    // Post-only flag
+    int reduce_only;                  // Reduce-only flag
+};
+```
+
+### Order Book Level
+
+```c
+struct lxdex_level {
+    double price;
+    double size;
+    int order_count;
+};
+
+struct lxdex_orderbook {
+    const char *symbol;
+    struct lxdex_level *bids;
+    size_t bid_count;
+    struct lxdex_level *asks;
+    size_t ask_count;
+    uint64_t sequence;
+    uint64_t timestamp;
+};
+```
+
+### Trade
+
+```c
+struct lxdex_trade {
+    uint64_t trade_id;
+    const char *symbol;
+    double price;
+    double size;
+    enum lxdex_side side;
+    uint64_t timestamp;
+};
+```
+
+## Enumerations
+
+```c
+// Order side
+enum lxdex_side {
+    LXDEX_SIDE_BUY = 0,
+    LXDEX_SIDE_SELL = 1
+};
+
+// Order type
+enum lxdex_order_type {
+    LXDEX_ORDER_LIMIT = 0,
+    LXDEX_ORDER_MARKET = 1,
+    LXDEX_ORDER_STOP = 2,
+    LXDEX_ORDER_STOP_LIMIT = 3
+};
+
+// Time in force
+enum lxdex_tif {
+    LXDEX_TIF_GTC = 0,   // Good Till Cancelled
+    LXDEX_TIF_IOC = 1,   // Immediate Or Cancel
+    LXDEX_TIF_FOK = 2,   // Fill Or Kill
+    LXDEX_TIF_DAY = 3    // Day Order
+};
+
+// Order status
+enum lxdex_status {
+    LXDEX_STATUS_NEW = 0,
+    LXDEX_STATUS_OPEN = 1,
+    LXDEX_STATUS_PARTIAL = 2,
+    LXDEX_STATUS_FILLED = 3,
+    LXDEX_STATUS_CANCELLED = 4,
+    LXDEX_STATUS_REJECTED = 5
+};
+```
+
+## Thread Safety
+
+The C SDK uses explicit ownership and threading semantics:
+
+| Function | Thread Safety |
+|----------|---------------|
+| `lxdex_init()` | Call once from main thread |
+| `lxdex_shutdown()` | Call once from main thread |
+| `lxdex_client_*` | One client per thread, or protect with mutex |
+| Callbacks | Called from polling thread |
+
+### Multi-threaded Example
+
+```c
+#include <lxdex.h>
+#include <pthread.h>
+
+struct thread_data {
+    struct lxdex_client *client;
+    pthread_mutex_t *mutex;
+};
+
+void *order_thread(void *arg) {
+    struct thread_data *data = arg;
+
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 50000.0,
+        .size = 0.1
+    };
+
+    struct lxdex_order_result result;
+
+    pthread_mutex_lock(data->mutex);
+    int err = lxdex_place_order(data->client, &order, &result);
+    pthread_mutex_unlock(data->mutex);
+
+    if (err == LXDEX_OK) {
+        printf("Order ID: %llu\n", result.order_id);
+    }
+
+    return NULL;
+}
+```
+
+## FFI Bindings
+
+### Python (ctypes)
+
+```python
+import ctypes
+from ctypes import c_int, c_char_p, c_double, c_void_p, Structure, POINTER
+
+# Load library
+lib = ctypes.CDLL("liblxdex.so")
+
+# Define structures
+class LxdexConfig(Structure):
+    _fields_ = [
+        ("url", c_char_p),
+        ("api_key", c_char_p),
+        ("api_secret", c_char_p),
+        ("connect_timeout_ms", c_int),
+        ("request_timeout_ms", c_int),
+        ("reconnect_enabled", c_int),
+        ("reconnect_max_attempts", c_int),
+    ]
+
+# Initialize
+lib.lxdex_init()
+
+# Create client
+config = LxdexConfig(
+    url=b"wss://api.lux.network/ws",
+    api_key=None,
+    api_secret=None,
+    connect_timeout_ms=5000,
+    request_timeout_ms=1000,
+    reconnect_enabled=1,
+    reconnect_max_attempts=10
+)
+
+lib.lxdex_client_new.restype = c_void_p
+client = lib.lxdex_client_new(ctypes.byref(config))
+
+# Connect
+lib.lxdex_client_connect(client)
+
+# Cleanup
+lib.lxdex_client_free(client)
+lib.lxdex_shutdown()
+```
+
+### Ruby (FFI)
+
+```ruby
+require 'ffi'
+
+module LxDex
+  extend FFI::Library
+  ffi_lib 'lxdex'
+
+  attach_function :lxdex_init, [], :int
+  attach_function :lxdex_shutdown, [], :void
+  attach_function :lxdex_version, [], :string
+end
+
+LxDex.lxdex_init
+puts "LX DEX SDK version: #{LxDex.lxdex_version}"
+LxDex.lxdex_shutdown
+```
+
+## Memory Management
+
+The C SDK follows explicit ownership rules:
+
+1. **Caller-allocated**: Pass a pointer to receive results
+2. **Library-allocated**: Call corresponding `_free` function
+3. **Reference**: Data valid only during callback scope
+
+```c
+// Caller allocates result buffer
+struct lxdex_order_result result;
+lxdex_place_order(client, &order, &result);
+// result is valid until next call
+
+// Library allocates (must free)
+struct lxdex_client *client = lxdex_client_new(&config);
+// ... use client ...
+lxdex_client_free(client);  // Must free
+
+// Reference in callback (valid only during callback)
+void on_orderbook(const struct lxdex_orderbook *book, void *user_data) {
+    // book is valid here
+    // Do NOT store pointers from book
+    double best_bid = book->bids[0].price;  // OK: copy value
+}
+```
+
+## Performance
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Place Order | < 500us | Synchronous call |
+| Cancel Order | < 300us | Synchronous call |
+| Get Order Book | < 200us | Synchronous call |
+| Callback invocation | < 10us | From network buffer |
+
+## Build Options
+
+```bash
+# Release build (default)
+cmake -DCMAKE_BUILD_TYPE=Release ..
+
+# Debug build
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+
+# Build examples
+cmake -DLXDEX_BUILD_EXAMPLES=ON ..
+
+# Build tests
+cmake -DLXDEX_BUILD_TESTS=ON ..
+
+# Static library only
+cmake -DBUILD_SHARED_LIBS=OFF ..
+```
+
+## Next Steps
+
+- [Client Guide](/docs/sdk/c/client) - Connection management and configuration
+- [Orders Guide](/docs/sdk/c/orders) - Order placement and management
+- [Order Book Guide](/docs/sdk/c/orderbook) - Market data access
+- [FFI Guide](/docs/sdk/c/ffi) - Language bindings
+
+## Support
+
+- **GitHub Issues**: [luxfi/dex/issues](https://github.com/luxfi/dex/issues)
+- **Discord**: [discord.gg/luxfi](https://discord.gg/luxfi) `#c-sdk`
+- **API Status**: [status.lux.network](https://status.lux.network)

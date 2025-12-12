@@ -1,0 +1,11 @@
+{
+  "title": "Go SDK",
+  "pages": [
+    "index",
+    "client",
+    "orders",
+    "orderbook",
+    "trades",
+    "account"
+  ]
+}
