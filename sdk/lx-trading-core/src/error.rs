@@ -164,7 +164,7 @@ impl From<reqwest::Error> for Error {
         if err.is_timeout() {
             Error::Timeout { timeout_ms: 30000 }
         } else if err.is_connect() {
-            Error::NetworkError(format!("Connection failed: {}", err))
+            Error::NetworkError(format!("Connection failed: {err}"))
         } else {
             Error::NetworkError(err.to_string())
         }
@@ -185,19 +185,19 @@ impl From<tokio_tungstenite::tungstenite::Error> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error::Internal(format!("IO error: {}", err))
+        Error::Internal(format!("IO error: {err}"))
     }
 }
 
 impl From<url::ParseError> for Error {
     fn from(err: url::ParseError) -> Self {
-        Error::ConfigError(format!("Invalid URL: {}", err))
+        Error::ConfigError(format!("Invalid URL: {err}"))
     }
 }
 
 impl From<toml::de::Error> for Error {
     fn from(err: toml::de::Error) -> Self {
-        Error::ConfigError(format!("TOML parse error: {}", err))
+        Error::ConfigError(format!("TOML parse error: {err}"))
     }
 }
 

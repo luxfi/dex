@@ -146,21 +146,15 @@ func main() {
 ### TypeScript/JavaScript
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({
-  endpoint: 'https://dex.lux.network',
+const dex = await DEX({
+  rpcUrl: 'https://api.lux.network/rpc',
   apiKey: 'your-api-key'
 })
 
 // Place order
-const order = await dex.placeOrder({
-  symbol: 'BTC-USD',
-  side: 'buy',
-  type: 'limit',
-  price: '50000',
-  quantity: '1.5'
-})
+const order = await dex.limitBuy('BTC-USD', '1.5', '50000')
 ```
 
 ### Python

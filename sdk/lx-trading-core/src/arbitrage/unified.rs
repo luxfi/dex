@@ -259,7 +259,7 @@ async fn find_opportunity<C: TradingClient>(
     let now = current_time_ms();
 
     Some(UnifiedOpportunity {
-        id: format!("arb-{}-{}", symbol, now),
+        id: format!("arb-{symbol}-{now}"),
         symbol: symbol.to_string(),
         timestamp: now,
         expires_at: now + 5000,

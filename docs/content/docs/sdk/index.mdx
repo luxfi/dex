@@ -17,12 +17,12 @@ LX provides multiple SDKs and APIs for integration:
 
 ## Implementation Status
 
-| SDK | Repository | Status |
-|-----|------------|--------|
-| TypeScript | [`@luxfi/dex-sdk`](https://github.com/luxfi/dex/tree/main/sdk/typescript) | Complete |
-| Python | [`luxfi-dex`](https://github.com/luxfi/dex/tree/main/sdk/python) | Complete |
-| Go | [`github.com/luxfi/dex/sdk/go`](https://github.com/luxfi/dex/tree/main/sdk/go) | Complete |
-| Rust | [`luxfi-dex`](https://github.com/luxfi/dex/tree/main/sdk/rust) | In Progress |
+| SDK | Package | Repository | Status |
+|-----|---------|------------|--------|
+| TypeScript | [`@luxfi/trading`](https://npmjs.com/package/@luxfi/trading) | [`sdk/lx-trading-ts`](https://github.com/luxfi/dex/tree/main/sdk/lx-trading-ts) | Complete |
+| Python | [`luxfi-dex`](https://pypi.org/project/luxfi-dex/) | [`sdk/python`](https://github.com/luxfi/dex/tree/main/sdk/python) | Complete |
+| Go | `github.com/luxfi/dex/sdk/go` | [`sdk/go`](https://github.com/luxfi/dex/tree/main/sdk/go) | Complete |
+| Rust | [`lux-dex`](https://crates.io/crates/lux-dex) | [`sdk/rust`](https://github.com/luxfi/dex/tree/main/sdk/rust) | Complete |
 
 ## Quick Start
 
@@ -47,69 +47,59 @@ This starts:
 ### Installation
 
 ```bash
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 # or
-pnpm add @luxfi/dex-sdk
+pnpm add @luxfi/trading
 # or
-yarn add @luxfi/dex-sdk
+yarn add @luxfi/trading
 ```
 
 ### Basic Usage
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
-const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
-    wsUrl: 'ws://localhost:8081'
-});
+// Simple initialization
+const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
 // Place an order
-const order = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: 'limit',
-    side: 'buy',
-    price: 50000,
-    size: 1.0
-});
+const order = await dex.limitBuy('BTC-USD', '1.0', '50000')
 
-console.log('Order placed:', order.orderId);
+console.log('Order placed:', order.orderId)
 ```
 
 ### WebSocket Subscriptions
 
 ```typescript
 // Subscribe to order book
-client.subscribeOrderBook('BTC-USD', (book) => {
-    console.log('Best bid:', book.bids[0]);
-    console.log('Best ask:', book.asks[0]);
-});
+dex.subscribeOrderBook('BTC-USD', (book) => {
+    console.log('Best bid:', book.bids[0])
+    console.log('Best ask:', book.asks[0])
+})
 
 // Subscribe to trades
-client.subscribeTrades('BTC-USD', (trade) => {
-    console.log('New trade:', trade);
-});
+dex.subscribeTrades('BTC-USD', (trade) => {
+    console.log('New trade:', trade)
+})
 
 // Subscribe to your orders
-client.subscribeUserOrders((order) => {
-    console.log('Order update:', order);
-});
+dex.subscribeUserOrders((order) => {
+    console.log('Order update:', order)
+})
 ```
 
 ### Advanced Configuration
 
 ```typescript
-const client = new LXDexClient({
-    jsonRpcUrl: 'https://api.lux.network/rpc',
-    wsUrl: 'wss://api.lux.network/ws',
-    apiKey: 'your-api-key',
-    apiSecret: 'your-api-secret',
-    timeout: 30000,
-    retry: {
-        maxRetries: 3,
-        backoffMs: 1000
-    }
-});
+import { Client, Config, NativeVenueConfig } from '@luxfi/trading'
+
+const config = new Config()
+    .withNative('lx-dex', NativeVenueConfig.lxDex('https://api.lux.network/rpc'))
+    .withApiKey('your-api-key')
+    .withTimeout(30000)
+
+const client = new Client(config)
+await client.connect()
 ```
 
 ## Python SDK
@@ -306,12 +296,12 @@ resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
 
 ```typescript
 try {
-    const order = await client.placeOrder({...});
+    const order = await dex.limitBuy('BTC-USD', '1.0', '50000')
 } catch (error) {
     if (error.code === 'INSUFFICIENT_BALANCE') {
-        console.error('Not enough funds');
+        console.error('Not enough funds')
     } else if (error.code === 'RATE_LIMIT_EXCEEDED') {
-        console.error('Too many requests');
+        console.error('Too many requests')
     }
 }
 ```
@@ -361,10 +351,10 @@ if err != nil {
 ### API Key Setup
 
 ```typescript
-const client = new LXDexClient({
-    apiKey: 'your-api-key',
-    apiSecret: 'your-api-secret'
-});
+const dex = await DEX({
+    rpcUrl: 'https://api.lux.network/rpc',
+    apiKey: 'your-api-key'
+})
 ```
 
 ### JWT Authentication
