@@ -1,0 +1,326 @@
+---
+title: Node Repository
+description: Lux blockchain node implementation - VMs, consensus integration, networking
+---
+
+# Node Repository
+
+**Repository**: [github.com/luxfi/node](https://github.com/luxfi/node)
+
+The core Lux blockchain node implementation. Contains all virtual machines, network layer, database, and chain management.
+
+## Repository Structure
+
+```
+github.com/luxfi/node/
+├── api/                    # RPC API implementations
+│   ├── admin/              # Admin API
+│   ├── auth/               # Authentication
+│   ├── health/             # Health checks
+│   ├── info/               # Node info API
+│   ├── keystore/           # Key management
+│   └── server/             # HTTP server
+├── app/                    # Application entry point
+│   └── main.go             # Node binary
+├── chains/                 # Chain management
+│   ├── manager.go          # Chain lifecycle
+│   └── nets.go             # Network management
+├── database/               # Storage layer
+│   ├── badger/             # BadgerDB backend
+│   ├── pebble/             # PebbleDB backend
+│   ├── leveldb/            # LevelDB backend
+│   └── heightindexdb/      # Height indexing
+├── genesis/                # Genesis configuration
+│   ├── genesis.go          # Genesis parsing
+│   └── params.go           # Network parameters
+├── network/                # P2P networking
+│   ├── peer/               # Peer management
+│   ├── throttling/         # Rate limiting
+│   └── p2p/                # Protocol handlers
+├── vms/                    # Virtual Machines
+│   ├── platformvm/         # D-Chain (Platform)
+│   ├── exchangevm/         # X-Chain (Exchange)
+│   ├── cchainvm/           # C-Chain (EVM)
+│   ├── bridgevm/           # B-Chain (Bridge)
+│   ├── thresholdvm/        # T-Chain (Threshold)
+│   ├── quantumvm/          # Q-Chain (Quantum)
+│   ├── zkvm/               # Z-Chain (Zero Knowledge)
+│   ├── aivm/               # A-Chain (Attestation)
+│   └── proposervm/         # Block proposer wrapper
+├── wallet/                 # Wallet implementation
+│   └── net/                # Network wallet ops
+└── x/                      # Extended packages
+    ├── merkledb/           # Merkle database
+    └── sync/               # State sync
+```
+
+## Virtual Machines
+
+### D-Chain (Platform VM)
+**Location**: [`vms/platformvm/`](https://github.com/luxfi/node/tree/main/vms/platformvm)
+
+Platform chain for staking, validation, and network governance.
+
+```go
+// Key files
+vms/platformvm/
+├── vm.go                   // VM implementation
+├── block/                  // Block structures
+│   ├── builder/            // Block building
+│   └── executor/           // Block execution
+├── state/                  // Chain state
+├── txs/                    // Transaction types
+│   ├── executor/           // TX execution
+│   └── mempool/            // Transaction pool
+├── validators/             // Validator management
+│   └── manager.go          // Validator set ops
+└── warp/                   // Warp messaging
+    ├── signature.go        // BLS signatures
+    └── validator.go        // Warp validators
+```
+
+### X-Chain (Exchange VM)
+**Location**: [`vms/exchangevm/`](https://github.com/luxfi/node/tree/main/vms/exchangevm)
+
+UTXO-based asset exchange for native token transfers.
+
+```go
+vms/exchangevm/
+├── vm.go                   // VM implementation
+├── block/                  // Block handling
+├── state/                  // UTXO state
+├── txs/                    // Transaction types
+└── network/                // Gossip protocol
+```
+
+### C-Chain (EVM)
+**Location**: [`vms/cchainvm/`](https://github.com/luxfi/node/tree/main/vms/cchainvm)
+
+EVM-compatible smart contract chain.
+
+```go
+vms/cchainvm/
+├── vm.go                   // Geth integration
+├── evm/                    // EVM execution
+├── precompile/             // Custom precompiles
+└── txpool/                 // Transaction pool
+```
+
+### B-Chain (Bridge VM)
+**Location**: [`vms/bridgevm/`](https://github.com/luxfi/node/tree/main/vms/bridgevm)
+
+MPC-based cross-chain bridge operations.
+
+```go
+vms/bridgevm/
+├── vm.go                   // VM implementation
+├── rpc.go                  // JSON-RPC endpoints
+├── factory.go              // VM factory
+└── signer_test.go          // Signer tests
+```
+
+Key types:
+```go
+// SignerSet manages LP-333 opt-in signers
+type SignerSet struct {
+    Signers      []*SignerInfo // Active signers (max 100)
+    Waitlist     []ids.NodeID  // Waiting for slot
+    CurrentEpoch uint64        // Increments on reshare
+    SetFrozen    bool          // True at 100 signers
+    ThresholdT   int           // t value for threshold
+    PublicKey    []byte        // Combined MPC public key
+}
+
+// SignerInfo tracks validator bond
+type SignerInfo struct {
+    NodeID     ids.NodeID
+    BondAmount uint64  // 100M LUX bond (slashable)
+    Slashed    bool
+    SlashCount int
+}
+```
+
+### T-Chain (Threshold VM)
+**Location**: [`vms/thresholdvm/`](https://github.com/luxfi/node/tree/main/vms/thresholdvm)
+
+Threshold cryptography operations for MPC.
+
+```go
+vms/thresholdvm/
+├── vm.go                   // VM implementation
+├── dkg.go                  // Distributed key gen
+├── sign.go                 // Threshold signing
+└── reshare.go              // Key resharing
+```
+
+### Q-Chain (Quantum VM)
+**Location**: [`vms/quantumvm/`](https://github.com/luxfi/node/tree/main/vms/quantumvm)
+
+Post-quantum cryptography chain.
+
+```go
+vms/quantumvm/
+├── vm.go                   // VM implementation
+├── corona.go             // Corona signatures
+└── hybrid.go               // Hybrid BLS+RT
+```
+
+### Z-Chain (ZK VM)
+**Location**: [`vms/zkvm/`](https://github.com/luxfi/node/tree/main/vms/zkvm)
+
+Zero-knowledge proof verification.
+
+```go
+vms/zkvm/
+├── vm.go                   // VM implementation
+├── circuit/                // ZK circuits
+├── verifier/               // Proof verification
+└── prover/                 // Proof generation
+```
+
+## Key Source Files
+
+### Core Node
+| File | Description |
+|------|-------------|
+| [`app/main.go`](https://github.com/luxfi/node/blob/main/app/main.go) | Node entry point |
+| [`chains/manager.go`](https://github.com/luxfi/node/blob/main/chains/manager.go) | Chain lifecycle |
+| [`network/network.go`](https://github.com/luxfi/node/blob/main/network/network.go) | P2P networking |
+| [`database/manager.go`](https://github.com/luxfi/node/blob/main/database/manager.go) | Storage layer |
+
+### Platform VM
+| File | Description |
+|------|-------------|
+| [`vms/platformvm/vm.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/vm.go) | Platform VM core |
+| [`vms/platformvm/validators/manager.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/validators/manager.go) | Validator management |
+| [`vms/platformvm/warp/signature.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/signature.go) | Warp signatures |
+
+### Warp Messaging
+| File | Description |
+|------|-------------|
+| [`vms/platformvm/warp/message.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/message.go) | Message types |
+| [`vms/platformvm/warp/validator.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/validator.go) | Validator data |
+| [`vms/platformvm/warp/signature.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/signature.go) | Hybrid BLS+RT |
+
+## Build Instructions
+
+### Prerequisites
+```bash
+# Go 1.23+
+go version
+
+# Clone repository
+git clone https://github.com/luxfi/node.git
+cd node
+```
+
+### Build
+```bash
+# Build node binary
+make build
+
+# Output: ./build/luxd
+
+# Build with race detector
+make build-race
+```
+
+### Test
+```bash
+# Run all tests
+go test ./... -count=1
+
+# Run specific package
+go test ./vms/platformvm/... -v
+
+# Run with race detector
+go test -race ./...
+
+# Run benchmarks
+go test -bench=. ./vms/exchangevm/...
+```
+
+### Run Node
+```bash
+# Mainnet
+./build/luxd
+
+# Testnet
+./build/luxd --network-id=testnet
+
+# Local network
+./build/luxd --network-id=12345
+
+# With specific options
+./build/luxd \
+  --http-host=0.0.0.0 \
+  --http-port=9650 \
+  --staking-port=9651 \
+  --log-level=info
+```
+
+## API Endpoints
+
+### Admin API
+```bash
+# Node health
+curl -X POST http://localhost:9650/ext/admin \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"admin.getNodeID","params":{},"id":1}'
+```
+
+### Platform API
+```bash
+# Get validators
+curl -X POST http://localhost:9650/ext/bc/P \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"platform.getCurrentValidators","params":{},"id":1}'
+```
+
+### Exchange API
+```bash
+# Get balance
+curl -X POST http://localhost:9650/ext/bc/X \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"avm.getBalance","params":{"address":"X-lux1...","assetID":"LUX"},"id":1}'
+```
+
+## Dependencies
+
+### Go Modules
+```go
+require (
+    github.com/luxfi/consensus v1.22.5
+    github.com/luxfi/crypto v0.8.0
+    github.com/luxfi/geth v1.13.14
+    github.com/dgraph-io/badger/v4 v4.2.0
+    github.com/prometheus/client_golang v1.18.0
+)
+```
+
+### Replace Directives (Development)
+```go
+replace (
+    github.com/luxfi/consensus => ../consensus
+    github.com/luxfi/crypto => ../crypto
+)
+```
+
+## Code Coverage
+
+Current test coverage by package:
+
+| Package | Coverage |
+|---------|----------|
+| `vms/platformvm` | 78.7% |
+| `vms/exchangevm` | 85.2% |
+| `vms/proposervm` | 91.7% |
+| `database` | 92.3% |
+| `network` | 88.5% |
+| **Total** | **89.8%** |
+
+## License
+
+Business Source License 1.1 (BSL)
+
+See [LICENSE](https://github.com/luxfi/node/blob/main/LICENSE) for details.

@@ -1,0 +1,620 @@
+---
+title: Subscription Model
+description: WebSocket subscription patterns, channels, and message sequencing for LX DEX
+---
+
+# Subscription Model
+
+All real-time data in LX DEX flows through a channel-based subscription model. Clients subscribe to specific channels and receive a snapshot followed by incremental updates.
+
+## Subscribe Flow
+
+```
+┌──────────┐                           ┌──────────┐
+│  Client  │                           │  Server  │
+└──────────┘                           └──────────┘
+     │                                       │
+     │ ──── subscribe (orderbook) ────────► │
+     │                                       │
+     │ ◄─── subscribed (confirmation) ────── │
+     │                                       │
+     │ ◄─── orderbook_snapshot ───────────── │
+     │                                       │
+     │ ◄─── orderbook_update (seq: 1) ────── │
+     │ ◄─── orderbook_update (seq: 2) ────── │
+     │ ◄─── orderbook_update (seq: 3) ────── │
+     │                                       │
+     │ ──── unsubscribe (orderbook) ──────► │
+     │                                       │
+     │ ◄─── unsubscribed ─────────────────── │
+```
+
+## Subscribe Request
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT",
+    "depth": 20
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Client-provided ID for request correlation |
+| `type` | string | Yes | Must be `subscribe` |
+| `channel` | string | Yes | Channel name |
+| `data` | object | Yes | Channel-specific parameters |
+
+## Subscribe Response
+
+**Success:**
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribed",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT",
+    "depth": 20,
+    "subscription_id": "sub-orderbook-btc-usdt-20"
+  },
+  "timestamp": 1702339200000
+}
+```
+
+**Failure:**
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe_error",
+  "channel": "orderbook",
+  "data": {
+    "code": "INVALID_SYMBOL",
+    "message": "Symbol 'INVALID-PAIR' is not supported"
+  },
+  "timestamp": 1702339200000
+}
+```
+
+## Unsubscribe Request
+
+```json
+{
+  "id": "unsub-001",
+  "type": "unsubscribe",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "unsub-001",
+  "type": "unsubscribed",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT"
+  },
+  "timestamp": 1702339200000
+}
+```
+
+## Available Channels
+
+### Public Channels (No Authentication)
+
+| Channel | Symbols | Description |
+|---------|---------|-------------|
+| `orderbook` | Required | Order book snapshots and L2 updates |
+| `trades` | Required | Real-time public trade feed |
+| `ticker` | Required | Price and volume updates |
+| `ticker_all` | N/A | All symbols ticker feed |
+
+### Private Channels (Authentication Required)
+
+| Channel | Symbols | Description |
+|---------|---------|-------------|
+| `orders` | Optional | Order status updates and fills |
+| `positions` | Optional | Position updates (margin trading) |
+| `balances` | N/A | Balance changes |
+
+## Symbol Format
+
+Symbols follow the `BASE-QUOTE` format:
+
+```
+BTC-USDT    # Bitcoin / Tether
+ETH-USDT    # Ethereum / Tether
+SOL-USDT    # Solana / Tether
+LUX-USDT    # Lux / Tether
+```
+
+**Get available symbols:**
+
+```json
+{
+  "id": "req-001",
+  "type": "get_symbols"
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "req-001",
+  "type": "symbols",
+  "data": {
+    "symbols": [
+      {
+        "symbol": "BTC-USDT",
+        "base": "BTC",
+        "quote": "USDT",
+        "status": "trading",
+        "min_size": "0.0001",
+        "max_size": "100",
+        "tick_size": "0.01",
+        "lot_size": "0.0001"
+      },
+      {
+        "symbol": "ETH-USDT",
+        "base": "ETH",
+        "quote": "USDT",
+        "status": "trading",
+        "min_size": "0.001",
+        "max_size": "1000",
+        "tick_size": "0.01",
+        "lot_size": "0.001"
+      }
+    ]
+  },
+  "timestamp": 1702339200000
+}
+```
+
+## Message Sequencing
+
+Every server message includes a monotonically increasing sequence number. Use sequences to detect gaps and trigger resync.
+
+```json
+{
+  "type": "orderbook_update",
+  "channel": "orderbook",
+  "data": { ... },
+  "sequence": 12345,
+  "prev_sequence": 12344,
+  "timestamp": 1702339200000
+}
+```
+
+### Sequence Gap Detection
+
+```typescript
+class SequenceTracker {
+  private sequences: Map<string, number> = new Map();
+
+  handleMessage(channel: string, symbol: string, msg: any): boolean {
+    const key = `${channel}:${symbol}`;
+    const expected = this.sequences.get(key);
+
+    if (expected !== undefined && msg.sequence !== expected + 1) {
+      // Gap detected - need to resync
+      console.warn(`Gap detected: expected ${expected + 1}, got ${msg.sequence}`);
+      return false;
+    }
+
+    this.sequences.set(key, msg.sequence);
+    return true;
+  }
+
+  reset(channel: string, symbol: string, sequence: number) {
+    this.sequences.set(`${channel}:${symbol}`, sequence);
+  }
+}
+```
+
+### Resync on Gap
+
+When a sequence gap is detected:
+
+1. Unsubscribe from the channel
+2. Clear local state
+3. Resubscribe to get fresh snapshot
+
+```typescript
+async function resync(ws: WebSocket, channel: string, symbol: string) {
+  // 1. Unsubscribe
+  ws.send(JSON.stringify({
+    id: `unsub-${Date.now()}`,
+    type: 'unsubscribe',
+    channel,
+    data: { symbol }
+  }));
+
+  // 2. Wait for unsubscribed confirmation
+  await waitForMessage(ws, 'unsubscribed');
+
+  // 3. Clear local state
+  localOrderBook.clear(symbol);
+
+  // 4. Resubscribe
+  ws.send(JSON.stringify({
+    id: `sub-${Date.now()}`,
+    type: 'subscribe',
+    channel,
+    data: { symbol, depth: 20 }
+  }));
+}
+```
+
+## Batch Subscriptions
+
+Subscribe to multiple channels in a single request:
+
+```json
+{
+  "id": "batch-sub-001",
+  "type": "subscribe_batch",
+  "data": {
+    "subscriptions": [
+      { "channel": "orderbook", "symbol": "BTC-USDT", "depth": 20 },
+      { "channel": "orderbook", "symbol": "ETH-USDT", "depth": 20 },
+      { "channel": "trades", "symbol": "BTC-USDT" },
+      { "channel": "trades", "symbol": "ETH-USDT" }
+    ]
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "batch-sub-001",
+  "type": "subscribed_batch",
+  "data": {
+    "successful": [
+      { "channel": "orderbook", "symbol": "BTC-USDT" },
+      { "channel": "orderbook", "symbol": "ETH-USDT" },
+      { "channel": "trades", "symbol": "BTC-USDT" },
+      { "channel": "trades", "symbol": "ETH-USDT" }
+    ],
+    "failed": []
+  },
+  "timestamp": 1702339200000
+}
+```
+
+## Subscription Limits
+
+| Limit | Value |
+|-------|-------|
+| Max subscriptions per connection | 50 |
+| Max symbols per batch | 20 |
+| Max orderbook depth | 100 |
+| Subscription timeout | 10 seconds |
+
+## Message Types Summary
+
+### Client to Server
+
+| Type | Description |
+|------|-------------|
+| `subscribe` | Subscribe to a channel |
+| `unsubscribe` | Unsubscribe from a channel |
+| `subscribe_batch` | Subscribe to multiple channels |
+| `unsubscribe_all` | Unsubscribe from all channels |
+| `get_symbols` | Request available symbols |
+| `get_subscriptions` | List active subscriptions |
+
+### Server to Client
+
+| Type | Description |
+|------|-------------|
+| `subscribed` | Subscription confirmed |
+| `unsubscribed` | Unsubscription confirmed |
+| `subscribe_error` | Subscription failed |
+| `*_snapshot` | Initial state snapshot |
+| `*_update` | Incremental update |
+| `error` | General error |
+
+## Code Examples
+
+### Multi-Symbol Subscription (TypeScript)
+
+```typescript
+class MarketDataClient {
+  private ws: WebSocket;
+  private subscriptions: Map<string, Set<string>> = new Map();
+  private sequences: Map<string, number> = new Map();
+
+  constructor(url: string) {
+    this.ws = new WebSocket(url);
+    this.ws.onmessage = this.handleMessage.bind(this);
+  }
+
+  subscribe(channel: string, symbol: string, params: object = {}) {
+    const id = `sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    this.ws.send(JSON.stringify({
+      id,
+      type: 'subscribe',
+      channel,
+      data: { symbol, ...params }
+    }));
+
+    // Track subscription
+    if (!this.subscriptions.has(channel)) {
+      this.subscriptions.set(channel, new Set());
+    }
+    this.subscriptions.get(channel)!.add(symbol);
+  }
+
+  unsubscribe(channel: string, symbol: string) {
+    this.ws.send(JSON.stringify({
+      id: `unsub-${Date.now()}`,
+      type: 'unsubscribe',
+      channel,
+      data: { symbol }
+    }));
+
+    this.subscriptions.get(channel)?.delete(symbol);
+  }
+
+  private handleMessage(event: MessageEvent) {
+    const msg = JSON.parse(event.data);
+    const key = `${msg.channel}:${msg.data?.symbol}`;
+
+    // Check sequence
+    if (msg.sequence !== undefined) {
+      const expected = this.sequences.get(key);
+      if (expected !== undefined && msg.sequence !== expected + 1) {
+        this.handleGap(msg.channel, msg.data.symbol);
+        return;
+      }
+      this.sequences.set(key, msg.sequence);
+    }
+
+    // Emit to handlers
+    this.emit(msg.type, msg);
+  }
+
+  private handleGap(channel: string, symbol: string) {
+    console.warn(`Sequence gap detected for ${channel}:${symbol}`);
+    this.unsubscribe(channel, symbol);
+    setTimeout(() => {
+      this.subscribe(channel, symbol);
+    }, 100);
+  }
+
+  private emit(type: string, msg: any) {
+    // Event emission logic
+  }
+}
+```
+
+### Multi-Symbol Subscription (Python)
+
+```python
+import asyncio
+import websockets
+import json
+from dataclasses import dataclass
+from typing import Dict, Set, Optional
+
+@dataclass
+class Subscription:
+    channel: str
+    symbol: str
+    params: dict
+
+class MarketDataClient:
+    def __init__(self, url: str):
+        self.url = url
+        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.subscriptions: Dict[str, Set[str]] = {}
+        self.sequences: Dict[str, int] = {}
+
+    async def connect(self):
+        self.ws = await websockets.connect(self.url)
+        asyncio.create_task(self._message_loop())
+
+    async def subscribe(self, channel: str, symbol: str, **params):
+        msg_id = f"sub-{int(time.time() * 1000)}"
+
+        await self.ws.send(json.dumps({
+            "id": msg_id,
+            "type": "subscribe",
+            "channel": channel,
+            "data": {"symbol": symbol, **params}
+        }))
+
+        if channel not in self.subscriptions:
+            self.subscriptions[channel] = set()
+        self.subscriptions[channel].add(symbol)
+
+    async def unsubscribe(self, channel: str, symbol: str):
+        await self.ws.send(json.dumps({
+            "id": f"unsub-{int(time.time() * 1000)}",
+            "type": "unsubscribe",
+            "channel": channel,
+            "data": {"symbol": symbol}
+        }))
+
+        if channel in self.subscriptions:
+            self.subscriptions[channel].discard(symbol)
+
+    async def _message_loop(self):
+        async for message in self.ws:
+            msg = json.loads(message)
+            await self._handle_message(msg)
+
+    async def _handle_message(self, msg: dict):
+        key = f"{msg.get('channel')}:{msg.get('data', {}).get('symbol')}"
+
+        # Check sequence
+        if 'sequence' in msg:
+            expected = self.sequences.get(key)
+            if expected is not None and msg['sequence'] != expected + 1:
+                await self._handle_gap(msg['channel'], msg['data']['symbol'])
+                return
+            self.sequences[key] = msg['sequence']
+
+        # Process message
+        self._emit(msg['type'], msg)
+
+    async def _handle_gap(self, channel: str, symbol: str):
+        print(f"Sequence gap detected for {channel}:{symbol}")
+        await self.unsubscribe(channel, symbol)
+        await asyncio.sleep(0.1)
+        await self.subscribe(channel, symbol)
+
+    def _emit(self, msg_type: str, msg: dict):
+        # Event emission logic
+        pass
+```
+
+### Multi-Symbol Subscription (Go)
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "sync"
+    "time"
+
+    "github.com/gorilla/websocket"
+)
+
+type MarketDataClient struct {
+    conn          *websocket.Conn
+    subscriptions map[string]map[string]bool
+    sequences     map[string]int64
+    mu            sync.RWMutex
+}
+
+func NewMarketDataClient(url string) (*MarketDataClient, error) {
+    conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    client := &MarketDataClient{
+        conn:          conn,
+        subscriptions: make(map[string]map[string]bool),
+        sequences:     make(map[string]int64),
+    }
+
+    go client.messageLoop()
+    return client, nil
+}
+
+func (c *MarketDataClient) Subscribe(channel, symbol string, params map[string]interface{}) error {
+    data := map[string]interface{}{"symbol": symbol}
+    for k, v := range params {
+        data[k] = v
+    }
+
+    msg := map[string]interface{}{
+        "id":      fmt.Sprintf("sub-%d", time.Now().UnixMilli()),
+        "type":    "subscribe",
+        "channel": channel,
+        "data":    data,
+    }
+
+    c.mu.Lock()
+    if c.subscriptions[channel] == nil {
+        c.subscriptions[channel] = make(map[string]bool)
+    }
+    c.subscriptions[channel][symbol] = true
+    c.mu.Unlock()
+
+    return c.conn.WriteJSON(msg)
+}
+
+func (c *MarketDataClient) Unsubscribe(channel, symbol string) error {
+    msg := map[string]interface{}{
+        "id":      fmt.Sprintf("unsub-%d", time.Now().UnixMilli()),
+        "type":    "unsubscribe",
+        "channel": channel,
+        "data":    map[string]interface{}{"symbol": symbol},
+    }
+
+    c.mu.Lock()
+    if c.subscriptions[channel] != nil {
+        delete(c.subscriptions[channel], symbol)
+    }
+    c.mu.Unlock()
+
+    return c.conn.WriteJSON(msg)
+}
+
+func (c *MarketDataClient) messageLoop() {
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            return
+        }
+
+        var msg map[string]interface{}
+        json.Unmarshal(message, &msg)
+        c.handleMessage(msg)
+    }
+}
+
+func (c *MarketDataClient) handleMessage(msg map[string]interface{}) {
+    channel, _ := msg["channel"].(string)
+    data, _ := msg["data"].(map[string]interface{})
+    symbol, _ := data["symbol"].(string)
+    key := fmt.Sprintf("%s:%s", channel, symbol)
+
+    // Check sequence
+    if seq, ok := msg["sequence"].(float64); ok {
+        c.mu.RLock()
+        expected, exists := c.sequences[key]
+        c.mu.RUnlock()
+
+        if exists && int64(seq) != expected+1 {
+            go c.handleGap(channel, symbol)
+            return
+        }
+
+        c.mu.Lock()
+        c.sequences[key] = int64(seq)
+        c.mu.Unlock()
+    }
+
+    // Process message
+    c.emit(msg["type"].(string), msg)
+}
+
+func (c *MarketDataClient) handleGap(channel, symbol string) {
+    fmt.Printf("Sequence gap detected for %s:%s\n", channel, symbol)
+    c.Unsubscribe(channel, symbol)
+    time.Sleep(100 * time.Millisecond)
+    c.Subscribe(channel, symbol, nil)
+}
+
+func (c *MarketDataClient) emit(msgType string, msg map[string]interface{}) {
+    // Event emission logic
+}
+```
+
+## Next Steps
+
+- [Order Book Channel](/docs/api/websocket/orderbook) - L2 order book data
+- [Trades Channel](/docs/api/websocket/trades) - Real-time trades
+- [Orders Channel](/docs/api/websocket/orders) - Private order updates

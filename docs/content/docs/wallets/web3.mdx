@@ -1,0 +1,586 @@
+---
+title: Web3 Wallets
+description: MetaMask, WalletConnect, and browser wallet integration for LX DEX
+---
+
+# Web3 Wallet Integration
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
+
+## Overview
+
+LX DEX supports all major Web3 wallets through standard interfaces:
+- **EIP-1193**: Provider API for browser wallets
+- **EIP-6963**: Multi-wallet discovery
+- **WalletConnect v2**: Mobile and desktop wallet connection
+
+## Supported Wallets
+
+| Wallet | Type | EIP-6963 | WalletConnect | Notes |
+|--------|------|----------|---------------|-------|
+| MetaMask | Browser/Mobile | Yes | Yes | Most popular |
+| Coinbase Wallet | Browser/Mobile | Yes | Yes | Exchange integration |
+| Rainbow | Mobile | No | Yes | Mobile-first |
+| Trust Wallet | Mobile | No | Yes | Multi-chain |
+| Rabby | Browser | Yes | No | DeFi focused |
+| Frame | Desktop | Yes | No | Privacy focused |
+| Zerion | Browser/Mobile | Yes | Yes | Portfolio tracking |
+
+## MetaMask Integration
+
+### Installation
+
+```bash
+npm install @luxfi/dex-sdk
+```
+
+### Basic Connection
+
+```typescript
+import { LXDexClient, MetaMaskAdapter } from '@luxfi/dex-sdk';
+
+const adapter = new MetaMaskAdapter();
+const client = new LXDexClient({
+  endpoint: 'https://dex.lux.network',
+  wallet: adapter
+});
+
+// Connect wallet
+async function connectWallet() {
+  try {
+    const accounts = await adapter.connect();
+    console.log('Connected:', accounts[0]);
+
+    // Check network
+    const chainId = await adapter.getChainId();
+    if (chainId !== 96369) {
+      await adapter.switchNetwork(96369);
+    }
+
+    return accounts[0];
+  } catch (error) {
+    if (error.code === 4001) {
+      console.log('User rejected connection');
+    } else {
+      console.error('Connection failed:', error);
+    }
+  }
+}
+```
+
+### Network Configuration
+
+```typescript
+// Add Lux network to MetaMask
+async function addLuxNetwork() {
+  try {
+    await window.ethereum.request({
+      method: 'wallet_addEthereumChain',
+      params: [{
+        chainId: '0x17871', // 96369 in hex
+        chainName: 'Lux Mainnet',
+        nativeCurrency: {
+          name: 'LUX',
+          symbol: 'LUX',
+          decimals: 18
+        },
+        rpcUrls: ['https://api.lux.network/ext/bc/C/rpc'],
+        blockExplorerUrls: ['https://explorer.lux.network']
+      }]
+    });
+  } catch (error) {
+    if (error.code === 4902) {
+      console.log('Network not added');
+    }
+  }
+}
+
+// Switch to Lux network
+async function switchToLux() {
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: '0x17871' }]
+    });
+  } catch (error) {
+    if (error.code === 4902) {
+      await addLuxNetwork();
+    }
+  }
+}
+```
+
+### Event Handling
+
+```typescript
+// Listen for account changes
+adapter.on('accountsChanged', (accounts: string[]) => {
+  if (accounts.length === 0) {
+    console.log('Wallet disconnected');
+    handleDisconnect();
+  } else {
+    console.log('Account changed:', accounts[0]);
+    handleAccountChange(accounts[0]);
+  }
+});
+
+// Listen for network changes
+adapter.on('chainChanged', (chainId: string) => {
+  const id = parseInt(chainId, 16);
+  if (id !== 96369) {
+    console.log('Wrong network, please switch to Lux');
+    showNetworkWarning();
+  }
+});
+
+// Listen for disconnect
+adapter.on('disconnect', () => {
+  console.log('Wallet disconnected');
+  handleDisconnect();
+});
+```
+
+## WalletConnect v2
+
+### Setup
+
+```typescript
+import { WalletConnectAdapter } from '@luxfi/dex-sdk';
+
+const adapter = new WalletConnectAdapter({
+  projectId: 'YOUR_WALLETCONNECT_PROJECT_ID',
+  chains: [96369], // Lux Mainnet
+  optionalChains: [96370], // Lux Testnet
+  metadata: {
+    name: 'LX DEX',
+    description: 'High-performance decentralized exchange',
+    url: 'https://dex.lux.network',
+    icons: ['https://dex.lux.network/logo.png']
+  }
+});
+```
+
+### QR Code Connection
+
+```typescript
+import { WalletConnectModal } from '@walletconnect/modal';
+
+const modal = new WalletConnectModal({
+  projectId: 'YOUR_WALLETCONNECT_PROJECT_ID',
+  chains: ['eip155:96369']
+});
+
+async function connectWithQR() {
+  // Get connection URI
+  const uri = await adapter.getConnectionUri();
+
+  // Display QR code modal
+  modal.openModal({ uri });
+
+  // Wait for connection
+  const accounts = await adapter.connect();
+  modal.closeModal();
+
+  return accounts[0];
+}
+```
+
+### Session Management
+
+```typescript
+// Check existing session
+async function checkSession() {
+  const session = await adapter.getSession();
+  if (session && !session.expired) {
+    return session.accounts[0];
+  }
+  return null;
+}
+
+// Restore session
+async function restoreSession() {
+  const existing = await checkSession();
+  if (existing) {
+    console.log('Session restored:', existing);
+    return existing;
+  }
+  // Need new connection
+  return await connectWithQR();
+}
+
+// Disconnect session
+async function disconnect() {
+  await adapter.disconnect();
+  console.log('Session disconnected');
+}
+```
+
+## EIP-6963 Multi-Wallet Discovery
+
+```typescript
+import { discoverWallets, WalletInfo } from '@luxfi/dex-sdk';
+
+// Discover all available wallets
+const wallets = await discoverWallets();
+
+// Display wallet selection UI
+function WalletSelector({ wallets }: { wallets: WalletInfo[] }) {
+  return (
+    <div className="wallet-list">
+      {wallets.map(wallet => (
+        <button
+          key={wallet.uuid}
+          onClick={() => connectWallet(wallet)}
+          className="wallet-option"
+        >
+          <img src={wallet.icon} alt={wallet.name} />
+          <span>{wallet.name}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Connect selected wallet
+async function connectWallet(wallet: WalletInfo) {
+  const adapter = createAdapter(wallet.provider);
+  const accounts = await adapter.connect();
+  return accounts[0];
+}
+```
+
+## React Integration
+
+### Wallet Hook
+
+```typescript
+import { useState, useEffect, useCallback } from 'react';
+import { WalletAdapter, MetaMaskAdapter } from '@luxfi/dex-sdk';
+
+export function useWallet() {
+  const [adapter, setAdapter] = useState<WalletAdapter | null>(null);
+  const [address, setAddress] = useState<string | null>(null);
+  const [chainId, setChainId] = useState<number | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const metamask = new MetaMaskAdapter();
+    setAdapter(metamask);
+
+    // Check if already connected
+    metamask.getAccounts().then(accounts => {
+      if (accounts.length > 0) {
+        setAddress(accounts[0]);
+      }
+    });
+
+    // Subscribe to events
+    metamask.on('accountsChanged', (accounts) => {
+      setAddress(accounts[0] || null);
+    });
+
+    metamask.on('chainChanged', (id) => {
+      setChainId(parseInt(id, 16));
+    });
+
+    return () => {
+      metamask.removeAllListeners();
+    };
+  }, []);
+
+  const connect = useCallback(async () => {
+    if (!adapter) return;
+
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      const accounts = await adapter.connect();
+      setAddress(accounts[0]);
+
+      const chain = await adapter.getChainId();
+      setChainId(chain);
+
+      if (chain !== 96369) {
+        await adapter.switchNetwork(96369);
+      }
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [adapter]);
+
+  const disconnect = useCallback(async () => {
+    if (!adapter) return;
+    await adapter.disconnect();
+    setAddress(null);
+  }, [adapter]);
+
+  return {
+    address,
+    chainId,
+    isConnecting,
+    error,
+    connect,
+    disconnect,
+    adapter
+  };
+}
+```
+
+### Wallet Provider Context
+
+```typescript
+import { createContext, useContext, ReactNode } from 'react';
+import { useWallet } from './useWallet';
+
+const WalletContext = createContext<ReturnType<typeof useWallet> | null>(null);
+
+export function WalletProvider({ children }: { children: ReactNode }) {
+  const wallet = useWallet();
+  return (
+    <WalletContext.Provider value={wallet}>
+      {children}
+    </WalletContext.Provider>
+  );
+}
+
+export function useWalletContext() {
+  const context = useContext(WalletContext);
+  if (!context) {
+    throw new Error('useWalletContext must be used within WalletProvider');
+  }
+  return context;
+}
+```
+
+### Connect Button Component
+
+```typescript
+import { useWalletContext } from './WalletProvider';
+
+export function ConnectButton() {
+  const { address, isConnecting, connect, disconnect } = useWalletContext();
+
+  if (isConnecting) {
+    return <button disabled>Connecting...</button>;
+  }
+
+  if (address) {
+    return (
+      <div className="wallet-info">
+        <span>{formatAddress(address)}</span>
+        <button onClick={disconnect}>Disconnect</button>
+      </div>
+    );
+  }
+
+  return <button onClick={connect}>Connect Wallet</button>;
+}
+
+function formatAddress(address: string): string {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+```
+
+## Order Signing
+
+### EIP-712 Typed Data
+
+```typescript
+const ORDER_TYPES = {
+  Order: [
+    { name: 'symbol', type: 'string' },
+    { name: 'side', type: 'uint8' },
+    { name: 'type', type: 'uint8' },
+    { name: 'price', type: 'uint256' },
+    { name: 'quantity', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'expiry', type: 'uint256' }
+  ]
+};
+
+const DOMAIN = {
+  name: 'LX DEX',
+  version: '1',
+  chainId: 96369,
+  verifyingContract: '0x...' // DEX contract address
+};
+
+async function signOrder(order: Order): Promise<string> {
+  const data = {
+    domain: DOMAIN,
+    types: ORDER_TYPES,
+    primaryType: 'Order',
+    message: {
+      symbol: order.symbol,
+      side: order.side === 'buy' ? 0 : 1,
+      type: order.type === 'limit' ? 0 : 1,
+      price: BigInt(Math.floor(parseFloat(order.price) * 1e8)),
+      quantity: BigInt(Math.floor(parseFloat(order.quantity) * 1e8)),
+      nonce: BigInt(order.nonce),
+      expiry: BigInt(order.expiry)
+    }
+  };
+
+  return await adapter.signTypedData(data);
+}
+```
+
+### Place Signed Order
+
+```typescript
+async function placeOrder(order: OrderParams) {
+  // Generate nonce and expiry
+  const nonce = Date.now();
+  const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+  const fullOrder = {
+    ...order,
+    nonce,
+    expiry
+  };
+
+  // Sign order
+  const signature = await signOrder(fullOrder);
+
+  // Submit to DEX
+  const result = await client.submitOrder({
+    ...fullOrder,
+    signature
+  });
+
+  return result;
+}
+```
+
+## Error Handling
+
+```typescript
+import { WalletErrorCode } from '@luxfi/dex-sdk';
+
+const ERROR_MESSAGES: Record<number, string> = {
+  4001: 'Transaction rejected by user',
+  4100: 'Requested account not authorized',
+  4200: 'Requested method not supported',
+  4900: 'Provider disconnected',
+  4901: 'Chain not connected'
+};
+
+function handleWalletError(error: any): string {
+  // Standard EIP-1193 errors
+  if (error.code && ERROR_MESSAGES[error.code]) {
+    return ERROR_MESSAGES[error.code];
+  }
+
+  // MetaMask specific errors
+  if (error.code === -32002) {
+    return 'Request already pending, check MetaMask';
+  }
+
+  if (error.code === -32603) {
+    return 'Internal error, please try again';
+  }
+
+  // Generic fallback
+  return error.message || 'Unknown wallet error';
+}
+```
+
+## Security Best Practices
+
+### 1. Verify Chain ID
+
+```typescript
+// Always verify chain before operations
+async function ensureCorrectChain(): Promise<boolean> {
+  const chainId = await adapter.getChainId();
+  if (chainId !== 96369) {
+    try {
+      await adapter.switchNetwork(96369);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+```
+
+### 2. Validate Addresses
+
+```typescript
+import { isAddress, getAddress } from 'ethers';
+
+function validateAddress(address: string): string | null {
+  if (!isAddress(address)) {
+    return null;
+  }
+  // Return checksummed address
+  return getAddress(address);
+}
+```
+
+### 3. Transaction Simulation
+
+```typescript
+// Simulate before sending
+async function simulateTransaction(tx: Transaction): Promise<boolean> {
+  try {
+    await adapter.estimateGas(tx);
+    return true;
+  } catch (error) {
+    console.error('Transaction would fail:', error);
+    return false;
+  }
+}
+```
+
+### 4. Spending Limits
+
+```typescript
+// Check and set token allowance
+async function ensureAllowance(
+  token: string,
+  spender: string,
+  amount: bigint
+): Promise<void> {
+  const allowance = await getTokenAllowance(token, spender);
+
+  if (allowance < amount) {
+    // Request approval
+    await approveToken(token, spender, amount);
+  }
+}
+```
+
+## Testing
+
+### Mock Wallet for Tests
+
+```typescript
+import { MockWalletAdapter } from '@luxfi/dex-sdk/testing';
+
+const mockWallet = new MockWalletAdapter({
+  accounts: ['0x1234...'],
+  chainId: 96369,
+  signatureResponse: '0xsig...'
+});
+
+// Use in tests
+const client = new LXDexClient({
+  endpoint: 'http://localhost:8080',
+  wallet: mockWallet
+});
+
+// Verify interactions
+expect(mockWallet.signTypedDataCalls).toHaveLength(1);
+```
+
+## Next Steps
+
+- [MPC Wallets](/docs/wallets/mpc) - Institutional threshold signing
+- [Hardware Wallets](/docs/wallets/hardware) - Ledger and Trezor
+- [Transaction Signing](/docs/wallets/signing) - Deep dive into signing

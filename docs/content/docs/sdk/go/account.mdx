@@ -1,0 +1,793 @@
+---
+title: Account Management
+description: Account balances, positions, and margin management with the Go SDK
+---
+
+# Account Management
+
+The Go SDK provides comprehensive account management including balance queries, position tracking, margin information, and settlement status.
+
+## Account Types
+
+```go
+// Balance represents account balance for an asset
+type Balance struct {
+    Asset     string  `json:"asset"`     // Asset symbol (e.g., "BTC", "USD")
+    Available float64 `json:"available"` // Available for trading
+    Locked    float64 `json:"locked"`    // Locked in open orders
+    Total     float64 `json:"total"`     // Total balance
+}
+
+// Position represents a trading position
+type Position struct {
+    Symbol     string  `json:"symbol"`     // Trading pair
+    Size       float64 `json:"size"`       // Position size (negative = short)
+    EntryPrice float64 `json:"entryPrice"` // Average entry price
+    MarkPrice  float64 `json:"markPrice"`  // Current mark price
+    PnL        float64 `json:"pnl"`        // Realized P&L
+    Margin     float64 `json:"margin"`     // Position margin
+}
+
+// MarginInfo represents margin account information
+type MarginInfo struct {
+    UserID            string  `json:"user_id"`
+    InitialMargin     float64 `json:"initial_margin"`
+    MaintenanceMargin float64 `json:"maintenance_margin"`
+    MarginRatio       float64 `json:"margin_ratio"`
+    FreeMargin        float64 `json:"free_margin"`
+    MarginLevel       float64 `json:"margin_level"`
+}
+```
+
+## Querying Balances
+
+### Get All Balances
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    // Get account balances (example implementation)
+    balances := []client.Balance{
+        {Asset: "BTC", Available: 1.5, Locked: 0.1, Total: 1.6},
+        {Asset: "ETH", Available: 10.0, Locked: 2.0, Total: 12.0},
+        {Asset: "USD", Available: 50000, Locked: 5000, Total: 55000},
+        {Asset: "LUX", Available: 1000, Locked: 0, Total: 1000},
+    }
+
+    fmt.Println("Account Balances")
+    fmt.Println("================")
+    fmt.Printf("%-8s %15s %15s %15s %10s\n",
+        "Asset", "Available", "Locked", "Total", "Util %")
+    fmt.Println("------------------------------------------------------------")
+
+    for _, bal := range balances {
+        utilization := bal.Utilization() * 100
+        fmt.Printf("%-8s %15.8f %15.8f %15.8f %9.2f%%\n",
+            bal.Asset, bal.Available, bal.Locked, bal.Total, utilization)
+    }
+}
+```
+
+### Balance with Real-Time Updates
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type BalanceTracker struct {
+    mu       sync.RWMutex
+    balances map[string]*client.Balance
+}
+
+func NewBalanceTracker() *BalanceTracker {
+    return &BalanceTracker{
+        balances: make(map[string]*client.Balance),
+    }
+}
+
+func (bt *BalanceTracker) Update(balance *client.Balance) {
+    bt.mu.Lock()
+    defer bt.mu.Unlock()
+    bt.balances[balance.Asset] = balance
+}
+
+func (bt *BalanceTracker) Get(asset string) *client.Balance {
+    bt.mu.RLock()
+    defer bt.mu.RUnlock()
+    return bt.balances[asset]
+}
+
+func (bt *BalanceTracker) GetAll() map[string]*client.Balance {
+    bt.mu.RLock()
+    defer bt.mu.RUnlock()
+
+    result := make(map[string]*client.Balance, len(bt.balances))
+    for k, v := range bt.balances {
+        result[k] = v
+    }
+    return result
+}
+
+func (bt *BalanceTracker) TotalUSDValue(prices map[string]float64) float64 {
+    bt.mu.RLock()
+    defer bt.mu.RUnlock()
+
+    var total float64
+    for asset, bal := range bt.balances {
+        if asset == "USD" {
+            total += bal.Total
+        } else if price, ok := prices[asset]; ok {
+            total += bal.Total * price
+        }
+    }
+    return total
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect WebSocket:", err)
+    }
+
+    tracker := NewBalanceTracker()
+    userID := "trader-001"
+
+    // Subscribe to balance updates
+    err = c.Subscribe(fmt.Sprintf("user:balances:%s", userID), func(data interface{}) {
+        if balData, ok := data.(map[string]interface{}); ok {
+            balance := &client.Balance{
+                Asset:     balData["asset"].(string),
+                Available: balData["available"].(float64),
+                Locked:    balData["locked"].(float64),
+                Total:     balData["total"].(float64),
+            }
+            tracker.Update(balance)
+            fmt.Printf("[Balance Update] %s: Available=%.8f, Locked=%.8f\n",
+                balance.Asset, balance.Available, balance.Locked)
+        }
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    fmt.Println("Listening for balance updates...")
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+
+    // Print final balances
+    fmt.Println("\nFinal Balances:")
+    for _, bal := range tracker.GetAll() {
+        fmt.Printf("  %s: %.8f\n", bal.Asset, bal.Total)
+    }
+}
+```
+
+## Position Management
+
+### Get Open Positions
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    // Example positions (would come from API)
+    positions := []client.Position{
+        {
+            Symbol:     "BTC-USD",
+            Size:       0.5,
+            EntryPrice: 48000,
+            MarkPrice:  50000,
+            PnL:        1000,
+            Margin:     4800,
+        },
+        {
+            Symbol:     "ETH-USD",
+            Size:       -5.0, // Short position
+            EntryPrice: 3200,
+            MarkPrice:  3100,
+            PnL:        500,
+            Margin:     3200,
+        },
+    }
+
+    fmt.Println("Open Positions")
+    fmt.Println("==============")
+
+    var totalPnL, totalMargin float64
+    for _, pos := range positions {
+        direction := "LONG"
+        if pos.Size < 0 {
+            direction = "SHORT"
+        }
+
+        unrealizedPnL := pos.UnrealizedPnL()
+        pnlPct := pos.PnLPercentage()
+
+        fmt.Printf("\n%s (%s)\n", pos.Symbol, direction)
+        fmt.Printf("  Size:       %.4f\n", pos.Size)
+        fmt.Printf("  Entry:      $%.2f\n", pos.EntryPrice)
+        fmt.Printf("  Mark:       $%.2f\n", pos.MarkPrice)
+        fmt.Printf("  Unrealized: $%.2f (%.2f%%)\n", unrealizedPnL, pnlPct)
+        fmt.Printf("  Realized:   $%.2f\n", pos.PnL)
+        fmt.Printf("  Margin:     $%.2f\n", pos.Margin)
+
+        totalPnL += unrealizedPnL + pos.PnL
+        totalMargin += pos.Margin
+    }
+
+    fmt.Printf("\n-----------------\n")
+    fmt.Printf("Total P&L:    $%.2f\n", totalPnL)
+    fmt.Printf("Total Margin: $%.2f\n", totalMargin)
+}
+```
+
+### Position Monitoring
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type PositionManager struct {
+    mu        sync.RWMutex
+    positions map[string]*client.Position
+    alerts    chan PositionAlert
+}
+
+type PositionAlert struct {
+    Symbol  string
+    Type    string
+    Message string
+}
+
+func NewPositionManager() *PositionManager {
+    return &PositionManager{
+        positions: make(map[string]*client.Position),
+        alerts:    make(chan PositionAlert, 100),
+    }
+}
+
+func (pm *PositionManager) Update(pos *client.Position) {
+    pm.mu.Lock()
+    defer pm.mu.Unlock()
+
+    oldPos := pm.positions[pos.Symbol]
+    pm.positions[pos.Symbol] = pos
+
+    // Check for alerts
+    pm.checkAlerts(oldPos, pos)
+}
+
+func (pm *PositionManager) checkAlerts(old, new *client.Position) {
+    // New position opened
+    if old == nil && new.Size != 0 {
+        pm.alerts <- PositionAlert{
+            Symbol:  new.Symbol,
+            Type:    "OPENED",
+            Message: fmt.Sprintf("New position: %.4f @ %.2f", new.Size, new.EntryPrice),
+        }
+        return
+    }
+
+    // Position closed
+    if old != nil && old.Size != 0 && new.Size == 0 {
+        pm.alerts <- PositionAlert{
+            Symbol:  new.Symbol,
+            Type:    "CLOSED",
+            Message: fmt.Sprintf("Position closed, P&L: $%.2f", new.PnL),
+        }
+        return
+    }
+
+    // Large P&L change
+    if old != nil {
+        oldPnL := old.UnrealizedPnL()
+        newPnL := new.UnrealizedPnL()
+        pnlChange := newPnL - oldPnL
+
+        if abs(pnlChange) > 100 { // $100 threshold
+            pm.alerts <- PositionAlert{
+                Symbol:  new.Symbol,
+                Type:    "PNL_CHANGE",
+                Message: fmt.Sprintf("P&L change: $%.2f -> $%.2f", oldPnL, newPnL),
+            }
+        }
+    }
+
+    // Liquidation warning (margin ratio > 80%)
+    if new.Margin > 0 {
+        marginRatio := abs(new.UnrealizedPnL()) / new.Margin
+        if marginRatio > 0.8 {
+            pm.alerts <- PositionAlert{
+                Symbol:  new.Symbol,
+                Type:    "LIQUIDATION_WARNING",
+                Message: fmt.Sprintf("High margin usage: %.1f%%", marginRatio*100),
+            }
+        }
+    }
+}
+
+func (pm *PositionManager) Alerts() <-chan PositionAlert {
+    return pm.alerts
+}
+
+func (pm *PositionManager) GetPosition(symbol string) *client.Position {
+    pm.mu.RLock()
+    defer pm.mu.RUnlock()
+    return pm.positions[symbol]
+}
+
+func (pm *PositionManager) TotalUnrealizedPnL() float64 {
+    pm.mu.RLock()
+    defer pm.mu.RUnlock()
+
+    var total float64
+    for _, pos := range pm.positions {
+        total += pos.UnrealizedPnL()
+    }
+    return total
+}
+
+func abs(x float64) float64 {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    pm := NewPositionManager()
+    userID := "trader-001"
+
+    // Subscribe to position updates
+    err = c.Subscribe(fmt.Sprintf("user:positions:%s", userID), func(data interface{}) {
+        if posData, ok := data.(map[string]interface{}); ok {
+            pos := &client.Position{
+                Symbol:     posData["symbol"].(string),
+                Size:       posData["size"].(float64),
+                EntryPrice: posData["entryPrice"].(float64),
+                MarkPrice:  posData["markPrice"].(float64),
+                PnL:        posData["pnl"].(float64),
+                Margin:     posData["margin"].(float64),
+            }
+            pm.Update(pos)
+        }
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    // Handle alerts
+    go func() {
+        for alert := range pm.Alerts() {
+            fmt.Printf("[ALERT] %s - %s: %s\n",
+                alert.Symbol, alert.Type, alert.Message)
+        }
+    }()
+
+    // Print P&L periodically
+    ticker := time.NewTicker(10 * time.Second)
+    defer ticker.Stop()
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+    for {
+        select {
+        case <-ticker.C:
+            fmt.Printf("Total Unrealized P&L: $%.2f\n", pm.TotalUnrealizedPnL())
+        case <-sigCh:
+            fmt.Println("\nShutting down...")
+            return
+        }
+    }
+}
+```
+
+## Margin Information
+
+### Query Margin Status
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    userID := "trader-001"
+    marginInfo, err := c.GetMarginInfo(ctx, userID)
+    if err != nil {
+        log.Fatal("Failed to get margin info:", err)
+    }
+
+    fmt.Println("Margin Account Status")
+    fmt.Println("=====================")
+    fmt.Printf("User ID:             %s\n", marginInfo.UserID)
+    fmt.Printf("Initial Margin:      $%.2f\n", marginInfo.InitialMargin)
+    fmt.Printf("Maintenance Margin:  $%.2f\n", marginInfo.MaintenanceMargin)
+    fmt.Printf("Margin Ratio:        %.2f%%\n", marginInfo.MarginRatio*100)
+    fmt.Printf("Free Margin:         $%.2f\n", marginInfo.FreeMargin)
+    fmt.Printf("Margin Level:        %.2f\n", marginInfo.MarginLevel)
+
+    // Risk assessment
+    fmt.Println("\nRisk Assessment:")
+    if marginInfo.MarginRatio < 0.5 {
+        fmt.Println("  Status: HEALTHY")
+    } else if marginInfo.MarginRatio < 0.8 {
+        fmt.Println("  Status: WARNING - Consider reducing positions")
+    } else {
+        fmt.Println("  Status: CRITICAL - Liquidation risk!")
+    }
+}
+```
+
+### Margin Call Monitoring
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type MarginMonitor struct {
+    client       *client.Client
+    userID       string
+    warningLevel float64
+    criticalLevel float64
+    checkInterval time.Duration
+}
+
+func NewMarginMonitor(c *client.Client, userID string) *MarginMonitor {
+    return &MarginMonitor{
+        client:       c,
+        userID:       userID,
+        warningLevel: 0.7,   // 70% margin usage
+        criticalLevel: 0.9,  // 90% margin usage
+        checkInterval: 5 * time.Second,
+    }
+}
+
+func (mm *MarginMonitor) Start(ctx context.Context) {
+    ticker := time.NewTicker(mm.checkInterval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            mm.checkMargin(ctx)
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+
+func (mm *MarginMonitor) checkMargin(ctx context.Context) {
+    checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    marginInfo, err := mm.client.GetMarginInfo(checkCtx, mm.userID)
+    if err != nil {
+        log.Printf("Failed to get margin info: %v", err)
+        return
+    }
+
+    ratio := marginInfo.MarginRatio
+
+    if ratio >= mm.criticalLevel {
+        fmt.Printf("[CRITICAL] Margin ratio: %.1f%% - LIQUIDATION IMMINENT!\n", ratio*100)
+        // Could trigger automatic position reduction here
+    } else if ratio >= mm.warningLevel {
+        fmt.Printf("[WARNING] Margin ratio: %.1f%% - Consider reducing exposure\n", ratio*100)
+    }
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    monitor := NewMarginMonitor(c, "trader-001")
+    go monitor.Start(ctx)
+
+    fmt.Println("Margin monitoring started...")
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+
+    fmt.Println("Shutting down margin monitor...")
+}
+```
+
+## Liquidation Monitoring
+
+### Subscribe to Liquidations
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Subscribe to all liquidations (market-wide)
+    err = c.SubscribeToLiquidations(func(liq *client.LiquidationInfo) {
+        fmt.Printf("\n[LIQUIDATION] %s\n", liq.Symbol)
+        fmt.Printf("  Size:             %.4f\n", liq.Size)
+        fmt.Printf("  Liquidation Price: $%.2f\n", liq.LiquidationPrice)
+        fmt.Printf("  Mark Price:        $%.2f\n", liq.MarkPrice)
+        fmt.Printf("  Status:            %s\n", liq.Status)
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    fmt.Println("Monitoring liquidations...")
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+}
+```
+
+## Settlement Tracking
+
+### Monitor Settlement Batches
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Subscribe to settlement updates
+    err = c.SubscribeToSettlements(func(batch *client.SettlementBatch) {
+        fmt.Printf("\n[SETTLEMENT] Batch #%d\n", batch.BatchID)
+        fmt.Printf("  Orders:    %d\n", len(batch.Orders))
+        fmt.Printf("  Status:    %s\n", batch.Status)
+        if batch.TxHash != "" {
+            fmt.Printf("  Tx Hash:   %s\n", batch.TxHash)
+            fmt.Printf("  Gas Used:  %d\n", batch.GasUsed)
+        }
+        fmt.Printf("  Timestamp: %s\n", batch.Timestamp)
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    fmt.Println("Monitoring settlements...")
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+}
+```
+
+### Query Settlement Status
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    batchID := uint64(12345)
+    batch, err := c.GetSettlementBatch(ctx, batchID)
+    if err != nil {
+        log.Fatal("Failed to get settlement batch:", err)
+    }
+
+    fmt.Printf("Settlement Batch #%d\n", batch.BatchID)
+    fmt.Println("====================")
+    fmt.Printf("Status:    %s\n", batch.Status)
+    fmt.Printf("Orders:    %v\n", batch.Orders)
+    fmt.Printf("Timestamp: %s\n", batch.Timestamp)
+
+    if batch.TxHash != "" {
+        fmt.Printf("\nOn-chain Settlement:\n")
+        fmt.Printf("  Transaction: %s\n", batch.TxHash)
+        fmt.Printf("  Gas Used:    %d\n", batch.GasUsed)
+    }
+}
+```
+
+## Next Steps
+
+- [WebSocket](/docs/sdk/go/websocket) - Real-time streaming patterns
+- [Error Handling](/docs/sdk/go/errors) - Error codes and retry strategies
+- [Orders](/docs/sdk/go/orders) - Order management

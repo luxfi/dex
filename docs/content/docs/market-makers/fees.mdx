@@ -1,0 +1,377 @@
+---
+title: Fee Structure
+description: Market maker fee structure, rebates, negative maker fees, and volume-based incentives on LX DEX
+---
+
+# Market Maker Fee Structure
+
+LX DEX offers one of the most competitive fee structures in the industry for market makers, including negative maker fees, volume-based rebates, and tiered incentive programs.
+
+## Fee Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    FEE STRUCTURE SUMMARY                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Tier     │ Maker Fee   │ Taker Fee  │ Monthly Rebate Cap           │
+│  ──────────┼─────────────┼────────────┼─────────────────────────────│
+│  Tier 1   │ 0.00%       │ 0.03%      │ $10,000                      │
+│  Tier 2   │ -0.005%     │ 0.025%     │ $50,000                      │
+│  Tier 3   │ -0.010%     │ 0.020%     │ $200,000                     │
+│  Tier 4   │ -0.020%     │ 0.015%     │ $500,000                     │
+│                                                                      │
+│  Note: Negative maker fees mean YOU GET PAID to provide liquidity   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Maker Fee Schedule
+
+### Base Maker Fees by Tier
+
+| Tier | Monthly Volume | Maker Fee | Effective Rate |
+|------|---------------|-----------|----------------|
+| Tier 1 | $10M - $100M | 0.00% | Zero cost |
+| Tier 2 | $100M - $1B | -0.005% | Earn $50/million |
+| Tier 3 | $1B - $10B | -0.010% | Earn $100/million |
+| Tier 4 | $10B+ | -0.020% | Earn $200/million |
+
+### Maker Fee Calculation
+
+```python
+def calculate_maker_rebate(tier: int, trade_value: float) -> float:
+    """Calculate maker rebate for a trade."""
+
+    rebate_rates = {
+        1: 0.0000,   # 0.00%
+        2: 0.00005,  # 0.005%
+        3: 0.00010,  # 0.010%
+        4: 0.00020,  # 0.020%
+    }
+
+    rate = rebate_rates[tier]
+    rebate = trade_value * rate
+
+    return rebate
+
+# Example: Tier 3 maker, $1M trade
+rebate = calculate_maker_rebate(3, 1_000_000)
+# Result: $100 rebate
+```
+
+### Monthly Rebate Examples
+
+| Tier | Monthly Maker Volume | Maker Rebate |
+|------|---------------------|--------------|
+| Tier 2 | $500,000,000 | $25,000 |
+| Tier 3 | $2,000,000,000 | $200,000 (capped) |
+| Tier 4 | $15,000,000,000 | $500,000 (capped) |
+
+---
+
+## Taker Fee Schedule
+
+### Base Taker Fees by Tier
+
+| Tier | Taker Fee | vs. Standard Retail |
+|------|-----------|---------------------|
+| Retail | 0.05% | Baseline |
+| Tier 1 | 0.03% | 40% discount |
+| Tier 2 | 0.025% | 50% discount |
+| Tier 3 | 0.020% | 60% discount |
+| Tier 4 | 0.015% | 70% discount |
+
+### Market-Specific Taker Fees
+
+| Market Type | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
+|-------------|--------|--------|--------|--------|
+| BTC/ETH Major Pairs | 0.025% | 0.020% | 0.015% | 0.010% |
+| Stablecoin Pairs | 0.010% | 0.008% | 0.005% | 0.003% |
+| Altcoin Pairs | 0.035% | 0.030% | 0.025% | 0.020% |
+| New Listings | 0.040% | 0.035% | 0.030% | 0.025% |
+
+---
+
+## Volume-Based Rebate Program
+
+### Monthly Volume Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VOLUME REBATE TIERS                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Monthly Maker Volume   │ Additional Rebate │ Max Monthly Bonus     │
+│  ────────────────────────┼───────────────────┼─────────────────────  │
+│  $10M - $100M            │ +0.0 bps          │ $0                   │
+│  $100M - $500M           │ +0.5 bps          │ $25,000              │
+│  $500M - $1B             │ +1.0 bps          │ $50,000              │
+│  $1B - $5B               │ +1.5 bps          │ $150,000             │
+│  $5B - $10B              │ +2.0 bps          │ $300,000             │
+│  $10B+                   │ +2.5 bps          │ $500,000             │
+│                                                                      │
+│  Rebates paid monthly in LUX or USDC (market maker choice)          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Rebate Calculation Example
+
+```python
+def calculate_monthly_rebate(maker_volume: float, tier: int) -> dict:
+    """Calculate total monthly rebate including volume bonus."""
+
+    # Base rebate from tier
+    base_rates = {1: 0, 2: 0.00005, 3: 0.00010, 4: 0.00020}
+    base_rebate = maker_volume * base_rates[tier]
+
+    # Volume bonus tiers
+    if maker_volume >= 10_000_000_000:  # $10B+
+        bonus_rate = 0.00025  # 2.5 bps
+    elif maker_volume >= 5_000_000_000:  # $5B+
+        bonus_rate = 0.00020  # 2.0 bps
+    elif maker_volume >= 1_000_000_000:  # $1B+
+        bonus_rate = 0.00015  # 1.5 bps
+    elif maker_volume >= 500_000_000:  # $500M+
+        bonus_rate = 0.00010  # 1.0 bps
+    elif maker_volume >= 100_000_000:  # $100M+
+        bonus_rate = 0.00005  # 0.5 bps
+    else:
+        bonus_rate = 0
+
+    volume_bonus = maker_volume * bonus_rate
+
+    # Apply caps
+    tier_caps = {1: 10_000, 2: 50_000, 3: 200_000, 4: 500_000}
+    volume_caps = [0, 25_000, 50_000, 150_000, 300_000, 500_000]
+
+    base_rebate = min(base_rebate, tier_caps[tier])
+    # Volume bonus cap based on volume tier
+
+    total_rebate = base_rebate + volume_bonus
+
+    return {
+        "base_rebate": base_rebate,
+        "volume_bonus": volume_bonus,
+        "total_rebate": total_rebate
+    }
+
+# Example: Tier 3 MM with $3B monthly maker volume
+result = calculate_monthly_rebate(3_000_000_000, 3)
+# base_rebate: $200,000 (capped)
+# volume_bonus: $450,000 (3B * 1.5 bps)
+# total_rebate: $650,000
+```
+
+---
+
+## Special Fee Programs
+
+### New Market Launch Incentives
+
+For MMs providing liquidity in newly listed markets:
+
+| Program | Duration | Benefit |
+|---------|----------|---------|
+| Launch Bonus | First 30 days | +50% maker rebate |
+| Depth Bonus | First 30 days | +$0.50/$1K depth/hour |
+| Spread Bonus | First 30 days | +$1K/day for <3 bps spread |
+
+### Liquidity Mining Rewards
+
+```
+Monthly Liquidity Mining Allocation: 1,000,000 LUX
+
+Distribution Formula:
+- 50% - Share of maker volume
+- 30% - Time-weighted average depth
+- 20% - Spread quality score
+
+Example Calculation (Tier 3 MM):
+- Maker volume share: 15% → 75,000 LUX
+- Depth score share: 12% → 36,000 LUX
+- Spread quality share: 18% → 36,000 LUX
+- Total: 147,000 LUX (~$735,000 at $5/LUX)
+```
+
+### Strategic Partnership Fee Arrangements
+
+Tier 4 market makers may negotiate custom fee arrangements:
+
+| Arrangement Type | Typical Terms |
+|------------------|---------------|
+| Volume Commitment | Higher rebates for volume guarantees |
+| Exclusivity | Enhanced terms for exclusive pairs |
+| Cross-Venue | Fee credits for external hedge costs |
+| Revenue Share | % of spread captured |
+
+---
+
+## Fee Comparison
+
+### vs. Major Centralized Exchanges
+
+| Exchange | Maker Fee | Taker Fee | MM Rebate |
+|----------|-----------|-----------|-----------|
+| **LX DEX (Tier 3)** | **-0.010%** | **0.020%** | **$200K/mo** |
+| Binance VIP 9 | -0.005% | 0.015% | None |
+| Coinbase Adv. MM | 0.00% | 0.04% | None |
+| Kraken Pro | 0.00% | 0.016% | None |
+| FTX MM (was) | -0.002% | 0.02% | Limited |
+
+### vs. Other DEXs
+
+| DEX | Maker Fee | Taker Fee | MEV Protection |
+|-----|-----------|-----------|----------------|
+| **LX DEX** | **-0.020%** | **0.015%** | **Full** |
+| Uniswap v3 | 0.05-1% | 0.05-1% | Partial |
+| dYdX | -0.025% | 0.05% | Yes |
+| GMX | N/A (AMM) | 0.1% | Partial |
+| Hyperliquid | -0.02% | 0.05% | Yes |
+
+### Annual Fee Savings Example
+
+```
+Scenario: $2B monthly maker volume, $500M monthly taker volume
+
+Competitor CEX (Best tier):
+- Maker: $2B × 0.00% = $0
+- Taker: $500M × 0.015% = $75,000
+- Monthly cost: $75,000
+
+LX DEX (Tier 3):
+- Maker: $2B × -0.010% = -$200,000 (rebate)
+- Taker: $500M × 0.020% = $100,000
+- Volume bonus: $2B × 0.015% = $300,000
+- Monthly net: -$400,000 (earn $400K)
+
+Annual difference: $5.7M in LX DEX's favor
+```
+
+---
+
+## Fee Settlement
+
+### Settlement Schedule
+
+| Frequency | Type | Timing |
+|-----------|------|--------|
+| Real-time | Trade fees | Deducted per trade |
+| Daily | Rebate accrual | 00:00 UTC |
+| Monthly | Rebate payout | 5th business day |
+| Monthly | Volume bonus | 5th business day |
+
+### Payout Options
+
+| Option | Currency | Timing | Bonus |
+|--------|----------|--------|-------|
+| USDC | Stablecoin | Monthly | 0% |
+| LUX | Native token | Monthly | +10% |
+| Auto-compound | LUX staked | Monthly | +15% |
+
+### Fee Statements
+
+Monthly statements include:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  MONTHLY FEE STATEMENT - December 2024                              │
+│  Market Maker: MM_FIRM_001                                          │
+│  Tier: 3 (Professional)                                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Volume Summary                                                     │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Total Maker Volume:     $2,145,678,900                             │
+│  Total Taker Volume:     $523,456,780                               │
+│  Number of Trades:       1,234,567                                  │
+│                                                                      │
+│  Fee Details                                                        │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Taker Fees Paid:        $104,691.36                                │
+│  Maker Rebates Earned:   ($200,000.00)  ← capped                    │
+│  Volume Bonus Earned:    ($321,851.84)                              │
+│  Liquidity Mining:       147,000 LUX                                │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Net Fees:               ($417,160.48)  ← YOU EARNED                │
+│                                                                      │
+│  Payout Details                                                     │
+│  ─────────────────────────────────────────────────────────────────  │
+│  USDC Payout:            $417,160.48                                │
+│  LUX Payout:             147,000 LUX                                │
+│  Payout Date:            January 7, 2025                            │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Fee Policies
+
+### Fee Changes
+
+- 30 days advance notice for fee increases
+- Fee reductions effective immediately
+- Volume tier changes apply monthly
+
+### Dispute Resolution
+
+| Issue | Resolution Time | Process |
+|-------|-----------------|---------|
+| Fee calculation error | 24 hours | Auto-detected, credited |
+| Rebate discrepancy | 48 hours | Submit ticket |
+| Volume attribution | 5 business days | Review with evidence |
+
+### Fee Audit Rights
+
+Market makers may request:
+- Daily fee transaction logs
+- Monthly volume reports
+- Real-time fee dashboard access
+- Third-party audit support
+
+---
+
+## Tax Considerations
+
+### Documentation Provided
+
+| Document | Frequency | Format |
+|----------|-----------|--------|
+| Trade history | On-demand | CSV, JSON |
+| Fee statements | Monthly | PDF |
+| 1099 (US) | Annual | PDF |
+| Cost basis report | On-demand | CSV |
+
+### Fee Treatment Notes
+
+```
+Typical Tax Treatment (consult your tax advisor):
+
+Maker Rebates:
+- Generally treated as reduction in cost basis
+- Some jurisdictions may treat as income
+
+Volume Bonuses:
+- Typically treated as income
+- Subject to applicable income tax
+
+LUX Token Rewards:
+- Fair market value at receipt
+- Capital gains on subsequent sale
+```
+
+---
+
+## Contact
+
+### Fee-Related Inquiries
+
+- **General**: fees@lux.network
+- **Rebate Questions**: rebates@lux.network
+- **Custom Arrangements**: strategic-mm@lux.network
+
+---
+
+*Fee schedule subject to change with 30 days notice. Last updated: December 2024*

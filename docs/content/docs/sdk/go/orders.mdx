@@ -1,0 +1,857 @@
+---
+title: Orders
+description: Placing, canceling, and modifying orders with the Go SDK
+---
+
+# Order Management
+
+The Go SDK provides comprehensive order management capabilities including limit orders, market orders, stop orders, and advanced order types.
+
+## Order Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `OrderTypeLimit` | Execute at specific price or better | Price-sensitive trades |
+| `OrderTypeMarket` | Execute at best available price | Immediate execution |
+| `OrderTypeStop` | Trigger at stop price, execute as market | Stop-loss protection |
+| `OrderTypeStopLimit` | Trigger at stop price, execute as limit | Controlled stop-loss |
+| `OrderTypeIceberg` | Hidden quantity order | Large orders without impact |
+| `OrderTypePeg` | Pegged to best bid/ask | Market making |
+
+## Placing Orders
+
+### Limit Order
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Place a limit buy order
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       50000.00,
+        Size:        0.1,
+        UserID:      "trader-001",
+        ClientID:    "my-order-001", // Your internal reference
+        TimeInForce: client.TimeInForceGTC,
+        PostOnly:    false,          // Allow taking liquidity
+        ReduceOnly:  false,          // Not for position reduction only
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place order:", err)
+    }
+
+    fmt.Printf("Order placed successfully\n")
+    fmt.Printf("  Order ID: %d\n", resp.OrderID)
+    fmt.Printf("  Status: %s\n", resp.Status)
+    if resp.Message != "" {
+        fmt.Printf("  Message: %s\n", resp.Message)
+    }
+}
+```
+
+### Market Order
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Place a market sell order
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeMarket,
+        Side:        client.OrderSideSell,
+        Size:        0.5,              // Size in base currency
+        UserID:      "trader-001",
+        ClientID:    "market-sell-001",
+        TimeInForce: client.TimeInForceIOC, // Immediate or Cancel
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place order:", err)
+    }
+
+    fmt.Printf("Market order executed: ID=%d, Status=%s\n", resp.OrderID, resp.Status)
+}
+```
+
+### Stop-Loss Order
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Stop-loss: Sell BTC if price drops to $48,000
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeStop,
+        Side:        client.OrderSideSell,
+        Price:       48000.00,     // Stop trigger price
+        Size:        0.1,
+        UserID:      "trader-001",
+        ClientID:    "stop-loss-001",
+        TimeInForce: client.TimeInForceGTC,
+        ReduceOnly:  true,         // Only reduce existing position
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place stop order:", err)
+    }
+
+    fmt.Printf("Stop order placed: ID=%d\n", resp.OrderID)
+}
+```
+
+### Post-Only Order (Maker Only)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Post-only order: Only add liquidity, never take
+    // Rejected if it would immediately match
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       49500.00,     // Below current ask
+        Size:        1.0,
+        UserID:      "trader-001",
+        ClientID:    "maker-001",
+        TimeInForce: client.TimeInForceGTC,
+        PostOnly:    true,         // Reject if would take liquidity
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place post-only order:", err)
+    }
+
+    if resp.Status == "rejected" {
+        fmt.Println("Order would have taken liquidity - rejected")
+    } else {
+        fmt.Printf("Post-only order placed: ID=%d\n", resp.OrderID)
+    }
+}
+```
+
+## Canceling Orders
+
+### Cancel Single Order
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Cancel by order ID
+    orderID := uint64(12345)
+    if err := c.CancelOrder(ctx, orderID); err != nil {
+        log.Printf("Failed to cancel order %d: %v", orderID, err)
+        return
+    }
+
+    fmt.Printf("Order %d cancelled successfully\n", orderID)
+}
+```
+
+### Cancel Multiple Orders
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "sync"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Orders to cancel
+    orderIDs := []uint64{12345, 12346, 12347, 12348}
+
+    // Cancel concurrently with rate limiting
+    var wg sync.WaitGroup
+    sem := make(chan struct{}, 10) // Max 10 concurrent cancellations
+    results := make(chan struct {
+        ID  uint64
+        Err error
+    }, len(orderIDs))
+
+    for _, id := range orderIDs {
+        wg.Add(1)
+        go func(orderID uint64) {
+            defer wg.Done()
+            sem <- struct{}{}
+            defer func() { <-sem }()
+
+            err := c.CancelOrder(ctx, orderID)
+            results <- struct {
+                ID  uint64
+                Err error
+            }{orderID, err}
+        }(id)
+    }
+
+    // Wait and close results channel
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Process results
+    var cancelled, failed int
+    for result := range results {
+        if result.Err != nil {
+            fmt.Printf("Failed to cancel order %d: %v\n", result.ID, result.Err)
+            failed++
+        } else {
+            fmt.Printf("Cancelled order %d\n", result.ID)
+            cancelled++
+        }
+    }
+
+    fmt.Printf("\nSummary: %d cancelled, %d failed\n", cancelled, failed)
+}
+```
+
+## Order Lifecycle
+
+### Order with Callback Updates
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+    defer cancel()
+
+    // Connect to WebSocket for order updates
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect WebSocket:", err)
+    }
+
+    // Channel to receive order updates
+    orderUpdates := make(chan *client.Order, 100)
+
+    // Subscribe to user order updates
+    err = c.Subscribe("user:orders:trader-001", func(data interface{}) {
+        if orderData, ok := data.(map[string]interface{}); ok {
+            order := &client.Order{
+                OrderID: uint64(orderData["orderId"].(float64)),
+                Status:  client.OrderStatus(orderData["status"].(string)),
+                Filled:  orderData["filled"].(float64),
+            }
+            select {
+            case orderUpdates <- order:
+            default:
+                log.Println("Order update channel full, dropping update")
+            }
+        }
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    // Place an order
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       50000.00,
+        Size:        1.0,
+        UserID:      "trader-001",
+        ClientID:    "tracked-order-001",
+        TimeInForce: client.TimeInForceGTC,
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place order:", err)
+    }
+
+    fmt.Printf("Order placed: ID=%d\n", resp.OrderID)
+
+    // Monitor order updates
+    for {
+        select {
+        case update := <-orderUpdates:
+            if update.OrderID == resp.OrderID {
+                fmt.Printf("Order update: Status=%s, Filled=%.4f\n",
+                    update.Status, update.Filled)
+
+                if update.IsClosed() {
+                    fmt.Println("Order completed")
+                    return
+                }
+            }
+        case <-ctx.Done():
+            fmt.Println("Timeout waiting for order completion")
+            return
+        }
+    }
+}
+```
+
+## Bulk Order Operations
+
+### Place Multiple Orders
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "sync"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Create grid of orders
+    basePrice := 50000.0
+    gridStep := 100.0
+    orders := make([]*client.Order, 0, 20)
+
+    // Buy orders below market
+    for i := 1; i <= 10; i++ {
+        orders = append(orders, &client.Order{
+            Symbol:      "BTC-USD",
+            Type:        client.OrderTypeLimit,
+            Side:        client.OrderSideBuy,
+            Price:       basePrice - float64(i)*gridStep,
+            Size:        0.01,
+            UserID:      "trader-001",
+            ClientID:    fmt.Sprintf("grid-buy-%d", i),
+            TimeInForce: client.TimeInForceGTC,
+        })
+    }
+
+    // Sell orders above market
+    for i := 1; i <= 10; i++ {
+        orders = append(orders, &client.Order{
+            Symbol:      "BTC-USD",
+            Type:        client.OrderTypeLimit,
+            Side:        client.OrderSideSell,
+            Price:       basePrice + float64(i)*gridStep,
+            Size:        0.01,
+            UserID:      "trader-001",
+            ClientID:    fmt.Sprintf("grid-sell-%d", i),
+            TimeInForce: client.TimeInForceGTC,
+        })
+    }
+
+    // Place orders concurrently
+    var wg sync.WaitGroup
+    sem := make(chan struct{}, 20) // Limit concurrency
+    results := make(chan *client.OrderResponse, len(orders))
+    errors := make(chan error, len(orders))
+
+    for _, order := range orders {
+        wg.Add(1)
+        go func(o *client.Order) {
+            defer wg.Done()
+            sem <- struct{}{}
+            defer func() { <-sem }()
+
+            resp, err := c.PlaceOrder(ctx, o)
+            if err != nil {
+                errors <- fmt.Errorf("order %s failed: %w", o.ClientID, err)
+            } else {
+                results <- resp
+            }
+        }(order)
+    }
+
+    // Wait and close channels
+    go func() {
+        wg.Wait()
+        close(results)
+        close(errors)
+    }()
+
+    // Collect results
+    var placed int
+    var orderIDs []uint64
+    for resp := range results {
+        orderIDs = append(orderIDs, resp.OrderID)
+        placed++
+    }
+
+    // Collect errors
+    var errCount int
+    for err := range errors {
+        log.Printf("Error: %v", err)
+        errCount++
+    }
+
+    fmt.Printf("\nGrid orders placed: %d success, %d failed\n", placed, errCount)
+    fmt.Printf("Order IDs: %v\n", orderIDs)
+}
+```
+
+## Order Book Integration
+
+### Place Order Based on Order Book
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Get current order book
+    orderBook, err := c.GetOrderBook(ctx, "BTC-USD", 10)
+    if err != nil {
+        log.Fatal("Failed to get order book:", err)
+    }
+
+    // Place buy order at best bid - $10 (deeper in book)
+    buyPrice := orderBook.BestBid() - 10
+    if buyPrice <= 0 {
+        log.Fatal("Invalid buy price")
+    }
+
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       buyPrice,
+        Size:        0.1,
+        UserID:      "trader-001",
+        ClientID:    "spread-buy-001",
+        TimeInForce: client.TimeInForceGTC,
+        PostOnly:    true, // Ensure we add liquidity
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place order:", err)
+    }
+
+    fmt.Printf("Order placed at %.2f (spread: %.2f)\n",
+        buyPrice, orderBook.Spread())
+    fmt.Printf("Order ID: %d\n", resp.OrderID)
+}
+```
+
+## Error Handling
+
+### Comprehensive Error Handling
+
+```go
+package main
+
+import (
+    "context"
+    "errors"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func placeOrderWithRetry(c *client.Client, order *client.Order, maxRetries int) (*client.OrderResponse, error) {
+    var lastErr error
+
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+        resp, err := c.PlaceOrder(ctx, order)
+        cancel()
+
+        if err == nil {
+            return resp, nil
+        }
+
+        lastErr = err
+
+        // Check error type
+        if errors.Is(err, context.DeadlineExceeded) {
+            // Timeout - order may have been placed
+            log.Printf("Attempt %d: timeout (order state unknown)", attempt+1)
+            // In production, query order status before retrying
+            time.Sleep(time.Second)
+            continue
+        }
+
+        // Check for specific error conditions
+        errStr := err.Error()
+        switch {
+        case contains(errStr, "insufficient balance"):
+            // Don't retry - permanent error
+            return nil, fmt.Errorf("insufficient balance: %w", err)
+
+        case contains(errStr, "rate limit"):
+            // Rate limited - wait and retry
+            log.Printf("Attempt %d: rate limited, waiting...", attempt+1)
+            time.Sleep(5 * time.Second)
+            continue
+
+        case contains(errStr, "market closed"):
+            // Market closed - don't retry
+            return nil, fmt.Errorf("market closed: %w", err)
+
+        case contains(errStr, "invalid price"):
+            // Invalid price - don't retry
+            return nil, fmt.Errorf("invalid price: %w", err)
+
+        case contains(errStr, "connection"):
+            // Connection issue - retry
+            log.Printf("Attempt %d: connection error, retrying...", attempt+1)
+            time.Sleep(time.Duration(attempt+1) * time.Second)
+            continue
+
+        default:
+            // Unknown error - retry with backoff
+            log.Printf("Attempt %d: %v", attempt+1, err)
+            time.Sleep(time.Duration(attempt+1) * time.Second)
+        }
+    }
+
+    return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+func contains(s, substr string) bool {
+    return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
+}
+
+func containsImpl(s, substr string) bool {
+    for i := 0; i <= len(s)-len(substr); i++ {
+        if s[i:i+len(substr)] == substr {
+            return true
+        }
+    }
+    return false
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx := context.Background()
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       50000.00,
+        Size:        0.1,
+        UserID:      "trader-001",
+        ClientID:    "retry-order-001",
+        TimeInForce: client.TimeInForceGTC,
+    }
+
+    resp, err := placeOrderWithRetry(c, order, 3)
+    if err != nil {
+        log.Fatal("Order failed:", err)
+    }
+
+    fmt.Printf("Order placed: ID=%d\n", resp.OrderID)
+}
+```
+
+## Performance Tips
+
+### Object Pooling for High-Frequency Trading
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "sync"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+var orderPool = sync.Pool{
+    New: func() interface{} {
+        return &client.Order{}
+    },
+}
+
+func getOrder() *client.Order {
+    return orderPool.Get().(*client.Order)
+}
+
+func putOrder(o *client.Order) {
+    // Reset fields
+    o.OrderID = 0
+    o.Symbol = ""
+    o.Type = 0
+    o.Side = 0
+    o.Price = 0
+    o.Size = 0
+    o.Filled = 0
+    o.Remaining = 0
+    o.Status = ""
+    o.UserID = ""
+    o.ClientID = ""
+    o.Timestamp = 0
+    o.TimeInForce = ""
+    o.PostOnly = false
+    o.ReduceOnly = false
+    orderPool.Put(o)
+}
+
+func placeFastOrder(c *client.Client, ctx context.Context,
+    symbol string, side client.OrderSide, price, size float64) (*client.OrderResponse, error) {
+
+    order := getOrder()
+    defer putOrder(order)
+
+    order.Symbol = symbol
+    order.Type = client.OrderTypeLimit
+    order.Side = side
+    order.Price = price
+    order.Size = size
+    order.TimeInForce = client.TimeInForceGTC
+
+    return c.PlaceOrder(ctx, order)
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx := context.Background()
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Benchmark pooled vs non-pooled
+    start := time.Now()
+    for i := 0; i < 1000; i++ {
+        _, err := placeFastOrder(c, ctx, "BTC-USD", client.OrderSideBuy, 50000, 0.001)
+        if err != nil {
+            // Handle error
+        }
+    }
+    log.Printf("1000 orders in %v", time.Since(start))
+}
+```
+
+## Next Steps
+
+- [Order Book](/docs/sdk/go/orderbook) - Market depth and streaming
+- [Trades](/docs/sdk/go/trades) - Trade history and execution reports
+- [Error Handling](/docs/sdk/go/errors) - Comprehensive error handling

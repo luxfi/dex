@@ -1,0 +1,545 @@
+---
+title: Installation
+description: Detailed installation instructions for LX DEX on all platforms
+---
+
+# Installation
+
+This guide covers installing LX DEX on Linux, macOS, and from source.
+
+## Prerequisites
+
+### System Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| Go | 1.24.6+ | 1.24.7 |
+| GCC | 11+ | 13+ |
+| Make | 4.0+ | 4.4+ |
+| Git | 2.30+ | Latest |
+
+### Dependencies
+
+**Ubuntu/Debian:**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    libssl-dev \
+    pkg-config
+```
+
+**Fedora/RHEL:**
+
+```bash
+sudo dnf install -y \
+    gcc \
+    gcc-c++ \
+    make \
+    git \
+    curl \
+    wget \
+    openssl-devel \
+    pkgconfig
+```
+
+**macOS:**
+
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install Homebrew packages
+brew install go git curl wget
+```
+
+## Binary Installation
+
+### Linux (amd64)
+
+```bash
+# Set version
+VERSION=1.0.0
+
+# Download binary
+curl -L "https://github.com/luxfi/dex/releases/download/v${VERSION}/luxd-linux-amd64" \
+    -o /tmp/luxd
+
+# Verify checksum
+curl -L "https://github.com/luxfi/dex/releases/download/v${VERSION}/checksums.txt" \
+    -o /tmp/checksums.txt
+cd /tmp && sha256sum -c checksums.txt --ignore-missing
+
+# Install
+sudo mv /tmp/luxd /usr/local/bin/luxd
+sudo chmod +x /usr/local/bin/luxd
+
+# Verify installation
+luxd version
+```
+
+### Linux (arm64)
+
+```bash
+VERSION=1.0.0
+
+curl -L "https://github.com/luxfi/dex/releases/download/v${VERSION}/luxd-linux-arm64" \
+    -o /tmp/luxd
+
+sudo mv /tmp/luxd /usr/local/bin/luxd
+sudo chmod +x /usr/local/bin/luxd
+
+luxd version
+```
+
+### macOS (Apple Silicon)
+
+```bash
+VERSION=1.0.0
+
+curl -L "https://github.com/luxfi/dex/releases/download/v${VERSION}/luxd-darwin-arm64" \
+    -o /tmp/luxd
+
+sudo mv /tmp/luxd /usr/local/bin/luxd
+sudo chmod +x /usr/local/bin/luxd
+
+# Remove quarantine attribute
+sudo xattr -d com.apple.quarantine /usr/local/bin/luxd
+
+luxd version
+```
+
+### macOS (Intel)
+
+```bash
+VERSION=1.0.0
+
+curl -L "https://github.com/luxfi/dex/releases/download/v${VERSION}/luxd-darwin-amd64" \
+    -o /tmp/luxd
+
+sudo mv /tmp/luxd /usr/local/bin/luxd
+sudo chmod +x /usr/local/bin/luxd
+
+luxd version
+```
+
+## Building from Source
+
+### Clone Repository
+
+```bash
+git clone https://github.com/luxfi/dex.git
+cd dex
+```
+
+### Standard Build (Pure Go)
+
+```bash
+# Download dependencies
+go mod download
+
+# Build binary
+make build
+
+# Binary location
+ls -la bin/luxd
+```
+
+### Build with C++ Optimizations
+
+Requires GCC 11+ with C++20 support.
+
+```bash
+# Build with CGO
+CGO_ENABLED=1 make build-cpp
+
+# Verify C++ backend
+./bin/luxd-cpp --version
+```
+
+### Build with GPU Support (CUDA)
+
+Requires NVIDIA CUDA Toolkit 12.0+.
+
+```bash
+# Install CUDA Toolkit
+# Ubuntu: sudo apt-get install nvidia-cuda-toolkit
+# Or download from: https://developer.nvidia.com/cuda-downloads
+
+# Build with GPU support
+make build-gpu
+
+# Verify GPU detection
+./bin/luxd-gpu --check-gpu
+```
+
+### Build with MLX Support (Apple Silicon)
+
+Requires macOS 14+ on Apple Silicon.
+
+```bash
+# Build with MLX acceleration
+make build-mlx
+
+# Verify MLX detection
+./bin/luxd-mlx --check-mlx
+```
+
+### Build with FPGA Support
+
+For ultra-low latency deployments on AMD Versal or AWS F2.
+
+```bash
+# AMD Versal
+make build-fpga-versal
+
+# AWS F2
+make build-fpga-f2
+
+# Verify FPGA detection
+./bin/luxd-fpga --check-fpga
+```
+
+## Installation Verification
+
+### Health Check
+
+```bash
+# Start node in background
+luxd --data-dir ~/.lxd &
+
+# Wait for startup
+sleep 5
+
+# Check health endpoint
+curl -s http://localhost:8080/health | jq
+```
+
+Expected response:
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "uptime": 5,
+  "checks": {
+    "engine": "ok",
+    "database": "ok",
+    "network": "ok"
+  }
+}
+```
+
+### Version Check
+
+```bash
+luxd version
+```
+
+Expected output:
+
+```
+LX DEX v1.0.0
+  Commit:  abc1234
+  Built:   2025-12-01T00:00:00Z
+  Go:      go1.24.7
+  OS/Arch: darwin/arm64
+  Engine:  hybrid
+```
+
+### Benchmark Test
+
+```bash
+# Run quick benchmark
+luxd benchmark --duration 10s
+
+# Expected output:
+# Orders/sec: 1,234,567
+# Latency p50: 0.8us
+# Latency p99: 2.1us
+```
+
+## Systemd Service Setup
+
+### Create Service User
+
+```bash
+# Create dedicated user
+sudo useradd -r -s /bin/false -d /var/lib/lxdex lxdex
+
+# Create directories
+sudo mkdir -p /var/lib/lxdex /etc/lxdex /var/log/lxdex
+sudo chown -R lxdex:lxdex /var/lib/lxdex /var/log/lxdex
+```
+
+### Service File
+
+Create `/etc/systemd/system/lxdex.service`:
+
+```ini
+[Unit]
+Description=LX DEX Trading Engine
+Documentation=https://docs.lux.network/dex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lxdex
+Group=lxdex
+ExecStart=/usr/local/bin/luxd \
+    --config /etc/lxdex/node.yaml \
+    --data-dir /var/lib/lxdex \
+    --log-dir /var/log/lxdex
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=65536
+LimitCORE=infinity
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/lxdex /var/log/lxdex
+
+# Performance tuning
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=90
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and Start
+
+```bash
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable on boot
+sudo systemctl enable lxdex
+
+# Start service
+sudo systemctl start lxdex
+
+# Check status
+sudo systemctl status lxdex
+
+# View logs
+sudo journalctl -u lxdex -f
+```
+
+## launchd Service Setup (macOS)
+
+Create `~/Library/LaunchAgents/network.lux.dex.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>network.lux.dex</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/luxd</string>
+        <string>--data-dir</string>
+        <string>/Users/Shared/lxdex</string>
+        <string>--config</string>
+        <string>/etc/lxdex/node.yaml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/lxdex/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/lxdex/stderr.log</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+```
+
+Load the service:
+
+```bash
+# Create log directory
+sudo mkdir -p /var/log/lxdex
+
+# Load service
+launchctl load ~/Library/LaunchAgents/network.lux.dex.plist
+
+# Check status
+launchctl list | grep lux
+
+# View logs
+tail -f /var/log/lxdex/stdout.log
+```
+
+## Multi-Node Cluster Installation
+
+### Node 0 (Primary)
+
+```bash
+# Node 0 configuration
+cat > /etc/lxdex/node.yaml << 'EOF'
+node:
+  id: node-0
+  data_dir: /var/lib/lxdex
+  log_level: info
+
+network:
+  http_port: 8080
+  ws_port: 8081
+  grpc_port: 50051
+  peers:
+    - "node-1:50051"
+    - "node-2:50051"
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  bootstrap: true
+EOF
+
+systemctl start lxdex
+```
+
+### Node 1 and Node 2
+
+```bash
+# Node 1 configuration
+cat > /etc/lxdex/node.yaml << 'EOF'
+node:
+  id: node-1  # or node-2
+  data_dir: /var/lib/lxdex
+  log_level: info
+
+network:
+  http_port: 8080
+  ws_port: 8081
+  grpc_port: 50051
+  peers:
+    - "node-0:50051"
+    - "node-2:50051"  # or node-1:50051
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  bootstrap: false
+  bootstrap_peer: "node-0:50051"
+EOF
+
+systemctl start lxdex
+```
+
+### Verify Cluster
+
+```bash
+# Check cluster status on any node
+curl -s http://localhost:8080/cluster/status | jq
+
+# Expected output:
+{
+  "nodes": 3,
+  "healthy": 3,
+  "leader": "node-0",
+  "consensus": {
+    "height": 12345,
+    "finalized": true
+  }
+}
+```
+
+## Uninstallation
+
+### Binary
+
+```bash
+# Stop service
+sudo systemctl stop lxdex
+sudo systemctl disable lxdex
+
+# Remove files
+sudo rm /usr/local/bin/luxd
+sudo rm /etc/systemd/system/lxdex.service
+sudo rm -rf /etc/lxdex
+sudo rm -rf /var/lib/lxdex
+sudo rm -rf /var/log/lxdex
+
+# Remove user
+sudo userdel lxdex
+
+# Reload systemd
+sudo systemctl daemon-reload
+```
+
+### Source Build
+
+```bash
+cd /path/to/dex
+make clean
+cd ..
+rm -rf dex
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Port already in use:**
+
+```bash
+# Find process using port
+sudo lsof -i :8080
+
+# Kill process
+sudo kill -9 <PID>
+```
+
+**Permission denied:**
+
+```bash
+# Fix data directory permissions
+sudo chown -R lxdex:lxdex /var/lib/lxdex
+sudo chmod 750 /var/lib/lxdex
+```
+
+**Go version mismatch:**
+
+```bash
+# Check Go version
+go version
+
+# Install specific version
+curl -L https://go.dev/dl/go1.24.7.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -
+export PATH=$PATH:/usr/local/go/bin
+```
+
+**Library not found (C++ build):**
+
+```bash
+# Install missing libraries
+sudo apt-get install libstdc++-13-dev
+```
+
+## Next Steps
+
+- [Configuration](/docs/operations/configuration) - Configure your installation
+- [Docker](/docs/operations/docker) - Container deployment
+- [Monitoring](/docs/operations/monitoring) - Set up observability

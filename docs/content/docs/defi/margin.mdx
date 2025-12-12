@@ -1,0 +1,693 @@
+---
+title: Margin Trading
+description: Leveraged perpetual trading with cross-margin and isolated margin support
+---
+
+# Margin Trading
+
+> **Specification**: [LP-9060 DeFi Protocols Overview](https://github.com/luxfi/lps/blob/main/LPs/lp-9060-defi-protocols-overview.md)
+>
+> **Implementation**: [`github.com/luxfi/standard/src/gmx2`](https://github.com/luxfi/standard/tree/main/src/gmx2)
+
+The LX DEX margin trading system enables leveraged perpetual trading up to 50x with cross-margin and isolated margin modes, advanced order types, and real-time liquidation protection.
+
+## Implementation Status
+
+| Component | Source | Status | Description |
+|-----------|--------|--------|-------------|
+| Vault Core | [`gmx2/contracts/core/Vault.sol`](https://github.com/luxfi/standard/tree/main/src/gmx2/contracts/core/Vault.sol) | Production | Main trading vault |
+| Position Manager | [`gmx2/contracts/core/PositionManager.sol`](https://github.com/luxfi/standard/tree/main/src/gmx2/contracts/core/PositionManager.sol) | Production | Position lifecycle |
+| Price Feed | [`gmx2/contracts/core/VaultPriceFeed.sol`](https://github.com/luxfi/standard/tree/main/src/gmx2/contracts/core/VaultPriceFeed.sol) | Production | Oracle integration |
+| Liquidation | [`gmx2/contracts/core/Liquidator.sol`](https://github.com/luxfi/standard/tree/main/src/gmx2/contracts/core/Liquidator.sol) | Production | Position liquidation |
+| Router | [`gmx2/contracts/core/Router.sol`](https://github.com/luxfi/standard/tree/main/src/gmx2/contracts/core/Router.sol) | Production | Trade routing |
+
+## Architecture
+
+```
++------------------------------------------------------------------+
+|                      Margin Trading System                        |
++------------------------------------------------------------------+
+|                                                                   |
+|  [User] ---> [Router] ---> [Position Manager] ---> [Vault]       |
+|                 |                  |                   |          |
+|                 v                  v                   v          |
+|           [Order Book]      [Risk Engine]       [Liquidity]       |
+|                 |                  |                   |          |
+|                 v                  v                   v          |
+|           [Execution]       [Liquidation]       [Funding Rate]    |
+|                 |                  |                   |          |
+|                 +--------+---------+--------+---------+           |
+|                          |                  |                     |
+|                    [Price Oracle]    [Insurance Fund]             |
++------------------------------------------------------------------+
+```
+
+## Position Structure
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+struct Position {
+    uint256 size;              // Position size in USD
+    uint256 collateral;        // Collateral amount
+    uint256 averagePrice;      // Average entry price
+    uint256 entryFundingRate;  // Funding rate at entry
+    uint256 reserveAmount;     // Reserved liquidity
+    int256 realisedPnl;        // Realized profit/loss
+    uint256 lastIncreasedTime; // Last position increase
+}
+
+// Position key calculation
+function getPositionKey(
+    address account,
+    address collateralToken,
+    address indexToken,
+    bool isLong
+) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(
+        account,
+        collateralToken,
+        indexToken,
+        isLong
+    ));
+}
+```
+
+## Leverage Configuration
+
+### Maximum Leverage by Asset
+
+| Asset | Max Leverage | Min Collateral | Liquidation Fee |
+|-------|-------------|----------------|-----------------|
+| BTC | 50x | $10 | 0.1% |
+| ETH | 50x | $10 | 0.1% |
+| LUX | 30x | $10 | 0.1% |
+| SOL | 30x | $10 | 0.1% |
+| AVAX | 30x | $10 | 0.1% |
+
+### Leverage Calculation
+
+```
+Leverage = Position Size / Collateral
+
+Example:
+- Collateral: $1,000
+- Position Size: $10,000
+- Leverage: 10x
+
+Liquidation Price (Long):
+LiqPrice = EntryPrice * (1 - (Collateral / Size) + LiqFee + FundingFee)
+
+Liquidation Price (Short):
+LiqPrice = EntryPrice * (1 + (Collateral / Size) - LiqFee - FundingFee)
+```
+
+## Opening Positions
+
+### Long Position
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/luxfi/dex/pkg/defi/margin"
+)
+
+func openLongPosition(ctx context.Context) error {
+    client, err := margin.NewClient(ctx, &margin.Config{
+        Endpoint: "https://api.lux.network",
+        ChainID:  96369,
+        PrivKey:  os.Getenv("PRIVATE_KEY"),
+    })
+    if err != nil {
+        return err
+    }
+
+    position, err := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "BTC-USD",
+        Side:       margin.Long,
+        Collateral: "1000.00",     // $1,000 USDT collateral
+        Leverage:   10,            // 10x leverage
+        OrderType:  margin.Market, // Market order
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Position ID: %s\n", position.ID)
+    fmt.Printf("Size: $%s\n", position.Size)
+    fmt.Printf("Entry Price: $%s\n", position.EntryPrice)
+    fmt.Printf("Leverage: %dx\n", position.Leverage)
+    fmt.Printf("Liquidation Price: $%s\n", position.LiquidationPrice)
+    fmt.Printf("Margin Ratio: %s%%\n", position.MarginRatio)
+    return nil
+}
+```
+
+### Short Position
+
+```go
+func openShortPosition(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    position, err := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "ETH-USD",
+        Side:       margin.Short,
+        Collateral: "5000.00",
+        Leverage:   5,
+        OrderType:  margin.Limit,
+        LimitPrice: "2500.00", // Short at $2,500
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Short Position Opened\n")
+    fmt.Printf("Entry: $%s\n", position.EntryPrice)
+    fmt.Printf("Size: $%s\n", position.Size)
+    return nil
+}
+```
+
+### With Stop Loss and Take Profit
+
+```go
+func openWithProtection(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    position, err := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "BTC-USD",
+        Side:       margin.Long,
+        Collateral: "2000.00",
+        Leverage:   5,
+        OrderType:  margin.Market,
+        StopLoss: &margin.StopLoss{
+            Price:   "38000.00", // Stop loss at $38k
+            Type:    margin.StopMarket,
+        },
+        TakeProfit: &margin.TakeProfit{
+            Price:   "50000.00", // Take profit at $50k
+            Type:    margin.LimitTP,
+        },
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Position with SL/TP created\n")
+    fmt.Printf("Entry: $%s\n", position.EntryPrice)
+    fmt.Printf("Stop Loss: $%s\n", position.StopLoss.Price)
+    fmt.Printf("Take Profit: $%s\n", position.TakeProfit.Price)
+    return nil
+}
+```
+
+## Margin Modes
+
+### Isolated Margin
+
+Each position has its own collateral that cannot be shared:
+
+```go
+func isolatedMarginExample(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    // Set margin mode to isolated
+    err := client.SetMarginMode(ctx, margin.Isolated)
+    if err != nil {
+        return err
+    }
+
+    // Open isolated position
+    pos1, _ := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "BTC-USD",
+        Side:       margin.Long,
+        Collateral: "1000.00",
+        Leverage:   10,
+        MarginMode: margin.Isolated,
+    })
+
+    // Each position is independent
+    // Liquidation of pos1 does NOT affect other positions
+
+    fmt.Printf("Isolated Position: %s\n", pos1.ID)
+    fmt.Printf("Isolated Collateral: $%s\n", pos1.Collateral)
+    return nil
+}
+```
+
+### Cross Margin
+
+All positions share the same collateral pool:
+
+```go
+func crossMarginExample(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    // Set margin mode to cross
+    err := client.SetMarginMode(ctx, margin.Cross)
+    if err != nil {
+        return err
+    }
+
+    // Deposit to cross margin pool
+    err = client.DepositCrossMargin(ctx, &margin.DepositParams{
+        Asset:  "USDT",
+        Amount: "10000.00",
+    })
+    if err != nil {
+        return err
+    }
+
+    // Open cross margin positions (share collateral)
+    pos1, _ := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "BTC-USD",
+        Side:       margin.Long,
+        Size:       "50000.00", // $50k position
+        MarginMode: margin.Cross,
+    })
+
+    pos2, _ := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "ETH-USD",
+        Side:       margin.Short,
+        Size:       "20000.00", // $20k position
+        MarginMode: margin.Cross,
+    })
+
+    // Positions share the $10k cross margin pool
+    fmt.Printf("Cross Margin Balance: $%s\n", client.GetCrossMarginBalance(ctx))
+    fmt.Printf("Total Exposure: $%s\n", pos1.Size.Add(pos1.Size, pos2.Size))
+    return nil
+}
+```
+
+## Funding Rate
+
+Perpetual contracts use funding rates to keep prices aligned with spot:
+
+### Funding Rate Calculation
+
+```
+Funding Rate = Clamp(Premium Index + Clamp(Interest Rate - Premium Index, 0.05%), 0.75%)
+
+Premium Index = (Mark Price - Index Price) / Index Price
+
+Interest Rate = (Quote Interest - Base Interest) / Funding Interval
+```
+
+### Funding Payment
+
+```solidity
+/// @notice Calculate funding fee for a position
+function calculateFundingFee(
+    uint256 size,
+    uint256 entryFundingRate,
+    uint256 currentFundingRate,
+    bool isLong
+) public pure returns (int256) {
+    int256 fundingDelta = int256(currentFundingRate) - int256(entryFundingRate);
+
+    if (isLong) {
+        return int256(size) * fundingDelta / int256(FUNDING_RATE_PRECISION);
+    } else {
+        return -int256(size) * fundingDelta / int256(FUNDING_RATE_PRECISION);
+    }
+}
+```
+
+### Track Funding
+
+```go
+func trackFunding(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    // Get current funding rates
+    rates, err := client.GetFundingRates(ctx)
+    if err != nil {
+        return err
+    }
+
+    for _, rate := range rates {
+        fmt.Printf("%s: %s%% (8h)\n", rate.Symbol, rate.Rate)
+        fmt.Printf("  Next funding: %s\n", rate.NextFundingTime)
+        fmt.Printf("  Predicted: %s%%\n", rate.PredictedRate)
+    }
+
+    // Get position funding history
+    position, _ := client.GetPosition(ctx, "position-id")
+    fmt.Printf("\nPosition Funding:\n")
+    fmt.Printf("  Cumulative: $%s\n", position.CumulativeFunding)
+    fmt.Printf("  Last 24h: $%s\n", position.Funding24h)
+
+    return nil
+}
+```
+
+## Position Management
+
+### Increase Position
+
+```go
+func increasePosition(ctx context.Context, positionID string) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    result, err := client.IncreasePosition(ctx, &margin.IncreaseParams{
+        PositionID:        positionID,
+        AdditionalSize:    "10000.00", // Add $10k to position
+        AdditionalCollat:  "0",        // Use existing leverage
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("New Size: $%s\n", result.NewSize)
+    fmt.Printf("New Avg Price: $%s\n", result.NewAveragePrice)
+    fmt.Printf("New Leverage: %dx\n", result.NewLeverage)
+    return nil
+}
+```
+
+### Decrease Position
+
+```go
+func decreasePosition(ctx context.Context, positionID string) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    result, err := client.DecreasePosition(ctx, &margin.DecreaseParams{
+        PositionID: positionID,
+        SizeReduce: "5000.00", // Reduce by $5k
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Realized PnL: $%s\n", result.RealizedPnl)
+    fmt.Printf("Remaining Size: $%s\n", result.RemainingSize)
+    return nil
+}
+```
+
+### Close Position
+
+```go
+func closePosition(ctx context.Context, positionID string) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    result, err := client.ClosePosition(ctx, &margin.CloseParams{
+        PositionID: positionID,
+        OrderType:  margin.Market,
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Position Closed\n")
+    fmt.Printf("Realized PnL: $%s\n", result.RealizedPnl)
+    fmt.Printf("Collateral Returned: $%s\n", result.CollateralReturned)
+    fmt.Printf("Fees Paid: $%s\n", result.TotalFees)
+    return nil
+}
+```
+
+### Add/Remove Collateral
+
+```go
+func adjustCollateral(ctx context.Context, positionID string) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    // Add collateral to reduce leverage
+    result, err := client.AddCollateral(ctx, &margin.CollateralParams{
+        PositionID: positionID,
+        Amount:     "500.00",
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Printf("New Leverage: %dx\n", result.NewLeverage)
+    fmt.Printf("New Liq Price: $%s\n", result.NewLiquidationPrice)
+
+    // Remove excess collateral
+    result, err = client.RemoveCollateral(ctx, &margin.CollateralParams{
+        PositionID: positionID,
+        Amount:     "200.00",
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Printf("Collateral Withdrawn: $%s\n", result.AmountWithdrawn)
+
+    return nil
+}
+```
+
+## Liquidation
+
+### Liquidation Mechanics
+
+```solidity
+/// @notice Check if position can be liquidated
+function canLiquidate(
+    bytes32 positionKey
+) public view returns (bool) {
+    Position memory position = positions[positionKey];
+    if (position.size == 0) return false;
+
+    // Get current price
+    uint256 price = getMarkPrice(position.indexToken, position.isLong);
+
+    // Calculate PnL
+    (bool hasProfit, uint256 delta) = getDelta(
+        position.indexToken,
+        position.size,
+        position.averagePrice,
+        position.isLong,
+        price
+    );
+
+    // Calculate remaining collateral after fees
+    uint256 remainingCollateral = position.collateral;
+    if (!hasProfit) {
+        remainingCollateral = remainingCollateral > delta
+            ? remainingCollateral - delta
+            : 0;
+    }
+
+    // Deduct funding fee
+    uint256 fundingFee = getFundingFee(position);
+    remainingCollateral = remainingCollateral > fundingFee
+        ? remainingCollateral - fundingFee
+        : 0;
+
+    // Check if below maintenance margin
+    uint256 maintenanceMargin = position.size * MAINTENANCE_MARGIN_RATE / BASIS_POINTS;
+    return remainingCollateral < maintenanceMargin;
+}
+
+/// @notice Execute liquidation
+function liquidatePosition(
+    address account,
+    address collateralToken,
+    address indexToken,
+    bool isLong,
+    address feeReceiver
+) external nonReentrant {
+    bytes32 key = getPositionKey(account, collateralToken, indexToken, isLong);
+
+    require(canLiquidate(key), "Position not liquidatable");
+
+    Position memory position = positions[key];
+
+    // Calculate liquidation fee
+    uint256 liquidationFee = position.size * LIQUIDATION_FEE / BASIS_POINTS;
+
+    // Transfer remaining collateral to insurance fund
+    // Pay liquidation fee to liquidator
+
+    emit LiquidatePosition(
+        key,
+        account,
+        collateralToken,
+        indexToken,
+        isLong,
+        position.size,
+        position.collateral,
+        position.reserveAmount,
+        position.realisedPnl,
+        position.averagePrice
+    );
+
+    delete positions[key];
+}
+```
+
+### Liquidation Bot
+
+```go
+func runLiquidationBot(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    // Subscribe to liquidatable positions
+    positions := client.WatchLiquidatable(ctx)
+
+    for pos := range positions {
+        fmt.Printf("Liquidatable: %s (Margin Ratio: %s%%)\n",
+            pos.ID, pos.MarginRatio)
+
+        result, err := client.Liquidate(ctx, &margin.LiquidateParams{
+            PositionID: pos.ID,
+        })
+        if err != nil {
+            log.Printf("Liquidation failed: %v", err)
+            continue
+        }
+
+        fmt.Printf("Liquidated! Reward: $%s\n", result.LiquidatorReward)
+    }
+
+    return nil
+}
+```
+
+## Fee Structure
+
+### Trading Fees
+
+| Fee Type | Rate | Description |
+|----------|------|-------------|
+| Open Position | 0.1% | Opening fee on position size |
+| Close Position | 0.1% | Closing fee on position size |
+| Swap Fee | 0.3% | Collateral swap fee |
+| Stable Swap | 0.04% | Stablecoin swap fee |
+| Liquidation | 5% | Remaining collateral to liquidator |
+
+### Fee Calculation
+
+```go
+func calculateFees(size, isOpen bool) *Fees {
+    // Position fee (0.1%)
+    positionFee := size.Mul(size, big.NewFloat(0.001))
+
+    // Execution fee (gas compensation)
+    executionFee := big.NewFloat(0.0001) // 0.0001 ETH
+
+    return &Fees{
+        PositionFee:  positionFee,
+        ExecutionFee: executionFee,
+        Total:        positionFee.Add(positionFee, executionFee),
+    }
+}
+```
+
+## API Reference
+
+### Position Management
+
+```go
+// Open new position
+func (c *Client) OpenPosition(ctx context.Context, params *OpenParams) (*Position, error)
+
+// Close position
+func (c *Client) ClosePosition(ctx context.Context, params *CloseParams) (*CloseResult, error)
+
+// Increase existing position
+func (c *Client) IncreasePosition(ctx context.Context, params *IncreaseParams) (*Position, error)
+
+// Decrease existing position
+func (c *Client) DecreasePosition(ctx context.Context, params *DecreaseParams) (*DecreaseResult, error)
+
+// Add collateral to position
+func (c *Client) AddCollateral(ctx context.Context, params *CollateralParams) (*Position, error)
+
+// Remove collateral from position
+func (c *Client) RemoveCollateral(ctx context.Context, params *CollateralParams) (*Position, error)
+```
+
+### Query Functions
+
+```go
+// Get position by ID
+func (c *Client) GetPosition(ctx context.Context, id string) (*Position, error)
+
+// Get all user positions
+func (c *Client) GetPositions(ctx context.Context) ([]*Position, error)
+
+// Get funding rates
+func (c *Client) GetFundingRates(ctx context.Context) ([]*FundingRate, error)
+
+// Get mark price
+func (c *Client) GetMarkPrice(ctx context.Context, symbol string) (*big.Float, error)
+```
+
+### Order Management
+
+```go
+// Place limit order
+func (c *Client) PlaceLimitOrder(ctx context.Context, params *LimitOrderParams) (*Order, error)
+
+// Place stop order
+func (c *Client) PlaceStopOrder(ctx context.Context, params *StopOrderParams) (*Order, error)
+
+// Cancel order
+func (c *Client) CancelOrder(ctx context.Context, orderID string) error
+
+// Get open orders
+func (c *Client) GetOpenOrders(ctx context.Context) ([]*Order, error)
+```
+
+## Events
+
+```go
+func watchMarginEvents(ctx context.Context) error {
+    client, _ := margin.NewClient(ctx, defaultConfig)
+
+    events := client.Subscribe(ctx, margin.AllEvents)
+
+    for event := range events {
+        switch e := event.(type) {
+        case *margin.PositionOpened:
+            fmt.Printf("Opened: %s %s %dx @ $%s\n",
+                e.Side, e.Symbol, e.Leverage, e.EntryPrice)
+        case *margin.PositionClosed:
+            fmt.Printf("Closed: %s PnL: $%s\n", e.PositionID, e.RealizedPnl)
+        case *margin.PositionLiquidated:
+            fmt.Printf("Liquidated: %s\n", e.PositionID)
+        case *margin.FundingPaid:
+            fmt.Printf("Funding: %s paid $%s\n", e.PositionID, e.Amount)
+        }
+    }
+
+    return nil
+}
+```
+
+## Gas Costs
+
+| Operation | Gas | USD @ 25 gwei |
+|-----------|-----|---------------|
+| Open Position | 300,000 | ~$0.16 |
+| Close Position | 250,000 | ~$0.13 |
+| Increase Position | 200,000 | ~$0.11 |
+| Decrease Position | 200,000 | ~$0.11 |
+| Add Collateral | 100,000 | ~$0.05 |
+| Liquidate | 350,000 | ~$0.18 |
+
+## Risk Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Max Leverage | 50x | Maximum position leverage |
+| Min Leverage | 1.1x | Minimum position leverage |
+| Maintenance Margin | 0.5% | Minimum margin ratio |
+| Liquidation Fee | 5% | Fee to liquidator |
+| Max Position Size | $10M | Per position limit |
+| Funding Interval | 8 hours | Funding settlement frequency |
+
+## Related Documentation
+
+- [Lending Protocol](./lending) - Collateral from lending positions
+- [Risk Parameters](./risks) - Detailed risk configuration
+- [Price Oracles](./oracles) - Mark price calculation
+- [Flash Loans](./flash) - Atomic position management
