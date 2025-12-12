@@ -297,6 +297,11 @@ func (ua *UnifiedArbitrage) findOpportunity(symbol string) *UnifiedOpportunity {
 		return nil
 	}
 
+	// Guard against division by zero
+	if bestAsk.Price.IsZero() {
+		return nil
+	}
+
 	spread := bestBid.Price.Sub(bestAsk.Price)
 	spreadBps := spread.Div(bestAsk.Price).Mul(decimal.NewFromInt(10000))
 
