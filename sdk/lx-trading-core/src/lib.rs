@@ -58,6 +58,7 @@
 //! ```
 
 pub mod adapters;
+pub mod arbitrage;
 pub mod config;
 pub mod engine;
 pub mod error;
