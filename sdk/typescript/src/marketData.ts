@@ -2,6 +2,8 @@
  * Market data, liquidation, and settlement features for LX TypeScript SDK
  */
 
+import WebSocket from 'ws';
+
 export interface MarketDataSource {
   name: string;
   symbol: string;
