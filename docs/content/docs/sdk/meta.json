@@ -1,11 +1,11 @@
 {
   "title": "SDK Guide",
   "pages": [
-    "...go",
-    "...rust",
-    "...python",
-    "...typescript",
-    "...cpp",
-    "...c"
+    "go",
+    "rust",
+    "python",
+    "typescript",
+    "cpp",
+    "c"
   ]
 }
