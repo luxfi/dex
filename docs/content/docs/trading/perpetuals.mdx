@@ -1,6 +1,6 @@
 ---
 title: Perpetual Trading
-description: Trade perpetual futures contracts with up to 50x leverage on LX DEX
+description: Trade perpetual futures contracts with up to 1001x leverage on LX DEX
 ---
 
 # Perpetual Trading
@@ -13,12 +13,76 @@ Perpetual futures (perps) are derivative contracts that track an underlying asse
 
 | Feature | Value |
 |---------|-------|
-| Max Leverage | 50x |
+| Max Leverage | **1001x** (tiered by position size) |
 | Contract Type | Inverse & Linear |
 | Settlement | USDT, USDC |
 | Funding Interval | 8 hours |
 | Liquidation | Automatic |
 | Insurance Fund | Protocol-backed |
+| TP/SL Orders | +300% targets supported |
+| Referral System | Up to 30% rebates |
+
+## Tiered Leverage System
+
+LX DEX supports **up to 1001x leverage** for micro-positions, with automatic leverage reduction as position size increases. This tiered system balances opportunity with risk management.
+
+### Leverage Tiers
+
+| Tier | Position Size | Max Leverage | Maintenance Margin | Initial Margin |
+|------|--------------|--------------|-------------------|----------------|
+| 1 | $0 - $200 | **1001x** | 0.10% | 0.10% |
+| 2 | $200 - $2,000 | **500x** | 0.20% | 0.20% |
+| 3 | $2,000 - $10,000 | **250x** | 0.25% | 0.40% |
+| 4 | $10,000 - $50,000 | **200x** | 0.50% | 0.50% |
+| 5 | $50,000 - $500,000 | **100x** | 1.00% | 1.00% |
+| 6 | $500,000 - $1,000,000 | **75x** | 1.50% | 1.33% |
+| 7 | $1,000,000 - $2,500,000 | **50x** | 2.00% | 2.00% |
+| 8 | $2,500,000 - $5,000,000 | **25x** | 2.50% | 4.00% |
+| 9 | $5,000,000 - $12,500,000 | **20x** | 3.00% | 5.00% |
+| 10 | $12,500,000 - $25,000,000 | **10x** | 5.00% | 10.00% |
+| 11 | $25,000,000 - $75,000,000 | **5x** | 10.00% | 20.00% |
+| 12 | $75,000,000 - $125,000,000 | **4x** | 12.50% | 25.00% |
+| 13 | $125,000,000 - $200,000,000 | **3x** | 15.00% | 33.33% |
+| 14 | $200,000,000 - $250,000,000 | **2x** | 25.00% | 50.00% |
+| 15 | $250,000,000+ | **1x** | 50.00% | 100.00% |
+
+### How Tiered Leverage Works
+
+```
+Position Size → Leverage Tier → Max Leverage
+
+Example 1: $100 position
+  Tier: 1 (micro)
+  Max Leverage: 1001x
+  Required Margin: $0.10 (0.1%)
+
+Example 2: $100,000 position
+  Tier: 5 (standard)
+  Max Leverage: 100x
+  Required Margin: $1,000 (1%)
+
+Example 3: $10,000,000 position
+  Tier: 9 (large)
+  Max Leverage: 20x
+  Required Margin: $500,000 (5%)
+```
+
+### Get Max Leverage for Position
+
+```typescript
+import { DEX } from '@luxfi/trading'
+
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
+
+// Check max leverage for position size
+const maxLeverage = await dex.perpetual.getMaxLeverage({
+  symbol: 'BTC-USD-PERP',
+  notionalSize: '50000'  // $50K position
+})
+
+console.log(`Max Leverage: ${maxLeverage}x`)  // 200x
+console.log(`Required Margin: ${50000 / maxLeverage}`)  // $250
+```
 
 ## How Perpetuals Work
 
@@ -51,20 +115,22 @@ When perp price < spot:
 
 ### Major Perpetuals
 
-| Market | Max Leverage | Min Size | Tick Size |
-|--------|-------------|----------|-----------|
-| BTC-USD-PERP | 50x | $10 | $0.50 |
-| ETH-USD-PERP | 50x | $10 | $0.10 |
-| LUX-USD-PERP | 30x | $10 | $0.0001 |
+| Market | Max Leverage | Min Size | Tick Size | Maintenance |
+|--------|-------------|----------|-----------|-------------|
+| BTC-USD-PERP | 1001x* | $1 | $0.50 | 0.1% - 50% |
+| ETH-USD-PERP | 1001x* | $1 | $0.10 | 0.1% - 50% |
+| LUX-USD-PERP | 500x* | $1 | $0.0001 | 0.2% - 50% |
+
+*Max leverage depends on position size (see tiered leverage table)
 
 ### Alt Perpetuals
 
-| Market | Max Leverage | Min Size | Tick Size |
-|--------|-------------|----------|-----------|
-| SOL-USD-PERP | 30x | $10 | $0.01 |
-| AVAX-USD-PERP | 30x | $10 | $0.01 |
-| ARB-USD-PERP | 20x | $10 | $0.0001 |
-| OP-USD-PERP | 20x | $10 | $0.0001 |
+| Market | Max Leverage | Min Size | Tick Size | Maintenance |
+|--------|-------------|----------|-----------|-------------|
+| SOL-USD-PERP | 250x* | $1 | $0.01 | 0.25% - 50% |
+| AVAX-USD-PERP | 250x* | $1 | $0.01 | 0.25% - 50% |
+| ARB-USD-PERP | 100x* | $1 | $0.0001 | 1% - 50% |
+| OP-USD-PERP | 100x* | $1 | $0.0001 | 1% - 50% |
 
 ## Quick Start
 
@@ -75,12 +141,12 @@ import { DEX } from '@luxfi/trading'
 
 const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
-// Long BTC perpetual with 10x leverage
+// Long BTC perpetual with 100x leverage
 const position = await dex.perpetual.openPosition({
   symbol: 'BTC-USD-PERP',
   side: 'long',
   size: '10000',        // $10,000 notional
-  leverage: 10,         // 10x leverage
+  leverage: 100,        // 100x leverage (tier 5)
   type: 'market'
 })
 
@@ -98,30 +164,139 @@ const position = await dex.perpetual.openPosition({
   symbol: 'ETH-USD-PERP',
   side: 'short',
   size: '5000',
-  leverage: 5,
+  leverage: 50,
   type: 'limit',
   price: '2500.00'      // Enter short at $2,500
 })
 ```
 
-### With Stop Loss and Take Profit
+### With Take Profit and Stop Loss
 
 ```typescript
 const position = await dex.perpetual.openPosition({
   symbol: 'BTC-USD-PERP',
   side: 'long',
   size: '10000',
-  leverage: 10,
+  leverage: 100,
   type: 'market',
-  stopLoss: {
-    price: '45000',
-    type: 'market'
-  },
   takeProfit: {
-    price: '55000',
+    percent: 300,        // +300% profit target
     type: 'limit'
+  },
+  stopLoss: {
+    percent: 50,         // -50% max loss
+    type: 'market'
   }
 })
+```
+
+## Take Profit / Stop Loss (TP/SL)
+
+LX DEX supports advanced TP/SL orders with percentage-based targets, making it easy to set profit targets like "+300%" directly.
+
+### TP/SL Order Types
+
+| Order Type | Description | Use Case |
+|------------|-------------|----------|
+| Take Profit | Close at profit target | Lock in gains at +X% |
+| Stop Loss | Close at loss limit | Limit downside to -X% |
+| Trailing Stop | Dynamic stop that follows price | Protect gains while allowing upside |
+
+### Trigger Types
+
+| Trigger | Description |
+|---------|-------------|
+| Mark Price | Trigger on oracle mark price (default) |
+| Last Price | Trigger on last traded price |
+| Index Price | Trigger on underlying index price |
+
+### Create TP/SL Orders
+
+```typescript
+// Take Profit at +300% from entry
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 300,           // +300% from entry
+  triggerType: 'mark',    // Trigger on mark price
+  orderType: 'limit',     // Execute as limit order
+  closePercent: 100       // Close 100% of position
+})
+
+// Stop Loss at -50% from entry
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  percent: 50,            // -50% from entry
+  triggerType: 'mark',
+  orderType: 'market',
+  closePercent: 100
+})
+
+console.log(`TP Price: $${tp.triggerPrice}`)  // Entry × 4 for +300%
+console.log(`SL Price: $${sl.triggerPrice}`)  // Entry × 0.5 for -50%
+```
+
+### TP/SL with Price Targets
+
+```typescript
+// Take Profit at specific price
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  price: '200000',        // $200,000 BTC target
+  triggerType: 'mark',
+  orderType: 'limit'
+})
+
+// Stop Loss at specific price
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  price: '45000',
+  triggerType: 'mark',
+  orderType: 'market'
+})
+```
+
+### Trailing Stop Orders
+
+```typescript
+// Trailing stop with fixed delta
+const trailing = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'trailingStop',
+  trailingDelta: '1000',  // $1,000 trail distance
+  triggerType: 'last'
+})
+
+// Trailing stop with percentage
+const trailingPercent = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'trailingStop',
+  trailingPercent: 2,     // 2% trail
+  activationPrice: '55000', // Activate when price hits $55K
+  triggerType: 'mark'
+})
+```
+
+### Manage TP/SL Orders
+
+```typescript
+// Get all TP/SL orders for position
+const orders = await dex.perpetual.getTPSLOrders('pos_123')
+
+orders.forEach(order => {
+  console.log(`${order.type}: $${order.triggerPrice}`)
+  console.log(`  Status: ${order.status}`)
+  console.log(`  Trigger: ${order.triggerType}`)
+})
+
+// Cancel specific order
+await dex.perpetual.cancelTPSL(orders[0].id)
+
+// Cancel all TP/SL for position
+await dex.perpetual.cancelAllTPSL('pos_123')
 ```
 
 ## Funding Rate
@@ -182,6 +357,7 @@ positions.forEach(pos => {
   console.log(`  Size: $${pos.size}`)
   console.log(`  Entry: $${pos.entryPrice}`)
   console.log(`  Mark: $${pos.markPrice}`)
+  console.log(`  Leverage: ${pos.leverage}x (Tier ${pos.tier})`)
   console.log(`  Unrealized PnL: $${pos.unrealizedPnl}`)
   console.log(`  ROE: ${pos.roe}%`)
 })
@@ -199,6 +375,8 @@ const result = await dex.perpetual.increasePosition({
 
 console.log(`New Size: $${result.newSize}`)
 console.log(`New Avg Price: $${result.newAvgPrice}`)
+console.log(`New Tier: ${result.newTier}`)
+console.log(`Max Leverage: ${result.maxLeverage}x`)
 ```
 
 ### Decrease Position (Partial Close)
@@ -234,16 +412,20 @@ console.log(`Collateral Returned: $${result.collateralReturned}`)
 ### Adjust Leverage
 
 ```typescript
-// Increase leverage (reduces collateral)
-await dex.perpetual.setLeverage({
-  positionId: 'pos_123',
-  leverage: 20
+// Check max leverage for current position size
+const position = await dex.perpetual.getPosition('pos_123')
+const maxLev = await dex.perpetual.getMaxLeverage({
+  symbol: position.symbol,
+  notionalSize: position.size
 })
 
-// Decrease leverage (requires more collateral)
+console.log(`Current Leverage: ${position.leverage}x`)
+console.log(`Max Allowed: ${maxLev}x`)
+
+// Increase leverage (if within tier limit)
 await dex.perpetual.setLeverage({
   positionId: 'pos_123',
-  leverage: 5
+  leverage: Math.min(50, maxLev)
 })
 ```
 
@@ -269,7 +451,7 @@ await dex.perpetual.removeMargin({
 
 ```
 Position is liquidated when:
-  Margin Ratio < Maintenance Margin
+  Margin Ratio < Maintenance Margin (tiered)
 
 Margin Ratio = (Collateral + Unrealized PnL) / Position Size
 
@@ -280,19 +462,23 @@ Liquidation Process:
 4. Shortfall covered by insurance fund
 ```
 
-### Liquidation Price
+### Tiered Liquidation Price
 
 ```
 Long Liquidation:
-Liq = Entry × (1 - Initial Margin + Maintenance Margin)
+Liq = Entry × (1 - InitialMarginRate + MaintenanceMarginRate)
 
 Short Liquidation:
-Liq = Entry × (1 + Initial Margin - Maintenance Margin)
+Liq = Entry × (1 + InitialMarginRate - MaintenanceMarginRate)
 
-Example (50x Long BTC at $50,000):
-Initial Margin = 2%
-Maintenance = 0.5%
-Liq = $50,000 × (1 - 0.02 + 0.005) = $49,250
+Example (100x Long BTC at $50,000, $100K position):
+Tier: 5 (1% maintenance margin)
+Initial Margin = 1%
+Maintenance = 1%
+Liq = $50,000 × (1 - 0.01 + 0.01) = $50,000 × 1.0 = immediate risk
+
+With 20x leverage (5% margin):
+Liq = $50,000 × (1 - 0.05 + 0.01) = $50,000 × 0.96 = $48,000
 ```
 
 ### Monitor Liquidation Risk
@@ -304,7 +490,9 @@ const liquidationRisk = {
   marginRatio: position.marginRatio,
   healthFactor: position.healthFactor,
   liquidationPrice: position.liquidationPrice,
-  distanceToLiq: position.distanceToLiq
+  distanceToLiq: position.distanceToLiq,
+  tier: position.tier,
+  maintenanceMargin: position.maintenanceMargin
 }
 
 if (liquidationRisk.marginRatio < 5) {
@@ -352,7 +540,7 @@ await dex.perpetual.placeOrder({
 })
 ```
 
-### Take Profit
+### Take Profit Order
 
 ```typescript
 await dex.perpetual.placeOrder({
@@ -367,36 +555,47 @@ await dex.perpetual.placeOrder({
 
 ## Fees
 
+See [Fee Schedule](/docs/trading/fees) for complete fee information including VIP tiers.
+
+### Base Fees
+
 | Fee Type | Rate |
 |----------|------|
-| Maker | 0.02% |
-| Taker | 0.06% |
-| Liquidation | 0.10% |
+| Maker | 0.10% |
+| Taker | 0.50% |
+| Liquidation | 0.50% |
 | Funding | Variable |
 
-### Fee Tiers
+### VIP Fee Tiers
 
-| Volume (30d) | Maker | Taker |
-|-------------|-------|-------|
-| < $1M | 0.02% | 0.06% |
-| $1M - $10M | 0.01% | 0.05% |
-| $10M - $100M | 0.00% | 0.04% |
-| > $100M | -0.01% | 0.03% |
+| VIP Tier | 30-Day Volume | Maker Fee | Taker Fee |
+|----------|--------------|-----------|-----------|
+| VIP 0 | $0 | 0.10% | 0.50% |
+| VIP 1 | $1M | 0.08% | 0.45% |
+| VIP 2 | $5M | 0.06% | 0.42% |
+| VIP 3 | $10M | 0.04% | 0.39% |
+| VIP 4 | $25M | 0.02% | 0.36% |
+| VIP 5 | $50M | **0.00%** | 0.27% |
+| VIP 6 | $100M | **0.00%** | 0.24% |
+| VIP 7 | $250M | **0.00%** | 0.21% |
+| VIP 8 | $500M | **0.00%** | 0.18% |
+| VIP 9 | $1B | **0.00%** | **0.15%** |
 
 ## Risk Management
 
 <Callout type="warning">
-**Perpetual trading carries significant risk.** Leverage amplifies both gains and losses. You can lose more than your initial margin.
+**Perpetual trading carries significant risk.** Leverage amplifies both gains and losses. With 1001x leverage, a 0.1% adverse move results in liquidation.
 </Callout>
 
 ### Best Practices
 
-1. **Use appropriate leverage** - Start with 2-5x
-2. **Set stop losses** - Always define max loss
+1. **Use appropriate leverage** - Start with 2-10x, not 1001x
+2. **Set stop losses** - Always define max loss with TP/SL orders
 3. **Monitor funding** - Can erode profits on long holds
-4. **Keep margin buffer** - Don't use 100% available
+4. **Keep margin buffer** - Don't use 100% available margin
 5. **Track open interest** - High OI can mean crowded trades
 6. **Understand mark vs last** - Liquidation uses mark price
+7. **Know your tier** - Larger positions have lower max leverage
 
 ### Position Sizing Formula
 
@@ -465,8 +664,10 @@ When liquidation has shortfall:
 
 ## Related Documentation
 
+- [TP/SL Orders](/docs/trading/tpsl) - Detailed Take Profit/Stop Loss guide
+- [Referral & Rebates](/docs/trading/referral-rebates) - Earn rebates on trading fees
 - [Margin Trading](/docs/trading/margin) - Margin modes and leverage
 - [Order Types](/docs/trading/order-types) - All supported orders
-- [Fees](/docs/trading/fees) - Complete fee schedule
+- [Fees](/docs/trading/fees) - Complete fee schedule with VIP tiers
 - [Limits](/docs/trading/limits) - Position and leverage limits
 - [Risk Management](/docs/risk) - Risk controls
