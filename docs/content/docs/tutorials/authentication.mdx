@@ -1,0 +1,909 @@
+---
+title: Authentication Setup
+description: Configure API keys, JWT tokens, and secure connections for LX DEX - complete security guide
+---
+
+# Authentication Setup
+
+This tutorial covers all authentication methods for LX DEX, from API keys to JWT tokens and secure WebSocket connections.
+
+## Objectives
+
+After completing this tutorial, you will be able to:
+
+- Generate and manage API keys
+- Implement API key authentication
+- Use JWT tokens for session-based auth
+- Secure WebSocket connections
+- Handle authentication errors gracefully
+
+## Prerequisites
+
+- LX DEX node running (see [Getting Started](/docs/getting-started))
+- Completed [Your First Trade](/docs/tutorials/first-trade) tutorial
+- Basic understanding of HTTP authentication
+
+## Authentication Methods
+
+LX DEX supports three authentication methods:
+
+| Method | Use Case | Security Level |
+|--------|----------|----------------|
+| API Key | Server-to-server, bots | High |
+| JWT Token | Web applications, sessions | High |
+| Signature | High-frequency trading | Highest |
+
+## Step 1: Generate API Keys
+
+### Using the CLI
+
+```bash
+# Generate a new API key pair
+lxd keys generate --name "trading-bot"
+
+# Output:
+# API Key:    lx_pk_live_a1b2c3d4e5f6g7h8i9j0
+# API Secret: lx_sk_live_z9y8x7w6v5u4t3s2r1q0
+# Created:    2024-01-15T10:30:45Z
+#
+# WARNING: Store the secret securely. It cannot be retrieved again.
+```
+
+### Using the API
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_createApiKey",
+    "params": {
+      "name": "trading-bot",
+      "permissions": ["trade", "read"],
+      "ipWhitelist": ["192.168.1.0/24"]
+    },
+    "id": 1
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "apiKey": "lx_pk_live_a1b2c3d4e5f6g7h8i9j0",
+    "apiSecret": "lx_sk_live_z9y8x7w6v5u4t3s2r1q0",
+    "name": "trading-bot",
+    "permissions": ["trade", "read"],
+    "createdAt": "2024-01-15T10:30:45Z"
+  },
+  "id": 1
+}
+```
+
+## Step 2: API Key Authentication
+
+### TypeScript
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+import crypto from 'crypto';
+
+// Method 1: SDK handles authentication
+const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    apiKey: 'lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+    apiSecret: 'lx_sk_live_z9y8x7w6v5u4t3s2r1q0'
+});
+
+// SDK automatically signs all requests
+const order = await client.placeOrder({
+    symbol: 'BTC-USD',
+    side: 'buy',
+    type: 'limit',
+    price: 50000,
+    size: 0.1
+});
+
+// Method 2: Manual signature (for custom implementations)
+function signRequest(
+    apiSecret: string,
+    timestamp: number,
+    method: string,
+    body: string
+): string {
+    const message = `${timestamp}${method}${body}`;
+    return crypto
+        .createHmac('sha256', apiSecret)
+        .update(message)
+        .digest('hex');
+}
+
+// Manual authenticated request
+async function authenticatedRequest(method: string, params: object) {
+    const timestamp = Date.now();
+    const body = JSON.stringify({
+        jsonrpc: '2.0',
+        method,
+        params,
+        id: 1
+    });
+
+    const signature = signRequest(
+        'lx_sk_live_z9y8x7w6v5u4t3s2r1q0',
+        timestamp,
+        method,
+        body
+    );
+
+    const response = await fetch('http://localhost:8080/rpc', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+            'X-Timestamp': timestamp.toString(),
+            'X-Signature': signature
+        },
+        body
+    });
+
+    return response.json();
+}
+```
+
+### Python
+
+```python
+import hmac
+import hashlib
+import time
+import json
+import requests
+from luxfi_dex import LXDexClient
+
+# Method 1: SDK handles authentication
+client = LXDexClient(
+    json_rpc_url='http://localhost:8080/rpc',
+    api_key='lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+    api_secret='lx_sk_live_z9y8x7w6v5u4t3s2r1q0'
+)
+
+# SDK automatically signs all requests
+order = client.place_order(
+    symbol='BTC-USD',
+    side='buy',
+    order_type='limit',
+    price=50000,
+    size=0.1
+)
+
+# Method 2: Manual signature
+def sign_request(api_secret: str, timestamp: int, method: str, body: str) -> str:
+    message = f'{timestamp}{method}{body}'
+    signature = hmac.new(
+        api_secret.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return signature
+
+def authenticated_request(method: str, params: dict) -> dict:
+    timestamp = int(time.time() * 1000)
+    body = json.dumps({
+        'jsonrpc': '2.0',
+        'method': method,
+        'params': params,
+        'id': 1
+    })
+
+    signature = sign_request(
+        'lx_sk_live_z9y8x7w6v5u4t3s2r1q0',
+        timestamp,
+        method,
+        body
+    )
+
+    response = requests.post(
+        'http://localhost:8080/rpc',
+        headers={
+            'Content-Type': 'application/json',
+            'X-API-Key': 'lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+            'X-Timestamp': str(timestamp),
+            'X-Signature': signature
+        },
+        data=body
+    )
+
+    return response.json()
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "strconv"
+    "strings"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    // Method 1: SDK handles authentication
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+        lxdex.WithAPIKey("lx_pk_live_a1b2c3d4e5f6g7h8i9j0"),
+        lxdex.WithAPISecret("lx_sk_live_z9y8x7w6v5u4t3s2r1q0"),
+    )
+
+    // SDK automatically signs all requests
+    ctx := context.Background()
+    order, _ := client.PlaceOrder(ctx, &lxdex.OrderRequest{
+        Symbol: "BTC-USD",
+        Side:   lxdex.Buy,
+        Type:   lxdex.Limit,
+        Price:  50000,
+        Size:   0.1,
+    })
+    fmt.Println("Order placed:", order.OrderID)
+}
+
+// Method 2: Manual signature
+func signRequest(apiSecret string, timestamp int64, method, body string) string {
+    message := fmt.Sprintf("%d%s%s", timestamp, method, body)
+    h := hmac.New(sha256.New, []byte(apiSecret))
+    h.Write([]byte(message))
+    return hex.EncodeToString(h.Sum(nil))
+}
+
+func authenticatedRequest(method string, params interface{}) (map[string]interface{}, error) {
+    timestamp := time.Now().UnixMilli()
+
+    body, _ := json.Marshal(map[string]interface{}{
+        "jsonrpc": "2.0",
+        "method":  method,
+        "params":  params,
+        "id":      1,
+    })
+
+    signature := signRequest(
+        "lx_sk_live_z9y8x7w6v5u4t3s2r1q0",
+        timestamp,
+        method,
+        string(body),
+    )
+
+    req, _ := http.NewRequest("POST", "http://localhost:8080/rpc", strings.NewReader(string(body)))
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("X-API-Key", "lx_pk_live_a1b2c3d4e5f6g7h8i9j0")
+    req.Header.Set("X-Timestamp", strconv.FormatInt(timestamp, 10))
+    req.Header.Set("X-Signature", signature)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var result map[string]interface{}
+    json.NewDecoder(resp.Body).Decode(&result)
+    return result, nil
+}
+```
+
+## Step 3: JWT Token Authentication
+
+JWT tokens are ideal for web applications with user sessions.
+
+### Obtaining a JWT Token
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_login",
+    "params": {
+      "apiKey": "lx_pk_live_a1b2c3d4e5f6g7h8i9j0",
+      "apiSecret": "lx_sk_live_z9y8x7w6v5u4t3s2r1q0"
+    },
+    "id": 1
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresAt": "2024-01-15T22:30:45Z",
+    "refreshToken": "rt_a1b2c3d4e5f6..."
+  },
+  "id": 1
+}
+```
+
+### Using JWT Tokens
+
+#### TypeScript
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+// Initialize with JWT
+const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    jwtToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+});
+
+// Automatic token refresh
+client.on('tokenExpiring', async () => {
+    const newToken = await refreshToken(client.refreshToken);
+    client.setToken(newToken);
+});
+
+// Token refresh function
+async function refreshToken(refreshToken: string): Promise<string> {
+    const response = await fetch('http://localhost:8080/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'lx_refreshToken',
+            params: { refreshToken },
+            id: 1
+        })
+    });
+
+    const data = await response.json();
+    return data.result.token;
+}
+```
+
+#### Python
+
+```python
+from luxfi_dex import LXDexClient
+import jwt
+from datetime import datetime
+
+# Initialize with JWT
+client = LXDexClient(
+    json_rpc_url='http://localhost:8080/rpc',
+    jwt_token='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+)
+
+# Check token expiration
+def is_token_expired(token: str) -> bool:
+    try:
+        # Decode without verification to check exp
+        payload = jwt.decode(token, options={'verify_signature': False})
+        exp = datetime.fromtimestamp(payload['exp'])
+        return datetime.now() > exp
+    except jwt.ExpiredSignatureError:
+        return True
+
+# Refresh token if needed
+def ensure_valid_token(client):
+    if is_token_expired(client.jwt_token):
+        new_token = client.refresh_token()
+        client.set_token(new_token)
+```
+
+#### Go
+
+```go
+package main
+
+import (
+    "context"
+    "time"
+
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    // Initialize with JWT
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+        lxdex.WithJWTToken("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."),
+    )
+
+    // Set up automatic token refresh
+    client.OnTokenExpiring(func() {
+        newToken, _ := client.RefreshToken(context.Background())
+        client.SetToken(newToken)
+    })
+}
+
+// Check token expiration
+func isTokenExpired(tokenString string) bool {
+    token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+    if err != nil {
+        return true
+    }
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok {
+        return true
+    }
+
+    exp, ok := claims["exp"].(float64)
+    if !ok {
+        return true
+    }
+
+    return time.Now().Unix() > int64(exp)
+}
+```
+
+## Step 4: Secure WebSocket Authentication
+
+WebSocket connections require authentication on connect.
+
+### TypeScript
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+    wsUrl: 'wss://localhost:8081',
+    apiKey: 'lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+    apiSecret: 'lx_sk_live_z9y8x7w6v5u4t3s2r1q0'
+});
+
+// Connect with authentication
+await client.connectWebSocket();
+
+// The SDK sends an auth message automatically:
+// {
+//   "type": "auth",
+//   "apiKey": "lx_pk_live_...",
+//   "timestamp": 1705312245000,
+//   "signature": "a1b2c3d4..."
+// }
+
+// Subscribe to authenticated channels
+client.subscribeUserOrders((order) => {
+    console.log('Order update:', order);
+});
+
+client.subscribeUserTrades((trade) => {
+    console.log('Trade:', trade);
+});
+
+// Handle auth errors
+client.on('authError', (error) => {
+    console.error('WebSocket auth failed:', error.message);
+    // Attempt re-authentication
+    client.reconnect();
+});
+```
+
+### Python
+
+```python
+import asyncio
+import json
+import hmac
+import hashlib
+import time
+import websockets
+from luxfi_dex import AsyncLXDexClient
+
+async def main():
+    # Method 1: SDK handles authentication
+    client = AsyncLXDexClient(
+        ws_url='wss://localhost:8081',
+        api_key='lx_pk_live_a1b2c3d4e5f6g7h8i9j0',
+        api_secret='lx_sk_live_z9y8x7w6v5u4t3s2r1q0'
+    )
+
+    await client.connect()
+
+    # Subscribe to authenticated channels
+    async for order in client.subscribe_user_orders():
+        print(f'Order update: {order}')
+
+# Method 2: Manual WebSocket authentication
+async def manual_ws_auth():
+    api_key = 'lx_pk_live_a1b2c3d4e5f6g7h8i9j0'
+    api_secret = 'lx_sk_live_z9y8x7w6v5u4t3s2r1q0'
+
+    async with websockets.connect('wss://localhost:8081') as ws:
+        # Send auth message
+        timestamp = int(time.time() * 1000)
+        message = f'{timestamp}auth'
+        signature = hmac.new(
+            api_secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        auth_msg = {
+            'type': 'auth',
+            'apiKey': api_key,
+            'timestamp': timestamp,
+            'signature': signature
+        }
+
+        await ws.send(json.dumps(auth_msg))
+
+        # Wait for auth response
+        response = await ws.recv()
+        result = json.loads(response)
+
+        if result['type'] == 'auth_success':
+            print('WebSocket authenticated')
+
+            # Subscribe to user orders
+            await ws.send(json.dumps({
+                'type': 'subscribe',
+                'channel': 'user_orders'
+            }))
+
+            # Listen for updates
+            async for msg in ws:
+                data = json.loads(msg)
+                print(f'Received: {data}')
+        else:
+            print(f'Auth failed: {result}')
+
+asyncio.run(main())
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "context"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/gorilla/websocket"
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    // Method 1: SDK handles authentication
+    client := lxdex.NewClient(
+        lxdex.WithWebSocket("wss://localhost:8081"),
+        lxdex.WithAPIKey("lx_pk_live_a1b2c3d4e5f6g7h8i9j0"),
+        lxdex.WithAPISecret("lx_sk_live_z9y8x7w6v5u4t3s2r1q0"),
+    )
+
+    ctx := context.Background()
+    if err := client.ConnectWebSocket(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    // Subscribe to user orders
+    orderCh, _ := client.SubscribeUserOrders(ctx)
+    for order := range orderCh {
+        fmt.Printf("Order update: %+v\n", order)
+    }
+}
+
+// Method 2: Manual WebSocket authentication
+func manualWSAuth() {
+    apiKey := "lx_pk_live_a1b2c3d4e5f6g7h8i9j0"
+    apiSecret := "lx_sk_live_z9y8x7w6v5u4t3s2r1q0"
+
+    conn, _, err := websocket.DefaultDialer.Dial("wss://localhost:8081", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+
+    // Send auth message
+    timestamp := time.Now().UnixMilli()
+    message := fmt.Sprintf("%dauth", timestamp)
+    h := hmac.New(sha256.New, []byte(apiSecret))
+    h.Write([]byte(message))
+    signature := hex.EncodeToString(h.Sum(nil))
+
+    authMsg := map[string]interface{}{
+        "type":      "auth",
+        "apiKey":    apiKey,
+        "timestamp": timestamp,
+        "signature": signature,
+    }
+
+    if err := conn.WriteJSON(authMsg); err != nil {
+        log.Fatal(err)
+    }
+
+    // Wait for auth response
+    var response map[string]interface{}
+    if err := conn.ReadJSON(&response); err != nil {
+        log.Fatal(err)
+    }
+
+    if response["type"] == "auth_success" {
+        fmt.Println("WebSocket authenticated")
+    }
+}
+```
+
+## Step 5: API Key Management
+
+### List API Keys
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_listApiKeys",
+    "params": {},
+    "id": 1
+  }'
+```
+
+### Revoke an API Key
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_revokeApiKey",
+    "params": {
+      "apiKey": "lx_pk_live_a1b2c3d4e5f6g7h8i9j0"
+    },
+    "id": 1
+  }'
+```
+
+### Update API Key Permissions
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_updateApiKey",
+    "params": {
+      "apiKey": "lx_pk_live_a1b2c3d4e5f6g7h8i9j0",
+      "permissions": ["read"],
+      "ipWhitelist": ["10.0.0.0/8"]
+    },
+    "id": 1
+  }'
+```
+
+## Step 6: Environment Configuration
+
+### Secure Credential Storage
+
+Never hardcode credentials. Use environment variables:
+
+#### TypeScript
+
+```typescript
+// config.ts
+import { config } from 'dotenv';
+config();
+
+export const dexConfig = {
+    jsonRpcUrl: process.env.LX_RPC_URL || 'http://localhost:8080/rpc',
+    apiKey: process.env.LX_API_KEY,
+    apiSecret: process.env.LX_API_SECRET
+};
+
+// Validate required credentials
+if (!dexConfig.apiKey || !dexConfig.apiSecret) {
+    throw new Error('Missing LX_API_KEY or LX_API_SECRET environment variables');
+}
+```
+
+#### Python
+
+```python
+# config.py
+import os
+from dataclasses import dataclass
+
+@dataclass
+class DexConfig:
+    json_rpc_url: str
+    api_key: str
+    api_secret: str
+
+def load_config() -> DexConfig:
+    api_key = os.environ.get('LX_API_KEY')
+    api_secret = os.environ.get('LX_API_SECRET')
+
+    if not api_key or not api_secret:
+        raise ValueError('Missing LX_API_KEY or LX_API_SECRET environment variables')
+
+    return DexConfig(
+        json_rpc_url=os.environ.get('LX_RPC_URL', 'http://localhost:8080/rpc'),
+        api_key=api_key,
+        api_secret=api_secret
+    )
+```
+
+#### Go
+
+```go
+// config.go
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+type Config struct {
+    JSONRPCURL string
+    APIKey     string
+    APISecret  string
+}
+
+func LoadConfig() (*Config, error) {
+    apiKey := os.Getenv("LX_API_KEY")
+    apiSecret := os.Getenv("LX_API_SECRET")
+
+    if apiKey == "" || apiSecret == "" {
+        return nil, fmt.Errorf("missing LX_API_KEY or LX_API_SECRET environment variables")
+    }
+
+    return &Config{
+        JSONRPCURL: getEnvOrDefault("LX_RPC_URL", "http://localhost:8080/rpc"),
+        APIKey:     apiKey,
+        APISecret:  apiSecret,
+    }, nil
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+```
+
+### Example .env File
+
+```bash
+# .env (DO NOT COMMIT TO VERSION CONTROL)
+LX_RPC_URL=http://localhost:8080/rpc
+LX_WS_URL=ws://localhost:8081
+LX_API_KEY=lx_pk_live_a1b2c3d4e5f6g7h8i9j0
+LX_API_SECRET=lx_sk_live_z9y8x7w6v5u4t3s2r1q0
+```
+
+## Common Pitfalls
+
+### 1. Clock Skew
+
+```
+Error: INVALID_TIMESTAMP - Request timestamp too far from server time
+```
+
+**Solution:** Ensure your system clock is synchronized:
+
+```bash
+# Linux
+sudo ntpdate -u pool.ntp.org
+
+# macOS
+sudo sntp -sS pool.ntp.org
+```
+
+Or handle in code:
+
+```typescript
+// Get server time and calculate offset
+const serverTime = await client.getServerTime();
+const offset = serverTime - Date.now();
+
+// Use offset when signing
+const timestamp = Date.now() + offset;
+```
+
+### 2. Invalid Signature
+
+```
+Error: INVALID_SIGNATURE
+```
+
+**Solution:** Ensure you are using the correct message format:
+
+```typescript
+// Correct format: timestamp + method + body
+const message = `${timestamp}${method}${body}`;
+
+// NOT: timestamp + body + method (wrong order)
+```
+
+### 3. Expired Token
+
+```
+Error: TOKEN_EXPIRED
+```
+
+**Solution:** Implement automatic token refresh:
+
+```typescript
+client.on('tokenExpiring', async () => {
+    const newToken = await client.refreshToken();
+    // Token is automatically updated
+});
+```
+
+### 4. IP Not Whitelisted
+
+```
+Error: IP_NOT_WHITELISTED
+```
+
+**Solution:** Add your IP to the whitelist or update the API key:
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_updateApiKey",
+    "params": {
+      "apiKey": "lx_pk_live_...",
+      "ipWhitelist": ["YOUR_IP/32"]
+    },
+    "id": 1
+  }'
+```
+
+## Security Best Practices
+
+1. **Never expose API secrets** - Keep them server-side only
+2. **Use IP whitelisting** - Restrict access to known IPs
+3. **Rotate keys regularly** - Create new keys and revoke old ones monthly
+4. **Use minimum permissions** - Only grant permissions that are needed
+5. **Monitor key usage** - Check for unauthorized access patterns
+6. **Use TLS everywhere** - Never use unencrypted connections in production
+
+## Next Steps
+
+Now that your authentication is set up:
+
+1. **[Testing on Testnet](/docs/tutorials/testing)** - Practice safely with test credentials
+2. **[Orderbook Synchronization](/docs/tutorials/orderbook-sync)** - Build authenticated data feeds
+3. **[Production Checklist](/docs/tutorials/production)** - Security review for production
+
+## Summary
+
+In this tutorial, you learned to:
+
+- Generate and manage API keys
+- Implement HMAC signature authentication
+- Use JWT tokens for session-based auth
+- Authenticate WebSocket connections
+- Store credentials securely
+- Handle common authentication errors
+
+Your trading application is now properly secured and ready for the next steps.

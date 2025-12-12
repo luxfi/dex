@@ -1,0 +1,546 @@
+---
+title: Order Operations
+description: Placing, canceling, and managing orders with the Rust SDK - builder patterns, batch operations, and error handling
+---
+
+# Order Operations
+
+The Rust SDK provides type-safe order management with builder patterns, batch operations, and comprehensive error handling.
+
+## Order Types
+
+```rust
+use lux_dex_sdk::{Order, OrderType, Side, TimeInForce};
+
+// Limit order
+let limit = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Buy)
+    .price(50_000.0)
+    .size(1.0)
+    .time_in_force(TimeInForce::Gtc)
+    .build()?;
+
+// Market order
+let market = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Market)
+    .side(Side::Sell)
+    .size(0.5)
+    .build()?;
+
+// Stop-limit order
+let stop_limit = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::StopLimit)
+    .side(Side::Sell)
+    .stop_price(48_000.0)
+    .price(47_900.0)
+    .size(1.0)
+    .build()?;
+
+// Iceberg order
+let iceberg = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Iceberg)
+    .side(Side::Buy)
+    .price(50_000.0)
+    .size(10.0)
+    .display_size(1.0)  // Show only 1.0 at a time
+    .build()?;
+```
+
+## Place Order
+
+### Basic Order Placement
+
+```rust
+use lux_dex_sdk::{Client, Order, OrderType, Side, Result};
+
+async fn place_limit_order(client: &Client) -> Result<OrderId> {
+    let order = Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Buy)
+        .price(50_000.0)
+        .size(1.0)
+        .build()?;
+
+    let response = client.place_order(order).await?;
+
+    println!("Order ID: {}", response.id);
+    println!("Status: {:?}", response.status);
+    println!("Filled: {} / {}", response.filled_size, response.size);
+
+    Ok(response.id)
+}
+```
+
+### With Client Order ID
+
+```rust
+use uuid::Uuid;
+
+let client_order_id = Uuid::new_v4().to_string();
+
+let order = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Buy)
+    .price(50_000.0)
+    .size(1.0)
+    .client_order_id(&client_order_id)
+    .build()?;
+
+let response = client.place_order(order).await?;
+assert_eq!(response.client_order_id, Some(client_order_id));
+```
+
+### Post-Only Orders
+
+```rust
+// Post-only: order rejected if it would immediately match
+let order = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Buy)
+    .price(50_000.0)
+    .size(1.0)
+    .post_only(true)
+    .build()?;
+
+match client.place_order(order).await {
+    Ok(response) => println!("Order placed: {}", response.id),
+    Err(Error::WouldImmediatelyMatch) => {
+        println!("Order would cross spread, rejected");
+    }
+    Err(e) => return Err(e),
+}
+```
+
+### Reduce-Only Orders
+
+```rust
+// Reduce-only: can only reduce existing position
+let order = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Sell)
+    .price(55_000.0)
+    .size(0.5)
+    .reduce_only(true)
+    .build()?;
+```
+
+## Cancel Order
+
+### By Order ID
+
+```rust
+async fn cancel_order(client: &Client, order_id: OrderId) -> Result<()> {
+    let response = client.cancel_order(order_id).await?;
+
+    match response.status {
+        CancelStatus::Cancelled => println!("Order cancelled"),
+        CancelStatus::NotFound => println!("Order not found"),
+        CancelStatus::AlreadyFilled => println!("Order already filled"),
+        CancelStatus::AlreadyCancelled => println!("Order already cancelled"),
+    }
+
+    Ok(())
+}
+```
+
+### By Client Order ID
+
+```rust
+let response = client
+    .cancel_order_by_client_id("my-unique-id")
+    .await?;
+```
+
+### Cancel All Orders
+
+```rust
+// Cancel all orders for a symbol
+let cancelled = client.cancel_all_orders("BTC-USD").await?;
+println!("Cancelled {} orders", cancelled.len());
+
+// Cancel all orders
+let cancelled = client.cancel_all_orders_global().await?;
+println!("Cancelled {} orders across all symbols", cancelled.len());
+```
+
+## Modify Order
+
+### Replace Order
+
+```rust
+// Atomic replace: cancel + place in single request
+let new_order = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Buy)
+    .price(49_500.0)  // New price
+    .size(1.5)        // New size
+    .build()?;
+
+let response = client.replace_order(old_order_id, new_order).await?;
+println!("New order ID: {}", response.id);
+```
+
+### Amend Order (Price/Size Only)
+
+```rust
+// Faster than replace - keeps same order ID
+let amendment = OrderAmendment {
+    order_id,
+    new_price: Some(49_500.0),
+    new_size: Some(1.5),
+};
+
+let response = client.amend_order(amendment).await?;
+```
+
+## Query Orders
+
+### Get Order by ID
+
+```rust
+let order = client.get_order(order_id).await?;
+
+println!("Order: {:?}", order);
+println!("Status: {:?}", order.status);
+println!("Filled: {} / {}", order.filled_size, order.size);
+println!("Avg fill price: {:?}", order.avg_fill_price);
+```
+
+### Get Open Orders
+
+```rust
+// Get all open orders
+let orders = client.get_open_orders().await?;
+
+// Get open orders for symbol
+let orders = client.get_open_orders_by_symbol("BTC-USD").await?;
+
+for order in orders {
+    println!("{}: {} {} @ {}",
+        order.id,
+        order.side,
+        order.size,
+        order.price.unwrap_or_default()
+    );
+}
+```
+
+### Get Order History
+
+```rust
+use lux_dex_sdk::OrderFilter;
+
+let filter = OrderFilter {
+    symbol: Some("BTC-USD".into()),
+    side: Some(Side::Buy),
+    start_time: Some(Utc::now() - Duration::days(7)),
+    end_time: Some(Utc::now()),
+    limit: Some(100),
+    ..Default::default()
+};
+
+let orders = client.get_order_history(filter).await?;
+```
+
+## Batch Operations
+
+### Batch Place Orders
+
+```rust
+use lux_dex_sdk::BatchOrder;
+
+let orders = vec![
+    Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Buy)
+        .price(49_000.0)
+        .size(1.0)
+        .build()?,
+    Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Buy)
+        .price(48_000.0)
+        .size(1.0)
+        .build()?,
+    Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Sell)
+        .price(52_000.0)
+        .size(1.0)
+        .build()?,
+];
+
+let results = client.place_orders_batch(orders).await?;
+
+for result in results {
+    match result {
+        Ok(response) => println!("Placed: {}", response.id),
+        Err(e) => println!("Failed: {}", e),
+    }
+}
+```
+
+### Batch Cancel Orders
+
+```rust
+let order_ids = vec![order_id_1, order_id_2, order_id_3];
+let results = client.cancel_orders_batch(order_ids).await?;
+
+let cancelled_count = results.iter().filter(|r| r.is_ok()).count();
+println!("Cancelled {} of {} orders", cancelled_count, results.len());
+```
+
+## Order Builder Details
+
+### Complete Builder API
+
+```rust
+let order = Order::builder()
+    // Required fields
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .size(1.0)
+
+    // Order type (default: Limit)
+    .order_type(OrderType::Limit)
+
+    // Price fields
+    .price(50_000.0)
+    .stop_price(49_000.0)  // For stop orders
+
+    // Time in force (default: GTC)
+    .time_in_force(TimeInForce::Gtc)
+
+    // Optional fields
+    .client_order_id("my-id")
+    .display_size(0.5)      // For iceberg
+    .post_only(false)
+    .reduce_only(false)
+
+    // Expiration (for GTD orders)
+    .expire_time(Utc::now() + Duration::hours(24))
+
+    // Build with validation
+    .build()?;
+```
+
+### Validation
+
+```rust
+use lux_dex_sdk::{Order, ValidationError};
+
+let result = Order::builder()
+    .symbol("BTC-USD")
+    .order_type(OrderType::Limit)
+    .side(Side::Buy)
+    // Missing price for limit order!
+    .size(1.0)
+    .build();
+
+match result {
+    Err(ValidationError::MissingPrice) => {
+        println!("Limit orders require a price");
+    }
+    _ => {}
+}
+```
+
+## Order Response Types
+
+```rust
+/// Response from placing an order
+#[derive(Debug, Clone)]
+pub struct OrderResponse {
+    pub id: OrderId,
+    pub client_order_id: Option<String>,
+    pub symbol: String,
+    pub order_type: OrderType,
+    pub side: Side,
+    pub price: Option<f64>,
+    pub size: f64,
+    pub filled_size: f64,
+    pub remaining_size: f64,
+    pub avg_fill_price: Option<f64>,
+    pub status: OrderStatus,
+    pub time_in_force: TimeInForce,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub fills: Vec<Fill>,
+}
+
+/// Individual fill
+#[derive(Debug, Clone)]
+pub struct Fill {
+    pub trade_id: TradeId,
+    pub price: f64,
+    pub size: f64,
+    pub fee: f64,
+    pub fee_currency: String,
+    pub timestamp: DateTime<Utc>,
+}
+```
+
+## Error Handling
+
+```rust
+use lux_dex_sdk::{Error, OrderError};
+
+async fn place_order_safe(client: &Client, order: Order) -> Result<OrderResponse> {
+    match client.place_order(order).await {
+        Ok(response) => Ok(response),
+
+        // Order-specific errors
+        Err(Error::Order(OrderError::InsufficientBalance { required, available })) => {
+            eprintln!("Need {} but have {}", required, available);
+            Err(Error::Order(OrderError::InsufficientBalance { required, available }))
+        }
+
+        Err(Error::Order(OrderError::InvalidPrice { price, min, max })) => {
+            eprintln!("Price {} outside range [{}, {}]", price, min, max);
+            Err(Error::Order(OrderError::InvalidPrice { price, min, max }))
+        }
+
+        Err(Error::Order(OrderError::InvalidSize { size, min, max })) => {
+            eprintln!("Size {} outside range [{}, {}]", size, min, max);
+            Err(Error::Order(OrderError::InvalidSize { size, min, max }))
+        }
+
+        Err(Error::Order(OrderError::WouldImmediatelyMatch)) => {
+            eprintln!("Post-only order would cross spread");
+            Err(Error::Order(OrderError::WouldImmediatelyMatch))
+        }
+
+        Err(Error::Order(OrderError::SymbolNotFound(sym))) => {
+            eprintln!("Unknown symbol: {}", sym);
+            Err(Error::Order(OrderError::SymbolNotFound(sym)))
+        }
+
+        // Rate limiting
+        Err(Error::RateLimit { retry_after }) => {
+            eprintln!("Rate limited, retry after {:?}", retry_after);
+            tokio::time::sleep(retry_after).await;
+            client.place_order(order).await
+        }
+
+        // Other errors
+        Err(e) => {
+            eprintln!("Unexpected error: {}", e);
+            Err(e)
+        }
+    }
+}
+```
+
+## High-Frequency Trading Pattern
+
+```rust
+use lux_dex_sdk::{Client, Order, OrderId};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+
+struct HftOrderManager {
+    client: Arc<Client>,
+    order_tx: mpsc::Sender<Order>,
+}
+
+impl HftOrderManager {
+    pub fn new(client: Arc<Client>, concurrency: usize) -> Self {
+        let (tx, mut rx) = mpsc::channel::<Order>(10_000);
+
+        // Spawn worker tasks
+        for _ in 0..concurrency {
+            let client = Arc::clone(&client);
+            let mut rx = rx.clone();
+            tokio::spawn(async move {
+                while let Some(order) = rx.recv().await {
+                    if let Err(e) = client.place_order(order).await {
+                        eprintln!("Order failed: {}", e);
+                    }
+                }
+            });
+        }
+
+        Self {
+            client,
+            order_tx: tx,
+        }
+    }
+
+    /// Non-blocking order submission
+    pub fn submit(&self, order: Order) -> Result<()> {
+        self.order_tx.try_send(order)
+            .map_err(|_| Error::QueueFull)
+    }
+}
+```
+
+## Complete Example
+
+```rust
+use lux_dex_sdk::{Client, Order, OrderType, Side, TimeInForce, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Client::builder()
+        .json_rpc_url("http://localhost:8080/rpc")
+        .build()
+        .await?;
+
+    // Place a bracket order (entry + take profit + stop loss)
+    let entry = Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Buy)
+        .price(50_000.0)
+        .size(1.0)
+        .build()?;
+
+    let entry_response = client.place_order(entry).await?;
+    println!("Entry order: {}", entry_response.id);
+
+    // Take profit
+    let take_profit = Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::Limit)
+        .side(Side::Sell)
+        .price(55_000.0)
+        .size(1.0)
+        .reduce_only(true)
+        .build()?;
+
+    // Stop loss
+    let stop_loss = Order::builder()
+        .symbol("BTC-USD")
+        .order_type(OrderType::StopLimit)
+        .side(Side::Sell)
+        .stop_price(48_000.0)
+        .price(47_900.0)
+        .size(1.0)
+        .reduce_only(true)
+        .build()?;
+
+    let results = client.place_orders_batch(vec![take_profit, stop_loss]).await?;
+
+    for result in results {
+        match result {
+            Ok(r) => println!("Exit order: {}", r.id),
+            Err(e) => eprintln!("Failed: {}", e),
+        }
+    }
+
+    Ok(())
+}
+```

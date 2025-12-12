@@ -1,0 +1,737 @@
+---
+title: Trades Channel
+description: Real-time public trade feed via WebSocket
+---
+
+# Trades Channel
+
+The `trades` channel provides a real-time feed of all executed trades for a symbol. Each trade message represents a single match between a maker and taker order.
+
+## Subscribe
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe",
+  "channel": "trades",
+  "data": {
+    "symbol": "BTC-USDT"
+  }
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | Yes | Trading pair (e.g., BTC-USDT) |
+
+## Message Flow
+
+```
+┌──────────┐                           ┌──────────┐
+│  Client  │                           │  Server  │
+└──────────┘                           └──────────┘
+     │                                       │
+     │ ──── subscribe ─────────────────────► │
+     │                                       │
+     │ ◄─── subscribed ────────────────────  │
+     │                                       │
+     │ ◄─── trades_snapshot ─────────────── │  Recent trades (optional)
+     │                                       │
+     │ ◄─── trade ─────────────────────────  │  Live trade
+     │ ◄─── trade ─────────────────────────  │  Live trade
+     │ ◄─── trade ─────────────────────────  │  Live trade
+     │                                       │
+```
+
+## Snapshot Message (Optional)
+
+Upon subscription, the server may send recent trades:
+
+```json
+{
+  "type": "trades_snapshot",
+  "channel": "trades",
+  "data": {
+    "symbol": "BTC-USDT",
+    "trades": [
+      {
+        "trade_id": "t-1702339199-001",
+        "price": 50000.50,
+        "size": 0.1500,
+        "side": "buy",
+        "timestamp": 1702339199500
+      },
+      {
+        "trade_id": "t-1702339199-002",
+        "price": 50001.00,
+        "size": 0.2000,
+        "side": "sell",
+        "timestamp": 1702339199750
+      }
+    ]
+  },
+  "sequence": 5000,
+  "timestamp": 1702339200000
+}
+```
+
+## Trade Message
+
+Each executed trade generates a message:
+
+```json
+{
+  "type": "trade",
+  "channel": "trades",
+  "data": {
+    "trade_id": "t-1702339200-001",
+    "symbol": "BTC-USDT",
+    "price": 50000.00,
+    "size": 0.2500,
+    "side": "buy",
+    "maker_order_id": "o-maker-123",
+    "taker_order_id": "o-taker-456",
+    "timestamp": 1702339200100
+  },
+  "sequence": 5001,
+  "timestamp": 1702339200100
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trade_id` | string | Unique trade identifier |
+| `symbol` | string | Trading pair |
+| `price` | number | Execution price |
+| `size` | number | Executed quantity |
+| `side` | string | Taker side: `buy` (taker bought) or `sell` (taker sold) |
+| `maker_order_id` | string | Maker order ID (optional, may be anonymized) |
+| `taker_order_id` | string | Taker order ID (optional, may be anonymized) |
+| `timestamp` | number | Trade execution time (Unix milliseconds) |
+
+### Side Interpretation
+
+The `side` field indicates the **taker's** direction:
+
+| Side | Meaning |
+|------|---------|
+| `buy` | Taker bought (hit the ask), price moved up |
+| `sell` | Taker sold (hit the bid), price moved down |
+
+## Aggregated Trades (Optional)
+
+For high-volume symbols, trades may be aggregated within short windows:
+
+```json
+{
+  "type": "trades_aggregated",
+  "channel": "trades",
+  "data": {
+    "symbol": "BTC-USDT",
+    "agg_trade_id": "at-1702339200-001",
+    "price": 50000.00,
+    "size": 1.5000,
+    "trade_count": 5,
+    "side": "buy",
+    "first_trade_id": "t-1702339200-001",
+    "last_trade_id": "t-1702339200-005",
+    "start_time": 1702339200000,
+    "end_time": 1702339200100
+  },
+  "sequence": 5002,
+  "timestamp": 1702339200100
+}
+```
+
+## Code Examples
+
+### TypeScript
+
+```typescript
+interface Trade {
+  tradeId: string;
+  symbol: string;
+  price: number;
+  size: number;
+  side: 'buy' | 'sell';
+  timestamp: number;
+}
+
+class TradesFeed {
+  private ws: WebSocket;
+  private trades: Trade[] = [];
+  private maxTrades: number = 1000;
+  private onTrade: ((trade: Trade) => void) | null = null;
+
+  constructor(url: string, symbol: string) {
+    this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
+      this.ws.send(JSON.stringify({
+        id: `sub-trades-${Date.now()}`,
+        type: 'subscribe',
+        channel: 'trades',
+        data: { symbol }
+      }));
+    };
+
+    this.ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      this.handleMessage(msg);
+    };
+  }
+
+  setTradeHandler(handler: (trade: Trade) => void) {
+    this.onTrade = handler;
+  }
+
+  private handleMessage(msg: any) {
+    switch (msg.type) {
+      case 'trades_snapshot':
+        for (const t of msg.data.trades) {
+          this.addTrade(this.parseTrade(t));
+        }
+        break;
+
+      case 'trade':
+        this.addTrade(this.parseTrade(msg.data));
+        break;
+    }
+  }
+
+  private parseTrade(data: any): Trade {
+    return {
+      tradeId: data.trade_id,
+      symbol: data.symbol,
+      price: data.price,
+      size: data.size,
+      side: data.side,
+      timestamp: data.timestamp
+    };
+  }
+
+  private addTrade(trade: Trade) {
+    this.trades.unshift(trade);
+
+    // Trim to max size
+    if (this.trades.length > this.maxTrades) {
+      this.trades = this.trades.slice(0, this.maxTrades);
+    }
+
+    if (this.onTrade) {
+      this.onTrade(trade);
+    }
+  }
+
+  getRecentTrades(limit: number = 100): Trade[] {
+    return this.trades.slice(0, limit);
+  }
+
+  getVWAP(period: number): number {
+    const cutoff = Date.now() - period;
+    let sumPriceSize = 0;
+    let sumSize = 0;
+
+    for (const trade of this.trades) {
+      if (trade.timestamp < cutoff) break;
+      sumPriceSize += trade.price * trade.size;
+      sumSize += trade.size;
+    }
+
+    return sumSize > 0 ? sumPriceSize / sumSize : 0;
+  }
+
+  getVolume(period: number): { buy: number; sell: number; total: number } {
+    const cutoff = Date.now() - period;
+    let buy = 0;
+    let sell = 0;
+
+    for (const trade of this.trades) {
+      if (trade.timestamp < cutoff) break;
+      if (trade.side === 'buy') {
+        buy += trade.size;
+      } else {
+        sell += trade.size;
+      }
+    }
+
+    return { buy, sell, total: buy + sell };
+  }
+}
+
+// Usage
+const feed = new TradesFeed('wss://api.lux.network/ws', 'BTC-USDT');
+
+feed.setTradeHandler((trade) => {
+  console.log(`Trade: ${trade.side.toUpperCase()} ${trade.size} @ ${trade.price}`);
+});
+```
+
+### Python
+
+```python
+import asyncio
+import websockets
+import json
+from collections import deque
+from dataclasses import dataclass
+from typing import Callable, Deque, Optional
+
+@dataclass
+class Trade:
+    trade_id: str
+    symbol: str
+    price: float
+    size: float
+    side: str
+    timestamp: int
+
+class TradesFeed:
+    def __init__(self, url: str, symbol: str, max_trades: int = 1000):
+        self.url = url
+        self.symbol = symbol
+        self.trades: Deque[Trade] = deque(maxlen=max_trades)
+        self.on_trade: Optional[Callable[[Trade], None]] = None
+        self.ws = None
+
+    async def connect(self):
+        self.ws = await websockets.connect(self.url)
+
+        # Subscribe
+        await self.ws.send(json.dumps({
+            "id": f"sub-trades-{int(time.time() * 1000)}",
+            "type": "subscribe",
+            "channel": "trades",
+            "data": {"symbol": self.symbol}
+        }))
+
+        # Message loop
+        async for message in self.ws:
+            msg = json.loads(message)
+            await self._handle_message(msg)
+
+    async def _handle_message(self, msg: dict):
+        msg_type = msg.get("type")
+
+        if msg_type == "trades_snapshot":
+            for t in msg["data"]["trades"]:
+                self._add_trade(self._parse_trade(t))
+
+        elif msg_type == "trade":
+            self._add_trade(self._parse_trade(msg["data"]))
+
+    def _parse_trade(self, data: dict) -> Trade:
+        return Trade(
+            trade_id=data["trade_id"],
+            symbol=data["symbol"],
+            price=data["price"],
+            size=data["size"],
+            side=data["side"],
+            timestamp=data["timestamp"]
+        )
+
+    def _add_trade(self, trade: Trade):
+        self.trades.appendleft(trade)
+        if self.on_trade:
+            self.on_trade(trade)
+
+    def get_recent_trades(self, limit: int = 100) -> list:
+        return list(self.trades)[:limit]
+
+    def get_vwap(self, period_ms: int) -> float:
+        """Calculate VWAP for the given period."""
+        import time
+        cutoff = int(time.time() * 1000) - period_ms
+        sum_price_size = 0.0
+        sum_size = 0.0
+
+        for trade in self.trades:
+            if trade.timestamp < cutoff:
+                break
+            sum_price_size += trade.price * trade.size
+            sum_size += trade.size
+
+        return sum_price_size / sum_size if sum_size > 0 else 0.0
+
+    def get_volume(self, period_ms: int) -> dict:
+        """Calculate buy/sell volume for the given period."""
+        import time
+        cutoff = int(time.time() * 1000) - period_ms
+        buy_vol = 0.0
+        sell_vol = 0.0
+
+        for trade in self.trades:
+            if trade.timestamp < cutoff:
+                break
+            if trade.side == "buy":
+                buy_vol += trade.size
+            else:
+                sell_vol += trade.size
+
+        return {"buy": buy_vol, "sell": sell_vol, "total": buy_vol + sell_vol}
+
+# Usage
+async def main():
+    feed = TradesFeed("wss://api.lux.network/ws", "BTC-USDT")
+
+    def on_trade(trade: Trade):
+        print(f"Trade: {trade.side.upper()} {trade.size} @ {trade.price}")
+
+    feed.on_trade = on_trade
+    await feed.connect()
+
+asyncio.run(main())
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "sync"
+    "time"
+
+    "github.com/gorilla/websocket"
+)
+
+type Trade struct {
+    TradeID   string  `json:"trade_id"`
+    Symbol    string  `json:"symbol"`
+    Price     float64 `json:"price"`
+    Size      float64 `json:"size"`
+    Side      string  `json:"side"`
+    Timestamp int64   `json:"timestamp"`
+}
+
+type TradesFeed struct {
+    conn      *websocket.Conn
+    symbol    string
+    trades    []Trade
+    maxTrades int
+    mu        sync.RWMutex
+    onTrade   func(Trade)
+}
+
+func NewTradesFeed(url, symbol string, maxTrades int) (*TradesFeed, error) {
+    conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    feed := &TradesFeed{
+        conn:      conn,
+        symbol:    symbol,
+        trades:    make([]Trade, 0, maxTrades),
+        maxTrades: maxTrades,
+    }
+
+    // Subscribe
+    subMsg := map[string]interface{}{
+        "id":      fmt.Sprintf("sub-trades-%d", time.Now().UnixMilli()),
+        "type":    "subscribe",
+        "channel": "trades",
+        "data":    map[string]interface{}{"symbol": symbol},
+    }
+    conn.WriteJSON(subMsg)
+
+    go feed.messageLoop()
+    return feed, nil
+}
+
+func (f *TradesFeed) SetTradeHandler(handler func(Trade)) {
+    f.onTrade = handler
+}
+
+func (f *TradesFeed) messageLoop() {
+    for {
+        _, message, err := f.conn.ReadMessage()
+        if err != nil {
+            return
+        }
+
+        var msg map[string]interface{}
+        json.Unmarshal(message, &msg)
+        f.handleMessage(msg)
+    }
+}
+
+func (f *TradesFeed) handleMessage(msg map[string]interface{}) {
+    msgType, _ := msg["type"].(string)
+
+    switch msgType {
+    case "trades_snapshot":
+        data := msg["data"].(map[string]interface{})
+        trades := data["trades"].([]interface{})
+        for _, t := range trades {
+            f.addTrade(f.parseTrade(t.(map[string]interface{})))
+        }
+
+    case "trade":
+        f.addTrade(f.parseTrade(msg["data"].(map[string]interface{})))
+    }
+}
+
+func (f *TradesFeed) parseTrade(data map[string]interface{}) Trade {
+    return Trade{
+        TradeID:   data["trade_id"].(string),
+        Symbol:    data["symbol"].(string),
+        Price:     data["price"].(float64),
+        Size:      data["size"].(float64),
+        Side:      data["side"].(string),
+        Timestamp: int64(data["timestamp"].(float64)),
+    }
+}
+
+func (f *TradesFeed) addTrade(trade Trade) {
+    f.mu.Lock()
+    f.trades = append([]Trade{trade}, f.trades...)
+    if len(f.trades) > f.maxTrades {
+        f.trades = f.trades[:f.maxTrades]
+    }
+    f.mu.Unlock()
+
+    if f.onTrade != nil {
+        f.onTrade(trade)
+    }
+}
+
+func (f *TradesFeed) GetRecentTrades(limit int) []Trade {
+    f.mu.RLock()
+    defer f.mu.RUnlock()
+
+    if limit > len(f.trades) {
+        limit = len(f.trades)
+    }
+    result := make([]Trade, limit)
+    copy(result, f.trades[:limit])
+    return result
+}
+
+func (f *TradesFeed) GetVWAP(periodMs int64) float64 {
+    f.mu.RLock()
+    defer f.mu.RUnlock()
+
+    cutoff := time.Now().UnixMilli() - periodMs
+    var sumPriceSize, sumSize float64
+
+    for _, trade := range f.trades {
+        if trade.Timestamp < cutoff {
+            break
+        }
+        sumPriceSize += trade.Price * trade.Size
+        sumSize += trade.Size
+    }
+
+    if sumSize == 0 {
+        return 0
+    }
+    return sumPriceSize / sumSize
+}
+
+func (f *TradesFeed) GetVolume(periodMs int64) (buy, sell, total float64) {
+    f.mu.RLock()
+    defer f.mu.RUnlock()
+
+    cutoff := time.Now().UnixMilli() - periodMs
+
+    for _, trade := range f.trades {
+        if trade.Timestamp < cutoff {
+            break
+        }
+        if trade.Side == "buy" {
+            buy += trade.Size
+        } else {
+            sell += trade.Size
+        }
+    }
+
+    return buy, sell, buy + sell
+}
+
+func main() {
+    feed, err := NewTradesFeed("wss://api.lux.network/ws", "BTC-USDT", 1000)
+    if err != nil {
+        panic(err)
+    }
+
+    feed.SetTradeHandler(func(trade Trade) {
+        fmt.Printf("Trade: %s %.4f @ %.2f\n",
+            trade.Side, trade.Size, trade.Price)
+    })
+
+    // Keep running
+    select {}
+}
+```
+
+### Rust
+
+```rust
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Trade {
+    pub trade_id: String,
+    pub symbol: String,
+    pub price: f64,
+    pub size: f64,
+    pub side: String,
+    pub timestamp: i64,
+}
+
+pub struct TradesFeed {
+    trades: Arc<RwLock<VecDeque<Trade>>>,
+    max_trades: usize,
+}
+
+impl TradesFeed {
+    pub fn new(max_trades: usize) -> Self {
+        Self {
+            trades: Arc::new(RwLock::new(VecDeque::with_capacity(max_trades))),
+            max_trades,
+        }
+    }
+
+    pub async fn connect(&self, url: &str, symbol: &str) {
+        let (mut ws, _) = connect_async(url).await.expect("Failed to connect");
+
+        // Subscribe
+        let sub_msg = serde_json::json!({
+            "id": format!("sub-trades-{}", SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap().as_millis()),
+            "type": "subscribe",
+            "channel": "trades",
+            "data": {"symbol": symbol}
+        });
+
+        ws.send(Message::Text(sub_msg.to_string())).await.unwrap();
+
+        let trades = self.trades.clone();
+        let max_trades = self.max_trades;
+
+        while let Some(msg) = ws.next().await {
+            if let Ok(Message::Text(text)) = msg {
+                let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+                match parsed["type"].as_str() {
+                    Some("trades_snapshot") => {
+                        if let Some(arr) = parsed["data"]["trades"].as_array() {
+                            for t in arr {
+                                let trade: Trade = serde_json::from_value(t.clone()).unwrap();
+                                Self::add_trade(&trades, trade, max_trades);
+                            }
+                        }
+                    }
+                    Some("trade") => {
+                        let trade: Trade = serde_json::from_value(
+                            parsed["data"].clone()
+                        ).unwrap();
+                        Self::add_trade(&trades, trade, max_trades);
+                        println!("Trade: {} {} @ {}",
+                            trade.side.to_uppercase(), trade.size, trade.price);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn add_trade(
+        trades: &Arc<RwLock<VecDeque<Trade>>>,
+        trade: Trade,
+        max_trades: usize
+    ) {
+        let mut trades = trades.write().unwrap();
+        trades.push_front(trade);
+        if trades.len() > max_trades {
+            trades.pop_back();
+        }
+    }
+
+    pub fn get_recent_trades(&self, limit: usize) -> Vec<Trade> {
+        let trades = self.trades.read().unwrap();
+        trades.iter().take(limit).cloned().collect()
+    }
+
+    pub fn get_vwap(&self, period_ms: i64) -> f64 {
+        let cutoff = SystemTime::now()
+            .duration_since(UNIX_EPOCH).unwrap().as_millis() as i64 - period_ms;
+
+        let trades = self.trades.read().unwrap();
+        let mut sum_price_size = 0.0;
+        let mut sum_size = 0.0;
+
+        for trade in trades.iter() {
+            if trade.timestamp < cutoff {
+                break;
+            }
+            sum_price_size += trade.price * trade.size;
+            sum_size += trade.size;
+        }
+
+        if sum_size > 0.0 { sum_price_size / sum_size } else { 0.0 }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let feed = TradesFeed::new(1000);
+    feed.connect("wss://api.lux.network/ws", "BTC-USDT").await;
+}
+```
+
+## Trade Analysis
+
+### Calculate VWAP
+
+Volume-Weighted Average Price over a period:
+
+```
+VWAP = SUM(price * size) / SUM(size)
+```
+
+### Calculate Buy/Sell Ratio
+
+```typescript
+const volume = feed.getVolume(60000);  // Last minute
+const buyRatio = volume.buy / volume.total;
+const sellRatio = volume.sell / volume.total;
+
+console.log(`Buy pressure: ${(buyRatio * 100).toFixed(1)}%`);
+console.log(`Sell pressure: ${(sellRatio * 100).toFixed(1)}%`);
+```
+
+### Detect Large Trades
+
+```typescript
+feed.setTradeHandler((trade) => {
+  const threshold = 10;  // BTC
+  if (trade.size >= threshold) {
+    console.log(`LARGE TRADE: ${trade.side.toUpperCase()} ${trade.size} BTC @ ${trade.price}`);
+    // Alert, log, or act on large trade
+  }
+});
+```
+
+## Performance Notes
+
+| Metric | Typical Value |
+|--------|---------------|
+| Trade latency | < 5ms from execution |
+| Peak trades/sec (BTC-USDT) | 100-500 |
+| Message size | ~200 bytes |
+| Bandwidth (active market) | ~50-100 KB/s |
+
+## Next Steps
+
+- [Order Book Channel](/docs/api/websocket/orderbook) - L2 depth data
+- [Orders Channel](/docs/api/websocket/orders) - Private order updates
+- [Ticker Channel](/docs/api/websocket/ticker) - Price summaries

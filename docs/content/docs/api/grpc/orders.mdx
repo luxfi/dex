@@ -1,0 +1,570 @@
+---
+title: Order RPCs
+description: gRPC API for order placement, cancellation, and management
+---
+
+# Order RPCs
+
+Complete reference for order management via gRPC: PlaceOrder, CancelOrder, GetOrder, and GetOrders.
+
+## Proto Definitions
+
+### Order Message
+
+```protobuf
+message Order {
+  uint64 order_id = 1;           // Exchange-assigned unique ID
+  string symbol = 2;             // Trading pair (e.g., "LUX-USDC")
+  OrderType type = 3;            // Order type
+  OrderSide side = 4;            // BUY or SELL
+  double price = 5;              // Limit price
+  double size = 6;               // Original quantity
+  double filled = 7;             // Quantity filled
+  double remaining = 8;          // Quantity remaining
+  OrderStatus status = 9;        // Current status
+  string user_id = 10;           // Owner user ID
+  string client_id = 11;         // Client-assigned ID (optional)
+  int64 timestamp = 12;          // Creation time (Unix nanoseconds)
+  TimeInForce time_in_force = 13; // Time validity
+  bool post_only = 14;           // Maker-only flag
+  bool reduce_only = 15;         // Position reduction only
+}
+```
+
+### Enums
+
+```protobuf
+enum OrderType {
+  LIMIT = 0;       // Standard limit order
+  MARKET = 1;      // Execute immediately at best price
+  STOP = 2;        // Market order triggered at stop_price
+  STOP_LIMIT = 3;  // Limit order triggered at stop_price
+  ICEBERG = 4;     // Large order with visible portion
+  PEG = 5;         // Price pegged to reference
+}
+
+enum OrderSide {
+  BUY = 0;   // Bid (buy base, pay quote)
+  SELL = 1;  // Ask (sell base, receive quote)
+}
+
+enum OrderStatus {
+  OPEN = 0;       // Active in order book
+  PARTIAL = 1;    // Partially filled, remaining in book
+  FILLED = 2;     // Completely filled
+  CANCELLED = 3;  // Cancelled by user
+  REJECTED = 4;   // Rejected by matching engine
+}
+
+enum TimeInForce {
+  GTC = 0;  // Good Till Cancelled (default)
+  IOC = 1;  // Immediate Or Cancel
+  FOK = 2;  // Fill Or Kill
+  DAY = 3;  // Expires at 00:00 UTC
+}
+```
+
+---
+
+## PlaceOrder
+
+Submit a new order to the matching engine.
+
+### RPC Definition
+
+```protobuf
+rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+```
+
+### Request
+
+```protobuf
+message PlaceOrderRequest {
+  string symbol = 1;            // Required: trading pair
+  OrderType type = 2;           // Required: order type
+  OrderSide side = 3;           // Required: BUY or SELL
+  double price = 4;             // Required for LIMIT/STOP_LIMIT
+  double size = 5;              // Required: quantity
+  string user_id = 6;           // Required: user identifier
+  string client_id = 7;         // Optional: idempotency key
+  TimeInForce time_in_force = 8; // Optional: defaults to GTC
+  bool post_only = 9;           // Optional: reject if taker
+  bool reduce_only = 10;        // Optional: reduce position only
+  double stop_price = 11;       // Required for STOP/STOP_LIMIT
+  double limit_price = 12;      // Required for STOP_LIMIT
+}
+```
+
+### Response
+
+```protobuf
+message PlaceOrderResponse {
+  uint64 order_id = 1;    // Exchange order ID (0 if rejected)
+  OrderStatus status = 2; // OPEN, PARTIAL, FILLED, or REJECTED
+  string message = 3;     // Status details or rejection reason
+}
+```
+
+### Field Validation
+
+| Field | Validation |
+|-------|------------|
+| `symbol` | Must exist in supported markets |
+| `price` | > 0, precision <= 8 decimals |
+| `size` | >= min_order_size, precision <= 8 decimals |
+| `user_id` | Non-empty, valid user |
+| `client_id` | Max 64 characters, unique per user within 24h |
+| `stop_price` | > 0 for STOP/STOP_LIMIT orders |
+
+### Error Codes
+
+| gRPC Code | Condition |
+|-----------|-----------|
+| `INVALID_ARGUMENT` | Invalid symbol, price, or size |
+| `FAILED_PRECONDITION` | Insufficient balance |
+| `ALREADY_EXISTS` | Duplicate client_id |
+| `RESOURCE_EXHAUSTED` | Rate limit exceeded |
+| `UNAVAILABLE` | Matching engine unavailable |
+
+### Examples
+
+#### Go: Limit Order
+
+```go
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    Symbol:      "LUX-USDC",
+    Type:        pb.OrderType_LIMIT,
+    Side:        pb.OrderSide_BUY,
+    Price:       100.50,
+    Size:        10.0,
+    UserId:      "user123",
+    ClientId:    "order-001",
+    TimeInForce: pb.TimeInForce_GTC,
+})
+if err != nil {
+    st, _ := status.FromError(err)
+    return fmt.Errorf("place order failed: %s", st.Message())
+}
+
+switch resp.Status {
+case pb.OrderStatus_OPEN:
+    log.Printf("Order %d placed in book", resp.OrderId)
+case pb.OrderStatus_PARTIAL:
+    log.Printf("Order %d partially filled", resp.OrderId)
+case pb.OrderStatus_FILLED:
+    log.Printf("Order %d completely filled", resp.OrderId)
+case pb.OrderStatus_REJECTED:
+    log.Printf("Order rejected: %s", resp.Message)
+}
+```
+
+#### Go: Market Order
+
+```go
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    Symbol:      "LUX-USDC",
+    Type:        pb.OrderType_MARKET,
+    Side:        pb.OrderSide_SELL,
+    Size:        5.0,
+    UserId:      "user123",
+    TimeInForce: pb.TimeInForce_IOC,
+})
+```
+
+#### Go: Stop-Limit Order
+
+```go
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    Symbol:     "LUX-USDC",
+    Type:       pb.OrderType_STOP_LIMIT,
+    Side:       pb.OrderSide_SELL,
+    Size:       10.0,
+    StopPrice:  95.00,   // Trigger price
+    LimitPrice: 94.50,   // Execution price
+    UserId:     "user123",
+})
+```
+
+#### Python: Post-Only Order
+
+```python
+response = stub.PlaceOrder(lxdex_pb2.PlaceOrderRequest(
+    symbol="LUX-USDC",
+    type=lxdex_pb2.LIMIT,
+    side=lxdex_pb2.BUY,
+    price=99.00,
+    size=100.0,
+    user_id="user123",
+    post_only=True,  # Reject if would cross spread
+))
+
+if response.status == lxdex_pb2.REJECTED:
+    print(f"Post-only rejected (would have taken): {response.message}")
+```
+
+---
+
+## CancelOrder
+
+Cancel an existing active order.
+
+### RPC Definition
+
+```protobuf
+rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+```
+
+### Request
+
+```protobuf
+message CancelOrderRequest {
+  uint64 order_id = 1;  // Required: order to cancel
+  string user_id = 2;   // Required: must match order owner
+}
+```
+
+### Response
+
+```protobuf
+message CancelOrderResponse {
+  bool success = 1;    // True if cancelled
+  string message = 2;  // Status message
+}
+```
+
+### Error Codes
+
+| gRPC Code | Condition |
+|-----------|-----------|
+| `NOT_FOUND` | Order does not exist |
+| `PERMISSION_DENIED` | user_id mismatch |
+| `ABORTED` | Order already filled/cancelled |
+
+### Examples
+
+#### Go
+
+```go
+resp, err := client.CancelOrder(ctx, &pb.CancelOrderRequest{
+    OrderId: 12345,
+    UserId:  "user123",
+})
+if err != nil {
+    st, _ := status.FromError(err)
+    switch st.Code() {
+    case codes.NotFound:
+        log.Println("Order not found")
+    case codes.PermissionDenied:
+        log.Println("Not your order")
+    case codes.Aborted:
+        log.Println("Order already terminal")
+    default:
+        log.Printf("Cancel failed: %s", st.Message())
+    }
+    return
+}
+
+if resp.Success {
+    log.Printf("Cancelled: %s", resp.Message)
+}
+```
+
+#### Python
+
+```python
+try:
+    response = stub.CancelOrder(lxdex_pb2.CancelOrderRequest(
+        order_id=12345,
+        user_id="user123",
+    ))
+    if response.success:
+        print(f"Cancelled: {response.message}")
+except grpc.RpcError as e:
+    if e.code() == grpc.StatusCode.NOT_FOUND:
+        print("Order not found")
+    elif e.code() == grpc.StatusCode.ABORTED:
+        print("Order already filled or cancelled")
+```
+
+---
+
+## GetOrder
+
+Retrieve a single order by ID.
+
+### RPC Definition
+
+```protobuf
+rpc GetOrder(GetOrderRequest) returns (Order);
+```
+
+### Request
+
+```protobuf
+message GetOrderRequest {
+  uint64 order_id = 1;  // Required: order ID
+}
+```
+
+### Response
+
+Returns the full `Order` message.
+
+### Error Codes
+
+| gRPC Code | Condition |
+|-----------|-----------|
+| `NOT_FOUND` | Order does not exist |
+
+### Examples
+
+#### Go
+
+```go
+order, err := client.GetOrder(ctx, &pb.GetOrderRequest{
+    OrderId: 12345,
+})
+if err != nil {
+    st, _ := status.FromError(err)
+    if st.Code() == codes.NotFound {
+        log.Println("Order not found")
+        return
+    }
+    log.Fatal(err)
+}
+
+log.Printf("Order %d: %s %s %.4f @ %.2f [%s]",
+    order.OrderId,
+    order.Side,
+    order.Symbol,
+    order.Size,
+    order.Price,
+    order.Status,
+)
+log.Printf("  Filled: %.4f / Remaining: %.4f",
+    order.Filled,
+    order.Remaining,
+)
+```
+
+#### Python
+
+```python
+try:
+    order = stub.GetOrder(lxdex_pb2.GetOrderRequest(order_id=12345))
+    print(f"Order {order.order_id}: {order.side} {order.size} @ {order.price}")
+    print(f"Status: {order.status}, Filled: {order.filled}")
+except grpc.RpcError as e:
+    if e.code() == grpc.StatusCode.NOT_FOUND:
+        print("Order not found")
+```
+
+---
+
+## GetOrders
+
+Query multiple orders with filters.
+
+### RPC Definition
+
+```protobuf
+rpc GetOrders(GetOrdersRequest) returns (GetOrdersResponse);
+```
+
+### Request
+
+```protobuf
+message GetOrdersRequest {
+  string user_id = 1;       // Required: filter by user
+  string symbol = 2;        // Optional: filter by symbol
+  OrderStatus status = 3;   // Optional: filter by status
+  int32 limit = 4;          // Optional: max results (default 100, max 1000)
+}
+```
+
+### Response
+
+```protobuf
+message GetOrdersResponse {
+  repeated Order orders = 1;  // Ordered by timestamp descending
+}
+```
+
+### Examples
+
+#### Go: Get All Open Orders
+
+```go
+resp, err := client.GetOrders(ctx, &pb.GetOrdersRequest{
+    UserId: "user123",
+    Status: pb.OrderStatus_OPEN,
+    Limit:  100,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+log.Printf("Found %d open orders:", len(resp.Orders))
+for _, order := range resp.Orders {
+    log.Printf("  %d: %s %s %.4f @ %.2f",
+        order.OrderId,
+        order.Side,
+        order.Symbol,
+        order.Remaining,
+        order.Price,
+    )
+}
+```
+
+#### Go: Get Orders for Specific Symbol
+
+```go
+resp, err := client.GetOrders(ctx, &pb.GetOrdersRequest{
+    UserId: "user123",
+    Symbol: "LUX-USDC",
+    Limit:  50,
+})
+```
+
+#### Python: Get Recent Orders
+
+```python
+response = stub.GetOrders(lxdex_pb2.GetOrdersRequest(
+    user_id="user123",
+    limit=20,
+))
+
+for order in response.orders:
+    status_name = lxdex_pb2.OrderStatus.Name(order.status)
+    print(f"{order.order_id}: {status_name} - {order.side} {order.size} @ {order.price}")
+```
+
+---
+
+## Order Lifecycle
+
+```
+                    ┌──────────────┐
+                    │  PlaceOrder  │
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+              ┌─────│   OPEN       │─────┐
+              │     └──────┬───────┘     │
+         Cancel│           │Match        │ FOK/IOC
+              │     ┌──────▼───────┐     │ reject
+              │     │   PARTIAL    │     │
+              │     └──────┬───────┘     │
+              │            │             │
+       ┌──────▼───────┐    │      ┌──────▼───────┐
+       │  CANCELLED   │    │      │   REJECTED   │
+       └──────────────┘    │      └──────────────┘
+                    ┌──────▼───────┐
+                    │    FILLED    │
+                    └──────────────┘
+```
+
+### Status Transitions
+
+| From | To | Trigger |
+|------|-----|---------|
+| (new) | OPEN | Order enters book |
+| (new) | PARTIAL | Partial immediate fill |
+| (new) | FILLED | Complete immediate fill |
+| (new) | REJECTED | Validation failure, post-only cross, FOK not fillable |
+| OPEN | PARTIAL | Partial match |
+| OPEN | FILLED | Complete match |
+| OPEN | CANCELLED | User cancellation |
+| PARTIAL | FILLED | Remaining filled |
+| PARTIAL | CANCELLED | User cancellation |
+
+---
+
+## Best Practices
+
+### 1. Use Client IDs for Idempotency
+
+```go
+// Generate unique client ID
+clientID := fmt.Sprintf("%s-%d", userID, time.Now().UnixNano())
+
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    // ...
+    ClientId: clientID,
+})
+
+// On network error, safe to retry with same client_id
+// Server will return existing order if duplicate
+```
+
+### 2. Handle Partial Fills
+
+```go
+// Subscribe to order updates (via WebSocket or polling)
+// to track fill progress
+
+order, _ := client.GetOrder(ctx, &pb.GetOrderRequest{OrderId: orderID})
+
+fillPercentage := order.Filled / order.Size * 100
+log.Printf("Order %.1f%% filled", fillPercentage)
+
+if fillPercentage > 50 && order.Status == pb.OrderStatus_PARTIAL {
+    // Consider leaving remaining on book vs cancelling
+}
+```
+
+### 3. Post-Only for Market Making
+
+```go
+// Use post-only to ensure maker rebates
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    Symbol:   "LUX-USDC",
+    Type:     pb.OrderType_LIMIT,
+    Side:     pb.OrderSide_BUY,
+    Price:    bestBid - 0.01, // Below best bid
+    Size:     100.0,
+    UserId:   "mm-bot",
+    PostOnly: true,
+})
+
+if resp.Status == pb.OrderStatus_REJECTED {
+    // Price crossed spread, adjust and retry
+}
+```
+
+### 4. Batch Order Management
+
+```go
+// Cancel all open orders for a symbol
+orders, _ := client.GetOrders(ctx, &pb.GetOrdersRequest{
+    UserId: "user123",
+    Symbol: "LUX-USDC",
+    Status: pb.OrderStatus_OPEN,
+})
+
+var wg sync.WaitGroup
+for _, order := range orders.Orders {
+    wg.Add(1)
+    go func(id uint64) {
+        defer wg.Done()
+        client.CancelOrder(ctx, &pb.CancelOrderRequest{
+            OrderId: id,
+            UserId:  "user123",
+        })
+    }(order.OrderId)
+}
+wg.Wait()
+```
+
+---
+
+## Rate Limits
+
+| RPC | Rate Limit | Burst |
+|-----|------------|-------|
+| PlaceOrder | 100/s per user | 200 |
+| CancelOrder | 100/s per user | 200 |
+| GetOrder | 1000/s per user | 2000 |
+| GetOrders | 100/s per user | 200 |
+
+Exceeding limits returns `RESOURCE_EXHAUSTED` with `Retry-After` metadata.

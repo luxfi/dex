@@ -1,0 +1,691 @@
+---
+title: Trade Methods
+description: LP-9002 JSON-RPC trade query methods
+---
+
+# Trade Methods
+
+Methods for querying executed trades. Public trades are accessible without authentication; user-specific trades require authentication.
+
+## lx_getTrades
+
+Get recent public trades for a market.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair (e.g., "BTC-USDT") |
+| `limit` | integer | No | Number of trades (default: 100, max: 1000) |
+| `fromId` | string | No | Get trades after this trade ID |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTrades",
+  "params": {
+    "market": "BTC-USDT",
+    "limit": 50
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "trades": [
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440100",
+        "price": "42000.50",
+        "quantity": "0.2500",
+        "value": "10500.125",
+        "side": "buy",
+        "timestamp": 1702300500000
+      },
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440099",
+        "price": "42000.00",
+        "quantity": "0.1500",
+        "value": "6300.00",
+        "side": "sell",
+        "timestamp": 1702300450000
+      },
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440098",
+        "price": "41999.50",
+        "quantity": "1.0000",
+        "value": "41999.50",
+        "side": "buy",
+        "timestamp": 1702300400000
+      }
+    ],
+    "hasMore": true
+  }
+}
+```
+
+### Trade Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tradeId` | string | Unique trade identifier |
+| `price` | string | Execution price |
+| `quantity` | string | Trade quantity |
+| `value` | string | Trade value (price * quantity) |
+| `side` | string | Aggressor side: "buy" or "sell" |
+| `timestamp` | integer | Trade timestamp (ms) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getTrades",
+    "params": {
+      "market": "BTC-USDT",
+      "limit": 100
+    }
+  }'
+```
+
+### Pagination with fromId
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTrades",
+  "params": {
+    "market": "BTC-USDT",
+    "limit": 100,
+    "fromId": "660e8400-e29b-41d4-a716-446655440098"
+  }
+}
+```
+
+### Time-Based Query
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTrades",
+  "params": {
+    "market": "BTC-USDT",
+    "startTime": 1702200000000,
+    "endTime": 1702300000000,
+    "limit": 500
+  }
+}
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32001 | Market not found | Invalid market symbol |
+| -32602 | Invalid params | Invalid time range or limit |
+
+### Rate Limit
+
+- **Limit**: 100 requests per second
+- **Note**: Public endpoint
+
+---
+
+## lx_getUserTrades
+
+Get authenticated user's trade history.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | No | Filter by market |
+| `orderId` | string | No | Filter by order ID |
+| `side` | string | No | Filter by "buy" or "sell" |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+| `limit` | integer | No | Max results (default: 100, max: 500) |
+| `offset` | integer | No | Pagination offset |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getUserTrades",
+  "params": {
+    "market": "BTC-USDT",
+    "startTime": 1702200000000,
+    "limit": 100
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "trades": [
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440100",
+        "orderId": "550e8400-e29b-41d4-a716-446655440000",
+        "clientOrderId": "my-order-001",
+        "market": "BTC-USDT",
+        "side": "buy",
+        "price": "42000.50",
+        "quantity": "0.2500",
+        "value": "10500.125",
+        "fee": "5.25",
+        "feeAsset": "USDT",
+        "feeRate": "0.0005",
+        "role": "taker",
+        "realizedPnl": null,
+        "timestamp": 1702300500000
+      },
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440095",
+        "orderId": "550e8400-e29b-41d4-a716-446655440001",
+        "market": "BTC-USDT",
+        "side": "sell",
+        "price": "42100.00",
+        "quantity": "0.1000",
+        "value": "4210.00",
+        "fee": "2.10",
+        "feeAsset": "USDT",
+        "feeRate": "0.0005",
+        "role": "maker",
+        "realizedPnl": "10.00",
+        "timestamp": 1702300000000
+      }
+    ],
+    "total": 156,
+    "limit": 100,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+### User Trade Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tradeId` | string | Unique trade identifier |
+| `orderId` | string | Associated order ID |
+| `clientOrderId` | string \| null | Client order ID if set |
+| `market` | string | Trading pair |
+| `side` | string | Your side: "buy" or "sell" |
+| `price` | string | Execution price |
+| `quantity` | string | Trade quantity |
+| `value` | string | Trade value |
+| `fee` | string | Fee amount |
+| `feeAsset` | string | Fee currency |
+| `feeRate` | string | Fee rate applied |
+| `role` | string | "maker" or "taker" |
+| `realizedPnl` | string \| null | Realized profit/loss (futures) |
+| `timestamp` | integer | Trade timestamp (ms) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getUserTrades",
+    "params": {
+      "market": "BTC-USDT",
+      "limit": 100
+    }
+  }'
+```
+
+### Filter by Order
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getUserTrades",
+  "params": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+- **Authentication**: Required
+
+---
+
+## lx_getTradeHistory
+
+Get historical trade data with OHLCV aggregation.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+| `interval` | string | No | Aggregation interval (see below) |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+| `limit` | integer | No | Number of candles (default: 100, max: 1000) |
+
+### Intervals
+
+| Value | Description |
+|-------|-------------|
+| `1m` | 1 minute |
+| `5m` | 5 minutes |
+| `15m` | 15 minutes |
+| `30m` | 30 minutes |
+| `1h` | 1 hour |
+| `4h` | 4 hours |
+| `1d` | 1 day |
+| `1w` | 1 week |
+
+### Request (Raw Trades)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTradeHistory",
+  "params": {
+    "market": "BTC-USDT",
+    "startTime": 1702200000000,
+    "endTime": 1702300000000,
+    "limit": 1000
+  }
+}
+```
+
+### Response (Raw Trades)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "trades": [
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440100",
+        "price": "42000.50",
+        "quantity": "0.2500",
+        "side": "buy",
+        "timestamp": 1702300500000
+      }
+    ],
+    "count": 1000,
+    "hasMore": true
+  }
+}
+```
+
+### Request (OHLCV)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTradeHistory",
+  "params": {
+    "market": "BTC-USDT",
+    "interval": "1h",
+    "startTime": 1702200000000,
+    "endTime": 1702300000000,
+    "limit": 100
+  }
+}
+```
+
+### Response (OHLCV)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "interval": "1h",
+    "candles": [
+      {
+        "timestamp": 1702296000000,
+        "open": "41950.00",
+        "high": "42100.00",
+        "low": "41900.00",
+        "close": "42000.50",
+        "volume": "125.5000",
+        "quoteVolume": "5268750.00",
+        "trades": 1234
+      },
+      {
+        "timestamp": 1702292400000,
+        "open": "41800.00",
+        "high": "41980.00",
+        "low": "41750.00",
+        "close": "41950.00",
+        "volume": "98.2500",
+        "quoteVolume": "4108087.50",
+        "trades": 987
+      }
+    ],
+    "hasMore": true
+  }
+}
+```
+
+### OHLCV Candle Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | integer | Candle open time (ms) |
+| `open` | string | Opening price |
+| `high` | string | Highest price |
+| `low` | string | Lowest price |
+| `close` | string | Closing price |
+| `volume` | string | Base asset volume |
+| `quoteVolume` | string | Quote asset volume |
+| `trades` | integer | Number of trades |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getTradeHistory",
+    "params": {
+      "market": "BTC-USDT",
+      "interval": "1h",
+      "limit": 24
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+- **Note**: Public endpoint
+
+---
+
+## lx_getAggregatedTrades
+
+Get trades aggregated by price level over a time period.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+| `startTime` | integer | Yes | Start timestamp (ms) |
+| `endTime` | integer | Yes | End timestamp (ms) |
+| `side` | string | No | Filter by "buy" or "sell" |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getAggregatedTrades",
+  "params": {
+    "market": "BTC-USDT",
+    "startTime": 1702296000000,
+    "endTime": 1702300000000
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "startTime": 1702296000000,
+    "endTime": 1702300000000,
+    "aggregates": [
+      {
+        "price": "42000.00",
+        "buyVolume": "15.2500",
+        "sellVolume": "12.7500",
+        "totalVolume": "28.0000",
+        "buyTrades": 145,
+        "sellTrades": 120,
+        "totalTrades": 265
+      },
+      {
+        "price": "41999.50",
+        "buyVolume": "8.5000",
+        "sellVolume": "9.2500",
+        "totalVolume": "17.7500",
+        "buyTrades": 78,
+        "sellTrades": 85,
+        "totalTrades": 163
+      }
+    ],
+    "summary": {
+      "totalBuyVolume": "125.5000",
+      "totalSellVolume": "118.7500",
+      "totalVolume": "244.2500",
+      "vwap": "42005.25",
+      "totalTrades": 2345
+    }
+  }
+}
+```
+
+### Summary Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalBuyVolume` | string | Total buy volume |
+| `totalSellVolume` | string | Total sell volume |
+| `totalVolume` | string | Combined volume |
+| `vwap` | string | Volume-weighted average price |
+| `totalTrades` | integer | Total number of trades |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getAggregatedTrades",
+    "params": {
+      "market": "BTC-USDT",
+      "startTime": 1702296000000,
+      "endTime": 1702300000000
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+
+---
+
+## lx_getTradeStatistics
+
+Get trade statistics for a market.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+| `period` | string | No | Time period: "1h", "24h", "7d", "30d" (default: "24h") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getTradeStatistics",
+  "params": {
+    "market": "BTC-USDT",
+    "period": "24h"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "period": "24h",
+    "startTime": 1702213600000,
+    "endTime": 1702300000000,
+    "stats": {
+      "totalTrades": 125678,
+      "totalVolume": "3456.7500",
+      "totalValue": "145234567.50",
+      "avgTradeSize": "0.0275",
+      "avgPrice": "42012.35",
+      "vwap": "42008.12",
+      "medianPrice": "42000.00",
+      "priceStdDev": "125.50",
+      "buyVolume": "1789.2500",
+      "sellVolume": "1667.5000",
+      "buyRatio": "0.5176",
+      "largestTrade": {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440999",
+        "price": "42050.00",
+        "quantity": "25.0000",
+        "value": "1051250.00",
+        "timestamp": 1702298765000
+      }
+    }
+  }
+}
+```
+
+### Statistics Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalTrades` | integer | Number of trades in period |
+| `totalVolume` | string | Total base asset volume |
+| `totalValue` | string | Total quote asset volume |
+| `avgTradeSize` | string | Average trade size |
+| `avgPrice` | string | Simple average price |
+| `vwap` | string | Volume-weighted average price |
+| `medianPrice` | string | Median trade price |
+| `priceStdDev` | string | Price standard deviation |
+| `buyVolume` | string | Total buy volume |
+| `sellVolume` | string | Total sell volume |
+| `buyRatio` | string | Buy volume / total volume |
+| `largestTrade` | object | Largest single trade |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getTradeStatistics",
+    "params": {
+      "market": "BTC-USDT",
+      "period": "24h"
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+
+---
+
+## OpenRPC Schema Reference
+
+```json
+{
+  "name": "lx_getTrades",
+  "summary": "Get recent trades for a market",
+  "params": [
+    {
+      "name": "market",
+      "required": true,
+      "schema": {"type": "string", "pattern": "^[A-Z]+-[A-Z]+$"}
+    },
+    {
+      "name": "limit",
+      "required": false,
+      "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
+    },
+    {
+      "name": "fromId",
+      "required": false,
+      "schema": {"type": "string", "format": "uuid"}
+    }
+  ],
+  "result": {
+    "name": "TradesResult",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "market": {"type": "string"},
+        "trades": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tradeId": {"type": "string"},
+              "price": {"type": "string"},
+              "quantity": {"type": "string"},
+              "side": {"type": "string", "enum": ["buy", "sell"]},
+              "timestamp": {"type": "integer"}
+            }
+          }
+        },
+        "hasMore": {"type": "boolean"}
+      }
+    }
+  }
+}
+```

@@ -1,0 +1,375 @@
+---
+title: Program Tiers
+description: LX DEX Market Maker program tiers, obligations, rewards, and service level agreements
+---
+
+# Market Maker Program Tiers
+
+LX DEX offers four distinct market maker tiers, each with specific requirements, obligations, and benefits. Tiers are evaluated monthly based on performance metrics.
+
+## Tier Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    MARKET MAKER TIER STRUCTURE                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  TIER 4: STRATEGIC PARTNER                                          │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  Volume: $10B+/month    │  Markets: 50+    │  Uptime: 95% │     │
+│  │  Maker Fee: -0.020%     │  Spread: 2 bps   │  Depth: $5M  │     │
+│  │  Benefits: Dedicated infra, custom SLAs, governance       │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                              ↑                                       │
+│  TIER 3: PROFESSIONAL                                               │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  Volume: $1B+/month     │  Markets: 30+    │  Uptime: 92% │     │
+│  │  Maker Fee: -0.010%     │  Spread: 3 bps   │  Depth: $1M  │     │
+│  │  Benefits: 10Gbps, DMA, priority support                  │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                              ↑                                       │
+│  TIER 2: ADVANCED                                                   │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  Volume: $100M+/month   │  Markets: 15+    │  Uptime: 90% │     │
+│  │  Maker Fee: -0.005%     │  Spread: 5 bps   │  Depth: $250K│     │
+│  │  Benefits: Priority lanes, dedicated support, metrics     │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                              ↑                                       │
+│  TIER 1: STANDARD                                                   │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  Volume: $10M+/month    │  Markets: 5+     │  Uptime: 85% │     │
+│  │  Maker Fee: 0.00%       │  Spread: 10 bps  │  Depth: $50K │     │
+│  │  Benefits: Zero maker fees, standard API access           │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Tier 1: Standard Market Maker
+
+Entry-level tier for firms beginning their LX DEX market making journey.
+
+### Requirements
+
+| Metric | Requirement |
+|--------|-------------|
+| Monthly Maker Volume | $10,000,000+ |
+| Markets Quoted | 5+ pairs |
+| Uptime | 85%+ during trading hours |
+| Max Spread | 10 basis points |
+| Quote Depth | $50,000 per side |
+| Min Capital | $500,000 |
+
+### Obligations
+
+**Quoting Obligations:**
+- Provide two-sided quotes 85% of trading hours
+- Maximum spread of 10 bps for assigned markets
+- Minimum $50K depth at best bid/offer
+- Response time to RFQ within 500ms
+
+**Reporting:**
+- Monthly volume reports
+- Quarterly compliance attestation
+- Annual KYB refresh
+
+### Benefits
+
+| Benefit | Value |
+|---------|-------|
+| Maker Fee | 0.00% (zero) |
+| API Rate Limit | 1,000 req/sec |
+| WebSocket Streams | 10 concurrent |
+| Support | Email (24h response) |
+| Monthly Rebate Cap | $10,000 |
+
+### SLA Targets
+
+```
+Performance SLAs (Tier 1):
+- Order acknowledgment: < 10ms (P99)
+- Fill notification:     < 15ms (P99)
+- Cancel confirmation:   < 5ms (P99)
+- System availability:   99.5%
+```
+
+---
+
+## Tier 2: Advanced Market Maker
+
+For established firms with proven track records and higher volume requirements.
+
+### Requirements
+
+| Metric | Requirement |
+|--------|-------------|
+| Monthly Maker Volume | $100,000,000+ |
+| Markets Quoted | 15+ pairs |
+| Uptime | 90%+ during trading hours |
+| Max Spread | 5 basis points |
+| Quote Depth | $250,000 per side |
+| Min Capital | $2,000,000 |
+
+### Obligations
+
+**Quoting Obligations:**
+- Provide two-sided quotes 90% of trading hours
+- Maximum spread of 5 bps for assigned markets
+- Minimum $250K depth at best bid/offer
+- Response time to RFQ within 200ms
+
+**Market Participation:**
+- Quote at least 3 depth levels
+- Participate in new market launches
+- Provide liquidity during volatility events
+
+### Benefits
+
+| Benefit | Value |
+|---------|-------|
+| Maker Fee | -0.005% (negative) |
+| API Rate Limit | 5,000 req/sec |
+| WebSocket Streams | 50 concurrent |
+| Support | Dedicated Slack channel |
+| Monthly Rebate Cap | $50,000 |
+| Priority Lanes | Yes |
+
+### SLA Targets
+
+```
+Performance SLAs (Tier 2):
+- Order acknowledgment: < 1ms (P99)
+- Fill notification:     < 2ms (P99)
+- Cancel confirmation:   < 500us (P99)
+- System availability:   99.9%
+```
+
+### Additional Perks
+
+- Real-time performance dashboard
+- Weekly strategy calls with DEX team
+- Early access to new features (beta)
+- Reduced collateral requirements (80%)
+
+---
+
+## Tier 3: Professional Market Maker
+
+Institutional-grade tier for high-volume professional trading operations.
+
+### Requirements
+
+| Metric | Requirement |
+|--------|-------------|
+| Monthly Maker Volume | $1,000,000,000+ |
+| Markets Quoted | 30+ pairs |
+| Uptime | 92%+ during trading hours |
+| Max Spread | 3 basis points |
+| Quote Depth | $1,000,000 per side |
+| Min Capital | $10,000,000 |
+
+### Obligations
+
+**Quoting Obligations:**
+- Provide two-sided quotes 92% of trading hours
+- Maximum spread of 3 bps for assigned markets
+- Minimum $1M depth at best bid/offer
+- Response time to RFQ within 50ms
+
+**Liquidity Commitments:**
+- Quote at least 5 depth levels
+- Maintain positions during market stress
+- Support new market bootstrapping
+- Participate in protocol governance
+
+### Benefits
+
+| Benefit | Value |
+|---------|-------|
+| Maker Fee | -0.010% (negative) |
+| API Rate Limit | 20,000 req/sec |
+| WebSocket Streams | 200 concurrent |
+| Network Connection | 10 Gbps dedicated |
+| Support | 24/7 phone + Slack |
+| Monthly Rebate Cap | $200,000 |
+| Direct Market Access | Yes |
+
+### SLA Targets
+
+```
+Performance SLAs (Tier 3):
+- Order acknowledgment: < 100us (P99)
+- Fill notification:     < 200us (P99)
+- Cancel confirmation:   < 50us (P99)
+- System availability:   99.95%
+```
+
+### Premium Features
+
+- Co-location options available
+- Custom order types on request
+- Direct FIX connectivity
+- Advanced risk management tools
+- Quarterly business reviews
+
+---
+
+## Tier 4: Strategic Partner
+
+Elite tier for the largest global market making operations.
+
+### Requirements
+
+| Metric | Requirement |
+|--------|-------------|
+| Monthly Maker Volume | $10,000,000,000+ |
+| Markets Quoted | 50+ pairs |
+| Uptime | 95%+ during trading hours |
+| Max Spread | 2 basis points |
+| Quote Depth | $5,000,000 per side |
+| Min Capital | $50,000,000 |
+
+### Obligations
+
+**Quoting Obligations:**
+- Provide two-sided quotes 95% of trading hours
+- Maximum spread of 2 bps for assigned markets
+- Minimum $5M depth at best bid/offer
+- Response time to RFQ within 10ms
+
+**Strategic Commitments:**
+- Lead liquidity in major pairs
+- Support protocol development
+- Participate in governance proposals
+- Emergency liquidity provision
+
+### Benefits
+
+| Benefit | Value |
+|---------|-------|
+| Maker Fee | -0.020% (negative) |
+| API Rate Limit | Unlimited |
+| WebSocket Streams | Unlimited |
+| Network Connection | Custom infrastructure |
+| Support | Dedicated account team |
+| Monthly Rebate Cap | $500,000 |
+| Governance Rights | Yes |
+
+### SLA Targets
+
+```
+Performance SLAs (Tier 4):
+- Order acknowledgment: < 10us (P99)
+- Fill notification:     < 20us (P99)
+- Cancel confirmation:   < 5us (P99)
+- System availability:   99.99%
+```
+
+### Strategic Benefits
+
+- Custom matching engine configuration
+- Protocol fee sharing arrangements
+- Board observer rights
+- Joint marketing initiatives
+- Early access to L2/rollup deployments
+
+---
+
+## Tier Evaluation
+
+### Monthly Assessment
+
+Tiers are evaluated on the first business day of each month based on:
+
+```python
+# Tier Score Calculation
+tier_score = (
+    volume_score * 0.30 +      # 30% weight
+    uptime_score * 0.25 +      # 25% weight
+    spread_score * 0.20 +      # 20% weight
+    depth_score * 0.15 +       # 15% weight
+    market_count_score * 0.10  # 10% weight
+)
+
+# Tier Assignment
+if tier_score >= 95: tier = 4
+elif tier_score >= 85: tier = 3
+elif tier_score >= 70: tier = 2
+else: tier = 1
+```
+
+### Grace Periods
+
+| Transition | Grace Period |
+|------------|--------------|
+| Upgrade | Immediate |
+| Downgrade (1 tier) | 1 month warning |
+| Downgrade (2+ tiers) | Immediate |
+| New MM | 3 month ramp-up |
+
+### Appeals Process
+
+Market makers may appeal tier decisions within 5 business days by:
+1. Submitting written appeal to mm@lux.network
+2. Providing supporting documentation
+3. Scheduling review call with MM Relations
+
+---
+
+## Compliance Requirements
+
+### All Tiers
+
+| Requirement | Frequency |
+|-------------|-----------|
+| KYB Documentation | Annual |
+| Beneficial Ownership | Annual |
+| Trading Authorization | Annual |
+| Insurance Verification | Annual |
+| Technical Security Audit | Annual |
+
+### Tier 3-4 Additional
+
+| Requirement | Frequency |
+|-------------|-----------|
+| SOC 2 Type II | Annual |
+| Penetration Testing | Semi-annual |
+| Business Continuity Plan | Annual |
+| Disaster Recovery Test | Semi-annual |
+
+---
+
+## Application Process
+
+### Tier 1-2
+
+1. Complete online application
+2. Submit KYB documentation
+3. Technical integration review
+4. Testnet certification
+5. Production access (2-4 weeks)
+
+### Tier 3-4
+
+1. Initial consultation call
+2. Detailed application package
+3. On-site/virtual due diligence
+4. Custom agreement negotiation
+5. Technical integration
+6. Production access (4-8 weeks)
+
+---
+
+## Contact
+
+**Tier 1-2 Applications:**
+- Portal: [mm.lux.network/apply](https://mm.lux.network/apply)
+- Email: mm-apply@lux.network
+
+**Tier 3-4 Inquiries:**
+- Email: strategic-mm@lux.network
+- Telegram: @lux_mm_strategic
+
+---
+
+*Program terms subject to change with 30 days notice. Last updated: December 2024*

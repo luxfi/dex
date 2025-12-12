@@ -1,0 +1,378 @@
+---
+title: C++ SDK
+description: High-performance C++ SDK for LX DEX - HFT-grade trading with sub-microsecond latency
+---
+
+# C++ SDK
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | **Source**: [luxfi/dex-cpp](https://github.com/luxfi/dex/tree/main/sdk/cpp)
+
+The LX DEX C++ SDK is designed for high-frequency trading (HFT) applications requiring sub-microsecond latency and deterministic performance. Built with modern C++20 features, lock-free data structures, and zero-copy networking.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Sub-microsecond latency** | 597ns order placement, lock-free hot paths |
+| **Zero-copy networking** | io_uring on Linux, kqueue on macOS |
+| **Lock-free order book** | Wait-free reads, obstruction-free writes |
+| **SIMD price matching** | AVX-512/NEON vectorized comparisons |
+| **Memory pools** | Pre-allocated arenas, no heap allocation on hot path |
+| **Header-only option** | Single `lxdex.hpp` for rapid integration |
+
+## Requirements
+
+- **Compiler**: GCC 12+, Clang 15+, or MSVC 19.35+
+- **C++ Standard**: C++20 (C++17 compatibility mode available)
+- **CMake**: 3.21+
+- **Dependencies**: OpenSSL 3.0+, Boost 1.83+ (optional)
+
+## Installation
+
+### vcpkg (Recommended)
+
+```bash
+# Add LX overlay
+vcpkg add overlay-port https://github.com/luxfi/vcpkg-registry
+
+# Install the SDK
+vcpkg install lxdex-cpp
+```
+
+### CMake FetchContent
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+    lxdex
+    GIT_REPOSITORY https://github.com/luxfi/dex.git
+    GIT_TAG        v1.0.0
+    SOURCE_SUBDIR  sdk/cpp
+)
+
+FetchContent_MakeAvailable(lxdex)
+
+target_link_libraries(your_app PRIVATE lxdex::lxdex)
+```
+
+### Header-Only Mode
+
+```cpp
+#define LXDEX_HEADER_ONLY
+#include <lxdex/lxdex.hpp>
+```
+
+### Manual Build
+
+```bash
+git clone https://github.com/luxfi/dex.git
+cd dex/sdk/cpp
+
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DLXDEX_BUILD_TESTS=ON \
+      -DLXDEX_BUILD_BENCHMARKS=ON \
+      ..
+cmake --build . -j$(nproc)
+sudo cmake --install .
+```
+
+## CMakeLists.txt Examples
+
+### Minimal Project
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(my_trading_bot LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(lxdex REQUIRED)
+
+add_executable(trading_bot main.cpp)
+target_link_libraries(trading_bot PRIVATE lxdex::lxdex)
+```
+
+### HFT Production Build
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(hft_engine LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# HFT-grade compiler flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mtune=native -flto=auto")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti -fno-exceptions")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -ffast-math -funroll-loops")
+
+# Link-time optimization
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+
+# Prefer static linking for deterministic deployment
+set(BUILD_SHARED_LIBS OFF)
+
+find_package(lxdex REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+add_executable(hft_engine
+    src/main.cpp
+    src/strategy.cpp
+    src/risk.cpp
+)
+
+target_link_libraries(hft_engine PRIVATE
+    lxdex::lxdex
+    lxdex::lockfree
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+# CPU affinity and huge pages support
+target_compile_definitions(hft_engine PRIVATE
+    LXDEX_USE_HUGE_PAGES
+    LXDEX_CPU_AFFINITY
+    LXDEX_DISABLE_LOGGING  # No logging on hot path
+)
+```
+
+### vcpkg Integration
+
+Create `vcpkg.json` in your project root:
+
+```json
+{
+    "name": "my-trading-app",
+    "version": "1.0.0",
+    "dependencies": [
+        "lxdex-cpp",
+        "openssl",
+        {
+            "name": "boost-lockfree",
+            "features": ["spsc-queue"]
+        }
+    ],
+    "builtin-baseline": "2024.01.12"
+}
+```
+
+Then in CMakeLists.txt:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+
+# vcpkg toolchain (before project())
+if(DEFINED ENV{VCPKG_ROOT})
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+endif()
+
+project(my_trading_app LANGUAGES CXX)
+
+find_package(lxdex CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE lxdex::lxdex)
+```
+
+## Quick Start
+
+### Connect and Place Order
+
+```cpp
+#include <lxdex/client.hpp>
+#include <lxdex/order.hpp>
+#include <iostream>
+
+int main() {
+    using namespace lxdex;
+
+    // Create client with connection pool
+    Client client({
+        .endpoints = {"wss://api.lux.network/ws"},
+        .api_key = std::getenv("LX_API_KEY"),
+        .pool_size = 4,
+        .use_kernel_bypass = true  // DPDK/io_uring
+    });
+
+    // Connect with timeout
+    if (auto result = client.connect(std::chrono::seconds{5}); !result) {
+        std::cerr << "Connection failed: " << result.error() << '\n';
+        return 1;
+    }
+
+    // Place limit order (non-blocking)
+    auto order_future = client.place_order({
+        .symbol = "BTC-USD",
+        .side = Side::Buy,
+        .type = OrderType::Limit,
+        .price = Price{50000'00},  // Fixed-point: $50,000.00
+        .quantity = Quantity{1'00000000},  // 1.0 BTC (8 decimals)
+        .time_in_force = TimeInForce::GTC
+    });
+
+    // Non-blocking check
+    if (order_future.wait_for(std::chrono::microseconds{100}) == std::future_status::ready) {
+        auto order = order_future.get();
+        std::cout << "Order ID: " << order.id << '\n';
+    }
+
+    return 0;
+}
+```
+
+### Subscribe to Market Data
+
+```cpp
+#include <lxdex/client.hpp>
+#include <lxdex/orderbook.hpp>
+
+int main() {
+    using namespace lxdex;
+
+    Client client({"wss://api.lux.network/ws"});
+    client.connect();
+
+    // Lock-free order book subscription
+    client.subscribe_orderbook("BTC-USD", [](const OrderBook& book) {
+        // Called on dedicated I/O thread - keep fast!
+        auto [bid, ask] = book.best_bid_ask();
+
+        if (bid && ask) {
+            auto spread = ask->price - bid->price;
+            // Process spread...
+        }
+    });
+
+    // Keep running
+    std::this_thread::sleep_for(std::chrono::hours{24});
+}
+```
+
+## Architecture Overview
+
+```
++--------------------------------------------------+
+|                  Application                      |
++--------------------------------------------------+
+|    Client    |   OrderBook   |   TradeHandler   |
++--------------------------------------------------+
+|           Connection Pool (io_uring)             |
++--------------------------------------------------+
+|    Lock-Free    |    Memory    |    SIMD       |
+|    Queues       |    Pools     |    Price Match |
++--------------------------------------------------+
+|              OpenSSL / BoringSSL                 |
++--------------------------------------------------+
+```
+
+## SDK Components
+
+| Component | Header | Description |
+|-----------|--------|-------------|
+| `Client` | `<lxdex/client.hpp>` | Connection management, request/response |
+| `OrderBook` | `<lxdex/orderbook.hpp>` | Lock-free order book with SIMD matching |
+| `Order` | `<lxdex/order.hpp>` | Order types, builders, validation |
+| `Trade` | `<lxdex/trade.hpp>` | Trade events, callbacks |
+| `Pool` | `<lxdex/memory/pool.hpp>` | Memory pools, arenas |
+| `Lockfree` | `<lxdex/lockfree/spsc.hpp>` | SPSC/MPSC queues |
+
+## Configuration Options
+
+### Compile-Time Options
+
+```cmake
+# Enable/disable features
+option(LXDEX_HEADER_ONLY "Header-only mode" OFF)
+option(LXDEX_USE_BOOST "Use Boost.Asio instead of standalone" OFF)
+option(LXDEX_USE_IOURING "Use io_uring (Linux 5.1+)" ON)
+option(LXDEX_USE_SIMD "Enable SIMD optimizations" ON)
+option(LXDEX_BUILD_TESTS "Build unit tests" OFF)
+option(LXDEX_BUILD_BENCHMARKS "Build benchmarks" OFF)
+```
+
+### Runtime Configuration
+
+```cpp
+lxdex::Config config{
+    .network = {
+        .connect_timeout_ms = 5000,
+        .read_timeout_ms = 1000,
+        .write_buffer_size = 64 * 1024,
+        .read_buffer_size = 64 * 1024,
+        .tcp_nodelay = true,
+        .tcp_quickack = true,
+        .so_busy_poll = 50,  // microseconds
+    },
+    .memory = {
+        .use_huge_pages = true,
+        .arena_size = 1024 * 1024,  // 1MB
+        .order_pool_size = 100000,
+    },
+    .threading = {
+        .io_threads = 2,
+        .cpu_affinity = {0, 1},  // Pin to cores 0,1
+        .realtime_priority = true,
+    }
+};
+
+Client client(config);
+```
+
+## Benchmarks
+
+Measured on AMD EPYC 7763, single-threaded, kernel bypass enabled:
+
+| Operation | Latency (p50) | Latency (p99) | Throughput |
+|-----------|---------------|---------------|------------|
+| Order Place | 597ns | 1.2us | 1.67M/s |
+| Order Cancel | 312ns | 890ns | 3.2M/s |
+| Book Update | 89ns | 210ns | 11.2M/s |
+| Trade Callback | 45ns | 120ns | 22.2M/s |
+
+## Thread Safety
+
+- **Client**: Thread-safe, uses internal connection pool
+- **OrderBook**: Lock-free reads, single-writer updates
+- **Order**: Immutable after construction
+- **Callbacks**: Invoked on dedicated I/O threads
+
+See [Threading Guide](/docs/sdk/cpp/threading) for detailed concurrency patterns.
+
+## Error Handling
+
+The SDK uses `std::expected` (C++23) or a backport for C++20:
+
+```cpp
+auto result = client.place_order(order);
+
+if (result) {
+    std::cout << "Order ID: " << result->id << '\n';
+} else {
+    switch (result.error().code) {
+        case ErrorCode::InsufficientBalance:
+            // Handle...
+            break;
+        case ErrorCode::RateLimited:
+            // Backoff...
+            break;
+        default:
+            std::cerr << result.error().message << '\n';
+    }
+}
+```
+
+## Next Steps
+
+- [Client Guide](/docs/sdk/cpp/client) - Connection management and SSL/TLS
+- [Orders Guide](/docs/sdk/cpp/orders) - Order operations and types
+- [OrderBook Guide](/docs/sdk/cpp/orderbook) - Lock-free data structures
+- [Memory Guide](/docs/sdk/cpp/memory) - RAII and memory pools
+- [Threading Guide](/docs/sdk/cpp/threading) - Concurrency patterns
+- [Performance Guide](/docs/sdk/cpp/performance) - Low-latency optimization
+
+## Support
+
+- **GitHub Issues**: [luxfi/dex/issues](https://github.com/luxfi/dex/issues)
+- **Discord**: [discord.gg/luxfi](https://discord.gg/luxfi) `#cpp-sdk`
+- **API Status**: [status.lux.network](https://status.lux.network)

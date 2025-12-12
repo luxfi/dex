@@ -1,0 +1,155 @@
+---
+title: Examples
+description: Complete, production-ready trading examples for LX DEX
+---
+
+# Trading Examples
+
+Complete, copy-paste ready examples for building trading systems on LX DEX.
+
+## Quick Start
+
+All examples connect to LX DEX and demonstrate real trading patterns. Before running:
+
+```bash
+# Start local LX DEX node
+cd /path/to/lx/dex
+make build
+./bin/lxd --config config/local.yaml
+
+# Or connect to testnet
+export LX_ENDPOINT="https://testnet.lx.exchange"
+```
+
+## Examples by Language
+
+| Language | Description | Complexity |
+|----------|-------------|------------|
+| [Go Trader](/docs/examples/go-trader) | High-performance Go trading bot | Intermediate |
+| [Python Trader](/docs/examples/python-trader) | Python trading bot with pandas | Beginner |
+| [TypeScript Trader](/docs/examples/typescript-trader) | TypeScript/Node.js trading bot | Beginner |
+| [Rust Trader](/docs/examples/rust-trader) | Zero-copy Rust trading bot | Advanced |
+| [C++ Trader](/docs/examples/cpp-trader) | Ultra-low latency C++ bot | Advanced |
+
+## Strategy Examples
+
+| Strategy | Description | Risk Level |
+|----------|-------------|------------|
+| [Market Maker](/docs/examples/market-maker) | Provide liquidity, earn spread | Medium |
+| [Arbitrage](/docs/examples/arbitrage) | Cross-exchange price differences | Low |
+| [Grid Trading](/docs/examples/grid-trading) | Range-bound automated trading | Medium |
+| [Data Collector](/docs/examples/data-collector) | Market data storage and analysis | N/A |
+
+## Environment Setup
+
+### Go
+
+```bash
+# Initialize module
+mkdir my-trader && cd my-trader
+go mod init my-trader
+
+# Add LX SDK
+go get github.com/lx-exchange/lx-sdk-go@latest
+```
+
+### Python
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install SDK
+pip install lx-sdk websockets pandas numpy
+```
+
+### TypeScript
+
+```bash
+# Initialize project
+mkdir my-trader && cd my-trader
+npm init -y
+
+# Install SDK
+npm install @lx-exchange/sdk axios ws
+npm install -D typescript @types/node @types/ws
+```
+
+### Rust
+
+```bash
+# Create project
+cargo new my-trader
+cd my-trader
+
+# Add to Cargo.toml
+# [dependencies]
+# lx-sdk = "0.1"
+# tokio = { version = "1", features = ["full"] }
+# serde = { version = "1", features = ["derive"] }
+```
+
+### C++
+
+```bash
+# Requirements
+# - CMake 3.16+
+# - C++20 compiler
+# - vcpkg or conan for dependencies
+
+# Install dependencies
+vcpkg install nlohmann-json websocketpp openssl
+```
+
+## Configuration
+
+All examples use environment variables for configuration:
+
+```bash
+# Required
+export LX_API_KEY="your-api-key"
+export LX_API_SECRET="your-api-secret"
+
+# Optional
+export LX_ENDPOINT="http://localhost:8080"      # JSON-RPC endpoint
+export LX_WS_ENDPOINT="ws://localhost:8081"     # WebSocket endpoint
+export LX_GRPC_ENDPOINT="localhost:50051"       # gRPC endpoint
+
+# Trading parameters
+export TRADING_SYMBOL="BTC-USD"
+export MAX_POSITION_SIZE="1.0"
+export MAX_ORDER_SIZE="0.1"
+```
+
+## Safety Guidelines
+
+1. **Always use testnet first** - Never test with real funds
+2. **Set position limits** - Define maximum exposure before trading
+3. **Implement kill switches** - Emergency stop functionality is required
+4. **Monitor continuously** - Never run unattended without alerting
+5. **Log everything** - Detailed logs for audit and debugging
+
+## Performance Benchmarks
+
+| Language | Orders/sec | Latency p99 | Memory |
+|----------|------------|-------------|--------|
+| C++ | 500,000+ | 12us | 50MB |
+| Rust | 450,000+ | 15us | 45MB |
+| Go | 300,000+ | 25us | 80MB |
+| TypeScript | 50,000+ | 500us | 150MB |
+| Python | 10,000+ | 2ms | 200MB |
+
+## Source Code
+
+All examples are available on GitHub:
+
+- Repository: [github.com/lx-exchange/examples](https://github.com/lx-exchange/examples)
+- License: MIT
+- Issues: [Report bugs](https://github.com/lx-exchange/examples/issues)
+
+## Support
+
+- Documentation: [docs.lx.exchange](https://docs.lx.exchange)
+- Discord: [discord.gg/lx-exchange](https://discord.gg/lx-exchange)
+- Email: support@lx.exchange

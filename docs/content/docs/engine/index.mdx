@@ -1,0 +1,441 @@
+---
+title: DEX Core Engine
+description: High-performance matching engine with sub-microsecond latency and hardware acceleration
+---
+
+# DEX Core Engine
+
+<Callout type="info">
+**LP Specification**: [LP-9000: High-Performance DEX Core Engine](https://github.com/luxfi/LPs/blob/main/LPs/LP-9000.md)
+</Callout>
+
+## Implementation Status
+
+| Component | Status | Source |
+|-----------|--------|--------|
+| Order Book Core | Complete | [pkg/lx/orderbook.go](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go) |
+| Matching Engine | Complete | [pkg/lx/orderbook_advanced.go](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook_advanced.go) |
+| Price-Time Priority | Complete | [pkg/lx/orderbook.go#L108](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L108) |
+| Integer Price Representation | Complete | [pkg/lx/orderbook.go#L16-L34](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L16-L34) |
+| MLX Hardware Acceleration | Complete | [pkg/engine/mlx_engine.go](https://github.com/luxfi/dex/blob/main/pkg/engine/mlx_engine.go) |
+| DAG Consensus Integration | Complete | [pkg/consensus/dag.go](https://github.com/luxfi/dex/blob/main/pkg/consensus/dag.go) |
+| Event System | Complete | [pkg/lx/orderbook_extended.go](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook_extended.go) |
+
+## Architecture Overview
+
+```
+                              DEX CORE ENGINE ARCHITECTURE
+
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                              API LAYER                                       │
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+    │  │  JSON-RPC   │  │  WebSocket  │  │    gRPC     │  │      FIX 4.4        │ │
+    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
+    └─────────┼────────────────┼────────────────┼────────────────────┼────────────┘
+              │                │                │                    │
+              v                v                v                    v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                          ORDER ROUTER                                        │
+    │  ┌───────────────────────────────────────────────────────────────────────┐  │
+    │  │  Order Validation -> Risk Check -> Self-Trade Prevention -> Routing   │  │
+    │  └───────────────────────────────────────────────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                         MATCHING ENGINE                                      │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+    │  │   Order Book    │  │ Price Levels    │  │     Trade Generator         │  │
+    │  │   (per symbol)  │  │ (B-Tree + Heap) │  │   (FIFO/Pro-rata)           │  │
+    │  └────────┬────────┘  └────────┬────────┘  └────────────┬────────────────┘  │
+    │           │                    │                        │                   │
+    │           v                    v                        v                   │
+    │  ┌─────────────────────────────────────────────────────────────────────┐    │
+    │  │                    OPTIMIZED DATA STRUCTURES                        │    │
+    │  │  • PriceInt (int64 * 10^8) for fast integer comparison              │    │
+    │  │  • IntBTree for O(log n) price level operations                     │    │
+    │  │  • OrderLinkedList for O(1) insertion/removal at price level        │    │
+    │  │  • CircularTradeBuffer for efficient trade history                  │    │
+    │  │  • sync.Map for lock-free order tracking                            │    │
+    │  └─────────────────────────────────────────────────────────────────────┘    │
+    └─────────────────────────────────────────────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                     HARDWARE ACCELERATION LAYER                              │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+    │  │   Pure Go       │  │   MLX (Metal)   │  │      FPGA                   │  │
+    │  │   Default       │  │   Apple Silicon │  │   AMD Versal / AWS F2       │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                        DAG CONSENSUS                                         │
+    │  ┌─────────────────────────────────────────────────────────────────────┐    │
+    │  │  Lux Consensus (FPC) + Quasar Certificates + Ringtail PQ Signatures │    │
+    │  └─────────────────────────────────────────────────────────────────────┘    │
+    └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Order Book (`OrderBook`)
+
+The central data structure for maintaining buy and sell orders with price-time priority.
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/luxfi/dex/pkg/lx"
+)
+
+func main() {
+    // Create a new order book for BTC/USD
+    ob := lx.NewOrderBook("BTC/USD")
+
+    // Add a limit buy order
+    buyOrder := &lx.Order{
+        Side:  lx.Buy,
+        Type:  lx.Limit,
+        Price: 50000.00,
+        Size:  1.5,
+        User:  "trader-1",
+    }
+    orderID := ob.AddOrder(buyOrder)
+    fmt.Printf("Buy order placed: ID=%d\n", orderID)
+
+    // Add a limit sell order
+    sellOrder := &lx.Order{
+        Side:  lx.Sell,
+        Type:  lx.Limit,
+        Price: 50000.00,
+        Size:  1.0,
+        User:  "trader-2",
+    }
+    ob.AddOrder(sellOrder)
+
+    // Execute matching
+    trades := ob.MatchOrders()
+    for _, trade := range trades {
+        fmt.Printf("Trade executed: Price=%.2f Size=%.4f\n",
+            trade.Price, trade.Size)
+    }
+
+    // Get order book depth
+    depth := ob.GetDepth(10)
+    fmt.Printf("Bid levels: %d, Ask levels: %d\n",
+        len(depth.Bids), len(depth.Asks))
+}
+```
+
+### 2. Integer Price Representation
+
+All prices are internally represented as `PriceInt` (int64) with 8 decimal precision for fast integer comparison operations.
+
+```go
+// PriceInt represents price as integer (multiplied by 10^8 for 8 decimal precision)
+type PriceInt int64
+
+const PriceMultiplier = 100000000
+
+// MaxSafePrice is the maximum price that can be safely converted to PriceInt
+// without overflow (math.MaxInt64 / PriceMultiplier)
+const MaxSafePrice = float64(math.MaxInt64) / PriceMultiplier
+
+// Example: $50,000.12345678 becomes 5000012345678 (int64)
+priceInt := PriceInt(50000.12345678 * PriceMultiplier)
+// Result: 5000012345678
+```
+
+### 3. Order Tree (`OrderTree`)
+
+Each side of the order book (bids/asks) is implemented as an `OrderTree` with:
+
+- **B-Tree** (`IntBTree`) for sorted price levels with O(log n) operations
+- **Price Heap** for quick best price access
+- **Price Level Map** for O(1) price level lookup
+- **Atomic Best Price** for lock-free reads
+
+```go
+type OrderTree struct {
+    side        Side
+    priceLevels map[PriceInt]*OptimizedPriceLevel  // O(1) lookup
+    priceTree   *IntBTree                           // O(log n) range queries
+    orders      map[uint64]*Order                   // Order tracking
+    bestPrice   atomic.Int64                        // Lock-free best price
+    priceHeap   PriceHeap                           // Heap for compatibility
+    mu          sync.RWMutex
+}
+```
+
+### 4. Price Levels (`OptimizedPriceLevel`)
+
+Each price level maintains orders in FIFO order using a doubly-linked list for O(1) operations:
+
+```go
+type OptimizedPriceLevel struct {
+    Price      float64              // Original price for API
+    PriceInt   PriceInt             // Integer price for operations
+    Orders     []*Order             // Slice for compatibility
+    OrderList  *OrderLinkedList     // O(1) insertion/removal
+    TotalSize  float64
+    OrderCount int
+    atomicSize  atomic.Int64        // Lock-free size updates
+    atomicCount atomic.Int32        // Lock-free count updates
+}
+
+type OrderLinkedList struct {
+    head  *OrderNode
+    tail  *OrderNode
+    index map[uint64]*OrderNode    // O(1) order lookup
+}
+```
+
+## Performance Characteristics
+
+| Operation | Time Complexity | Notes |
+|-----------|-----------------|-------|
+| Add Order | O(log n) | B-tree insertion + heap push |
+| Cancel Order | O(1) | Direct lookup via order ID map |
+| Modify Order | O(log n) | Remove + re-insert |
+| Get Best Price | O(1) | Atomic load |
+| Match Orders | O(k) | k = number of price levels crossed |
+| Get Depth | O(d log d) | d = requested depth levels |
+
+### Latency Targets
+
+- **Order Add**: < 500ns median
+- **Order Match**: < 1us per trade
+- **Best Bid/Ask**: < 100ns
+- **Full Snapshot**: < 10us
+
+### FIX Protocol Performance (December 2024)
+
+| Engine | NewOrderSingle | ExecutionReport | MarketDataSnapshot |
+|--------|----------------|-----------------|-------------------|
+| Pure Go | 163K/sec | 124K/sec | 332K/sec |
+| Pure C++ | 444K/sec | 804K/sec | 1.08M/sec |
+| **MLX (Apple Silicon)** | **3.12M/sec** | **4.27M/sec** | **5.95M/sec** |
+
+*MLX GPU achieves sub-2μs average latency (0.68-1.75μs) through Metal Performance Shaders
+
+## Hardware Acceleration Backends
+
+The engine automatically detects and uses the best available backend:
+
+```go
+type Backend int
+
+const (
+    BackendGo Backend = iota    // Pure Go (default)
+    BackendCGO                  // CGO optimizations
+    BackendMLX                  // Apple Silicon Metal
+    BackendCUDA                 // NVIDIA GPU
+)
+
+func detectBestBackend() Backend {
+    // CUDA if available
+    if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
+        return BackendCUDA
+    }
+
+    // MLX on Apple Silicon
+    if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+        if _, err := os.Stat("/System/Library/Frameworks/Metal.framework"); err == nil {
+            return BackendMLX
+        }
+    }
+
+    // CGO if enabled
+    if os.Getenv("CGO_ENABLED") == "1" {
+        return BackendCGO
+    }
+
+    return BackendGo
+}
+```
+
+### MLX Engine (Apple Silicon)
+
+```go
+import "github.com/luxfi/dex/pkg/engine"
+
+config := engine.MLXConfig{
+    MaxMarkets:    1000,
+    MarketDepth:   1000,
+    UnifiedMemory: true,    // No CPU<->GPU copies!
+    CacheGB:       64,
+    BufferGB:      128,
+}
+
+mlx, err := engine.NewMLXEngine(config)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Process batch of orders on GPU
+result, err := mlx.ProcessBatch(orders)
+fmt.Printf("Throughput: %.2f M orders/sec\n", result.ThroughputMPS)
+fmt.Printf("Latency: %d ns\n", result.LatencyNanos)
+```
+
+## Trading Engine Integration
+
+The `TradingEngine` orchestrates multiple order books and integrates with DeFi components:
+
+```go
+import "github.com/luxfi/dex/pkg/lx"
+
+config := lx.EngineConfig{
+    EnablePerps:   true,
+    EnableVaults:  true,
+    EnableLending: true,
+}
+
+engine := lx.NewTradingEngine(config)
+engine.Start()
+defer engine.Stop()
+
+// Create spot market
+btcBook := engine.CreateSpotMarket("BTC/USD")
+
+// Create perpetual market
+engine.PerpManager.CreateMarket(lx.PerpMarketConfig{
+    Symbol:         "BTC-PERP",
+    IndexSymbol:    "BTC/USD",
+    MaxLeverage:    100,
+    MaintenanceReq: 0.005,
+    FundingRate:    0.0001,
+})
+```
+
+## Memory Optimization
+
+### Object Pooling
+
+The engine uses `sync.Pool` for zero-allocation order processing:
+
+```go
+var orderPool = &sync.Pool{
+    New: func() interface{} {
+        return &Order{}
+    },
+}
+
+var levelPool = &sync.Pool{
+    New: func() interface{} {
+        return &OptimizedPriceLevel{}
+    },
+}
+
+// Get from pool
+order := orderPool.Get().(*Order)
+// ... use order ...
+// Return to pool
+orderPool.Put(order)
+```
+
+### Circular Trade Buffer
+
+Trade history uses a fixed-size circular buffer to avoid allocations:
+
+```go
+type CircularTradeBuffer struct {
+    buffer   []Trade     // Pre-allocated
+    head     uint64
+    tail     uint64
+    size     uint64
+    capacity uint64
+}
+
+// Add is O(1), no allocations
+func (ctb *CircularTradeBuffer) Add(trade Trade) {
+    ctb.buffer[ctb.tail] = trade
+    ctb.tail = (ctb.tail + 1) % ctb.capacity
+    // ...
+}
+```
+
+### Cache Line Padding
+
+The `OrderBook` struct includes padding to prevent false sharing:
+
+```go
+type OrderBook struct {
+    // ... fields ...
+
+    // Cache line padding to prevent false sharing
+    _padding [64]byte
+}
+```
+
+## Supported Order Types
+
+| Type | Description | Implementation |
+|------|-------------|----------------|
+| Limit | Execute at specified price or better | `AddOrder()` |
+| Market | Execute immediately at best available | `processMarketOrderOptimized()` |
+| Stop | Trigger market order at stop price | `processStop()` |
+| Stop-Limit | Trigger limit order at stop price | `processStop()` |
+| Iceberg | Large order with visible portion | `processIcebergOrder()` |
+| Hidden | Non-displayed order | `processHiddenOrder()` |
+| Pegged | Price tracks best bid/ask | `processPeggedOrder()` |
+| Bracket | Trailing stop loss | `processTrailingStop()` |
+
+## Time-in-Force Options
+
+```go
+const (
+    TIF_DAY TimeInForce = iota  // Good for day
+    TIF_IOC                      // Immediate-or-cancel
+    TIF_FOK                      // Fill-or-kill
+    TIF_GTC                      // Good-til-canceled
+)
+
+// IOC: Execute what you can, cancel rest
+order.TimeInForce = "IOC"
+
+// FOK: Execute entirely or reject
+order.TimeInForce = "FOK"
+```
+
+## Self-Trade Prevention
+
+```go
+const (
+    OrderFlagNone       OrderFlags = 0
+    OrderFlagPostOnly   OrderFlags = 1 << 0  // Maker only
+    OrderFlagReduceOnly OrderFlags = 1 << 1  // Reduce position only
+    OrderFlagSTP        OrderFlags = 1 << 2  // Self-trade prevention
+)
+
+// Check for self-trade before matching
+func (ob *OrderBook) checkSelfTrade(order *Order) bool {
+    // ... compares user IDs of crossing orders ...
+}
+```
+
+## Error Handling
+
+```go
+var (
+    ErrOrderNotFound     = fmt.Errorf("order not found")
+    ErrInsufficientFunds = fmt.Errorf("insufficient funds")
+    ErrInvalidOrder      = fmt.Errorf("invalid order")
+    ErrInvalidPrice      = fmt.Errorf("invalid price")
+    ErrInvalidSize       = fmt.Errorf("invalid size")
+    ErrSelfTrade         = fmt.Errorf("self trade not allowed")
+    ErrPostOnlyWouldTake = fmt.Errorf("post-only order would take")
+    ErrUnauthorized      = fmt.Errorf("unauthorized")
+)
+```
+
+## Related Documentation
+
+- [Order Book Internals](/docs/engine/orderbook) - Deep dive into order book data structures
+- [Matching Engine](/docs/engine/matching) - Matching algorithms and trade execution
+- [State Management](/docs/engine/state) - Persistence, snapshots, and recovery
+- [Event System](/docs/engine/events) - Order lifecycle events and market data feeds

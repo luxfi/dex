@@ -1,0 +1,647 @@
+---
+title: Orders
+description: Order types, placement, cancellation, and management with C++17/20 examples
+---
+
+# Orders
+
+The order subsystem provides type-safe order construction, validation, and lifecycle management with zero-copy serialization for HFT applications.
+
+## Order Types
+
+### Supported Order Types
+
+| Type | Enum | Description |
+|------|------|-------------|
+| Limit | `OrderType::Limit` | Execute at specified price or better |
+| Market | `OrderType::Market` | Execute immediately at best available price |
+| Stop | `OrderType::Stop` | Trigger market order when price reaches stop |
+| Stop Limit | `OrderType::StopLimit` | Trigger limit order when price reaches stop |
+| Iceberg | `OrderType::Iceberg` | Hidden quantity with visible portion |
+| Peg | `OrderType::Peg` | Track best bid/ask with offset |
+
+### Order Structure
+
+```cpp
+#include <lxdex/order.hpp>
+
+namespace lxdex {
+
+struct Order {
+    OrderId id;                      // Server-assigned
+    std::string symbol;              // "BTC-USD"
+    Side side;                       // Buy/Sell
+    OrderType type;                  // Limit/Market/Stop/...
+    Price price;                     // Fixed-point price
+    Quantity quantity;               // Fixed-point quantity
+    Quantity filled_quantity;        // Amount filled
+    TimeInForce time_in_force;       // GTC/IOC/FOK/DAY
+    OrderStatus status;              // Pending/Active/Filled/...
+    Timestamp created_at;
+    Timestamp updated_at;
+
+    // Optional fields
+    std::optional<Price> stop_price;
+    std::optional<Quantity> visible_quantity;  // Iceberg
+    std::optional<Price> peg_offset;           // Peg orders
+    std::optional<std::string> client_order_id;
+};
+
+enum class Side : uint8_t { Buy = 0, Sell = 1 };
+
+enum class OrderType : uint8_t {
+    Limit = 0,
+    Market = 1,
+    Stop = 2,
+    StopLimit = 3,
+    Iceberg = 4,
+    Peg = 5
+};
+
+enum class TimeInForce : uint8_t {
+    GTC = 0,  // Good Till Cancelled
+    IOC = 1,  // Immediate Or Cancel
+    FOK = 2,  // Fill Or Kill
+    DAY = 3   // Day Order
+};
+
+enum class OrderStatus : uint8_t {
+    Pending = 0,
+    Active = 1,
+    PartiallyFilled = 2,
+    Filled = 3,
+    Cancelled = 4,
+    Rejected = 5,
+    Expired = 6
+};
+
+}  // namespace lxdex
+```
+
+## Fixed-Point Arithmetic
+
+Prices and quantities use fixed-point representation to avoid floating-point errors.
+
+```cpp
+#include <lxdex/types.hpp>
+
+// Price: 8 decimal places (satoshi precision)
+// Quantity: 8 decimal places
+
+// Construction from integer (raw value)
+Price price{50000'00000000};  // $50,000.00
+
+// Construction from double (lossy, use with care)
+Price price = Price::from_double(50000.00);
+
+// Construction from string (exact)
+Price price = Price::from_string("50000.00");
+
+// Arithmetic
+Price spread = ask - bid;
+Quantity total = quantity * Price{2};
+
+// Comparison
+if (bid >= Price{49000'00000000}) {
+    // ...
+}
+
+// Output
+std::cout << price.to_string() << '\n';  // "50000.00000000"
+std::cout << price.to_double() << '\n';  // 50000.0
+```
+
+## Order Builder Pattern
+
+### Basic Order Builder
+
+```cpp
+#include <lxdex/order.hpp>
+
+using namespace lxdex;
+
+// Limit buy order
+auto order = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Limit)
+    .price(Price::from_string("50000.00"))
+    .quantity(Quantity::from_string("1.5"))
+    .time_in_force(TimeInForce::GTC)
+    .build();
+
+// Market sell order
+auto market_order = OrderBuilder()
+    .symbol("ETH-USD")
+    .side(Side::Sell)
+    .type(OrderType::Market)
+    .quantity(Quantity::from_string("10.0"))
+    .build();
+```
+
+### Advanced Order Builder
+
+```cpp
+// Stop-limit order
+auto stop_limit = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Sell)
+    .type(OrderType::StopLimit)
+    .price(Price::from_string("48000.00"))      // Limit price
+    .stop_price(Price::from_string("49000.00")) // Trigger price
+    .quantity(Quantity::from_string("0.5"))
+    .time_in_force(TimeInForce::GTC)
+    .build();
+
+// Iceberg order (hidden quantity)
+auto iceberg = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Iceberg)
+    .price(Price::from_string("50000.00"))
+    .quantity(Quantity::from_string("100.0"))        // Total quantity
+    .visible_quantity(Quantity::from_string("1.0")) // Shown in book
+    .time_in_force(TimeInForce::GTC)
+    .build();
+
+// Peg order (tracks best bid/ask)
+auto peg = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Peg)
+    .peg_offset(Price::from_string("-0.01"))  // 1 cent below best ask
+    .quantity(Quantity::from_string("5.0"))
+    .build();
+```
+
+### Compile-Time Validation
+
+```cpp
+// Using C++20 concepts for compile-time validation
+template<typename T>
+concept ValidOrder = requires(T t) {
+    { t.symbol } -> std::convertible_to<std::string_view>;
+    { t.side } -> std::same_as<Side&>;
+    { t.quantity } -> std::same_as<Quantity&>;
+    requires t.quantity.raw() > 0;
+};
+
+// Builder with validation
+auto order = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Limit)
+    .price(Price::from_string("50000.00"))
+    .quantity(Quantity::from_string("1.0"))
+    .validate()  // Throws if invalid
+    .build();
+```
+
+## Placing Orders
+
+### Synchronous Placement
+
+```cpp
+#include <lxdex/client.hpp>
+#include <lxdex/order.hpp>
+
+Client client({.endpoints = {"wss://api.lux.network/ws"}});
+client.connect();
+
+// Place order (blocking)
+auto result = client.place_order(
+    OrderBuilder()
+        .symbol("BTC-USD")
+        .side(Side::Buy)
+        .type(OrderType::Limit)
+        .price(Price::from_string("50000.00"))
+        .quantity(Quantity::from_string("1.0"))
+        .build()
+);
+
+if (result) {
+    std::cout << "Order placed: " << result->id << '\n';
+    std::cout << "Status: " << to_string(result->status) << '\n';
+} else {
+    std::cerr << "Error: " << result.error().message << '\n';
+}
+```
+
+### Asynchronous Placement
+
+```cpp
+// Future-based async
+auto future = client.place_order_async(order);
+
+// Do other work...
+
+// Check result
+if (future.wait_for(std::chrono::microseconds{100}) == std::future_status::ready) {
+    auto result = future.get();
+    // Process...
+}
+```
+
+### Callback-Based (Lowest Latency)
+
+```cpp
+// Zero-allocation callback
+client.place_order_callback(order, [](std::expected<Order, Error> result) {
+    // Called on I/O thread - keep fast!
+    if (result) {
+        // Order confirmed
+    }
+});
+```
+
+### Batch Order Placement
+
+```cpp
+std::vector<Order> orders;
+orders.reserve(100);
+
+for (int i = 0; i < 100; ++i) {
+    orders.push_back(
+        OrderBuilder()
+            .symbol("BTC-USD")
+            .side(Side::Buy)
+            .type(OrderType::Limit)
+            .price(Price{50000'00000000 - i * 100000000})  // Price ladder
+            .quantity(Quantity{1'00000000})
+            .build()
+    );
+}
+
+// Place all orders in single request
+auto results = client.place_orders_batch(orders);
+
+for (std::size_t i = 0; i < results.size(); ++i) {
+    if (results[i]) {
+        std::cout << "Order " << i << " placed: " << results[i]->id << '\n';
+    } else {
+        std::cerr << "Order " << i << " failed: " << results[i].error().message << '\n';
+    }
+}
+```
+
+## Cancelling Orders
+
+### Cancel Single Order
+
+```cpp
+// By order ID
+auto result = client.cancel_order(order_id);
+if (result) {
+    std::cout << "Order cancelled\n";
+}
+
+// Cancel with expected state (optimistic)
+auto result = client.cancel_order(order_id, OrderStatus::Active);
+```
+
+### Cancel Multiple Orders
+
+```cpp
+// Cancel specific orders
+std::vector<OrderId> order_ids = {id1, id2, id3};
+auto results = client.cancel_orders(order_ids);
+
+// Cancel all orders for symbol
+auto results = client.cancel_all_orders("BTC-USD");
+
+// Cancel all orders
+auto results = client.cancel_all_orders();
+```
+
+### Cancel-Replace (Atomic Modify)
+
+```cpp
+// Atomically cancel and place new order
+auto result = client.cancel_replace(
+    existing_order_id,
+    OrderBuilder()
+        .symbol("BTC-USD")
+        .side(Side::Buy)
+        .type(OrderType::Limit)
+        .price(Price::from_string("49999.00"))  // New price
+        .quantity(Quantity::from_string("1.0"))
+        .build()
+);
+
+if (result) {
+    std::cout << "Order modified: " << result->id << '\n';
+}
+```
+
+## Order Queries
+
+### Get Single Order
+
+```cpp
+auto result = client.get_order(order_id);
+if (result) {
+    const auto& order = *result;
+    std::cout << "Symbol: " << order.symbol << '\n';
+    std::cout << "Status: " << to_string(order.status) << '\n';
+    std::cout << "Filled: " << order.filled_quantity.to_string()
+              << " / " << order.quantity.to_string() << '\n';
+}
+```
+
+### Get Open Orders
+
+```cpp
+// All open orders
+auto orders = client.get_open_orders();
+
+// Open orders for symbol
+auto orders = client.get_open_orders("BTC-USD");
+
+// With pagination
+auto orders = client.get_open_orders({
+    .symbol = "BTC-USD",
+    .limit = 100,
+    .offset = 0
+});
+```
+
+### Get Order History
+
+```cpp
+auto orders = client.get_order_history({
+    .symbol = "BTC-USD",
+    .start_time = std::chrono::system_clock::now() - std::chrono::hours{24},
+    .end_time = std::chrono::system_clock::now(),
+    .status = {OrderStatus::Filled, OrderStatus::Cancelled},
+    .limit = 1000
+});
+```
+
+## Order Updates (Real-Time)
+
+### Subscribe to Order Updates
+
+```cpp
+client.subscribe_orders([](const OrderUpdate& update) {
+    std::cout << "Order " << update.order_id
+              << " " << to_string(update.event_type) << '\n';
+
+    switch (update.event_type) {
+        case OrderEventType::Created:
+            // New order acknowledged
+            break;
+        case OrderEventType::PartialFill:
+            std::cout << "  Filled: " << update.fill_quantity.to_string()
+                      << " @ " << update.fill_price.to_string() << '\n';
+            break;
+        case OrderEventType::Filled:
+            // Order completely filled
+            break;
+        case OrderEventType::Cancelled:
+            // Order cancelled
+            break;
+        case OrderEventType::Rejected:
+            std::cerr << "  Reason: " << update.reject_reason << '\n';
+            break;
+    }
+});
+```
+
+### Order Update Structure
+
+```cpp
+struct OrderUpdate {
+    OrderId order_id;
+    std::string symbol;
+    OrderEventType event_type;
+    OrderStatus status;
+    Quantity filled_quantity;      // This fill
+    Price fill_price;              // This fill price
+    Quantity cumulative_quantity;  // Total filled
+    Timestamp timestamp;
+    std::optional<std::string> reject_reason;
+    std::optional<TradeId> trade_id;
+};
+
+enum class OrderEventType : uint8_t {
+    Created,
+    PartialFill,
+    Filled,
+    Cancelled,
+    Rejected,
+    Expired,
+    Modified
+};
+```
+
+## C++20 Coroutines
+
+```cpp
+#include <lxdex/client.hpp>
+#include <lxdex/coro.hpp>
+
+lxdex::Task<void> trading_loop(lxdex::Client& client) {
+    // Place order
+    auto order = co_await client.place_order_coro(
+        OrderBuilder()
+            .symbol("BTC-USD")
+            .side(Side::Buy)
+            .type(OrderType::Limit)
+            .price(Price::from_string("50000.00"))
+            .quantity(Quantity::from_string("1.0"))
+            .build()
+    );
+
+    if (!order) {
+        std::cerr << "Order failed: " << order.error().message << '\n';
+        co_return;
+    }
+
+    std::cout << "Order placed: " << order->id << '\n';
+
+    // Wait for fill
+    while (order->status != OrderStatus::Filled) {
+        co_await lxdex::sleep(std::chrono::milliseconds{10});
+        order = co_await client.get_order_coro(order->id);
+    }
+
+    std::cout << "Order filled!\n";
+}
+
+int main() {
+    lxdex::Client client({.endpoints = {"wss://api.lux.network/ws"}});
+    client.connect();
+
+    // Run coroutine
+    lxdex::sync_wait(trading_loop(client));
+}
+```
+
+## C++17 Compatibility
+
+```cpp
+#include <lxdex/order.hpp>
+
+// C++17: Use optional and variant instead of expected
+#include <optional>
+#include <variant>
+
+// Place order returns variant<Order, Error>
+auto result = client.place_order(order);
+
+if (auto* placed = std::get_if<Order>(&result)) {
+    std::cout << "Order placed: " << placed->id << '\n';
+} else if (auto* error = std::get_if<Error>(&result)) {
+    std::cerr << "Error: " << error->message << '\n';
+}
+
+// Or use visitor
+std::visit(overloaded{
+    [](const Order& order) {
+        std::cout << "Order: " << order.id << '\n';
+    },
+    [](const Error& error) {
+        std::cerr << "Error: " << error.message << '\n';
+    }
+}, result);
+```
+
+## Order Validation
+
+### Client-Side Validation
+
+```cpp
+#include <lxdex/validation.hpp>
+
+auto order = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Limit)
+    .price(Price::from_string("50000.00"))
+    .quantity(Quantity::from_string("1.0"))
+    .build();
+
+// Validate before sending
+auto validation = validate_order(order);
+if (!validation.is_valid()) {
+    for (const auto& error : validation.errors()) {
+        std::cerr << error << '\n';
+    }
+    return;
+}
+
+client.place_order(order);
+```
+
+### Validation Rules
+
+| Rule | Description |
+|------|-------------|
+| `SymbolExists` | Symbol must be valid trading pair |
+| `PriceRange` | Price within min/max for symbol |
+| `QuantityRange` | Quantity within min/max for symbol |
+| `TickSize` | Price must be multiple of tick size |
+| `LotSize` | Quantity must be multiple of lot size |
+| `NotionalValue` | Order value >= minimum notional |
+
+## Performance Tips
+
+### Pre-Allocated Order Pool
+
+```cpp
+#include <lxdex/memory/pool.hpp>
+
+// Pre-allocate order pool
+lxdex::ObjectPool<Order> order_pool(10000);
+
+// Get order from pool (no heap allocation)
+auto* order = order_pool.acquire();
+*order = OrderBuilder()
+    .symbol("BTC-USD")
+    .side(Side::Buy)
+    .type(OrderType::Limit)
+    .price(Price{50000'00000000})
+    .quantity(Quantity{1'00000000})
+    .build();
+
+client.place_order(*order);
+
+// Return to pool
+order_pool.release(order);
+```
+
+### Zero-Copy Order Submission
+
+```cpp
+// Direct wire format construction
+alignas(64) std::array<char, 256> buffer;
+
+auto size = serialize_order_wire(buffer.data(), buffer.size(),
+    "BTC-USD",
+    Side::Buy,
+    OrderType::Limit,
+    50000'00000000,  // Price
+    1'00000000       // Quantity
+);
+
+client.send_raw(std::span{buffer.data(), size});
+```
+
+### Latency Measurement
+
+```cpp
+auto start = std::chrono::steady_clock::now();
+
+auto result = client.place_order(order);
+
+auto end = std::chrono::steady_clock::now();
+auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+std::cout << "Order latency: " << latency.count() << "ns\n";
+```
+
+## Error Handling
+
+### Order Rejection Reasons
+
+| Code | Reason | Description |
+|------|--------|-------------|
+| `INSUFFICIENT_BALANCE` | Not enough funds | Deposit more or reduce size |
+| `PRICE_OUT_OF_RANGE` | Price too far from market | Adjust price closer to market |
+| `QUANTITY_TOO_SMALL` | Below minimum size | Increase quantity |
+| `RATE_LIMIT_EXCEEDED` | Too many requests | Implement backoff |
+| `MARKET_CLOSED` | Trading halted | Wait for market open |
+| `SELF_TRADE` | Would match own order | Adjust price or cancel existing |
+
+### Retry Logic
+
+```cpp
+template<typename F>
+auto retry_with_backoff(F&& func, int max_retries = 3) {
+    using ResultType = std::invoke_result_t<F>;
+
+    for (int attempt = 0; attempt < max_retries; ++attempt) {
+        auto result = func();
+
+        if (result) {
+            return result;
+        }
+
+        if (result.error().code == ErrorCode::RateLimited) {
+            auto delay = std::chrono::milliseconds{100 * (1 << attempt)};
+            std::this_thread::sleep_for(delay);
+            continue;
+        }
+
+        // Non-retryable error
+        return result;
+    }
+
+    return ResultType{std::unexpected{Error{ErrorCode::Timeout, "Max retries exceeded"}}};
+}
+
+// Usage
+auto result = retry_with_backoff([&] {
+    return client.place_order(order);
+});
+```

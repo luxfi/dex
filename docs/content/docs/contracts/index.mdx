@@ -1,0 +1,178 @@
+---
+title: Smart Contracts
+description: Lux DeFi smart contracts - DEX, Bridge, Lending, Staking, and Governance
+---
+
+# Smart Contracts
+
+Lux DeFi protocol is powered by a comprehensive suite of audited smart contracts deployed across Lux Network and supported chains.
+
+> **Source Code**: All contracts are open source at [github.com/luxfi/standard](https://github.com/luxfi/standard)
+
+## Contract Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    LUX DEFI CONTRACT STACK                       │
+├─────────────────────────────────────────────────────────────────┤
+│  GOVERNANCE LAYER                                                │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Governor | Timelock | DAO | Voting                     │    │
+│  └─────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER                                               │
+│  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐          │
+│  │  DEX          │ │  Lending      │ │  Bridge       │          │
+│  │  OrderBook    │ │  Pool         │ │  Lock/Mint    │          │
+│  │  Settlement   │ │  Interest     │ │  Validator    │          │
+│  │  Vault        │ │  Liquidator   │ │  MPC Signer   │          │
+│  └───────────────┘ └───────────────┘ └───────────────┘          │
+├─────────────────────────────────────────────────────────────────┤
+│  TOKEN LAYER                                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  LUX | Wrapped Assets | LP Tokens | aTokens             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────┤
+│  INFRASTRUCTURE                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Precompiles | Oracles | Safe Multisig | Registry       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Quick Reference
+
+### Core Contracts
+
+| Contract | Mainnet | Testnet | Description |
+|----------|---------|---------|-------------|
+| LUX Token | `0x...` | `0x...` | Native governance token |
+| Bridge | `0x...` | `0x...` | Cross-chain bridge |
+| Pool | `0x...` | `0x...` | Lending pool |
+| Farm | `0x...` | `0x...` | Yield farming |
+| Voting | `0x...` | `0x...` | Governance voting |
+
+### Network Details
+
+| Network | Chain ID | RPC | Explorer |
+|---------|----------|-----|----------|
+| Lux Mainnet | 96369 | `https://api.lux.network/ext/bc/C/rpc` | `https://explorer.lux.network` |
+| Lux Testnet | 96370 | `https://api.testnet.lux.network/ext/bc/C/rpc` | `https://testnet.explorer.lux.network` |
+
+## Contract Categories
+
+### [DEX Contracts](/docs/contracts/dex)
+On-chain order book, settlement engine, and vault management for the decentralized exchange.
+
+- **OrderBook**: Central limit order book with matching engine
+- **Settlement**: Trade settlement and clearing
+- **Vault**: Asset custody and margin management
+
+### [Bridge Contracts](/docs/contracts/bridge)
+Cross-chain asset transfer with MPC threshold signatures.
+
+- **Bridge**: Main bridge orchestrator
+- **Lock/Mint**: Asset locking and wrapped token minting
+- **Validator**: Bridge validator set management
+
+### [Lending Contracts](/docs/contracts/lending)
+Aave-compatible lending protocol with isolated markets.
+
+- **Pool**: Main lending pool
+- **Interest**: Rate strategy and accrual
+- **Liquidator**: Position liquidation engine
+
+### [Token Contracts](/docs/contracts/tokens)
+Native and wrapped token implementations.
+
+- **LUX**: Native governance token
+- **WLUX**: Wrapped LUX for DeFi
+- **Wrapped Assets**: Cross-chain wrapped tokens
+
+### [Governance Contracts](/docs/contracts/governance)
+On-chain governance and DAO management.
+
+- **Governor**: Proposal and voting system
+- **Timelock**: Execution delay for security
+- **DAO**: Treasury and fund management
+
+### [Staking Contracts](/docs/contracts/staking)
+Validator staking and delegation.
+
+- **Staking**: Validator registration and bonding
+- **Delegation**: Stake delegation to validators
+- **Rewards**: Staking reward distribution
+
+## Security
+
+### Audits
+All contracts have been audited by leading security firms. See [Audits](/docs/contracts/audits) for full reports.
+
+### Bug Bounty
+We maintain an active bug bounty program for responsible disclosure:
+- Critical: Up to $100,000
+- High: Up to $25,000
+- Medium: Up to $5,000
+
+### Emergency Procedures
+- Multi-sig controlled pause functionality
+- Timelock delays on critical operations
+- Emergency withdrawal mechanisms
+
+## Development
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/luxfi/standard
+cd standard
+
+# Install dependencies
+npm install
+
+# Compile contracts
+npx hardhat compile
+
+# Run tests
+npx hardhat test
+```
+
+### Foundry
+
+```bash
+# Install Foundry
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+# Build
+forge build
+
+# Test
+forge test
+
+# Deploy
+forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+```
+
+## Integration
+
+See [Integration Guide](/docs/contracts/integration) for:
+- ABI downloads
+- Event signatures
+- Code examples (ethers.js, web3.js, viem)
+- Testing patterns
+
+## Documentation
+
+| Topic | Description |
+|-------|-------------|
+| [DEX](/docs/contracts/dex) | Exchange contracts |
+| [Bridge](/docs/contracts/bridge) | Cross-chain bridge |
+| [Lending](/docs/contracts/lending) | Lending protocol |
+| [Tokens](/docs/contracts/tokens) | Token contracts |
+| [Governance](/docs/contracts/governance) | DAO governance |
+| [Staking](/docs/contracts/staking) | Validator staking |
+| [Audits](/docs/contracts/audits) | Security audits |
+| [Addresses](/docs/contracts/addresses) | Deployed addresses |
+| [Integration](/docs/contracts/integration) | Developer guide |
