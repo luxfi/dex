@@ -1,0 +1,1474 @@
+---
+title: Arbitrage Trading
+description: Cross-venue and cross-chain arbitrage using LX DEX as the price oracle - exploit stale prices across CEX, DEX, and multi-chain venues
+---
+
+# Arbitrage Trading
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+
+LX DEX provides the infrastructure for high-frequency cross-venue arbitrage with sub-millisecond execution, leveraging its position as the fastest venue in crypto.
+
+## The LX-First Strategy
+
+### Why LX DEX is the Price Oracle
+
+LX DEX operates on a dedicated Lux subnet with **200ms block times** and **nanosecond price updates**. By comparison:
+
+| Venue | Block Time | Price Staleness |
+|-------|-----------|-----------------|
+| **LX DEX** | 200ms | 0ms (reference) |
+| Binance | N/A | ~50ms API latency |
+| MEXC | N/A | ~100ms API latency |
+| Uniswap (ETH) | 12s | 12,000ms |
+| PancakeSwap (BSC) | 3s | 3,000ms |
+
+**Key Insight**: By the time other venues update, LX has already moved. This means:
+
+1. **LX DEX price is the TRUTH** (most current)
+2. **Other venues are always STALE** by comparison
+3. **Arbitrage = correcting stale venues to match LX**
+4. **LX always wins** because it sees/moves prices first
+
+```
+Price Movement Timeline:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+T+0ms     LX DEX: BTC = $50,000 (NEW PRICE)
+T+50ms    Binance: BTC = $49,990 (STALE - hasn't caught up)
+T+100ms   MEXC: BTC = $49,985 (MORE STALE)
+T+12000ms Uniswap: BTC = $49,950 (VERY STALE - 12s behind)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ARBITRAGE WINDOW: T+0ms to T+12000ms
+You have 12 SECONDS to profit from Uniswap's stale price!
+```
+
+### How It Works
+
+```
+LX DEX (Oracle)          Stale Venue (Target)
+     |                          |
+     | BTC = $50,000            | BTC = $49,950
+     | (current truth)          | (12s behind)
+     |                          |
+     |    OPPORTUNITY:          |
+     |    Buy on stale venue    |
+     |    before they update    |
+     |                          |
+     v                          v
+   Watch                     Execute
+   prices                    trades
+```
+
+**Example Execution:**
+
+1. LX DEX shows BTC = $50,000 (current, true price)
+2. Uniswap shows BTC = $49,950 (12 seconds stale)
+3. **Action**: Buy on Uniswap at $49,950
+4. **Why it works**: Uniswap WILL update to ~$50,000, you bought first
+5. **Profit**: ~$50 per BTC (0.1%)
+
+## Cross-Chain Transports
+
+LX supports multiple transport mechanisms for cross-chain arbitrage:
+
+### Transport Comparison
+
+| Transport | Latency | Use Case | Cost |
+|-----------|---------|----------|------|
+| **Warp** | <500ms | Between Lux subnets | ~$0.001 |
+| **Teleport** | ~30s | EVM chains (ETH, BSC, etc.) | ~$1-5 |
+| **CEX API** | <100ms | Centralized exchanges | Free |
+| **Direct** | 0ms | Same chain trades | Gas only |
+
+### When to Use Each Transport
+
+```
+Lux Internal (Warp - Instant):
+┌──────────────┐     <500ms      ┌──────────────┐
+│   LX DEX     │ ═══════════════>│   LX AMM     │
+│   (subnet)   │     WARP        │   (subnet)   │
+└──────────────┘                 └──────────────┘
+
+External EVM (Teleport - ~30s):
+┌──────────────┐      ~30s       ┌──────────────┐
+│   LX DEX     │ ───────────────>│   Uniswap    │
+│   (Lux)      │   TELEPORT      │   (Ethereum) │
+└──────────────┘                 └──────────────┘
+
+CEX (API - Instant):
+┌──────────────┐      <100ms     ┌──────────────┐
+│   LX DEX     │ - - - - - - - ->│   Binance    │
+│   (Lux)      │    CEX API      │   (CEX)      │
+└──────────────┘                 └──────────────┘
+```
+
+## Arbitrage Types
+
+### 1. Simple Arbitrage (Buy Low, Sell High)
+
+Cross-venue price difference on the same asset:
+
+```
+Buy on Venue A    →    Sell on Venue B
+   $49,950               $50,050
+        \                 /
+         \    PROFIT    /
+          \   $100     /
+           \          /
+            \        /
+             ========
+```
+
+### 2. CEX-DEX Arbitrage
+
+Exploit latency differences between centralized and decentralized exchanges:
+
+```
+CEX (Fast Updates)              DEX (Slow Updates)
+     |                               |
+     | BTC = $50,000                 | BTC = $49,900
+     | (current)                     | (stale)
+     |                               |
+     └─────────── ARBITRAGE ─────────┘
+         Buy DEX → Sell CEX
+         Profit: $100/BTC
+```
+
+### 3. Triangular Arbitrage
+
+Exploit pricing inefficiencies across three pairs:
+
+```
+        BTC
+       /    \
+      /      \
+   $50,000  0.05 ETH/BTC
+    /          \
+   /            \
+ USDT ───────── ETH
+      $2,000/ETH
+
+Path: USDT → BTC → ETH → USDT
+If: $50,000 * 0.05 * $2,000 ≠ $50,000
+Then: Arbitrage opportunity!
+```
+
+### 4. Cross-Chain Arbitrage
+
+Same asset, different chains:
+
+```
+Chain A (Lux)              Chain B (Ethereum)
+┌─────────────┐            ┌─────────────┐
+│ USDC = $1.00│            │ USDC = $0.998│
+└─────────────┘            └─────────────┘
+       │                          │
+       │    Bridge via Teleport   │
+       └──────────────────────────┘
+       Profit: 0.2% minus bridge fees
+```
+
+## SDK Examples
+
+### TypeScript
+
+```typescript
+import {
+  LxDex,
+  UnifiedArbitrage,
+  LxFirstArbitrage,
+  CrossChainRouter,
+  Scanner
+} from '@luxfi/dex-sdk'
+
+// Initialize the DEX client
+const dex = new LxDex({
+  endpoint: 'wss://dex.lux.network/ws',
+  apiKey: process.env.LX_API_KEY
+})
+
+// ============================================
+// LX-First Strategy (Recommended)
+// ============================================
+
+const lxFirst = new LxFirstArbitrage({
+  maxStalenessMs: 2000,      // Max 2s stale prices
+  minDivergenceBps: 10,      // Min 10 bps (0.1%) divergence
+  minProfit: 5,              // Min $5 profit per trade
+  maxPositionSize: 10000,    // Max $10k per trade
+  symbols: ['BTC-USDC', 'ETH-USDC', 'LUX-USDC'],
+  venueLatencies: {
+    binance: 50,      // 50ms typical latency
+    mexc: 100,        // 100ms typical latency
+    uniswap: 12000,   // 12s (Ethereum block time)
+    pancakeswap: 3000 // 3s (BSC block time)
+  }
+})
+
+// Subscribe to opportunities
+lxFirst.onOpportunity((opp) => {
+  console.log(`
+    ═══════════════════════════════════════
+    LX-FIRST OPPORTUNITY DETECTED
+    ═══════════════════════════════════════
+    Symbol: ${opp.symbol}
+    LX Price: $${opp.lxPrice.mid}
+    Stale Venue: ${opp.staleVenue}
+    Stale Price: $${opp.stalePrice.bid}/${opp.stalePrice.ask}
+    Staleness: ${opp.staleness}ms
+    Side: ${opp.side.toUpperCase()}
+    Divergence: ${opp.divergenceBps} bps
+    Expected Profit: $${opp.expectedProfit}
+    Confidence: ${(opp.confidence * 100).toFixed(1)}%
+    ═══════════════════════════════════════
+  `)
+
+  // Execute if confidence is high
+  if (opp.confidence > 0.8) {
+    executeArbitrage(opp)
+  }
+})
+
+// Feed real-time LX prices (the oracle)
+dex.onTrade('BTC-USDC', (trade) => {
+  lxFirst.updateLxPrice({
+    symbol: 'BTC-USDC',
+    bid: trade.price * 0.9999,  // Tight spread
+    ask: trade.price * 1.0001,
+    mid: trade.price,
+    timestamp: Date.now(),
+    blockNum: trade.blockNumber
+  })
+})
+
+// Feed CEX prices (stale venues)
+binanceWs.onTicker('BTCUSDC', (ticker) => {
+  lxFirst.updateVenuePrice({
+    venue: 'binance',
+    symbol: 'BTC-USDC',
+    bid: ticker.bestBid,
+    ask: ticker.bestAsk,
+    timestamp: Date.now(),
+    latency: 50
+  })
+})
+
+// Start the arbitrage system
+lxFirst.start()
+
+// ============================================
+// Execute Arbitrage Trade
+// ============================================
+
+async function executeArbitrage(opp: LxFirstOpportunity) {
+  if (opp.side === 'buy') {
+    // Stale venue is cheap - buy there
+    const order = await cexClient.placeOrder({
+      symbol: opp.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: opp.stalePrice.ask,
+      quantity: opp.maxSize
+    })
+
+    // Optional: Immediately hedge on LX DEX
+    if (order.filled) {
+      await dex.spot.sell({
+        symbol: opp.symbol,
+        type: 'market',
+        quantity: order.filledQuantity
+      })
+    }
+  } else {
+    // Stale venue is expensive - sell there
+    const order = await cexClient.placeOrder({
+      symbol: opp.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: opp.stalePrice.bid,
+      quantity: opp.maxSize
+    })
+
+    // Optional: Immediately hedge on LX DEX
+    if (order.filled) {
+      await dex.spot.buy({
+        symbol: opp.symbol,
+        type: 'market',
+        quantity: order.filledQuantity
+      })
+    }
+  }
+}
+
+// ============================================
+// Unified Arbitrage (All Venues)
+// ============================================
+
+const unified = new UnifiedArbitrage(dex, {
+  minSpreadBps: 10,
+  minProfit: 5,
+  maxPositionSize: 10000,
+  maxTotalExposure: 100000,
+  symbols: ['BTC-USDC', 'ETH-USDC', 'LUX-USDC'],
+  venuePriority: ['lx_dex', 'binance', 'mexc', 'lx_amm'],
+  scanIntervalMs: 100,
+  executeTimeoutMs: 5000
+})
+
+unified.onOpportunity((opp) => {
+  console.log(`
+    UNIFIED ARB: ${opp.symbol}
+    Buy: ${opp.buyVenue} @ $${opp.buyPrice}
+    Sell: ${opp.sellVenue} @ $${opp.sellPrice}
+    Spread: ${opp.spreadBps} bps
+    Net Profit: $${opp.netProfit}
+  `)
+})
+
+await unified.start()
+
+// Get statistics
+const stats = unified.getStats()
+console.log(`
+  Total Executions: ${stats.totalExecutions}
+  Win Rate: ${(stats.winRate * 100).toFixed(1)}%
+  Total PnL: $${stats.totalPnl}
+`)
+
+// ============================================
+// Cross-Chain Router
+// ============================================
+
+const router = new CrossChainRouter({
+  warpEnabled: true,
+  teleportEnabled: true,
+  chains: {
+    lux_mainnet: {
+      chainId: 'lux_mainnet',
+      name: 'Lux Mainnet',
+      chainType: 'lux_subnet',
+      blockTimeMs: 400,
+      finalityMs: 400,
+      warpSupported: true,
+      teleportSupported: true,
+      venues: ['lx_dex', 'lx_amm']
+    },
+    ethereum: {
+      chainId: '1',
+      name: 'Ethereum',
+      chainType: 'evm',
+      blockTimeMs: 12000,
+      finalityMs: 900000,  // 15 min
+      warpSupported: false,
+      teleportSupported: true,
+      venues: ['uniswap', 'sushiswap']
+    },
+    binance: {
+      chainId: 'binance',
+      name: 'Binance',
+      chainType: 'cex',
+      blockTimeMs: 0,
+      finalityMs: 0,
+      warpSupported: false,
+      teleportSupported: false,
+      venues: ['binance']
+    }
+  }
+})
+
+// Determine best transport
+const transport = router.determineTransport('lux_mainnet', 'ethereum')
+console.log(`Transport: ${transport}`)  // 'teleport'
+
+const latency = router.estimateLatency('lux_mainnet', 'ethereum')
+console.log(`Estimated latency: ${latency}ms`)  // ~910000ms
+
+// Enhance opportunity with routing info
+const enhanced = await router.enhanceOpportunity(opportunity)
+console.log(`
+  Transport: ${enhanced.transport}
+  Latency: ${enhanced.estimatedLatency}ms
+  Bridge Cost: $${enhanced.bridgeCost}
+  Adjusted Profit: $${enhanced.adjustedNetProfit}
+`)
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/arbitrage"
+    "github.com/luxfi/dex/sdk/go/client"
+    "github.com/shopspring/decimal"
+)
+
+func main() {
+    // Initialize DEX client
+    dex, err := client.NewLxDex(client.Config{
+        Endpoint: "wss://dex.lux.network/ws",
+        APIKey:   os.Getenv("LX_API_KEY"),
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer dex.Close()
+
+    // ============================================
+    // LX-First Strategy
+    // ============================================
+
+    lxFirst := arbitrage.NewLxFirstArbitrage(arbitrage.LxFirstConfig{
+        MaxStalenessMs:  2000,
+        MinDivergenceBps: decimal.NewFromInt(10),
+        MinProfit:       decimal.NewFromInt(5),
+        MaxPositionSize: decimal.NewFromInt(10000),
+        Symbols:         []string{"BTC-USDC", "ETH-USDC", "LUX-USDC"},
+        VenueLatencies: map[string]int{
+            "binance":     50,
+            "mexc":        100,
+            "uniswap":     12000,
+            "pancakeswap": 3000,
+        },
+    })
+
+    // Subscribe to opportunities
+    lxFirst.OnOpportunity(func(opp *arbitrage.LxFirstOpportunity) {
+        fmt.Printf(`
+═══════════════════════════════════════
+LX-FIRST OPPORTUNITY DETECTED
+═══════════════════════════════════════
+Symbol: %s
+LX Price: $%s
+Stale Venue: %s
+Staleness: %dms
+Side: %s
+Divergence: %s bps
+Expected Profit: $%s
+Confidence: %.1f%%
+═══════════════════════════════════════
+`,
+            opp.Symbol,
+            opp.LxPrice.Mid.String(),
+            opp.StaleVenue,
+            opp.Staleness,
+            opp.Side,
+            opp.DivergenceBps.String(),
+            opp.ExpectedProfit.String(),
+            opp.Confidence*100,
+        )
+
+        // Execute if confidence is high
+        if opp.Confidence > 0.8 {
+            go executeArbitrage(dex, opp)
+        }
+    })
+
+    // Feed real-time LX prices (the oracle)
+    dex.OnTrade("BTC-USDC", func(trade *client.Trade) {
+        lxFirst.UpdateLxPrice(&arbitrage.LxPrice{
+            Symbol:    "BTC-USDC",
+            Bid:       trade.Price.Mul(decimal.NewFromFloat(0.9999)),
+            Ask:       trade.Price.Mul(decimal.NewFromFloat(1.0001)),
+            Mid:       trade.Price,
+            Timestamp: time.Now().UnixMilli(),
+            BlockNum:  trade.BlockNumber,
+        })
+    })
+
+    // Feed CEX prices
+    binanceClient.OnTicker("BTCUSDC", func(ticker *binance.Ticker) {
+        lxFirst.UpdateVenuePrice(&arbitrage.VenuePrice{
+            Venue:     "binance",
+            Symbol:    "BTC-USDC",
+            Bid:       ticker.BestBid,
+            Ask:       ticker.BestAsk,
+            Timestamp: time.Now().UnixMilli(),
+            Latency:   50,
+        })
+    })
+
+    // Start arbitrage
+    lxFirst.Start()
+
+    // ============================================
+    // Scanner (Multi-Type Detection)
+    // ============================================
+
+    scanner := arbitrage.NewScanner(arbitrage.ScannerConfig{
+        MinSpreadBps:   decimal.NewFromInt(10),
+        MinProfitUSD:   decimal.NewFromInt(10),
+        MaxPriceAgeMs:  5000,
+        Symbols:        []string{"BTC", "ETH", "LUX", "SOL", "AVAX"},
+        ChainIDs:       []string{"lux", "ethereum", "bsc", "arbitrum"},
+        ScanIntervalMs: 100,
+        MaxConcurrency: 50,
+    })
+
+    // Add chain configurations
+    scanner.AddChain(&arbitrage.CrossChainInfo{
+        ChainID:          "lux",
+        Name:             "Lux Mainnet",
+        ChainType:        arbitrage.ChainTypeLuxSubnet,
+        BlockTimeMs:      200,
+        FinalityMs:       200,
+        WarpSupported:    true,
+        TeleportSupported: true,
+        Venues:           []string{"lx_dex", "lx_amm"},
+    })
+
+    scanner.AddChain(&arbitrage.CrossChainInfo{
+        ChainID:          "ethereum",
+        Name:             "Ethereum",
+        ChainType:        arbitrage.ChainTypeEVM,
+        BlockTimeMs:      12000,
+        FinalityMs:       900000,
+        WarpSupported:    false,
+        TeleportSupported: true,
+        Venues:           []string{"uniswap", "sushiswap"},
+    })
+
+    // Subscribe to opportunities
+    scanner.OnOpportunity(func(opp *arbitrage.ArbitrageOpportunity) {
+        fmt.Printf("SCANNER: %s arb - %s → %s, Spread: %s bps, Net PnL: $%s\n",
+            opp.Type,
+            opp.BuySource.Venue,
+            opp.SellSource.Venue,
+            opp.SpreadBps.String(),
+            opp.NetPnL.String(),
+        )
+    })
+
+    ctx := context.Background()
+    if err := scanner.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    // Keep running
+    select {}
+}
+
+func executeArbitrage(dex *client.LxDex, opp *arbitrage.LxFirstOpportunity) {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    if opp.Side == "buy" {
+        // Buy on stale venue
+        order, err := cexClient.PlaceOrder(ctx, &cex.OrderRequest{
+            Symbol:   opp.Symbol,
+            Side:     "buy",
+            Type:     "limit",
+            Price:    opp.StalePrice.Ask,
+            Quantity: opp.MaxSize,
+        })
+        if err != nil {
+            log.Printf("CEX order failed: %v", err)
+            return
+        }
+
+        // Hedge on LX DEX
+        if order.FilledQuantity.GreaterThan(decimal.Zero) {
+            _, err = dex.Spot().Sell(ctx, &client.OrderRequest{
+                Symbol:   opp.Symbol,
+                Type:     "market",
+                Quantity: order.FilledQuantity,
+            })
+            if err != nil {
+                log.Printf("Hedge failed: %v", err)
+            }
+        }
+    } else {
+        // Sell on stale venue
+        order, err := cexClient.PlaceOrder(ctx, &cex.OrderRequest{
+            Symbol:   opp.Symbol,
+            Side:     "sell",
+            Type:     "limit",
+            Price:    opp.StalePrice.Bid,
+            Quantity: opp.MaxSize,
+        })
+        if err != nil {
+            log.Printf("CEX order failed: %v", err)
+            return
+        }
+
+        // Hedge on LX DEX
+        if order.FilledQuantity.GreaterThan(decimal.Zero) {
+            _, err = dex.Spot().Buy(ctx, &client.OrderRequest{
+                Symbol:   opp.Symbol,
+                Type:     "market",
+                Quantity: order.FilledQuantity,
+            })
+            if err != nil {
+                log.Printf("Hedge failed: %v", err)
+            }
+        }
+    }
+}
+```
+
+### Python
+
+```python
+import asyncio
+from decimal import Decimal
+from typing import Optional
+
+from lx_trading import LxDex
+from lx_trading.arbitrage import (
+    LxFirstArbitrage,
+    LxFirstConfig,
+    LxPrice,
+    VenuePrice,
+    UnifiedArbitrage,
+    UnifiedArbConfig,
+    Scanner,
+    ScannerConfig,
+    CrossChainRouter,
+    CrossChainConfig,
+    CrossChainInfo,
+    ChainType,
+)
+
+
+async def main():
+    # Initialize DEX client
+    dex = LxDex(
+        endpoint="wss://dex.lux.network/ws",
+        api_key=os.environ["LX_API_KEY"]
+    )
+    await dex.connect()
+
+    # ============================================
+    # LX-First Strategy
+    # ============================================
+
+    config = LxFirstConfig(
+        max_staleness_ms=2000,
+        min_divergence_bps=Decimal("10"),
+        min_profit=Decimal("5"),
+        max_position_size=Decimal("10000"),
+        symbols=["BTC-USDC", "ETH-USDC", "LUX-USDC"],
+        venue_latencies={
+            "binance": 50,
+            "mexc": 100,
+            "uniswap": 12000,
+            "pancakeswap": 3000,
+        }
+    )
+
+    lx_first = LxFirstArbitrage(config)
+
+    # Subscribe to opportunities
+    def on_opportunity(opp):
+        print(f"""
+═══════════════════════════════════════
+LX-FIRST OPPORTUNITY DETECTED
+═══════════════════════════════════════
+Symbol: {opp.symbol}
+LX Price: ${opp.lx_price.mid}
+Stale Venue: {opp.stale_venue}
+Staleness: {opp.staleness}ms
+Side: {opp.side.upper()}
+Divergence: {opp.divergence_bps} bps
+Expected Profit: ${opp.expected_profit}
+Confidence: {opp.confidence * 100:.1f}%
+═══════════════════════════════════════
+        """)
+
+        # Execute if confidence is high
+        if opp.confidence > 0.8:
+            asyncio.create_task(execute_arbitrage(dex, opp))
+
+    lx_first.on_opportunity(on_opportunity)
+
+    # Feed real-time LX prices (the oracle)
+    async def handle_lx_trade(trade):
+        lx_first.update_lx_price(LxPrice(
+            symbol="BTC-USDC",
+            bid=trade.price * Decimal("0.9999"),
+            ask=trade.price * Decimal("1.0001"),
+            mid=trade.price,
+            timestamp=int(time.time() * 1000),
+            block_num=trade.block_number,
+        ))
+
+    dex.on_trade("BTC-USDC", handle_lx_trade)
+
+    # Feed CEX prices
+    async def handle_binance_ticker(ticker):
+        lx_first.update_venue_price(VenuePrice(
+            venue="binance",
+            symbol="BTC-USDC",
+            bid=ticker.best_bid,
+            ask=ticker.best_ask,
+            timestamp=int(time.time() * 1000),
+            latency=50,
+        ))
+
+    binance_ws.on_ticker("BTCUSDC", handle_binance_ticker)
+
+    # Start arbitrage
+    lx_first.start()
+
+    # ============================================
+    # Unified Arbitrage
+    # ============================================
+
+    unified_config = UnifiedArbConfig(
+        min_spread_bps=Decimal("10"),
+        min_profit=Decimal("5"),
+        max_position_size=Decimal("10000"),
+        max_total_exposure=Decimal("100000"),
+        symbols=["BTC-USDC", "ETH-USDC", "LUX-USDC"],
+        venue_priority=["lx_dex", "binance", "mexc", "lx_amm"],
+        scan_interval_ms=100,
+        execute_timeout_ms=5000,
+    )
+
+    unified = UnifiedArbitrage(dex, unified_config)
+
+    def on_unified_opp(opp):
+        print(f"""
+UNIFIED ARB: {opp.symbol}
+Buy: {opp.buy_venue} @ ${opp.buy_price}
+Sell: {opp.sell_venue} @ ${opp.sell_price}
+Spread: {opp.spread_bps} bps
+Net Profit: ${opp.net_profit}
+        """)
+
+    unified.on_opportunity(on_unified_opp)
+    await unified.start()
+
+    # Get statistics
+    stats = unified.get_stats()
+    print(f"""
+Total Executions: {stats.total_executions}
+Win Rate: {stats.win_rate * 100:.1f}%
+Total PnL: ${stats.total_pnl}
+    """)
+
+    # ============================================
+    # Cross-Chain Router
+    # ============================================
+
+    cross_chain_config = CrossChainConfig(
+        warp_enabled=True,
+        teleport_enabled=True,
+        chains={
+            "lux_mainnet": CrossChainInfo(
+                chain_id="lux_mainnet",
+                name="Lux Mainnet",
+                chain_type=ChainType.LUX_SUBNET,
+                block_time_ms=400,
+                finality_ms=400,
+                warp_supported=True,
+                teleport_supported=True,
+                venues=["lx_dex", "lx_amm"],
+            ),
+            "ethereum": CrossChainInfo(
+                chain_id="1",
+                name="Ethereum",
+                chain_type=ChainType.EVM,
+                block_time_ms=12000,
+                finality_ms=900000,
+                warp_supported=False,
+                teleport_supported=True,
+                venues=["uniswap", "sushiswap"],
+            ),
+        }
+    )
+
+    router = CrossChainRouter(cross_chain_config)
+
+    # Determine best transport
+    transport = router.determine_transport("lux_mainnet", "ethereum")
+    print(f"Transport: {transport}")  # CrossChainTransport.TELEPORT
+
+    latency = router.estimate_latency("lux_mainnet", "ethereum")
+    print(f"Estimated latency: {latency}ms")
+
+    # Enhance opportunity
+    enhanced = await router.enhance_opportunity(opportunity)
+    print(f"""
+Transport: {enhanced.transport}
+Latency: {enhanced.estimated_latency}ms
+Bridge Cost: ${enhanced.bridge_cost}
+Adjusted Profit: ${enhanced.adjusted_net_profit}
+    """)
+
+    # Keep running
+    await asyncio.Event().wait()
+
+
+async def execute_arbitrage(dex, opp):
+    """Execute an LX-first arbitrage opportunity."""
+    try:
+        if opp.side == "buy":
+            # Buy on stale venue
+            order = await cex_client.place_order(
+                symbol=opp.symbol,
+                side="buy",
+                order_type="limit",
+                price=opp.stale_price.ask,
+                quantity=opp.max_size,
+            )
+
+            # Hedge on LX DEX
+            if order.filled_quantity > 0:
+                await dex.spot.sell(
+                    symbol=opp.symbol,
+                    order_type="market",
+                    quantity=order.filled_quantity,
+                )
+        else:
+            # Sell on stale venue
+            order = await cex_client.place_order(
+                symbol=opp.symbol,
+                side="sell",
+                order_type="limit",
+                price=opp.stale_price.bid,
+                quantity=opp.max_size,
+            )
+
+            # Hedge on LX DEX
+            if order.filled_quantity > 0:
+                await dex.spot.buy(
+                    symbol=opp.symbol,
+                    order_type="market",
+                    quantity=order.filled_quantity,
+                )
+
+    except Exception as e:
+        print(f"Arbitrage execution failed: {e}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Rust
+
+```rust
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+
+use lx_trading_core::{
+    LxDex, LxDexConfig,
+    arbitrage::{
+        LxFirstArbitrage, LxFirstConfig, LxPrice, VenuePrice,
+        UnifiedArbitrage, UnifiedArbConfig,
+        Scanner, ScannerConfig,
+        CrossChainRouter, CrossChainConfig, CrossChainInfo, ChainType,
+        CrossChainTransport, LxFirstOpportunity,
+    },
+};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Initialize DEX client
+    let dex = Arc::new(LxDex::new(LxDexConfig {
+        endpoint: "wss://dex.lux.network/ws".into(),
+        api_key: std::env::var("LX_API_KEY").ok(),
+        ..Default::default()
+    }).await?);
+
+    // ============================================
+    // LX-First Strategy
+    // ============================================
+
+    let config = LxFirstConfig {
+        max_staleness_ms: 2000,
+        min_divergence_bps: dec!(10),
+        min_profit: dec!(5),
+        max_position_size: dec!(10000),
+        symbols: vec![
+            "BTC-USDC".into(),
+            "ETH-USDC".into(),
+            "LUX-USDC".into(),
+        ],
+        venue_latencies: [
+            ("binance".into(), 50),
+            ("mexc".into(), 100),
+            ("uniswap".into(), 12000),
+            ("pancakeswap".into(), 3000),
+        ].into_iter().collect(),
+    };
+
+    let lx_first = Arc::new(RwLock::new(LxFirstArbitrage::new(config)));
+    let lx_first_clone = lx_first.clone();
+    let dex_clone = dex.clone();
+
+    // Subscribe to opportunities
+    {
+        let mut arb = lx_first.write().await;
+        arb.on_opportunity(move |opp: &LxFirstOpportunity| {
+            println!(r#"
+═══════════════════════════════════════
+LX-FIRST OPPORTUNITY DETECTED
+═══════════════════════════════════════
+Symbol: {}
+LX Price: ${}
+Stale Venue: {}
+Staleness: {}ms
+Side: {}
+Divergence: {} bps
+Expected Profit: ${}
+Confidence: {:.1}%
+═══════════════════════════════════════
+"#,
+                opp.symbol,
+                opp.lx_price.mid,
+                opp.stale_venue,
+                opp.staleness,
+                opp.side.to_uppercase(),
+                opp.divergence_bps,
+                opp.expected_profit,
+                opp.confidence * 100.0,
+            );
+
+            // Execute if confidence is high
+            if opp.confidence > 0.8 {
+                let opp_clone = opp.clone();
+                let dex = dex_clone.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = execute_arbitrage(&dex, &opp_clone).await {
+                        eprintln!("Arbitrage failed: {}", e);
+                    }
+                });
+            }
+        });
+    }
+
+    // Feed real-time LX prices (the oracle)
+    let lx_first_for_trades = lx_first.clone();
+    dex.on_trade("BTC-USDC", move |trade| {
+        let lx_first = lx_first_for_trades.clone();
+        async move {
+            let mut arb = lx_first.write().await;
+            arb.update_lx_price(LxPrice {
+                symbol: "BTC-USDC".into(),
+                bid: trade.price * dec!(0.9999),
+                ask: trade.price * dec!(1.0001),
+                mid: trade.price,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                block_num: trade.block_number,
+            });
+        }
+    }).await;
+
+    // Feed CEX prices
+    let lx_first_for_cex = lx_first.clone();
+    binance_ws.on_ticker("BTCUSDC", move |ticker| {
+        let lx_first = lx_first_for_cex.clone();
+        async move {
+            let mut arb = lx_first.write().await;
+            arb.update_venue_price(VenuePrice {
+                venue: "binance".into(),
+                symbol: "BTC-USDC".into(),
+                bid: ticker.best_bid,
+                ask: ticker.best_ask,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                latency: 50,
+                stale: false,
+            });
+        }
+    }).await;
+
+    // Start arbitrage
+    {
+        let mut arb = lx_first.write().await;
+        arb.start();
+    }
+
+    // ============================================
+    // Scanner (Multi-Type Detection)
+    // ============================================
+
+    let scanner_config = ScannerConfig {
+        min_spread_bps: dec!(10),
+        min_profit_usd: dec!(10),
+        max_price_age_ms: 5000,
+        symbols: vec!["BTC".into(), "ETH".into(), "LUX".into()],
+        chain_ids: vec!["lux".into(), "ethereum".into(), "bsc".into()],
+        scan_interval_ms: 100,
+        max_concurrency: 50,
+    };
+
+    let scanner = Arc::new(RwLock::new(Scanner::new(scanner_config)));
+
+    // Add chain configurations
+    {
+        let mut s = scanner.write().await;
+        s.add_chain(CrossChainInfo {
+            chain_id: "lux".into(),
+            name: "Lux Mainnet".into(),
+            chain_type: ChainType::LuxSubnet,
+            block_time_ms: 200,
+            finality_ms: 200,
+            warp_supported: true,
+            teleport_supported: true,
+            venues: vec!["lx_dex".into(), "lx_amm".into()],
+        });
+
+        s.add_chain(CrossChainInfo {
+            chain_id: "ethereum".into(),
+            name: "Ethereum".into(),
+            chain_type: ChainType::Evm,
+            block_time_ms: 12000,
+            finality_ms: 900000,
+            warp_supported: false,
+            teleport_supported: true,
+            venues: vec!["uniswap".into(), "sushiswap".into()],
+        });
+
+        s.on_opportunity(|opp| {
+            println!(
+                "SCANNER: {:?} arb - {} → {}, Spread: {} bps, Net PnL: ${}",
+                opp.arb_type,
+                opp.buy_source.venue,
+                opp.sell_source.venue,
+                opp.spread_bps,
+                opp.net_pnl,
+            );
+        });
+    }
+
+    // Start scanner
+    {
+        let mut s = scanner.write().await;
+        s.start().await?;
+    }
+
+    // ============================================
+    // Cross-Chain Router
+    // ============================================
+
+    let router = CrossChainRouter::new(CrossChainConfig::default());
+
+    // Determine transport
+    let transport = router.determine_transport("lux_mainnet", "ethereum");
+    println!("Transport: {:?}", transport);  // Teleport
+
+    let latency = router.estimate_latency("lux_mainnet", "ethereum");
+    println!("Estimated latency: {}ms", latency);
+
+    // Keep running
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
+
+async fn execute_arbitrage(
+    dex: &LxDex,
+    opp: &LxFirstOpportunity,
+) -> anyhow::Result<()> {
+    if opp.side == "buy" {
+        // Buy on stale venue
+        let order = cex_client.place_order(OrderRequest {
+            symbol: opp.symbol.clone(),
+            side: "buy".into(),
+            order_type: "limit".into(),
+            price: Some(opp.stale_price.ask),
+            quantity: opp.max_size,
+        }).await?;
+
+        // Hedge on LX DEX
+        if order.filled_quantity > Decimal::ZERO {
+            dex.spot().sell(OrderRequest {
+                symbol: opp.symbol.clone(),
+                order_type: "market".into(),
+                quantity: order.filled_quantity,
+                ..Default::default()
+            }).await?;
+        }
+    } else {
+        // Sell on stale venue
+        let order = cex_client.place_order(OrderRequest {
+            symbol: opp.symbol.clone(),
+            side: "sell".into(),
+            order_type: "limit".into(),
+            price: Some(opp.stale_price.bid),
+            quantity: opp.max_size,
+        }).await?;
+
+        // Hedge on LX DEX
+        if order.filled_quantity > Decimal::ZERO {
+            dex.spot().buy(OrderRequest {
+                symbol: opp.symbol.clone(),
+                order_type: "market".into(),
+                quantity: order.filled_quantity,
+                ..Default::default()
+            }).await?;
+        }
+    }
+
+    Ok(())
+}
+```
+
+### C++
+
+```cpp
+#include <lx/trading/lx_dex.hpp>
+#include <lx/trading/arbitrage/arbitrage.hpp>
+#include <iostream>
+#include <thread>
+
+using namespace lx::trading;
+using namespace lx::trading::arbitrage;
+
+int main() {
+    // Initialize DEX client
+    LxDexConfig config;
+    config.endpoint = "wss://dex.lux.network/ws";
+    config.api_key = std::getenv("LX_API_KEY");
+
+    auto dex = std::make_shared<LxDex>(config);
+    dex->connect();
+
+    // ============================================
+    // LX-First Strategy
+    // ============================================
+
+    LxFirstConfig lx_config;
+    lx_config.max_staleness_ms = 2000;
+    lx_config.min_divergence_bps = Decimal("10");
+    lx_config.min_profit = Decimal("5");
+    lx_config.max_position_size = Decimal("10000");
+    lx_config.symbols = {"BTC-USDC", "ETH-USDC", "LUX-USDC"};
+    lx_config.venue_latencies = {
+        {"binance", 50},
+        {"mexc", 100},
+        {"uniswap", 12000},
+        {"pancakeswap", 3000}
+    };
+
+    auto lx_first = std::make_shared<LxFirstArbitrage>(lx_config);
+
+    // Subscribe to opportunities
+    lx_first->on_opportunity([&dex](const LxFirstOpportunity& opp) {
+        std::cout << R"(
+═══════════════════════════════════════
+LX-FIRST OPPORTUNITY DETECTED
+═══════════════════════════════════════
+Symbol: )" << opp.symbol << R"(
+LX Price: $)" << opp.lx_price.mid.to_string() << R"(
+Stale Venue: )" << opp.stale_venue << R"(
+Staleness: )" << opp.staleness << R"(ms
+Side: )" << opp.side << R"(
+Divergence: )" << opp.divergence_bps.to_string() << R"( bps
+Expected Profit: $)" << opp.expected_profit.to_string() << R"(
+Confidence: )" << (opp.confidence * 100) << R"(%
+═══════════════════════════════════════
+)" << std::endl;
+
+        // Execute if confidence is high
+        if (opp.confidence > 0.8) {
+            std::thread([&dex, opp]() {
+                execute_arbitrage(dex.get(), opp);
+            }).detach();
+        }
+    });
+
+    // Feed real-time LX prices (the oracle)
+    dex->on_trade("BTC-USDC", [&lx_first](const Trade& trade) {
+        LxPrice price;
+        price.symbol = "BTC-USDC";
+        price.bid = trade.price * Decimal("0.9999");
+        price.ask = trade.price * Decimal("1.0001");
+        price.mid = trade.price;
+        price.timestamp = std::chrono::system_clock::now()
+            .time_since_epoch().count() / 1000000;
+        price.block_num = trade.block_number;
+
+        lx_first->update_lx_price(price);
+    });
+
+    // Feed CEX prices
+    binance_ws->on_ticker("BTCUSDC", [&lx_first](const Ticker& ticker) {
+        VenuePrice price;
+        price.venue = "binance";
+        price.symbol = "BTC-USDC";
+        price.bid = ticker.best_bid;
+        price.ask = ticker.best_ask;
+        price.timestamp = std::chrono::system_clock::now()
+            .time_since_epoch().count() / 1000000;
+        price.latency = 50;
+        price.stale = false;
+
+        lx_first->update_venue_price(price);
+    });
+
+    // Start arbitrage
+    lx_first->start();
+
+    // ============================================
+    // Scanner (Multi-Type Detection)
+    // ============================================
+
+    ScannerConfig scanner_config;
+    scanner_config.min_spread_bps = Decimal("10");
+    scanner_config.min_profit_usd = Decimal("10");
+    scanner_config.max_price_age_ms = 5000;
+    scanner_config.symbols = {"BTC", "ETH", "LUX"};
+    scanner_config.chain_ids = {"lux", "ethereum", "bsc"};
+    scanner_config.scan_interval_ms = 100;
+    scanner_config.max_concurrency = 50;
+
+    auto scanner = std::make_shared<Scanner>(scanner_config);
+
+    // Add chain configurations
+    CrossChainInfo lux_chain;
+    lux_chain.chain_id = "lux";
+    lux_chain.name = "Lux Mainnet";
+    lux_chain.chain_type = ChainType::LUX_SUBNET;
+    lux_chain.block_time_ms = 200;
+    lux_chain.finality_ms = 200;
+    lux_chain.warp_supported = true;
+    lux_chain.teleport_supported = true;
+    lux_chain.venues = {"lx_dex", "lx_amm"};
+    scanner->add_chain(lux_chain);
+
+    CrossChainInfo eth_chain;
+    eth_chain.chain_id = "ethereum";
+    eth_chain.name = "Ethereum";
+    eth_chain.chain_type = ChainType::EVM;
+    eth_chain.block_time_ms = 12000;
+    eth_chain.finality_ms = 900000;
+    eth_chain.warp_supported = false;
+    eth_chain.teleport_supported = true;
+    eth_chain.venues = {"uniswap", "sushiswap"};
+    scanner->add_chain(eth_chain);
+
+    scanner->on_opportunity([](const ArbitrageOpportunity& opp) {
+        std::cout << "SCANNER: " << to_string(opp.type)
+                  << " arb - " << opp.buy_source.venue
+                  << " → " << opp.sell_source.venue
+                  << ", Spread: " << opp.spread_bps.to_string() << " bps"
+                  << ", Net PnL: $" << opp.net_pnl.to_string()
+                  << std::endl;
+    });
+
+    scanner->start();
+
+    // ============================================
+    // Cross-Chain Router
+    // ============================================
+
+    auto router = std::make_shared<CrossChainRouter>(
+        default_cross_chain_config()
+    );
+
+    // Determine transport
+    auto transport = router->determine_transport("lux_mainnet", "ethereum");
+    std::cout << "Transport: " << to_string(transport) << std::endl;
+
+    auto latency = router->estimate_latency("lux_mainnet", "ethereum");
+    std::cout << "Estimated latency: " << latency << "ms" << std::endl;
+
+    // Keep running
+    std::this_thread::sleep_for(std::chrono::hours(24 * 365));
+    return 0;
+}
+
+void execute_arbitrage(LxDex* dex, const LxFirstOpportunity& opp) {
+    try {
+        if (opp.side == "buy") {
+            // Buy on stale venue
+            OrderRequest cex_order;
+            cex_order.symbol = opp.symbol;
+            cex_order.side = "buy";
+            cex_order.type = "limit";
+            cex_order.price = opp.stale_price.ask;
+            cex_order.quantity = opp.max_size;
+
+            auto order = cex_client->place_order(cex_order);
+
+            // Hedge on LX DEX
+            if (order.filled_quantity > Decimal::ZERO) {
+                OrderRequest hedge;
+                hedge.symbol = opp.symbol;
+                hedge.side = "sell";
+                hedge.type = "market";
+                hedge.quantity = order.filled_quantity;
+
+                dex->spot()->sell(hedge);
+            }
+        } else {
+            // Sell on stale venue
+            OrderRequest cex_order;
+            cex_order.symbol = opp.symbol;
+            cex_order.side = "sell";
+            cex_order.type = "limit";
+            cex_order.price = opp.stale_price.bid;
+            cex_order.quantity = opp.max_size;
+
+            auto order = cex_client->place_order(cex_order);
+
+            // Hedge on LX DEX
+            if (order.filled_quantity > Decimal::ZERO) {
+                OrderRequest hedge;
+                hedge.symbol = opp.symbol;
+                hedge.side = "buy";
+                hedge.type = "market";
+                hedge.quantity = order.filled_quantity;
+
+                dex->spot()->buy(hedge);
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Arbitrage execution failed: " << e.what() << std::endl;
+    }
+}
+```
+
+## Configuration Reference
+
+### LxFirstConfig
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `maxStalenessMs` | int | 2000 | Max price staleness to consider (ms) |
+| `minDivergenceBps` | Decimal | 10 | Min divergence to trigger (basis points) |
+| `minProfit` | Decimal | 5 | Min expected profit (USD) |
+| `maxPositionSize` | Decimal | 1000 | Max position per trade (USD) |
+| `symbols` | string[] | [...] | Trading pairs to monitor |
+| `venueLatencies` | map | {...} | Expected latency per venue (ms) |
+
+### ScannerConfig
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `minSpreadBps` | Decimal | 10 | Min spread to consider (bps) |
+| `minProfitUsd` | Decimal | 10 | Min profit threshold (USD) |
+| `maxPriceAgeMs` | int | 5000 | Max price age to use (ms) |
+| `symbols` | string[] | [...] | Assets to scan |
+| `chainIds` | string[] | [...] | Chains to monitor |
+| `scanIntervalMs` | int | 100 | Scan frequency (ms) |
+| `maxConcurrency` | int | 50 | Max parallel operations |
+
+### CrossChainConfig
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `warpEnabled` | bool | true | Enable Warp transport |
+| `warpEndpoint` | string | null | Warp service endpoint |
+| `warpTimeoutMs` | int | 5000 | Warp timeout (ms) |
+| `teleportEnabled` | bool | true | Enable Teleport bridge |
+| `teleportEndpoint` | string | null | Teleport service endpoint |
+| `teleportTimeoutMs` | int | 60000 | Teleport timeout (ms) |
+| `chains` | map | {...} | Chain configurations |
+
+## Risk Management
+
+### Position Limits
+
+```typescript
+const config = {
+  maxPositionSize: 10000,      // Max $10k per trade
+  maxTotalExposure: 100000,    // Max $100k total
+  maxDailyLoss: 1000,          // Stop at $1k daily loss
+  maxTradesPerDay: 100         // Rate limit
+}
+```
+
+### Confidence Thresholds
+
+Only execute when confidence is high enough:
+
+```typescript
+if (opportunity.confidence > 0.8) {
+  execute(opportunity)
+} else if (opportunity.confidence > 0.6) {
+  // Reduce position size
+  execute(opportunity, positionSize * 0.5)
+} else {
+  // Skip - too risky
+  log('Skipping low-confidence opportunity')
+}
+```
+
+### Staleness Checks
+
+Always verify price freshness:
+
+```typescript
+const maxStaleness = 2000  // 2 seconds
+
+if (Date.now() - price.timestamp > maxStaleness) {
+  // Price is too old - skip
+  return
+}
+```
+
+## Best Practices
+
+### 1. Start with LX-First
+
+The LX-first strategy is the most reliable because LX DEX prices are always the freshest. Other strategies add complexity.
+
+### 2. Use Appropriate Transports
+
+- **Warp** for Lux subnet trades (instant)
+- **CEX API** for exchange trades (fast)
+- **Teleport** only when necessary (slow but bridges assets)
+
+### 3. Monitor and Adjust
+
+```typescript
+// Track performance
+const stats = arbitrage.getStats()
+
+if (stats.winRate < 0.5) {
+  // Increase thresholds
+  config.minDivergenceBps = 15
+  config.minProfit = 10
+}
+
+if (stats.totalPnl < 0) {
+  // Stop and review
+  arbitrage.stop()
+}
+```
+
+### 4. Handle Failures Gracefully
+
+```typescript
+try {
+  await execute(opportunity)
+} catch (error) {
+  if (error.code === 'INSUFFICIENT_BALANCE') {
+    // Reduce position sizes
+  } else if (error.code === 'TIMEOUT') {
+    // Opportunity expired - normal
+  } else {
+    // Unknown error - log and continue
+    console.error('Execution error:', error)
+  }
+}
+```
+
+## Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `OPPORTUNITY_EXPIRED` | Took too long to execute | Increase execution speed |
+| `INSUFFICIENT_BALANCE` | Not enough funds on venue | Pre-fund venues |
+| `PRICE_MOVED` | Market moved during execution | Use tighter spreads |
+| `BRIDGE_TIMEOUT` | Cross-chain transfer too slow | Use faster transport |
+| `VENUE_UNAVAILABLE` | API/RPC down | Add fallback venues |
+
+## Further Reading
+
+- [Spot Trading](/docs/trading/spot) - Basic trading operations
+- [Order Types](/docs/trading/order-types) - Advanced order types
+- [Cross-Chain Bridge](/docs/bridge) - Warp and Teleport details
+- [HFT Strategies](/docs/hft) - High-frequency trading optimization
