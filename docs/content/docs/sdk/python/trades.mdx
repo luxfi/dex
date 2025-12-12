@@ -47,7 +47,7 @@ class Trade:
 ### Basic Usage
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 
@@ -129,7 +129,7 @@ print(f"Total trades: {len(all_trades)}")
 
 ```python
 import pandas as pd
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 trades = client.get_trades("BTC-USD", limit=1000)
@@ -155,13 +155,13 @@ print(df.head(10))
 ### Built-in to_dataframe
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 trades = client.get_trades("BTC-USD", limit=1000)
 
 # Direct conversion using Trade list helper
-from luxfi_dex.utils import trades_to_dataframe
+from lux_dex.utils import trades_to_dataframe
 
 df = trades_to_dataframe(trades)
 print(df.describe())
@@ -172,7 +172,7 @@ print(df.describe())
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 trades = client.get_trades("BTC-USD", limit=1000)
@@ -224,7 +224,7 @@ print(f"Buy/Sell imbalance: {imbalance:.3f}")
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 trades = client.get_trades("BTC-USD", limit=10000)
@@ -261,7 +261,7 @@ print(f"\nVolatility (1min): {ohlcv['returns'].std() * 100:.4f}%")
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import Client
+from lux_dex import Client
 from datetime import datetime, timedelta
 
 client = Client("http://localhost:8080/rpc")
@@ -323,8 +323,8 @@ print(f"Hours with strong sell pressure: {len(strong_sell)}")
 ### Synchronous Subscription
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.types import Trade
+from lux_dex import Client
+from lux_dex.types import Trade
 
 client = Client(
     json_rpc_url="http://localhost:8080/rpc",
@@ -353,7 +353,7 @@ except KeyboardInterrupt:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def stream_trades():
     async with AsyncClient(
@@ -382,7 +382,7 @@ asyncio.run(stream_trades())
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def stream_multiple():
     async with AsyncClient(
@@ -408,8 +408,8 @@ asyncio.run(stream_multiple())
 import asyncio
 from collections import deque
 from dataclasses import dataclass, field
-from luxfi_dex import AsyncClient
-from luxfi_dex.types import Trade
+from lux_dex import AsyncClient
+from lux_dex.types import Trade
 
 @dataclass
 class TradeAggregator:
@@ -464,7 +464,7 @@ asyncio.run(main())
 ## User Trades
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client(
     json_rpc_url="http://localhost:8080/rpc",
@@ -491,7 +491,7 @@ print(f"Order had {len(order_trades)} fills")
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def stream_my_trades():
     async with AsyncClient(
@@ -513,7 +513,7 @@ asyncio.run(stream_my_trades())
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 trades = client.get_trades("BTC-USD", limit=5000)
@@ -570,7 +570,7 @@ nest_asyncio.apply()
 
 import pandas as pd
 import numpy as np
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 # Cell 2: Fetch trades
 async def fetch_trades(symbol: str, limit: int = 1000):
@@ -656,8 +656,8 @@ print(f"Captured {len(live_df)} trades in 30 seconds")
 ## Error Handling
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.exceptions import (
+from lux_dex import Client
+from lux_dex.exceptions import (
     SymbolNotFoundError,
     ConnectionError,
     RateLimitError

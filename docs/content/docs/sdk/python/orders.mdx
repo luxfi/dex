@@ -10,7 +10,7 @@ Complete guide to order management with the Python SDK including placement, canc
 ## Order Types
 
 ```python
-from luxfi_dex.types import OrderType
+from lux_dex.types import OrderType
 
 # Available order types
 OrderType.LIMIT       # Order at specific price
@@ -26,7 +26,7 @@ OrderType.PEG         # Pegged to best bid/ask
 ### Limit Order
 
 ```python
-from luxfi_dex import Client, OrderType, Side, TimeInForce
+from lux_dex import Client, OrderType, Side, TimeInForce
 
 client = Client("http://localhost:8080/rpc")
 
@@ -114,7 +114,7 @@ order = client.place_order(
 ## Time in Force
 
 ```python
-from luxfi_dex.types import TimeInForce
+from lux_dex.types import TimeInForce
 
 # Good Till Cancelled (default)
 order = client.place_order(
@@ -211,7 +211,7 @@ cancelled = client.cancel_order(order_id="ord_123456")
 print(f"Cancelled: {cancelled.status}")
 
 # With error handling
-from luxfi_dex.exceptions import OrderNotFoundError
+from lux_dex.exceptions import OrderNotFoundError
 
 try:
     cancelled = client.cancel_order("ord_123456")
@@ -240,7 +240,7 @@ cancelled_orders = client.cancel_all_orders(
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def cancel_orders():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -286,7 +286,7 @@ orders = client.get_orders(
 ## Order Status
 
 ```python
-from luxfi_dex.types import OrderStatus
+from lux_dex.types import OrderStatus
 
 # Available statuses
 OrderStatus.NEW              # Order accepted, waiting to be filled
@@ -336,7 +336,7 @@ order = client.place_order(
 ## Batch Orders
 
 ```python
-from luxfi_dex.types import OrderRequest
+from lux_dex.types import OrderRequest
 
 # Create batch of orders
 orders = [
@@ -377,7 +377,7 @@ for result in results:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def place_batch_orders():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -438,8 +438,8 @@ new_order = client.replace_order(
 ## Order Events Subscription
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.types import OrderEvent, OrderEventType
+from lux_dex import Client
+from lux_dex.types import OrderEvent, OrderEventType
 
 client = Client(
     json_rpc_url="http://localhost:8080/rpc",
@@ -476,7 +476,7 @@ while True:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def monitor_orders():
     async with AsyncClient(
@@ -498,7 +498,7 @@ asyncio.run(monitor_orders())
 
 ```python
 import pandas as pd
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 
@@ -532,7 +532,7 @@ print(f"Total volume: {df['size'].sum():.4f}")
 ```python
 import pandas as pd
 import numpy as np
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 
@@ -578,8 +578,8 @@ print(by_side)
 ## Error Handling
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.exceptions import (
+from lux_dex import Client
+from lux_dex.exceptions import (
     InsufficientBalanceError,
     OrderNotFoundError,
     ValidationError,
@@ -625,7 +625,7 @@ def place_order_safe(
 import nest_asyncio
 nest_asyncio.apply()
 
-from luxfi_dex import AsyncClient, OrderType, Side
+from lux_dex import AsyncClient, OrderType, Side
 import pandas as pd
 
 # Cell 2: Place orders
