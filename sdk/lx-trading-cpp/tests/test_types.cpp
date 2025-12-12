@@ -1,28 +1,29 @@
 // LX Trading SDK - Types Tests
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/catch_approx.hpp>
 #include <lx/trading/types.hpp>
 
 using namespace lx::trading;
+using Catch::Approx;
 
 TEST_CASE("Decimal arithmetic", "[types]") {
     SECTION("Basic operations") {
         Decimal a = Decimal::from_double(100.5);
         Decimal b = Decimal::from_double(50.25);
 
-        REQUIRE((a + b).to_double() == Catch::Approx(150.75));
-        REQUIRE((a - b).to_double() == Catch::Approx(50.25));
-        REQUIRE((a * Decimal::from_double(2.0)).to_double() == Catch::Approx(201.0));
-        REQUIRE((a / Decimal::from_double(2.0)).to_double() == Catch::Approx(50.25));
+        REQUIRE((a + b).to_double() == Approx(150.75));
+        REQUIRE((a - b).to_double() == Approx(50.25));
+        REQUIRE((a * Decimal::from_double(2.0)).to_double() == Approx(201.0));
+        REQUIRE((a / Decimal::from_double(2.0)).to_double() == Approx(50.25));
     }
 
     SECTION("String conversion") {
         auto d = Decimal::from_string("123.456");
-        REQUIRE(d.to_double() == Catch::Approx(123.456));
+        REQUIRE(d.to_double() == Approx(123.456));
 
         auto d2 = Decimal::from_string("-99.99");
-        REQUIRE(d2.to_double() == Catch::Approx(-99.99));
+        REQUIRE(d2.to_double() == Approx(-99.99));
         REQUIRE(d2.is_negative());
     }
 
@@ -39,7 +40,7 @@ TEST_CASE("Decimal arithmetic", "[types]") {
 
     SECTION("Zero and one") {
         REQUIRE(Decimal::zero().is_zero());
-        REQUIRE(Decimal::one().to_double() == Catch::Approx(1.0));
+        REQUIRE(Decimal::one().to_double() == Approx(1.0));
     }
 }
 
@@ -83,7 +84,7 @@ TEST_CASE("OrderRequest factory methods", "[types]") {
         REQUIRE(req.symbol == "BTC-USDC");
         REQUIRE(req.side == Side::Buy);
         REQUIRE(req.order_type == OrderType::Market);
-        REQUIRE(req.quantity.to_double() == Catch::Approx(1.5));
+        REQUIRE(req.quantity.to_double() == Approx(1.5));
         REQUIRE(req.time_in_force == TimeInForce::IOC);
     }
 
@@ -93,7 +94,7 @@ TEST_CASE("OrderRequest factory methods", "[types]") {
         REQUIRE(req.symbol == "ETH-USDC");
         REQUIRE(req.side == Side::Sell);
         REQUIRE(req.order_type == OrderType::Limit);
-        REQUIRE(req.price.value().to_double() == Catch::Approx(2000.0));
+        REQUIRE(req.price.value().to_double() == Approx(2000.0));
         REQUIRE(req.time_in_force == TimeInForce::GTC);
     }
 
@@ -120,7 +121,7 @@ TEST_CASE("Order status checks", "[types]") {
         order.status = OrderStatus::PartiallyFilled;
         REQUIRE(order.is_open());
         REQUIRE_FALSE(order.is_done());
-        REQUIRE(order.fill_percent().to_double() == Catch::Approx(50.0));
+        REQUIRE(order.fill_percent().to_double() == Approx(50.0));
     }
 
     SECTION("Filled") {
@@ -145,19 +146,19 @@ TEST_CASE("Ticker calculations", "[types]") {
     SECTION("Mid price") {
         auto mid = ticker.mid_price();
         REQUIRE(mid.has_value());
-        REQUIRE(mid->to_double() == Catch::Approx(100.5));
+        REQUIRE(mid->to_double() == Approx(100.5));
     }
 
     SECTION("Spread") {
         auto spread = ticker.spread();
         REQUIRE(spread.has_value());
-        REQUIRE(spread->to_double() == Catch::Approx(1.0));
+        REQUIRE(spread->to_double() == Approx(1.0));
     }
 
     SECTION("Spread percent") {
         auto spread_pct = ticker.spread_percent();
         REQUIRE(spread_pct.has_value());
-        REQUIRE(spread_pct->to_double() == Catch::Approx(1.0));
+        REQUIRE(spread_pct->to_double() == Approx(1.0));
     }
 }
 
