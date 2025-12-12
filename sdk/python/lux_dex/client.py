@@ -1,5 +1,5 @@
 """
-LX DEX Python Client
+LX Python Client
 """
 
 import json
@@ -23,7 +23,7 @@ from .market_data import (
 
 
 class JSONRPCClient:
-    """JSON-RPC 2.0 client for LX DEX"""
+    """JSON-RPC 2.0 client for LX"""
     
     def __init__(self, base_url: str):
         self.base_url = base_url
@@ -59,7 +59,7 @@ class JSONRPCClient:
 
 
 class LXDexClient:
-    """Main client for interacting with LX DEX"""
+    """Main client for interacting with LX"""
     
     def __init__(
         self,
@@ -68,7 +68,7 @@ class LXDexClient:
         api_key: Optional[str] = None
     ):
         """
-        Initialize LX DEX client
+        Initialize LX client
         
         Args:
             json_rpc_url: URL for JSON-RPC API

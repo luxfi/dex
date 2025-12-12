@@ -1,5 +1,5 @@
 /**
- * Market data, liquidation, and settlement features for LX DEX TypeScript SDK
+ * Market data, liquidation, and settlement features for LX TypeScript SDK
  */
 
 export interface MarketDataSource {
@@ -331,7 +331,7 @@ export class LiquidationMonitor {
 }
 
 /**
- * Market data sources supported by LX DEX
+ * Market data sources supported by LX
  */
 export const MarketDataProviders = {
   ALPACA: 'alpaca',

@@ -8,7 +8,7 @@ setup(
     version="1.0.0",
     author="Lux Network",
     author_email="dev@lux.network",
-    description="Python SDK for LX DEX",
+    description="Python SDK for LX",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/luxfi/dex",

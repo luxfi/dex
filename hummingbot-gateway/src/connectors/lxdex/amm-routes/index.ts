@@ -1,5 +1,5 @@
 /**
- * LX DEX AMM Schema Routes
+ * LX AMM Schema Routes
  *
  * Implements the AMM schema endpoints for liquidity pool operations.
  * - GET /pool-info: Get pool reserves and pricing

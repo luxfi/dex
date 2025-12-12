@@ -1,5 +1,5 @@
 """
-Type definitions for LX DEX Python SDK
+Type definitions for LX Python SDK
 """
 
 from enum import IntEnum, Enum

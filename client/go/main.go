@@ -1,6 +1,6 @@
-// LX DEX Trading Client
+// LX Trading Client
 //
-// Multi-protocol programmatic trading client for LX DEX.
+// Multi-protocol programmatic trading client for LX.
 // Supports WebSocket and gRPC protocols with unified interface.
 //
 // Usage:
@@ -746,7 +746,7 @@ func parseOrderSide(s string) pb.OrderSide {
 
 func printHelp() {
 	fmt.Println(`
-LX DEX Trading Client Commands:
+LX Trading Client Commands:
 
   place_order <symbol> <side> <type> <price> <size>
     Example: place_order BTC-USD buy limit 50000 0.1
@@ -796,7 +796,7 @@ func printMessage(data interface{}) {
 
 func runInteractive(mgr *ClientManager) {
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("LX DEX Trading Client [%s] - Type 'help' for commands\n", mgr.Active().Protocol())
+	fmt.Printf("LX Trading Client [%s] - Type 'help' for commands\n", mgr.Active().Protocol())
 	fmt.Print("> ")
 
 	ctx := context.Background()
@@ -1088,7 +1088,7 @@ func main() {
 				os.Exit(1)
 			}
 			if *verbose {
-				fmt.Println("Connected to LX DEX via WebSocket")
+				fmt.Println("Connected to LX via WebSocket")
 			}
 			// Authenticate if credentials provided
 			if *apiKey != "" && *apiSecret != "" {
@@ -1108,7 +1108,7 @@ func main() {
 			os.Exit(1)
 		}
 		if *verbose {
-			fmt.Println("Connected to LX DEX via gRPC")
+			fmt.Println("Connected to LX via gRPC")
 		}
 
 	default:

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Run LX DEX Cluster with X-Chain and Q-Chain
+# Run LX Cluster with X-Chain and Q-Chain
 
-echo "🚀 Starting LX DEX Cluster (X-Chain + Q-Chain)"
+echo "🚀 Starting LX Cluster (X-Chain + Q-Chain)"
 echo "=============================================="
 
 # Colors
@@ -23,7 +23,7 @@ rm -rf $DATA_DIR
 mkdir -p $DATA_DIR/{node1,node2,node3}
 
 # Build the DEX server if needed
-echo "Building LX DEX server..."
+echo "Building LX server..."
 cd /Users/z/work/lx/dex/backend
 go build -o ../bin/lx-dex ./cmd/dex-server
 
@@ -31,7 +31,7 @@ cd /Users/z/work/lx/dex
 
 # Start cluster nodes
 echo ""
-echo "Starting LX DEX Cluster Nodes..."
+echo "Starting LX Cluster Nodes..."
 echo "================================"
 
 # Node 1 (Bootstrap node)
@@ -171,7 +171,7 @@ fi
 # Monitor blocks
 echo ""
 echo "======================================"
-echo -e "${GREEN}✅ LX DEX Cluster is running!${NC}"
+echo -e "${GREEN}✅ LX Cluster is running!${NC}"
 echo ""
 echo "Cluster Nodes:"
 echo "  Node 1: http://localhost:$BASE_PORT (Bootstrap)"

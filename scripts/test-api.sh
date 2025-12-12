@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# LX DEX API Test Script
+# LX API Test Script
 # This script tests the DEX API with curl commands
 
 API_URL="http://localhost:8080"
@@ -8,7 +8,7 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo "🚀 LX DEX API Test Suite"
+echo "🚀 LX API Test Suite"
 echo "========================"
 echo ""
 

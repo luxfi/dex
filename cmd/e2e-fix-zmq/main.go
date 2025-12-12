@@ -1,4 +1,4 @@
-// E2E FIX over ZeroMQ Benchmark against LX DEX Cluster
+// E2E FIX over ZeroMQ Benchmark against LX Cluster
 package main
 
 import (
@@ -454,7 +454,7 @@ func main() {
 	flag.Parse()
 
 	fmt.Println("=================================================")
-	fmt.Println("   LX DEX E2E FIX/ZMQ Benchmark Suite")
+	fmt.Println("   LX E2E FIX/ZMQ Benchmark Suite")
 	fmt.Println("=================================================")
 	fmt.Printf("Mode: %s\n", *mode)
 	fmt.Printf("Messages: %d\n", *messages)

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Demonstrate K=3 Consensus with Block Formation
 
-echo "🔷 LX DEX K=3 Consensus Demonstration"
+echo "🔷 LX K=3 Consensus Demonstration"
 echo "======================================"
 echo ""
 echo "Configuration:"

@@ -1,6 +1,6 @@
 ---
 title: FIX Protocol
-description: Financial Information eXchange (FIX) protocol connectivity for institutional trading on LX DEX
+description: Financial Information eXchange (FIX) protocol connectivity for institutional trading on LX
 ---
 
 # FIX Protocol
@@ -9,7 +9,7 @@ description: Financial Information eXchange (FIX) protocol connectivity for inst
 
 ## Overview
 
-LX DEX provides full FIX protocol support for institutional clients requiring standardized electronic trading connectivity. Our FIX implementation enables seamless integration with existing trading infrastructure, order management systems (OMS), and execution management systems (EMS).
+LX provides full FIX protocol support for institutional clients requiring standardized electronic trading connectivity. Our FIX implementation enables seamless integration with existing trading infrastructure, order management systems (OMS), and execution management systems (EMS).
 
 ## Supported FIX Versions
 
@@ -28,7 +28,7 @@ LX DEX provides full FIX protocol support for institutional clients requiring st
 
 ```
 +------------------------------------------------------------------+
-|                     LX DEX FIX ARCHITECTURE                       |
+|                     LX FIX ARCHITECTURE                       |
 +------------------------------------------------------------------+
 |                                                                    |
 |  CLIENT INFRASTRUCTURE                                             |
@@ -50,7 +50,7 @@ LX DEX provides full FIX protocol support for institutional clients requiring st
 +------------------------------------------------------------------+
 |                          v                                         |
 |  +----------------------------------------------------------+     |
-|  |                 LX DEX FIX GATEWAY                        |     |
+|  |                 LX FIX GATEWAY                        |     |
 |  |  +----------+  +----------+  +----------+  +----------+  |     |
 |  |  | Session  |  | Message  |  | Order    |  | Market   |  |     |
 |  |  | Manager  |  | Router   |  | Router   |  | Data     |  |     |
@@ -59,7 +59,7 @@ LX DEX provides full FIX protocol support for institutional clients requiring st
 |                          |                                         |
 |                          v                                         |
 |  +----------------------------------------------------------+     |
-|  |              LX DEX MATCHING ENGINE                       |     |
+|  |              LX MATCHING ENGINE                       |     |
 |  |                   487ns Latency                           |     |
 |  +----------------------------------------------------------+     |
 |                                                                    |
@@ -112,7 +112,7 @@ SSLProtocols=TLSv1.2,TLSv1.3
 ### Order Lifecycle
 
 ```
-Client                          LX DEX FIX Gateway
+Client                          LX FIX Gateway
    |                                    |
    |  Logon (A)                         |
    |----------------------------------->|

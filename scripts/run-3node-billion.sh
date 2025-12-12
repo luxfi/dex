@@ -4,7 +4,7 @@
 
 set -e
 
-echo "🚀 LX DEX - 3-Node Cluster - Target: 1.7+ BILLION orders/sec"
+echo "🚀 LX - 3-Node Cluster - Target: 1.7+ BILLION orders/sec"
 echo "============================================================"
 
 # Colors for output

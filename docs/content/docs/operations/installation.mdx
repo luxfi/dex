@@ -1,11 +1,11 @@
 ---
 title: Installation
-description: Detailed installation instructions for LX DEX on all platforms
+description: Detailed installation instructions for LX on all platforms
 ---
 
 # Installation
 
-This guide covers installing LX DEX on Linux, macOS, and from source.
+This guide covers installing LX on Linux, macOS, and from source.
 
 ## Prerequisites
 
@@ -244,7 +244,7 @@ luxd version
 Expected output:
 
 ```
-LX DEX v1.0.0
+LX v1.0.0
   Commit:  abc1234
   Built:   2025-12-01T00:00:00Z
   Go:      go1.24.7
@@ -283,7 +283,7 @@ Create `/etc/systemd/system/lxdex.service`:
 
 ```ini
 [Unit]
-Description=LX DEX Trading Engine
+Description=LX Trading Engine
 Documentation=https://docs.lux.network/dex
 After=network-online.target
 Wants=network-online.target

@@ -1,7 +1,7 @@
 {
   "name": "@luxfi/dex-client",
   "version": "1.0.0",
-  "description": "LX DEX Trading Client - Programmatic trading via WebSocket or gRPC",
+  "description": "LX Trading Client - Programmatic trading via WebSocket or gRPC",
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
   "bin": {

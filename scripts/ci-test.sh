@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# LX DEX CI Test Script
+# LX CI Test Script
 # Simulates GitHub Actions CI pipeline locally
 
 set -e
 
 echo "========================================="
-echo "   LX DEX CI Test (Local Simulation)"
+echo "   LX CI Test (Local Simulation)"
 echo "========================================="
 echo ""
 

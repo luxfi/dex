@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# LX DEX Performance Tuning Script
+# LX Performance Tuning Script
 # Automatically finds optimal performance settings for your system
 
 set -e
@@ -267,7 +267,7 @@ generate_report() {
     local report_file="$RESULTS_DIR/performance_report_${TIMESTAMP}.md"
     
     cat > "$report_file" << EOF
-# LX DEX Performance Report
+# LX Performance Report
 Generated: $(date)
 
 ## System Information
@@ -352,7 +352,7 @@ find_optimal_batch() {
 # Main execution
 main() {
     echo -e "${BLUE}======================================${NC}"
-    echo -e "${BLUE}   LX DEX Performance Tuning Suite${NC}"
+    echo -e "${BLUE}   LX Performance Tuning Suite${NC}"
     echo -e "${BLUE}======================================${NC}"
     echo
     

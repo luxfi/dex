@@ -1,4 +1,4 @@
-# LX DEX C++ CLI Trading Client
+# LX C++ CLI Trading Client
 # Copyright (c) 2025 Lux Partners Limited
 # SPDX-License-Identifier: MIT
 

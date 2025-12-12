@@ -5,7 +5,7 @@
 set -e
 
 echo "==================================="
-echo "LX DEX CUDA Testing Script"
+echo "LX CUDA Testing Script"
 echo "==================================="
 
 # Colors for output

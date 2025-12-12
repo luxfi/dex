@@ -1,4 +1,4 @@
-//! WebSocket and REST client for LX DEX.
+//! WebSocket and REST client for LX.
 //!
 //! Provides async client with automatic reconnection and subscription management.
 
@@ -130,7 +130,7 @@ struct RpcResponse<T> {
     id: u64,
 }
 
-/// LX DEX client.
+/// LX client.
 pub struct Client {
     config: ClientConfig,
     http: HttpClient,

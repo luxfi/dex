@@ -1,4 +1,4 @@
-// Package client provides a Go SDK for interacting with LX DEX
+// Package client provides a Go SDK for interacting with LX
 package client
 
 import (
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Client is the main client for interacting with LX DEX
+// Client is the main client for interacting with LX
 type Client struct {
 	// Configuration
 	jsonRPCURL string
@@ -43,7 +43,7 @@ type Client struct {
 	mu sync.RWMutex
 }
 
-// NewClient creates a new LX DEX client
+// NewClient creates a new LX client
 func NewClient(opts ...Option) (*Client, error) {
 	c := &Client{
 		jsonRPCURL:  "http://localhost:8080",
