@@ -197,7 +197,7 @@ func (p *Position) Update(side OrderSide, size, price float64) {
 			p.RealizedPL += pnl
 		}
 		p.Size -= size
-		if p.Size &lt;= 0 {
+		if p.Size <= 0 {
 			p.Size = 0
 			p.EntryPrice = 0
 		}

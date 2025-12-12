@@ -232,17 +232,17 @@ FOR round IN 1..MAX_ROUNDS:
     no_count = Count(votes, 0)
 
     // Update opinion based on threshold
-    IF yes_count &gt;= THRESHOLD:
+    IF yes_count >= THRESHOLD:
         opinion = 1
         confidence++
-    ELSE IF no_count &gt;= THRESHOLD:
+    ELSE IF no_count >= THRESHOLD:
         opinion = 0
         confidence++
     ELSE:
         confidence = 0  // Reset on tie
 
     // Check for finality
-    IF confidence &gt;= FINALITY_THRESHOLD:
+    IF confidence >= FINALITY_THRESHOLD:
         RETURN opinion  // Finalized!
 
 RETURN UNDECIDED

@@ -141,7 +141,7 @@ The protocol uses a kinked interest rate model for optimal capital efficiency:
 **Mathematical Formula**:
 
 ```
-If utilization &lt;= kink:
+If utilization <= kink:
     BorrowRate = BaseRate + (Utilization * MultiplierRate)
 
 If utilization > kink:

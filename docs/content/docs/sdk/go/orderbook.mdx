@@ -547,7 +547,7 @@ func MarketImpact(ob *client.OrderBook, side client.OrderSide, size float64) (av
     var totalCost float64
 
     for _, level := range levels {
-        if remaining &lt;= 0 {
+        if remaining <= 0 {
             break
         }
 
@@ -662,13 +662,13 @@ func OrderBookImbalance(ob *client.OrderBook, pctRange float64) float64 {
     var bidVolume, askVolume float64
 
     for _, bid := range ob.Bids {
-        if bid.Price &gt;= lowerBound {
+        if bid.Price >= lowerBound {
             bidVolume += bid.Size
         }
     }
 
     for _, ask := range ob.Asks {
-        if ask.Price &lt;= upperBound {
+        if ask.Price <= upperBound {
             askVolume += ask.Size
         }
     }
