@@ -384,7 +384,7 @@ fn process_updates() {
 ```rust
 /// Memory-compact order book using fixed-point prices
 pub struct CompactOrderBook {
-    symbol: ArrayString<16>,  // Inline string
+    symbol: ArrayString&lt;16>,  // Inline string
     bids: ArrayVec<CompactLevel, 100>,
     asks: ArrayVec<CompactLevel, 100>,
     timestamp: i64,
@@ -455,12 +455,12 @@ impl OrderBook {
         let threshold = mid * depth_percent / 100.0;
 
         let bid_liquidity: f64 = self.bids.iter()
-            .take_while(|l| mid - l.price <= threshold)
+            .take_while(|l| mid - l.price &lt;= threshold)
             .map(|l| l.size * l.price)
             .sum();
 
         let ask_liquidity: f64 = self.asks.iter()
-            .take_while(|l| l.price - mid <= threshold)
+            .take_while(|l| l.price - mid &lt;= threshold)
             .map(|l| l.size * l.price)
             .sum();
 
@@ -482,7 +482,7 @@ impl OrderBook {
             total_cost += fill * level.price;
             remaining -= fill;
 
-            if remaining <= 0.0 {
+            if remaining &lt;= 0.0 {
                 break;
             }
         }

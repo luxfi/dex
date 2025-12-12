@@ -239,8 +239,8 @@ print()
 # Depth analysis
 print("Depth (1% from mid):")
 mid = book.mid_price
-bid_depth_1pct = bids[bids["price"] >= mid * 0.99]["size"].sum()
-ask_depth_1pct = asks[asks["price"] <= mid * 1.01]["size"].sum()
+bid_depth_1pct = bids[bids["price"] &gt;= mid * 0.99]["size"].sum()
+ask_depth_1pct = asks[asks["price"] &lt;= mid * 1.01]["size"].sum()
 print(f"  Bid depth (1%): {bid_depth_1pct:.4f}")
 print(f"  Ask depth (1%): {ask_depth_1pct:.4f}")
 
@@ -474,8 +474,8 @@ mid = book.mid_price
 bid_1pct = mid * 0.99
 ask_1pct = mid * 1.01
 
-bid_depth_1pct = bid_sizes[bid_prices >= bid_1pct].sum()
-ask_depth_1pct = ask_sizes[ask_prices <= ask_1pct].sum()
+bid_depth_1pct = bid_sizes[bid_prices &gt;= bid_1pct].sum()
+ask_depth_1pct = ask_sizes[ask_prices &lt;= ask_1pct].sum()
 
 print(f"Depth to move bid 1%: {bid_depth_1pct:.4f}")
 print(f"Depth to move ask 1%: {ask_depth_1pct:.4f}")

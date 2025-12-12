@@ -595,10 +595,10 @@ func (mm *MarginMonitor) checkMargin(ctx context.Context) {
 
     ratio := marginInfo.MarginRatio
 
-    if ratio >= mm.criticalLevel {
+    if ratio &gt;= mm.criticalLevel {
         fmt.Printf("[CRITICAL] Margin ratio: %.1f%% - LIQUIDATION IMMINENT!\n", ratio*100)
         // Could trigger automatic position reduction here
-    } else if ratio >= mm.warningLevel {
+    } else if ratio &gt;= mm.warningLevel {
         fmt.Printf("[WARNING] Margin ratio: %.1f%% - Consider reducing exposure\n", ratio*100)
     }
 }

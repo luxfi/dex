@@ -185,7 +185,7 @@ func (p *OrderPool) Release(order *Order) {
     // Find index
     idx := int((uintptr(unsafe.Pointer(order)) - uintptr(unsafe.Pointer(&p.orders[0]))) / unsafe.Sizeof(Order{}))
 
-    if idx >= 0 && idx < OrderPoolSize && p.inUse[idx] {
+    if idx &gt;= 0 && idx < OrderPoolSize && p.inUse[idx] {
         p.inUse[idx] = false
         select {
         case p.free <- idx:
@@ -415,7 +415,7 @@ var ballast []byte
 
 func init() {
     // 10GB ballast - GC runs when heap doubles from this baseline
-    ballast = make([]byte, 10<<30)
+    ballast = make([]byte, 10<&lt;30)
 
     // Set GOGC and GOMEMLIMIT
     debug.SetGCPercent(400) // GC at 400% of baseline (less frequent)

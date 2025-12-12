@@ -127,15 +127,15 @@ def calculate_monthly_rebate(maker_volume: float, tier: int) -> dict:
     base_rebate = maker_volume * base_rates[tier]
 
     # Volume bonus tiers
-    if maker_volume >= 10_000_000_000:  # $10B+
+    if maker_volume &gt;= 10_000_000_000:  # $10B+
         bonus_rate = 0.00025  # 2.5 bps
-    elif maker_volume >= 5_000_000_000:  # $5B+
+    elif maker_volume &gt;= 5_000_000_000:  # $5B+
         bonus_rate = 0.00020  # 2.0 bps
-    elif maker_volume >= 1_000_000_000:  # $1B+
+    elif maker_volume &gt;= 1_000_000_000:  # $1B+
         bonus_rate = 0.00015  # 1.5 bps
-    elif maker_volume >= 500_000_000:  # $500M+
+    elif maker_volume &gt;= 500_000_000:  # $500M+
         bonus_rate = 0.00010  # 1.0 bps
-    elif maker_volume >= 100_000_000:  # $100M+
+    elif maker_volume &gt;= 100_000_000:  # $100M+
         bonus_rate = 0.00005  # 0.5 bps
     else:
         bonus_rate = 0
@@ -176,7 +176,7 @@ For MMs providing liquidity in newly listed markets:
 |---------|----------|---------|
 | Launch Bonus | First 30 days | +50% maker rebate |
 | Depth Bonus | First 30 days | +$0.50/$1K depth/hour |
-| Spread Bonus | First 30 days | +$1K/day for <3 bps spread |
+| Spread Bonus | First 30 days | +$1K/day for &lt;3 bps spread |
 
 ### Liquidity Mining Rewards
 

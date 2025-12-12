@@ -11,13 +11,13 @@ LX DEX is engineered for **High-Frequency Trading (HFT)** performance, achieving
 
 | Metric | Target | Achieved | Notes |
 |--------|--------|----------|-------|
-| Order Latency (GPU) | <1 us | **2 ns** | 500x better than target |
-| Order Latency (CPU) | <1 us | **487 ns** | Lock-free data structures |
+| Order Latency (GPU) | &lt;1 us | **2 ns** | 500x better than target |
+| Order Latency (CPU) | &lt;1 us | **487 ns** | Lock-free data structures |
 | Throughput (CPU) | 1M/sec | **1.01M/sec** | Pure Go, no CGO |
 | Throughput (GPU) | 100M/sec | **434M/sec** | MLX on Apple Silicon |
-| Memory per 100K orders | <1 GB | **847 MB** | Object pooling |
-| P99 Latency | <10 us | **2.3 us** | Tail latency controlled |
-| GC Pause | <1 ms | **0.3 ms** | GOGC tuning |
+| Memory per 100K orders | &lt;1 GB | **847 MB** | Object pooling |
+| P99 Latency | &lt;10 us | **2.3 us** | Tail latency controlled |
+| GC Pause | &lt;1 ms | **0.3 ms** | GOGC tuning |
 
 ## Comparison with Major Exchanges
 
@@ -192,7 +192,7 @@ export GOMEMLIMIT=8GiB       # Hard memory limit
 export GOMAXPROCS=8          # Match physical cores
 
 # Enable memory ballast (reduces GC frequency)
-# In code: var ballast = make([]byte, 10<<30) // 10GB ballast
+# In code: var ballast = make([]byte, 10<&lt;30) // 10GB ballast
 ```
 
 ### Hardware Requirements
@@ -241,9 +241,9 @@ type Metrics struct {
 
 | Metric | Target | Alert Threshold |
 |--------|--------|-----------------|
-| Order Latency P99 | <10 us | >50 us |
-| Match Latency P99 | <1 us | >5 us |
-| GC Pause P99 | <1 ms | >5 ms |
-| Throughput | >1M/sec | <500K/sec |
-| Error Rate | <0.001% | >0.01% |
-| Network RTT | <100 us | >1 ms |
+| Order Latency P99 | &lt;10 us | >50 us |
+| Match Latency P99 | &lt;1 us | >5 us |
+| GC Pause P99 | &lt;1 ms | >5 ms |
+| Throughput | >1M/sec | &lt;500K/sec |
+| Error Rate | &lt;0.001% | >0.01% |
+| Network RTT | &lt;100 us | >1 ms |
