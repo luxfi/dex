@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-LX DEX Trading Client
+LX Trading Client
 
-Multi-protocol trading client for LX DEX.
+Multi-protocol trading client for LX.
 Supports WebSocket and gRPC protocols.
 
 Usage:
@@ -48,7 +48,7 @@ except ImportError:
 def print_help():
     """Print interactive help."""
     print("""
-LX DEX Trading Client Commands:
+LX Trading Client Commands:
 
   place_order <symbol> <side> <type> <price> <size>
     Place a new order
@@ -96,7 +96,7 @@ LX DEX Trading Client Commands:
 
 async def run_interactive(client: TradingClient):
     """Run interactive mode."""
-    print("LX DEX Trading Client - Type 'help' for commands")
+    print("LX Trading Client - Type 'help' for commands")
     print(f"Protocol: {'WebSocket' if isinstance(client, WebSocketClient) else 'gRPC'}")
     print(f"Connected: {client.connected}")
     print()
@@ -328,7 +328,7 @@ async def run_command(client: TradingClient, args: argparse.Namespace):
 async def main_async():
     """Async main entry point."""
     parser = argparse.ArgumentParser(
-        description="LX DEX Trading Client",
+        description="LX Trading Client",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

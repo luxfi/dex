@@ -1,4 +1,4 @@
-# LX DEX C++ SDK
+# LX C++ SDK
 
 Production-ready C++17 SDK for the LX Decentralized Exchange.
 

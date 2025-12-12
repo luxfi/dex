@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# LX DEX Development Environment Setup Script
-# This script sets up a complete development environment for LX DEX
+# LX Development Environment Setup Script
+# This script sets up a complete development environment for LX
 
 set -e
 
@@ -157,7 +157,7 @@ init_config() {
     # Create default config if not exists
     if [ ! -f "$PROJECT_ROOT/config/dev.yaml" ]; then
         cat > "$PROJECT_ROOT/config/dev.yaml" << EOF
-# LX DEX Development Configuration
+# LX Development Configuration
 engine:
   type: hybrid  # go, cpp, hybrid
   port: 50051
@@ -213,7 +213,7 @@ create_aliases() {
     cat > "$SCRIPTS_DIR/dev-aliases.sh" << 'EOF'
 #!/bin/bash
 
-# LX DEX Development Aliases
+# LX Development Aliases
 
 # Quick commands
 alias lx-server='cd backend && go run ./cmd/dex-server'
@@ -236,7 +236,7 @@ alias lx-perf-quick='cd backend && make bench-quick'
 alias lx-perf-full='cd backend && make bench-full'
 alias lx-perf-max='cd backend && make bench-max'
 
-echo "LX DEX development aliases loaded!"
+echo "LX development aliases loaded!"
 EOF
     
     chmod +x "$SCRIPTS_DIR/dev-aliases.sh"
@@ -246,7 +246,7 @@ EOF
 # Main setup flow
 main() {
     echo "======================================"
-    echo "   LX DEX Development Setup"
+    echo "   LX Development Setup"
     echo "======================================"
     echo
     

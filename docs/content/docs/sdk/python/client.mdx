@@ -1,6 +1,6 @@
 ---
 title: Client
-description: LXDexClient and AsyncLXDexClient - synchronous and asynchronous clients for LX DEX
+description: LXDexClient and AsyncLXDexClient - synchronous and asynchronous clients for LX
 ---
 
 # Client Classes
@@ -45,7 +45,7 @@ from typing import Optional
 
 @dataclass
 class LXDexClient:
-    """Synchronous LX DEX client.
+    """Synchronous LX client.
 
     Attributes:
         json_rpc_url: JSON-RPC endpoint URL
@@ -148,7 +148,7 @@ client = LXDexClient("http://localhost:8080/rpc")
 
 # Test connectivity
 if client.ping():
-    print("Connected to LX DEX")
+    print("Connected to LX")
 
 # Get node info
 info = client.get_info()
@@ -220,7 +220,7 @@ asyncio.run(main())
 from typing import AsyncIterator
 
 class AsyncLXDexClient:
-    """Asynchronous LX DEX client.
+    """Asynchronous LX client.
 
     Supports context manager protocol for automatic resource cleanup.
     All methods are coroutines that must be awaited.
@@ -330,7 +330,7 @@ async def main():
     async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
         # Test connectivity
         if await client.ping():
-            print("Connected to LX DEX")
+            print("Connected to LX")
 
         # Get node info
         info = await client.get_info()

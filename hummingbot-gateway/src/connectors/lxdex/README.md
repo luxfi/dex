@@ -1,6 +1,6 @@
-# LX DEX Hummingbot Gateway Connector
+# LX Hummingbot Gateway Connector
 
-Official Hummingbot Gateway connector for [LX DEX](https://dex.lux.network), the ultra-low latency decentralized exchange on Lux Network.
+Official Hummingbot Gateway connector for [LX](https://dex.lux.network), the ultra-low latency decentralized exchange on Lux Network.
 
 ## Features
 
@@ -249,7 +249,7 @@ const config = getLXDexConfig('mainnet', {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `apiEndpoint` | string | Auto | LX DEX API endpoint |
+| `apiEndpoint` | string | Auto | LX API endpoint |
 | `wsEndpoint` | string | Auto | WebSocket endpoint |
 | `grpcEndpoint` | string | Auto | gRPC endpoint |
 | `slippagePct` | number | 0.5 | Default slippage tolerance |
@@ -318,7 +318,7 @@ Apache-2.0
 
 ## Links
 
-- [LX DEX Documentation](https://dex.lux.network)
+- [LX Documentation](https://dex.lux.network)
 - [Hummingbot Gateway](https://github.com/hummingbot/gateway)
 - [Lux Network](https://lux.network)
 - [GitHub Issues](https://github.com/luxfi/dex/issues)

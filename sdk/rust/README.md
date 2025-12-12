@@ -205,7 +205,7 @@ match client.place_order(&order).await {
 ## Running the Example
 
 ```bash
-# Start LX DEX server
+# Start LX server
 # Then run the example:
 cargo run --example basic
 

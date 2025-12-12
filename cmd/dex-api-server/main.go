@@ -66,7 +66,7 @@ func main() {
 	http.HandleFunc("/ws", server.handleWebSocket)
 
 	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("🚀 LX DEX API Server starting on http://localhost%s", addr)
+	log.Printf("🚀 LX API Server starting on http://localhost%s", addr)
 	log.Println("📊 REST API Endpoints:")
 	log.Println("  GET  /api/orderbook - Get order book")
 	log.Println("  GET  /api/trades    - Get recent trades")
@@ -84,7 +84,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>LX DEX API</title>
+    <title>LX API</title>
     <style>
         body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
         h1 { color: #0f0; }
@@ -94,7 +94,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
     </style>
 </head>
 <body>
-    <h1>🚀 LX DEX API Server</h1>
+    <h1>🚀 LX API Server</h1>
     <h2>Performance: 13M+ orders/sec</h2>
     
     <h3>REST API Endpoints:</h3>

@@ -531,7 +531,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	log.Println("═══════════════════════════════════════════════")
-	log.Println("  LX DEX MLX-ZMQ Server - 10Gbps Fiber Edition")
+	log.Println("  LX MLX-ZMQ Server - 10Gbps Fiber Edition")
 	log.Println("═══════════════════════════════════════════════")
 
 	server, err := NewMLXZMQServer(config)

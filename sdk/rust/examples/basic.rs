@@ -1,4 +1,4 @@
-//! Basic trading example for LX DEX.
+//! Basic trading example for LX.
 //!
 //! Demonstrates:
 //! - Connecting to WebSocket

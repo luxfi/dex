@@ -1,5 +1,5 @@
 /**
- * LX DEX Router Schema Routes
+ * LX Router Schema Routes
  *
  * Implements the Router schema endpoints for swap operations.
  * - GET /quote-swap: Get optimal swap quote

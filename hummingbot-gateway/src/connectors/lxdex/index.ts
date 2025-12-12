@@ -1,5 +1,5 @@
 /**
- * LX DEX Hummingbot Gateway Connector
+ * LX Hummingbot Gateway Connector
  *
  * Ultra-low latency decentralized exchange connector supporting:
  * - Router Schema: DEX aggregation and optimal swap routing

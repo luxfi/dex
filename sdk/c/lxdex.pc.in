@@ -4,7 +4,7 @@ libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
 includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
 
 Name: lxdex
-Description: LX DEX C SDK
+Description: LX C SDK
 Version: @PROJECT_VERSION@
 Requires: libwebsockets
 Libs: -L${libdir} -llxdex

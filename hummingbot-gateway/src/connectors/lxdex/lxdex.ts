@@ -1,8 +1,8 @@
 /**
- * LX DEX Gateway Connector
+ * LX Gateway Connector
  *
  * Main connector class implementing Router, AMM, and CLMM schemas
- * for the LX DEX decentralized exchange.
+ * for the LX decentralized exchange.
  *
  * Features:
  * - Ultra-low latency order matching (<100ns)
@@ -89,9 +89,9 @@ export class OrderNotFoundError extends LXDexError {
 }
 
 /**
- * LX DEX Connector
+ * LX Connector
  *
- * Singleton class managing connections to LX DEX.
+ * Singleton class managing connections to LX.
  * Supports Router (swaps), AMM (liquidity), CLMM (concentrated liquidity),
  * and Order Book (limit orders) trading types.
  */
