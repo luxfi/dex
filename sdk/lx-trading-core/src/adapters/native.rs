@@ -5,7 +5,6 @@ use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 
 use crate::adapters::adapter::*;
 use crate::config::NativeVenueConfig;
@@ -22,6 +21,7 @@ pub struct LxDexAdapter {
     latency: AtomicU64,
     client: reqwest::Client,
     balances: RwLock<HashMap<String, Balance>>,
+    #[allow(dead_code)]
     open_orders: RwLock<HashMap<String, Order>>,
 }
 
@@ -157,25 +157,25 @@ impl VenueAdapter for LxDexAdapter {
     }
 
     async fn get_ticker(&self, symbol: &str) -> Result<Ticker> {
-        let path = format!("/api/v1/ticker/{}", symbol);
+        let path = format!("/api/v1/ticker/{symbol}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
     async fn get_tickers(&self, symbols: &[String]) -> Result<Vec<Ticker>> {
         let query = symbols.join(",");
-        let path = format!("/api/v1/tickers?symbols={}", query);
+        let path = format!("/api/v1/tickers?symbols={query}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
     async fn get_orderbook(&self, symbol: &str, depth: Option<usize>) -> Result<Orderbook> {
         let depth = depth.unwrap_or(100);
-        let path = format!("/api/v1/orderbook/{}?depth={}", symbol, depth);
+        let path = format!("/api/v1/orderbook/{symbol}?depth={depth}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
     async fn get_trades(&self, symbol: &str, limit: Option<usize>) -> Result<Vec<Trade>> {
         let limit = limit.unwrap_or(100);
-        let path = format!("/api/v1/trades/{}?limit={}", symbol, limit);
+        let path = format!("/api/v1/trades/{symbol}?limit={limit}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
@@ -199,20 +199,20 @@ impl VenueAdapter for LxDexAdapter {
             return Ok(balance.clone());
         }
 
-        let path = format!("/api/v1/account/balance/{}", asset);
+        let path = format!("/api/v1/account/balance/{asset}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
     async fn get_open_orders(&self, symbol: Option<&str>) -> Result<Vec<Order>> {
         let path = match symbol {
-            Some(s) => format!("/api/v1/orders?symbol={}&status=open", s),
+            Some(s) => format!("/api/v1/orders?symbol={s}&status=open"),
             None => "/api/v1/orders?status=open".to_string(),
         };
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
     async fn get_order(&self, order_id: &str, symbol: &str) -> Result<Order> {
-        let path = format!("/api/v1/orders/{}?symbol={}", order_id, symbol);
+        let path = format!("/api/v1/orders/{order_id}?symbol={symbol}");
         self.signed_request(reqwest::Method::GET, &path, None).await
     }
 
@@ -225,10 +225,10 @@ impl VenueAdapter for LxDexAdapter {
         let mut params = vec![];
 
         if let Some(s) = symbol {
-            params.push(format!("symbol={}", s));
+            params.push(format!("symbol={s}"));
         }
         if let Some(l) = limit {
-            params.push(format!("limit={}", l));
+            params.push(format!("limit={l}"));
         }
 
         if !params.is_empty() {
@@ -249,7 +249,7 @@ impl VenueAdapter for LxDexAdapter {
     }
 
     async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<Order> {
-        let path = format!("/api/v1/orders/{}", order_id);
+        let path = format!("/api/v1/orders/{order_id}");
         let body = serde_json::json!({ "symbol": symbol });
         self.signed_request(reqwest::Method::DELETE, &path, Some(body)).await
     }
@@ -391,7 +391,7 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn get_ticker(&self, symbol: &str) -> Result<Ticker> {
-        let path = format!("/api/v1/amm/price/{}", symbol);
+        let path = format!("/api/v1/amm/price/{symbol}");
         self.request(reqwest::Method::GET, &path, None).await
     }
 
@@ -411,7 +411,7 @@ impl VenueAdapter for LxAmmAdapter {
 
     async fn get_trades(&self, symbol: &str, limit: Option<usize>) -> Result<Vec<Trade>> {
         let limit = limit.unwrap_or(100);
-        let path = format!("/api/v1/amm/swaps/{}?limit={}", symbol, limit);
+        let path = format!("/api/v1/amm/swaps/{symbol}?limit={limit}");
         self.request(reqwest::Method::GET, &path, None).await
     }
 
@@ -420,7 +420,7 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn get_balance(&self, asset: &str) -> Result<Balance> {
-        let path = format!("/api/v1/account/balance/{}", asset);
+        let path = format!("/api/v1/account/balance/{asset}");
         self.request(reqwest::Method::GET, &path, None).await
     }
 
@@ -531,7 +531,7 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn get_pool_info(&self, base_token: &str, quote_token: &str) -> Result<PoolInfo> {
-        let path = format!("/api/v1/amm/pool/{}/{}", base_token, quote_token);
+        let path = format!("/api/v1/amm/pool/{base_token}/{quote_token}");
         self.request(reqwest::Method::GET, &path, None).await
     }
 

@@ -1,4 +1,28 @@
 //! Integration tests for lx-trading-core.
+//!
+//! This module provides comprehensive integration tests for the LX Trading SDK.
+//! Tests are organized by component and cover:
+//!
+//! - Configuration parsing and validation
+//! - Trading types (pairs, orders, balances)
+//! - Orderbook operations and aggregation
+//! - Risk management and position tracking
+//! - HTTP client and retry logic
+//! - Metrics collection
+//! - Financial mathematics
+//! - WebSocket configuration
+//! - Error handling and classification
+//!
+//! # Running Tests
+//!
+//! ```bash
+//! cargo test --test integration_tests
+//! ```
+//!
+//! # Test Coverage
+//!
+//! These tests validate the public API contracts and ensure correct behavior
+//! across the SDK's core functionality.
 
 use lx_trading::*;
 use rust_decimal::Decimal;
