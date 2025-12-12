@@ -1,0 +1,523 @@
+---
+title: Security Audits
+description: Security audit history, bug bounty program, and responsible disclosure for LX DEX
+---
+
+# Security Audits
+
+LX DEX maintains rigorous security through regular third-party audits, an active bug bounty program, and transparent disclosure processes.
+
+## Audit History
+
+### Completed Audits
+
+| Firm | Date | Scope | Findings | Status |
+|------|------|-------|----------|--------|
+| Trail of Bits | Q3 2024 | Core matching engine | 2 Medium, 5 Low | All resolved |
+| OpenZeppelin | Q3 2024 | Smart contracts | 1 High, 3 Medium, 8 Low | All resolved |
+| Halborn | Q4 2024 | Bridge infrastructure | 0 Critical, 2 High, 4 Medium | All resolved |
+| NCC Group | Q4 2024 | Cryptographic implementation | 1 Medium, 3 Low | All resolved |
+| Sigma Prime | Q1 2025 | Consensus & MPC | Pending | In progress |
+
+### Audit Reports
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AUDIT REPORTS INDEX                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Trail of Bits - Core Engine (September 2024)                   │
+│  ├── Report: /audits/trail-of-bits-2024-09.pdf                 │
+│  ├── Scope: Order matching, risk engine, settlement            │
+│  └── Key Finding: Integer overflow in price calculation        │
+│                                                                  │
+│  OpenZeppelin - Smart Contracts (October 2024)                  │
+│  ├── Report: /audits/openzeppelin-2024-10.pdf                  │
+│  ├── Scope: DEX contracts, bridge contracts, governance        │
+│  └── Key Finding: Reentrancy in withdrawal flow                │
+│                                                                  │
+│  Halborn - Bridge Infrastructure (November 2024)                │
+│  ├── Report: /audits/halborn-2024-11.pdf                       │
+│  ├── Scope: BridgeVM, ThresholdVM, MPC protocols               │
+│  └── Key Finding: Missing signature validation in relay        │
+│                                                                  │
+│  NCC Group - Cryptography (December 2024)                       │
+│  ├── Report: /audits/ncc-group-2024-12.pdf                     │
+│  ├── Scope: Dilithium, Kyber, Ringtail implementations         │
+│  └── Key Finding: Timing side-channel in key derivation        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Audit Scope & Methodology
+
+### Scope Definition
+
+```yaml
+# Standard Audit Scope Template
+scope:
+  repositories:
+    - github.com/luxfi/dex        # Core DEX
+    - github.com/luxfi/node       # Blockchain node
+    - github.com/luxfi/threshold  # MPC library
+    - github.com/luxfi/contracts  # Smart contracts
+
+  components:
+    critical:
+      - Order matching engine
+      - Price calculation
+      - Settlement logic
+      - Withdrawal processing
+      - Bridge signing
+      - MPC key management
+
+    high:
+      - API authentication
+      - Rate limiting
+      - Oracle integration
+      - Risk calculations
+
+    medium:
+      - Logging and monitoring
+      - Configuration management
+      - Error handling
+
+  exclusions:
+    - Test files
+    - Documentation
+    - Development tooling
+    - Third-party dependencies (separate audits)
+```
+
+### Methodology
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AUDIT METHODOLOGY                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Phase 1: Code Review (40% of time)                            │
+│  ├── Manual line-by-line review                                │
+│  ├── Architecture analysis                                     │
+│  ├── Threat modeling                                           │
+│  └── Attack surface mapping                                    │
+│                                                                  │
+│  Phase 2: Automated Analysis (20% of time)                     │
+│  ├── Static analysis (Semgrep, CodeQL)                        │
+│  ├── Fuzzing (go-fuzz, AFL)                                   │
+│  ├── Symbolic execution                                        │
+│  └── Dependency scanning                                       │
+│                                                                  │
+│  Phase 3: Dynamic Testing (30% of time)                        │
+│  ├── Penetration testing                                       │
+│  ├── Protocol fuzzing                                          │
+│  ├── Race condition testing                                    │
+│  └── Economic attack simulation                                │
+│                                                                  │
+│  Phase 4: Reporting (10% of time)                              │
+│  ├── Finding documentation                                     │
+│  ├── Severity classification                                   │
+│  ├── Remediation recommendations                               │
+│  └── Executive summary                                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Finding Classifications
+
+### Severity Levels
+
+| Severity | Description | Response Time | Examples |
+|----------|-------------|---------------|----------|
+| **Critical** | Direct fund loss possible | 24 hours | Key extraction, unlimited minting |
+| **High** | Significant financial risk | 72 hours | Reentrancy, oracle manipulation |
+| **Medium** | Limited financial impact | 1 week | DoS, gas griefing |
+| **Low** | Best practice violations | 2 weeks | Missing events, unclear code |
+| **Info** | Suggestions | As capacity allows | Code style, documentation |
+
+### Sample Finding Format
+
+```markdown
+## [HIGH] Reentrancy Vulnerability in Withdrawal Flow
+
+### Description
+The `withdraw()` function in `Vault.sol` makes an external call to transfer
+tokens before updating the user's balance, enabling reentrancy attacks.
+
+### Location
+- File: `contracts/Vault.sol`
+- Lines: 145-162
+- Function: `withdraw(uint256 amount)`
+
+### Impact
+An attacker can drain the vault by recursively calling `withdraw()` before
+the balance update. Maximum loss: Entire vault balance.
+
+### Proof of Concept
+```solidity
+contract Attacker {
+    Vault vault;
+
+    function attack() external {
+        vault.withdraw(vault.balanceOf(address(this)));
+    }
+
+    receive() external payable {
+        if (address(vault).balance > 0) {
+            vault.withdraw(vault.balanceOf(address(this)));
+        }
+    }
+}
+```
+
+### Recommendation
+Apply the Checks-Effects-Interactions pattern:
+
+```solidity
+function withdraw(uint256 amount) external {
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+
+    // Effect: Update state before interaction
+    balances[msg.sender] -= amount;
+
+    // Interaction: External call last
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success, "Transfer failed");
+}
+```
+
+### Status
+**RESOLVED** - Fixed in commit `abc123def`
+```
+
+## Bug Bounty Program
+
+### Program Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BUG BOUNTY PROGRAM                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Platform: HackerOne (https://hackerone.com/luxfi)             │
+│                                                                  │
+│  Rewards:                                                       │
+│  ├── Critical: $50,000 - $1,000,000                            │
+│  ├── High:     $10,000 - $50,000                               │
+│  ├── Medium:   $2,000 - $10,000                                │
+│  └── Low:      $500 - $2,000                                   │
+│                                                                  │
+│  In Scope:                                                      │
+│  ├── Smart contracts (mainnet)                                 │
+│  ├── Core DEX services                                         │
+│  ├── Bridge infrastructure                                     │
+│  ├── API endpoints                                             │
+│  └── Cryptographic implementations                             │
+│                                                                  │
+│  Out of Scope:                                                  │
+│  ├── Third-party services                                      │
+│  ├── Social engineering                                        │
+│  ├── DoS attacks on infrastructure                             │
+│  └── Issues in testnet only                                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Reward Calculation
+
+```python
+def calculate_reward(severity: str, impact: str, likelihood: str) -> int:
+    """
+    Calculate bug bounty reward based on severity and context.
+
+    Impact levels: critical, high, medium, low
+    Likelihood: certain, likely, possible, unlikely
+    """
+
+    base_rewards = {
+        'critical': 100000,
+        'high': 25000,
+        'medium': 5000,
+        'low': 1000
+    }
+
+    impact_multipliers = {
+        'critical': 10.0,  # Direct fund loss
+        'high': 5.0,       # Significant financial risk
+        'medium': 2.0,     # Limited financial impact
+        'low': 1.0         # No direct financial impact
+    }
+
+    likelihood_multipliers = {
+        'certain': 2.0,    # Guaranteed exploitation
+        'likely': 1.5,     # High probability
+        'possible': 1.0,   # Moderate probability
+        'unlikely': 0.5    # Low probability
+    }
+
+    base = base_rewards.get(severity, 0)
+    impact_mult = impact_multipliers.get(impact, 1.0)
+    likelihood_mult = likelihood_multipliers.get(likelihood, 1.0)
+
+    reward = base * impact_mult * likelihood_mult
+
+    # Cap at maximum
+    return min(int(reward), 1000000)
+```
+
+### Qualifying Vulnerabilities
+
+| Category | Examples | Typical Severity |
+|----------|----------|-----------------|
+| **Fund Loss** | Key extraction, infinite mint, drain attacks | Critical |
+| **Privilege Escalation** | Admin bypass, unauthorized signing | Critical/High |
+| **Consensus Attacks** | Double-spend, chain reorganization | Critical |
+| **Smart Contract** | Reentrancy, overflow, access control | High/Medium |
+| **Cryptographic** | Weak randomness, timing attacks | High/Medium |
+| **Information Disclosure** | Key leakage, sensitive data exposure | Medium |
+| **Denial of Service** | Resource exhaustion, deadlocks | Medium/Low |
+
+### Submission Guidelines
+
+```markdown
+## Bug Bounty Submission Template
+
+### Title
+[Brief description of the vulnerability]
+
+### Severity Assessment
+- **Severity**: [Critical/High/Medium/Low]
+- **Impact**: [Description of potential damage]
+- **Likelihood**: [Certain/Likely/Possible/Unlikely]
+
+### Affected Components
+- Repository: [github.com/luxfi/...]
+- File(s): [specific files]
+- Version/Commit: [commit hash or version]
+
+### Description
+[Detailed technical description of the vulnerability]
+
+### Steps to Reproduce
+1. [First step]
+2. [Second step]
+3. [...]
+
+### Proof of Concept
+[Working PoC code or detailed attack scenario]
+
+### Impact Analysis
+[What an attacker could achieve, potential losses]
+
+### Suggested Fix
+[Optional: Your recommended remediation]
+
+### Additional Information
+- [ ] I have not disclosed this publicly
+- [ ] I discovered this independently
+- [ ] I consent to my username being credited
+
+### Contact
+- HackerOne username: [username]
+- Preferred contact: [email or HackerOne]
+```
+
+## Responsible Disclosure
+
+### Disclosure Timeline
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               RESPONSIBLE DISCLOSURE TIMELINE                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Day 0:    Vulnerability reported                               │
+│            └── Acknowledgment within 24 hours                   │
+│                                                                  │
+│  Day 1-3:  Initial triage                                       │
+│            └── Severity assessment, scope determination         │
+│                                                                  │
+│  Day 4-7:  Detailed analysis                                    │
+│            └── Root cause identification, fix development       │
+│                                                                  │
+│  Day 8-14: Fix implementation                                   │
+│            └── Code changes, internal review                    │
+│                                                                  │
+│  Day 15-21: Testing & deployment                                │
+│            └── Testnet deployment, verification                 │
+│                                                                  │
+│  Day 22-30: Mainnet deployment                                  │
+│            └── Staged rollout, monitoring                       │
+│                                                                  │
+│  Day 30+:  Public disclosure                                    │
+│            └── Advisory published, reporter credited            │
+│                                                                  │
+│  Note: Critical vulnerabilities may have accelerated timeline   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Security Advisory Format
+
+```markdown
+# Security Advisory: LX-2024-001
+
+## Summary
+A reentrancy vulnerability in the withdrawal flow could allow
+attackers to drain vault funds.
+
+## Severity
+**HIGH** - CVSS 8.1
+
+## Affected Versions
+- lx-dex v1.0.0 - v1.2.3
+
+## Fixed Versions
+- lx-dex v1.2.4+
+
+## Description
+The `Vault.withdraw()` function made external calls before updating
+internal state, enabling reentrancy attacks. An attacker with any
+deposited balance could drain the vault.
+
+## Mitigation
+Upgrade to v1.2.4 or later. If immediate upgrade is not possible,
+pause withdrawals until upgrade is complete.
+
+## Timeline
+- 2024-10-15: Vulnerability reported via HackerOne
+- 2024-10-16: Acknowledged, triage started
+- 2024-10-18: Fix developed
+- 2024-10-20: Fix deployed to testnet
+- 2024-10-25: Fix deployed to mainnet
+- 2024-10-30: Public disclosure
+
+## Credit
+Thanks to @security_researcher for responsible disclosure.
+
+## References
+- [HackerOne Report #123456](https://hackerone.com/reports/123456)
+- [GitHub Advisory](https://github.com/luxfi/dex/security/advisories/GHSA-xxxx)
+- [CVE-2024-XXXXX](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-XXXXX)
+```
+
+## Internal Security Processes
+
+### Security Review Checklist
+
+```yaml
+# Pre-deployment Security Checklist
+code_review:
+  - [ ] All changes reviewed by security team
+  - [ ] No hardcoded secrets or credentials
+  - [ ] Input validation on all user inputs
+  - [ ] Output encoding for XSS prevention
+  - [ ] SQL injection prevention (parameterized queries)
+  - [ ] CSRF tokens implemented
+  - [ ] Rate limiting configured
+
+smart_contracts:
+  - [ ] Reentrancy guards applied
+  - [ ] Integer overflow/underflow checks
+  - [ ] Access control verified
+  - [ ] Events emitted for state changes
+  - [ ] Gas limits considered
+  - [ ] Upgrade path tested (if applicable)
+
+cryptography:
+  - [ ] Approved algorithms only (no homebrew crypto)
+  - [ ] Proper key derivation functions
+  - [ ] Secure random number generation
+  - [ ] Constant-time comparisons
+  - [ ] Keys stored securely
+
+infrastructure:
+  - [ ] TLS 1.3 required
+  - [ ] HSTS enabled
+  - [ ] Security headers configured
+  - [ ] Firewall rules reviewed
+  - [ ] Logging enabled
+  - [ ] Alerts configured
+```
+
+### Continuous Security Testing
+
+```yaml
+# CI/CD Security Pipeline
+security_pipeline:
+  static_analysis:
+    - tool: semgrep
+      config: p/security-audit
+      fail_on: error
+
+    - tool: gosec
+      rules: all
+      fail_on: high
+
+    - tool: slither # For Solidity
+      detectors: all
+      fail_on: high
+
+  dependency_scanning:
+    - tool: dependabot
+      frequency: daily
+
+    - tool: snyk
+      severity_threshold: high
+
+  secret_scanning:
+    - tool: gitleaks
+      fail_on: any
+
+    - tool: truffleHog
+      entropy_threshold: 4.5
+
+  dynamic_testing:
+    - tool: owasp-zap
+      target: staging
+      frequency: weekly
+
+  fuzzing:
+    - tool: go-fuzz
+      targets:
+        - pkg/orderbook/...
+        - pkg/matching/...
+      duration: 1h
+```
+
+## Contact Information
+
+### Security Team
+
+- **Email**: security@lux.network
+- **PGP Key**: [0xABCD1234](/security/pgp-key.asc)
+- **HackerOne**: https://hackerone.com/luxfi
+
+### Emergency Contacts
+
+```
+For critical vulnerabilities requiring immediate attention:
+
+24/7 Security Hotline: +1-888-LUX-SEC1
+Emergency Email: emergency-security@lux.network
+
+Response SLA:
+- Critical: 1 hour acknowledgment, 24 hour response
+- High: 4 hour acknowledgment, 72 hour response
+- Medium: 24 hour acknowledgment, 1 week response
+```
+
+## Security Certifications
+
+| Certification | Status | Renewal |
+|--------------|--------|---------|
+| SOC 2 Type II | In progress | Annual |
+| ISO 27001 | Planned Q2 2025 | Triennial |
+| PCI DSS | Not applicable | N/A |
+
+## References
+
+- [OWASP Testing Guide](https://owasp.org/www-project-web-security-testing-guide/)
+- [Smart Contract Security Best Practices](https://consensys.github.io/smart-contract-best-practices/)
+- [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
+- [HackerOne Vulnerability Disclosure Guidelines](https://www.hackerone.com/disclosure-guidelines)
