@@ -76,19 +76,12 @@ LX provides institutional-grade trading infrastructure with sub-microsecond late
 ### 1. Place a Limit Order
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Buy 1 BTC at $50,000
-const order = await dex.placeOrder({
-  symbol: 'BTC-USD',
-  side: 'buy',
-  type: 'limit',
-  price: '50000',
-  quantity: '1',
-  timeInForce: 'GTC'
-})
+const order = await dex.limitBuy('BTC-USDC', '1', '50000')
 
 console.log(`Order ID: ${order.orderId}`)
 console.log(`Status: ${order.status}`)
@@ -98,25 +91,14 @@ console.log(`Status: ${order.status}`)
 
 ```typescript
 // Market buy 0.5 BTC at best available price
-const order = await dex.placeOrder({
-  symbol: 'BTC-USD',
-  side: 'buy',
-  type: 'market',
-  quantity: '0.5'
-})
+const order = await dex.buy('BTC-USDC', '0.5')
 ```
 
 ### 3. Set Stop-Loss
 
 ```typescript
 // Stop-loss: Sell if price drops to $45,000
-const stopOrder = await dex.placeOrder({
-  symbol: 'BTC-USD',
-  side: 'sell',
-  type: 'stop',
-  stopPrice: '45000',
-  quantity: '1'
-})
+const stopOrder = await dex.limitSell('BTC-USDC', '1', '45000')
 ```
 
 ## Trading Features
