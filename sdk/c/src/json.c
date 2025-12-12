@@ -1,5 +1,5 @@
 /*
- * LX DEX C SDK - JSON parsing
+ * LX C SDK - JSON parsing
  * Minimal JSON parser for protocol messages.
  */
 

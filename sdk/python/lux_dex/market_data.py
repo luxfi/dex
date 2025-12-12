@@ -1,5 +1,5 @@
 """
-Market data, liquidation, and settlement features for LX DEX Python Client
+Market data, liquidation, and settlement features for LX Python Client
 """
 
 from typing import Dict, List, Optional, Any

@@ -1,6 +1,6 @@
 ---
 title: Connectivity
-description: Network connectivity options for LX DEX - remote access, colocation, dedicated links, and cloud connectivity
+description: Network connectivity options for LX - remote access, colocation, dedicated links, and cloud connectivity
 ---
 
 # Connectivity Overview
@@ -9,13 +9,13 @@ description: Network connectivity options for LX DEX - remote access, colocation
 
 ## Introduction
 
-LX DEX provides multiple connectivity options designed for different trading requirements, from retail traders accessing via public internet to institutional market makers requiring sub-microsecond latency through colocation. This documentation covers all available connectivity methods, regional endpoints, latency specifications, and enterprise connectivity programs.
+LX provides multiple connectivity options designed for different trading requirements, from retail traders accessing via public internet to institutional market makers requiring sub-microsecond latency through colocation. This documentation covers all available connectivity methods, regional endpoints, latency specifications, and enterprise connectivity programs.
 
 ## Connectivity Tiers
 
 ```
 +------------------------------------------------------------------+
-|                    LX DEX CONNECTIVITY TIERS                      |
+|                    LX CONNECTIVITY TIERS                      |
 +------------------------------------------------------------------+
 |                                                                    |
 |  TIER 1: COLOCATION (Sub-microsecond)                             |
@@ -93,7 +93,7 @@ LX DEX provides multiple connectivity options designed for different trading req
                            GLOBAL NETWORK TOPOLOGY
 
                      +------------------+
-                     |  LX DEX PRIMARY  |
+                     |  LX PRIMARY  |
                      |  Kansas City, MO |
                      |  (Google Fiber)  |
                      +--------+---------+
@@ -132,9 +132,72 @@ LX DEX provides multiple connectivity options designed for different trading req
 
 | Location | Bandwidth | Role | Features |
 |----------|-----------|------|----------|
-| **Kansas City, MO** | 20Gbps (100Gbps planned) | Primary Matching | Google Fiber, Microwave to SF/NYC |
-| San Francisco, CA | 1Gbps | Lab/Development | Testing environment |
+| **Kansas City, MO** | 20Gbps (100Gbps planned) | Primary Matching | Grand Building KCMO, Google Fiber, Microwave to SF/NYC |
+| San Francisco, CA | 10Gbps | Lab/Development | SoMa, testing environment |
 | Vancouver, BC | 1Gbps | Secondary | Canada presence |
+
+#### Kansas City - Primary Datacenter
+
+Our primary matching engine operates from the **Grand Building** in downtown Kansas City, Missouri. This strategic location provides:
+
+- **Google Fiber**: Direct 20Gbps connection (100Gbps upgrade planned)
+- **Microwave Links**: Sub-millisecond connectivity to San Francisco and New York
+- **Central US Location**: Optimal latency to both coasts
+- **Colocation**: Full rack and cage options for HFT clients
+- **Native Custody**: Lux Threshold, KMS, and HSM infrastructure on-site
+
+Kansas City's central geographic position makes it ideal for serving traders across North America with balanced latency to major financial centers.
+
+### Our Thesis: Fiber-First HFT Infrastructure
+
+<Callout type="info">
+**Vision**: Build the world's fastest HFT platform by strategically connecting global fiber infrastructure with up to **800Gbps** capacity available today.
+</Callout>
+
+Traditional exchanges are constrained by legacy infrastructure and geographic lock-in. LX takes a different approach:
+
+**1. Fiber Connectivity as Foundation**
+- Direct dark fiber access with up to 800Gbps available capacity
+- Microwave and millimeter-wave links for ultra-low latency between major hubs
+- Strategic datacenter placement at fiber intersection points
+
+**2. Geographic Arbitrage**
+- Kansas City sits at the crossroads of major US fiber routes
+- Equidistant latency to NYSE (New York) and tech hubs (SF/Seattle)
+- Optimal positioning for serving global markets from a central node
+
+**3. Scalable by Design**
+- Current: 20Gbps production, 10Gbps development
+- Near-term: 100Gbps upgrade path
+- Available: Up to 800Gbps fiber capacity when demand requires
+
+**4. Colocation-Native**
+- All Lux infrastructure (matching engine, custody, KMS, HSM) colocated
+- Third-party HFT firms can rack directly alongside our systems
+- Nanosecond-level latency for colocated clients
+
+**5. Global Expansion Model**
+- Deploy light-speed HFT nodes in any datacenter worldwide
+- Community-driven prioritization for new locations
+- Same software stack, consistent APIs, local latency
+
+```
+                    FIBER TOPOLOGY VISION
+
+     Seattle ←——————— 800Gbps Available ———————→ NYC
+         \                                        /
+          \                                      /
+           ↘                                    ↙
+            San Francisco ←——→ Kansas City ←——→ Chicago
+                   ↓              ↓              ↓
+               10Gbps          20Gbps        Planned
+                              (100Gbps)
+                                 ↓
+                            Microwave
+                          SF ←——→ NYC
+```
+
+This architecture enables LX to offer institutional-grade latency at any scale, anywhere in the world.
 
 ### Planned (Community-driven prioritization)
 
@@ -147,7 +210,7 @@ LX DEX provides multiple connectivity options designed for different trading req
 | Tokyo | Planned | Japan market |
 
 <Callout type="info">
-**Spin up anywhere**: LX DEX can deploy a light-speed HFT DEX in any colocated datacenter. Contact us for custom deployments.
+**Spin up anywhere**: LX can deploy a light-speed HFT DEX in any colocated datacenter. Contact us for custom deployments.
 </Callout>
 
 ## Getting Started

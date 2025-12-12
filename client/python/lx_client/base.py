@@ -1,5 +1,5 @@
 """
-LX DEX Trading Client - Abstract Base Class and Types
+LX Trading Client - Abstract Base Class and Types
 
 Defines the common interface for all trading client implementations.
 """

@@ -1,8 +1,8 @@
 /*
- * LX DEX C SDK
+ * LX C SDK
  * Copyright (c) 2025 Lux Partners Limited
  *
- * High-performance C client for LX DEX trading.
+ * High-performance C client for LX trading.
  */
 
 #ifndef LXDEX_H

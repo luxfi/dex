@@ -1,15 +1,15 @@
 ---
 title: Operations Overview
-description: Production deployment, monitoring, and maintenance guide for LX DEX
+description: Production deployment, monitoring, and maintenance guide for LX
 ---
 
 # Operations Overview
 
-This guide covers production deployment, monitoring, and maintenance of LX DEX infrastructure. The platform supports multiple deployment models from single-node development to globally distributed production clusters.
+This guide covers production deployment, monitoring, and maintenance of LX infrastructure. The platform supports multiple deployment models from single-node development to globally distributed production clusters.
 
 ## Deployment Architecture
 
-LX DEX operates as a distributed trading system with the following components:
+LX operates as a distributed trading system with the following components:
 
 ```
                                     Load Balancer
@@ -257,7 +257,7 @@ iptables -A INPUT -p tcp --dport 9090 -s 10.0.0.0/8 -j ACCEPT   # Metrics (inter
 
 ### Post-Quantum Security
 
-LX DEX supports post-quantum cryptography via QZMQ:
+LX supports post-quantum cryptography via QZMQ:
 
 - **Key Exchange**: X25519 + ML-KEM-768 (hybrid)
 - **Signatures**: ML-DSA-44 (Dilithium2)

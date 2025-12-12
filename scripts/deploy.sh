@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# LX DEX Deployment Script
+# LX Deployment Script
 # Usage: ./deploy.sh [staging|production] [action]
 
 ENVIRONMENT=${1:-staging}

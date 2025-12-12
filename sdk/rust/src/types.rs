@@ -1,4 +1,4 @@
-//! Core types for the LX DEX SDK.
+//! Core types for the LX SDK.
 //!
 //! Defines orders, trades, positions, balances, and market data structures.
 

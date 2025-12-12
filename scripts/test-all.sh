@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# LX DEX Comprehensive Test Script
+# LX Comprehensive Test Script
 # Tests all builds, tests, and CI components
 
 set -e
 
 echo "============================================"
-echo "   LX DEX Comprehensive Test Suite"
+echo "   LX Comprehensive Test Suite"
 echo "============================================"
 echo ""
 

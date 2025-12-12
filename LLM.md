@@ -1,8 +1,8 @@
-# LX DEX - Complete Architecture Documentation
+# LX - Complete Architecture Documentation
 
 ## Executive Summary
 
-LX DEX is a planet-scale, fully on-chain decentralized exchange built on the Lux Network. It combines ultra-low latency matching (<1μs), quantum-resistant security, and support for all global markets (784,000+ trading pairs) in a single unified system.
+LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Network. It combines ultra-low latency matching (<1μs), quantum-resistant security, and support for all global markets (784,000+ trading pairs) in a single unified system.
 
 **Latest Performance Achievements (January 2025):**
 - **Throughput**: 434,782,609 orders/second (GPU/MLX)
@@ -12,7 +12,7 @@ LX DEX is a planet-scale, fully on-chain decentralized exchange built on the Lux
 
 ## Key Innovations
 
-1. **Full On-Chain Architecture**: Unlike competitors (High-performance DEX, dYdX) that match off-chain, LX DEX runs the entire orderbook and clearinghouse directly on-chain with 1ms block finality
+1. **Full On-Chain Architecture**: Unlike competitors (High-performance DEX, dYdX) that match off-chain, LX runs the entire orderbook and clearinghouse directly on-chain with 1ms block finality
 2. **Planet-Scale Capacity**: Single Mac Studio can handle 5M markets simultaneously
 3. **Quantum-Resistant**: QZMQ protocol with post-quantum cryptography for node communication
 4. **Multi-Engine Performance**: Go (1M ops/s), C++ (500K ops/s), GPU/MLX (434M ops/s)
@@ -22,7 +22,7 @@ LX DEX is a planet-scale, fully on-chain decentralized exchange built on the Lux
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    LX DEX ARCHITECTURE                       │
+│                    LX ARCHITECTURE                       │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  Client Layer                                                │
@@ -499,7 +499,7 @@ engine:
 
 ### Kubernetes Deployment
 
-The LX DEX includes comprehensive Kubernetes manifests for production deployment:
+The LX includes comprehensive Kubernetes manifests for production deployment:
 
 #### Production Environment (`k8s/production/`)
 - **StatefulSet**: 3-node cluster with anti-affinity rules
@@ -1728,7 +1728,7 @@ var (
 
 ## 9. CONCLUSION
 
-The LX DEX architecture shows **ambitious vision** with cutting-edge technologies (DAG consensus, quantum resistance, GPU/FPGA acceleration), but has **significant implementation gaps** that prevent production deployment.
+The LX architecture shows **ambitious vision** with cutting-edge technologies (DAG consensus, quantum resistance, GPU/FPGA acceleration), but has **significant implementation gaps** that prevent production deployment.
 
 **Core Strength**: GPU-accelerated matching engine is production-ready and achieves world-class performance (434M ops/sec).
 

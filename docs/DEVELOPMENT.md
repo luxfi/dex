@@ -1,4 +1,4 @@
-# LX DEX Development Guide
+# LX Development Guide
 
 ## Table of Contents
 - [Getting Started](#getting-started)
