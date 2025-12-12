@@ -1,0 +1,803 @@
+---
+title: Encryption
+description: TLS configuration, data encryption at rest, and key management for LX DEX
+---
+
+# Encryption
+
+LX DEX implements encryption at every layer - in transit, at rest, and in memory - using both classical and post-quantum algorithms.
+
+## Encryption Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENCRYPTION LAYERS                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  In Transit                                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  TLS 1.3 │ QZMQ (Post-Quantum) │ mTLS (Node-to-Node)   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  At Rest                                                        │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  AES-256-GCM │ ChaCha20-Poly1305 │ Database Encryption  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  In Memory                                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Secure Enclave │ Memory Encryption │ Key Isolation     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## TLS Configuration
+
+### Server Configuration
+
+```go
+package tls
+
+import (
+    "crypto/tls"
+    "crypto/x509"
+)
+
+// NewSecureTLSConfig returns hardened TLS configuration
+func NewSecureTLSConfig() *tls.Config {
+    return &tls.Config{
+        // TLS 1.3 only - no downgrade attacks
+        MinVersion: tls.VersionTLS13,
+        MaxVersion: tls.VersionTLS13,
+
+        // Prefer server cipher suites
+        PreferServerCipherSuites: true,
+
+        // TLS 1.3 cipher suites (automatic with TLS 1.3)
+        // - TLS_AES_256_GCM_SHA384
+        // - TLS_CHACHA20_POLY1305_SHA256
+        // - TLS_AES_128_GCM_SHA256
+
+        // Curve preferences for key exchange
+        CurvePreferences: []tls.CurveID{
+            tls.X25519,    // Fastest, most secure
+            tls.CurveP384, // NIST P-384
+            tls.CurveP256, // NIST P-256
+        },
+
+        // Client authentication (for internal services)
+        ClientAuth: tls.RequireAndVerifyClientCert,
+
+        // Session tickets disabled (perfect forward secrecy)
+        SessionTicketsDisabled: true,
+
+        // OCSP stapling
+        // Configured via GetCertificate callback
+    }
+}
+
+// LoadCertificates loads server certificates
+func LoadCertificates(certFile, keyFile string) (*tls.Config, error) {
+    config := NewSecureTLSConfig()
+
+    cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+    if err != nil {
+        return nil, err
+    }
+
+    config.Certificates = []tls.Certificate{cert}
+    return config, nil
+}
+```
+
+### Certificate Management
+
+```yaml
+# cert-manager configuration (Kubernetes)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lx-dex-tls
+  namespace: lx-dex
+spec:
+  secretName: lx-dex-tls-secret
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # 15 days before expiry
+  subject:
+    organizations:
+      - Lux Network
+  commonName: api.dex.lux.network
+  dnsNames:
+    - api.dex.lux.network
+    - ws.dex.lux.network
+    - "*.dex.lux.network"
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+```
+
+### mTLS for Internal Services
+
+```go
+package mtls
+
+import (
+    "crypto/tls"
+    "crypto/x509"
+    "os"
+)
+
+// NewMTLSConfig creates mutual TLS configuration
+func NewMTLSConfig(caCertFile, certFile, keyFile string) (*tls.Config, error) {
+    // Load CA certificate pool
+    caCert, err := os.ReadFile(caCertFile)
+    if err != nil {
+        return nil, err
+    }
+
+    caPool := x509.NewCertPool()
+    if !caPool.AppendCertsFromPEM(caCert) {
+        return nil, ErrInvalidCACert
+    }
+
+    // Load client certificate
+    cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+    if err != nil {
+        return nil, err
+    }
+
+    return &tls.Config{
+        MinVersion:   tls.VersionTLS13,
+        Certificates: []tls.Certificate{cert},
+        RootCAs:      caPool,
+        ClientCAs:    caPool,
+        ClientAuth:   tls.RequireAndVerifyClientCert,
+    }, nil
+}
+```
+
+## Data Encryption at Rest
+
+### Database Encryption
+
+```go
+package encryption
+
+import (
+    "crypto/aes"
+    "crypto/cipher"
+    "crypto/rand"
+    "io"
+)
+
+// EncryptedStore wraps database with transparent encryption
+type EncryptedStore struct {
+    db     Database
+    cipher cipher.AEAD
+}
+
+// NewEncryptedStore creates encrypted database wrapper
+func NewEncryptedStore(db Database, key []byte) (*EncryptedStore, error) {
+    if len(key) != 32 {
+        return nil, ErrInvalidKeySize
+    }
+
+    block, err := aes.NewCipher(key)
+    if err != nil {
+        return nil, err
+    }
+
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return nil, err
+    }
+
+    return &EncryptedStore{
+        db:     db,
+        cipher: gcm,
+    }, nil
+}
+
+// Put encrypts and stores data
+func (s *EncryptedStore) Put(key, value []byte) error {
+    // Generate random nonce
+    nonce := make([]byte, s.cipher.NonceSize())
+    if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+        return err
+    }
+
+    // Encrypt: nonce || ciphertext || tag
+    encrypted := s.cipher.Seal(nonce, nonce, value, key) // key as AAD
+
+    return s.db.Put(key, encrypted)
+}
+
+// Get decrypts and retrieves data
+func (s *EncryptedStore) Get(key []byte) ([]byte, error) {
+    encrypted, err := s.db.Get(key)
+    if err != nil {
+        return nil, err
+    }
+
+    if len(encrypted) < s.cipher.NonceSize() {
+        return nil, ErrCorruptedData
+    }
+
+    nonce := encrypted[:s.cipher.NonceSize()]
+    ciphertext := encrypted[s.cipher.NonceSize():]
+
+    return s.cipher.Open(nil, nonce, ciphertext, key) // key as AAD
+}
+```
+
+### Field-Level Encryption
+
+```go
+package encryption
+
+import (
+    "encoding/base64"
+)
+
+// SensitiveField represents encrypted field data
+type SensitiveField struct {
+    Ciphertext string `json:"ct"`
+    Algorithm  string `json:"alg"` // "aes-256-gcm" or "chacha20-poly1305"
+    KeyID      string `json:"kid"` // Key identifier for rotation
+}
+
+// FieldEncryptor encrypts specific fields
+type FieldEncryptor struct {
+    keyStore KeyStore
+}
+
+// EncryptField encrypts a sensitive field
+func (e *FieldEncryptor) EncryptField(value []byte) (*SensitiveField, error) {
+    // Get current encryption key
+    key, keyID, err := e.keyStore.GetCurrentKey()
+    if err != nil {
+        return nil, err
+    }
+
+    // Encrypt
+    encrypted, err := Encrypt(key, value)
+    if err != nil {
+        return nil, err
+    }
+
+    return &SensitiveField{
+        Ciphertext: base64.StdEncoding.EncodeToString(encrypted),
+        Algorithm:  "aes-256-gcm",
+        KeyID:      keyID,
+    }, nil
+}
+
+// DecryptField decrypts a sensitive field
+func (e *FieldEncryptor) DecryptField(field *SensitiveField) ([]byte, error) {
+    // Get key by ID (supports rotation)
+    key, err := e.keyStore.GetKey(field.KeyID)
+    if err != nil {
+        return nil, err
+    }
+
+    ciphertext, err := base64.StdEncoding.DecodeString(field.Ciphertext)
+    if err != nil {
+        return nil, err
+    }
+
+    return Decrypt(key, ciphertext)
+}
+```
+
+### Encrypted User Data Example
+
+```go
+// User with encrypted sensitive fields
+type User struct {
+    ID            string          `json:"id"`
+    Email         string          `json:"email"`          // Hashed for lookup
+    EmailEnc      *SensitiveField `json:"email_enc"`      // Encrypted
+    Phone         *SensitiveField `json:"phone_enc"`      // Encrypted
+    SSN           *SensitiveField `json:"ssn_enc"`        // Encrypted
+    APIKeyHash    string          `json:"api_key_hash"`   // Hashed only
+    CreatedAt     time.Time       `json:"created_at"`
+}
+
+// SaveUser encrypts sensitive fields before storage
+func (s *UserStore) SaveUser(user *User) error {
+    // Encrypt sensitive fields
+    emailEnc, err := s.encryptor.EncryptField([]byte(user.Email))
+    if err != nil {
+        return err
+    }
+    user.EmailEnc = emailEnc
+    user.Email = hashForLookup(user.Email) // Store hash for lookups
+
+    // Similar for other fields...
+
+    return s.db.Save(user)
+}
+```
+
+## Key Management
+
+### Key Hierarchy
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      KEY HIERARCHY                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Master Key (HSM Protected)                                     │
+│  └── KEK (Key Encryption Key)                                   │
+│      ├── Database Master Key                                    │
+│      │   ├── Table Keys                                        │
+│      │   └── Field Keys                                        │
+│      ├── API Key Encryption Key                                │
+│      ├── Session Key Encryption Key                            │
+│      └── Backup Encryption Key                                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Store Interface
+
+```go
+package keystore
+
+import (
+    "time"
+)
+
+// KeyStore manages encryption keys
+type KeyStore interface {
+    // GetCurrentKey returns the current active key
+    GetCurrentKey() (key []byte, keyID string, err error)
+
+    // GetKey returns a key by ID (for decryption)
+    GetKey(keyID string) ([]byte, error)
+
+    // RotateKey creates new key, marks old as decrypt-only
+    RotateKey() (newKeyID string, err error)
+
+    // ListKeys returns all active key IDs
+    ListKeys() ([]KeyInfo, error)
+}
+
+// KeyInfo contains key metadata
+type KeyInfo struct {
+    KeyID       string
+    Algorithm   string
+    CreatedAt   time.Time
+    ExpiresAt   time.Time
+    Status      KeyStatus // Active, DecryptOnly, Retired
+}
+
+type KeyStatus string
+
+const (
+    KeyStatusActive      KeyStatus = "active"
+    KeyStatusDecryptOnly KeyStatus = "decrypt_only"
+    KeyStatusRetired     KeyStatus = "retired"
+)
+```
+
+### HSM Integration
+
+```go
+package hsm
+
+import (
+    "github.com/miekg/pkcs11"
+)
+
+// HSMKeyStore uses Hardware Security Module for key management
+type HSMKeyStore struct {
+    module    *pkcs11.Ctx
+    session   pkcs11.SessionHandle
+    slot      uint
+}
+
+// NewHSMKeyStore connects to HSM
+func NewHSMKeyStore(modulePath string, pin string) (*HSMKeyStore, error) {
+    ctx := pkcs11.New(modulePath)
+    if ctx == nil {
+        return nil, ErrHSMModuleNotFound
+    }
+
+    if err := ctx.Initialize(); err != nil {
+        return nil, err
+    }
+
+    slots, err := ctx.GetSlotList(true)
+    if err != nil {
+        return nil, err
+    }
+
+    session, err := ctx.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+    if err != nil {
+        return nil, err
+    }
+
+    if err := ctx.Login(session, pkcs11.CKU_USER, pin); err != nil {
+        return nil, err
+    }
+
+    return &HSMKeyStore{
+        module:  ctx,
+        session: session,
+        slot:    slots[0],
+    }, nil
+}
+
+// GenerateKey creates AES-256 key in HSM
+func (h *HSMKeyStore) GenerateKey(label string) ([]byte, error) {
+    template := []*pkcs11.Attribute{
+        pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
+        pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_AES),
+        pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, 32), // 256 bits
+        pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
+        pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
+        pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
+        pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false), // Never leaves HSM
+        pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
+    }
+
+    mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_KEY_GEN, nil)}
+
+    handle, err := h.module.GenerateKey(h.session, mech, template)
+    if err != nil {
+        return nil, err
+    }
+
+    // Return handle/ID, not actual key (stays in HSM)
+    return encodeHandle(handle), nil
+}
+
+// EncryptWithHSM performs encryption inside HSM
+func (h *HSMKeyStore) EncryptWithHSM(keyHandle []byte, plaintext []byte) ([]byte, error) {
+    handle := decodeHandle(keyHandle)
+
+    mech := pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, &pkcs11.GCMParams{
+        IvLen:  12,
+        TagLen: 16,
+    })
+
+    if err := h.module.EncryptInit(h.session, []*pkcs11.Mechanism{mech}, handle); err != nil {
+        return nil, err
+    }
+
+    return h.module.Encrypt(h.session, plaintext)
+}
+```
+
+### Key Rotation
+
+```go
+package keystore
+
+import (
+    "time"
+)
+
+// KeyRotationPolicy defines rotation rules
+type KeyRotationPolicy struct {
+    MaxAge          time.Duration // Rotate keys older than this
+    MaxEncryptions  int64         // Rotate after N encryptions
+    Schedule        string        // Cron schedule for rotation
+}
+
+// DefaultRotationPolicy returns recommended policy
+func DefaultRotationPolicy() *KeyRotationPolicy {
+    return &KeyRotationPolicy{
+        MaxAge:         90 * 24 * time.Hour, // 90 days
+        MaxEncryptions: 1_000_000_000,       // 1 billion encryptions
+        Schedule:       "0 0 1 * *",         // First of each month
+    }
+}
+
+// RotateIfNeeded checks policy and rotates if necessary
+func (ks *KeyStoreImpl) RotateIfNeeded() error {
+    current, err := ks.GetCurrentKeyInfo()
+    if err != nil {
+        return err
+    }
+
+    needsRotation := false
+
+    // Check age
+    if time.Since(current.CreatedAt) > ks.policy.MaxAge {
+        needsRotation = true
+    }
+
+    // Check encryption count
+    if current.EncryptionCount > ks.policy.MaxEncryptions {
+        needsRotation = true
+    }
+
+    if needsRotation {
+        return ks.RotateKey()
+    }
+
+    return nil
+}
+
+// RotateKey performs key rotation
+func (ks *KeyStoreImpl) RotateKey() error {
+    // Generate new key
+    newKey, err := generateKey()
+    if err != nil {
+        return err
+    }
+
+    newKeyID := generateKeyID()
+
+    // Store new key
+    if err := ks.storeKey(newKeyID, newKey); err != nil {
+        return err
+    }
+
+    // Mark old key as decrypt-only
+    if err := ks.updateKeyStatus(ks.currentKeyID, KeyStatusDecryptOnly); err != nil {
+        return err
+    }
+
+    // Update current key pointer
+    ks.currentKeyID = newKeyID
+
+    // Log rotation event
+    ks.auditLog.KeyRotated(ks.currentKeyID, newKeyID)
+
+    return nil
+}
+```
+
+## Post-Quantum Encryption
+
+### Kyber Key Encapsulation
+
+```go
+package pqcrypto
+
+import (
+    "github.com/cloudflare/circl/kem/kyber/kyber768"
+)
+
+// KyberKEM provides post-quantum key encapsulation
+type KyberKEM struct{}
+
+// GenerateKeyPair creates Kyber-768 key pair
+func (k *KyberKEM) GenerateKeyPair() (publicKey, privateKey []byte, err error) {
+    pub, priv, err := kyber768.GenerateKeyPair(nil)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    pubBytes := make([]byte, kyber768.PublicKeySize)
+    privBytes := make([]byte, kyber768.PrivateKeySize)
+
+    pub.Pack(pubBytes)
+    priv.Pack(privBytes)
+
+    return pubBytes, privBytes, nil
+}
+
+// Encapsulate creates shared secret and ciphertext
+func (k *KyberKEM) Encapsulate(publicKey []byte) (ciphertext, sharedSecret []byte, err error) {
+    var pub kyber768.PublicKey
+    pub.Unpack(publicKey)
+
+    ct, ss, err := kyber768.Encapsulate(&pub)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    return ct, ss, nil
+}
+
+// Decapsulate recovers shared secret from ciphertext
+func (k *KyberKEM) Decapsulate(privateKey, ciphertext []byte) ([]byte, error) {
+    var priv kyber768.PrivateKey
+    priv.Unpack(privateKey)
+
+    return kyber768.Decapsulate(&priv, ciphertext)
+}
+```
+
+### Hybrid Encryption (X25519 + Kyber)
+
+```go
+package pqcrypto
+
+import (
+    "crypto/rand"
+    "golang.org/x/crypto/chacha20poly1305"
+    "golang.org/x/crypto/curve25519"
+)
+
+// HybridEncrypt uses both X25519 and Kyber for quantum resistance
+type HybridEncrypt struct {
+    kyber *KyberKEM
+}
+
+// HybridCiphertext contains both classical and PQ components
+type HybridCiphertext struct {
+    X25519Ephemeral []byte // X25519 ephemeral public key
+    KyberCiphertext []byte // Kyber encapsulation
+    Nonce           []byte // ChaCha20 nonce
+    Ciphertext      []byte // Encrypted data
+}
+
+// Encrypt using hybrid scheme
+func (h *HybridEncrypt) Encrypt(
+    x25519PubKey, kyberPubKey []byte,
+    plaintext []byte,
+) (*HybridCiphertext, error) {
+    // Generate X25519 ephemeral key pair
+    var x25519Ephemeral, x25519Private [32]byte
+    if _, err := rand.Read(x25519Private[:]); err != nil {
+        return nil, err
+    }
+    curve25519.ScalarBaseMult(&x25519Ephemeral, &x25519Private)
+
+    // X25519 key exchange
+    var x25519Shared [32]byte
+    var recipientKey [32]byte
+    copy(recipientKey[:], x25519PubKey)
+    curve25519.ScalarMult(&x25519Shared, &x25519Private, &recipientKey)
+
+    // Kyber encapsulation
+    kyberCt, kyberShared, err := h.kyber.Encapsulate(kyberPubKey)
+    if err != nil {
+        return nil, err
+    }
+
+    // Combine shared secrets: SHA3(x25519_shared || kyber_shared)
+    combinedSecret := sha3.Sum256(append(x25519Shared[:], kyberShared...))
+
+    // Encrypt with ChaCha20-Poly1305
+    aead, err := chacha20poly1305.New(combinedSecret[:])
+    if err != nil {
+        return nil, err
+    }
+
+    nonce := make([]byte, aead.NonceSize())
+    if _, err := rand.Read(nonce); err != nil {
+        return nil, err
+    }
+
+    ciphertext := aead.Seal(nil, nonce, plaintext, nil)
+
+    return &HybridCiphertext{
+        X25519Ephemeral: x25519Ephemeral[:],
+        KyberCiphertext: kyberCt,
+        Nonce:           nonce,
+        Ciphertext:      ciphertext,
+    }, nil
+}
+
+// Decrypt using hybrid scheme
+func (h *HybridEncrypt) Decrypt(
+    x25519PrivKey, kyberPrivKey []byte,
+    ct *HybridCiphertext,
+) ([]byte, error) {
+    // X25519 key exchange
+    var x25519Shared, privateKey [32]byte
+    copy(privateKey[:], x25519PrivKey)
+    var ephemeralKey [32]byte
+    copy(ephemeralKey[:], ct.X25519Ephemeral)
+    curve25519.ScalarMult(&x25519Shared, &privateKey, &ephemeralKey)
+
+    // Kyber decapsulation
+    kyberShared, err := h.kyber.Decapsulate(kyberPrivKey, ct.KyberCiphertext)
+    if err != nil {
+        return nil, err
+    }
+
+    // Combine shared secrets
+    combinedSecret := sha3.Sum256(append(x25519Shared[:], kyberShared...))
+
+    // Decrypt with ChaCha20-Poly1305
+    aead, err := chacha20poly1305.New(combinedSecret[:])
+    if err != nil {
+        return nil, err
+    }
+
+    return aead.Open(nil, ct.Nonce, ct.Ciphertext, nil)
+}
+```
+
+## Memory Protection
+
+### Secure Memory Allocation
+
+```go
+package secmem
+
+import (
+    "syscall"
+    "unsafe"
+)
+
+// SecureBuffer holds sensitive data with memory protection
+type SecureBuffer struct {
+    data []byte
+    size int
+}
+
+// NewSecureBuffer allocates protected memory
+func NewSecureBuffer(size int) (*SecureBuffer, error) {
+    // Allocate page-aligned memory
+    pageSize := syscall.Getpagesize()
+    allocSize := ((size + pageSize - 1) / pageSize) * pageSize
+
+    data, err := syscall.Mmap(
+        -1, 0, allocSize,
+        syscall.PROT_READ|syscall.PROT_WRITE,
+        syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    // Lock in RAM (prevent swapping)
+    if err := syscall.Mlock(data); err != nil {
+        syscall.Munmap(data)
+        return nil, err
+    }
+
+    return &SecureBuffer{
+        data: data[:size],
+        size: size,
+    }, nil
+}
+
+// Zero securely wipes memory
+func (b *SecureBuffer) Zero() {
+    for i := range b.data {
+        b.data[i] = 0
+    }
+}
+
+// Destroy securely wipes and releases memory
+func (b *SecureBuffer) Destroy() {
+    b.Zero()
+    syscall.Munlock(b.data)
+    syscall.Munmap(b.data)
+}
+
+// Bytes returns the buffer contents
+func (b *SecureBuffer) Bytes() []byte {
+    return b.data
+}
+```
+
+## Security Best Practices Checklist
+
+### Encryption Configuration
+
+- [ ] TLS 1.3 only (no TLS 1.2 fallback)
+- [ ] Strong cipher suites (AES-256-GCM, ChaCha20-Poly1305)
+- [ ] HSTS enabled with preload
+- [ ] Certificate pinning for mobile apps
+- [ ] OCSP stapling enabled
+- [ ] Perfect forward secrecy (ephemeral keys)
+
+### Key Management
+
+- [ ] Keys stored in HSM or secure enclave
+- [ ] Key rotation policy implemented
+- [ ] Separate keys per environment
+- [ ] Key backup with split custody
+- [ ] Key audit logging
+- [ ] Post-quantum keys for long-term data
+
+### Data Protection
+
+- [ ] Encrypt all PII at rest
+- [ ] Encrypt database backups
+- [ ] Secure key derivation (HKDF, Argon2)
+- [ ] Memory protection for secrets
+- [ ] Secure random number generation
+- [ ] Constant-time operations for crypto

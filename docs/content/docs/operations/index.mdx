@@ -1,0 +1,289 @@
+---
+title: Operations Overview
+description: Production deployment, monitoring, and maintenance guide for LX DEX
+---
+
+# Operations Overview
+
+This guide covers production deployment, monitoring, and maintenance of LX DEX infrastructure. The platform supports multiple deployment models from single-node development to globally distributed production clusters.
+
+## Deployment Architecture
+
+LX DEX operates as a distributed trading system with the following components:
+
+```
+                                    Load Balancer
+                                         |
+                    +--------------------+--------------------+
+                    |                    |                    |
+              +-----------+        +-----------+        +-----------+
+              |  Node 0   |        |  Node 1   |        |  Node 2   |
+              | (Primary) |  <-->  | (Replica) |  <-->  | (Replica) |
+              +-----------+        +-----------+        +-----------+
+                    |                    |                    |
+                    +--------------------+--------------------+
+                                         |
+                              +----------+----------+
+                              |                     |
+                        +-----------+         +-----------+
+                        | PostgreSQL|         |   Redis   |
+                        |  Cluster  |         |  Cluster  |
+                        +-----------+         +-----------+
+```
+
+## Deployment Options
+
+| Option | Use Case | Nodes | Availability |
+|--------|----------|-------|--------------|
+| Single Node | Development | 1 | None |
+| Standard Cluster | Staging | 3 | 99.9% |
+| Production Cluster | Production | 3-9 | 99.99% |
+| Multi-Region | Global Production | 9+ | 99.999% |
+
+## System Requirements
+
+### Minimum (Single Node Development)
+
+| Resource | Requirement |
+|----------|-------------|
+| CPU | 4 cores |
+| Memory | 8 GB |
+| Storage | 100 GB SSD |
+| Network | 100 Mbps |
+
+### Recommended (Production Node)
+
+| Resource | Requirement |
+|----------|-------------|
+| CPU | 32 cores (AMD EPYC / Intel Xeon) |
+| Memory | 64 GB ECC |
+| Storage | 1 TB NVMe SSD |
+| Network | 10 Gbps |
+| GPU | NVIDIA A100 / Apple M3 Ultra (optional) |
+
+### Network Ports
+
+| Port | Protocol | Service |
+|------|----------|---------|
+| 8080 | HTTP | REST API |
+| 8081 | WebSocket | Real-time feeds |
+| 50051 | gRPC | Internal RPC |
+| 5555 | QZMQ | PUB market data |
+| 5556 | QZMQ | SUB order flow |
+| 9090 | HTTP | Prometheus metrics |
+
+## Quick Start
+
+### Binary Installation
+
+```bash
+# Download latest release
+curl -L https://github.com/luxfi/dex/releases/latest/download/luxd-linux-amd64 -o luxd
+chmod +x luxd
+
+# Verify installation
+./luxd version
+
+# Start single node
+./luxd --data-dir ~/.lxd --http-port 8080
+```
+
+### Docker Deployment
+
+```bash
+# Pull official image
+docker pull registry.lux.network/lxdex:latest
+
+# Run single node
+docker run -d \
+  --name lxdex \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -p 9090:9090 \
+  -v lxdex-data:/data \
+  registry.lux.network/lxdex:latest
+
+# Check health
+curl http://localhost:8080/health
+```
+
+### Kubernetes Deployment
+
+```bash
+# Add Helm repository
+helm repo add lux https://charts.lux.network
+helm repo update
+
+# Install with default values
+helm install lxdex lux/lxdex \
+  --namespace lxdex \
+  --create-namespace
+
+# Verify deployment
+kubectl get pods -n lxdex
+```
+
+## Configuration Hierarchy
+
+Configuration is loaded in this order (later sources override earlier):
+
+1. Built-in defaults
+2. `/etc/lxdex/node.yaml` (system config)
+3. `~/.lxd/config.yaml` (user config)
+4. Environment variables (`LX_*`)
+5. Command-line flags
+
+## Environment Types
+
+### Development
+
+```yaml
+# config/dev.yaml
+node:
+  log_level: debug
+  data_dir: ./data
+
+consensus:
+  enable: false  # Single node, no consensus
+
+engine:
+  type: go       # Pure Go, no dependencies
+  enable_mlx: false
+  enable_gpu: false
+
+markets:
+  - symbol: TEST-USD
+    tick_size: 0.01
+```
+
+### Staging
+
+```yaml
+# config/staging.yaml
+node:
+  log_level: info
+  data_dir: /data/lxd
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  block_time: 10ms
+
+engine:
+  type: hybrid
+  enable_mlx: true
+  max_batch_size: 1000
+
+risk:
+  enable: true
+  max_leverage: 10  # Conservative for staging
+```
+
+### Production
+
+```yaml
+# config/production.yaml
+node:
+  log_level: warn
+  data_dir: /data/lxd
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  block_time: 1ms
+  finality_threshold: 0.67
+
+engine:
+  type: hybrid
+  enable_mlx: true
+  enable_gpu: true
+  max_batch_size: 10000
+
+risk:
+  enable: true
+  max_leverage: 100
+  min_margin: 0.01
+  liquidation_threshold: 0.95
+
+qzmq:
+  enabled: true
+  pq_only: true
+  suite: high_security
+```
+
+## Operations Checklist
+
+### Pre-Deployment
+
+- [ ] Hardware meets minimum requirements
+- [ ] Network ports open and accessible
+- [ ] TLS certificates provisioned
+- [ ] Database credentials rotated
+- [ ] Backup storage configured
+- [ ] Monitoring endpoints accessible
+
+### Post-Deployment
+
+- [ ] Health check returns 200
+- [ ] Metrics being collected
+- [ ] Log aggregation working
+- [ ] Alerts configured
+- [ ] Backup job scheduled
+- [ ] Documentation updated
+
+### Maintenance Windows
+
+| Task | Frequency | Downtime |
+|------|-----------|----------|
+| Security patches | Weekly | Rolling (none) |
+| Minor upgrades | Monthly | Rolling (none) |
+| Major upgrades | Quarterly | 15-30 minutes |
+| Database maintenance | Weekly | None |
+| Certificate rotation | Annual | None |
+
+## Security Considerations
+
+### Network Security
+
+```bash
+# Firewall rules (iptables)
+iptables -A INPUT -p tcp --dport 8080 -j ACCEPT   # HTTP API
+iptables -A INPUT -p tcp --dport 8081 -j ACCEPT   # WebSocket
+iptables -A INPUT -p tcp --dport 50051 -s 10.0.0.0/8 -j ACCEPT  # Internal gRPC
+iptables -A INPUT -p tcp --dport 9090 -s 10.0.0.0/8 -j ACCEPT   # Metrics (internal)
+```
+
+### Post-Quantum Security
+
+LX DEX supports post-quantum cryptography via QZMQ:
+
+- **Key Exchange**: X25519 + ML-KEM-768 (hybrid)
+- **Signatures**: ML-DSA-44 (Dilithium2)
+- **Encryption**: AES-256-GCM
+
+Enable in production:
+
+```yaml
+qzmq:
+  enabled: true
+  pq_only: true
+  suite: high_security
+```
+
+## Support Resources
+
+| Resource | URL |
+|----------|-----|
+| Documentation | https://docs.lux.network/dex |
+| GitHub Issues | https://github.com/luxfi/dex/issues |
+| Discord | https://discord.gg/luxfi |
+| Status Page | https://status.lux.network |
+
+## Next Steps
+
+- [Installation](/docs/operations/installation) - Detailed installation instructions
+- [Configuration](/docs/operations/configuration) - Full configuration reference
+- [Docker](/docs/operations/docker) - Container deployment guide
+- [Monitoring](/docs/operations/monitoring) - Observability setup

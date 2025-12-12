@@ -1,0 +1,164 @@
+---
+title: Tutorials
+description: Step-by-step guides for building with LX DEX - from your first trade to production deployment
+---
+
+# LX DEX Tutorials
+
+Welcome to the LX DEX tutorial series. These guides take you from beginner to production-ready, covering everything from placing your first trade to building sophisticated trading systems.
+
+## Learning Path
+
+Follow this recommended progression to build your skills systematically:
+
+```
+                    LEARNING PATH
+                         |
+          +--------------+--------------+
+          |                             |
+    [Beginner]                    [Intermediate]
+          |                             |
+    1. First Trade                5. Orderbook Sync
+    2. Authentication             6. Streaming Data
+    3. Testing                    7. Market Maker Bot
+          |                             |
+          +--------------+--------------+
+                         |
+                   [Advanced]
+                         |
+                 8. Arbitrage Strategies
+                 9. Production Deployment
+                10. Exchange Migration
+```
+
+## Beginner Tutorials
+
+Start here if you are new to LX DEX.
+
+| Tutorial | Duration | What You Will Learn |
+|----------|----------|---------------------|
+| [Your First Trade](/docs/tutorials/first-trade) | 15 min | Place orders, check fills, understand basics |
+| [Authentication Setup](/docs/tutorials/authentication) | 10 min | API keys, JWT tokens, secure connections |
+| [Testing on Testnet](/docs/tutorials/testing) | 20 min | Safe environment for development |
+
+## Intermediate Tutorials
+
+Build on the basics with real-time data and automation.
+
+| Tutorial | Duration | What You Will Learn |
+|----------|----------|---------------------|
+| [Orderbook Synchronization](/docs/tutorials/orderbook-sync) | 30 min | Keep local orderbook in sync with exchange |
+| [Real-time Streaming](/docs/tutorials/streaming) | 25 min | WebSocket feeds, event handling |
+| [Market Maker Bot](/docs/tutorials/market-maker) | 45 min | Build a basic market making strategy |
+
+## Advanced Tutorials
+
+Production-grade systems and professional strategies.
+
+| Tutorial | Duration | What You Will Learn |
+|----------|----------|---------------------|
+| [Arbitrage Strategies](/docs/tutorials/arbitrage) | 40 min | Cross-market and triangular arbitrage |
+| [Production Checklist](/docs/tutorials/production) | 30 min | Deploy with confidence |
+| [Migration Guide](/docs/tutorials/migration) | 35 min | Move from other exchanges |
+
+## Prerequisites
+
+Before starting these tutorials, ensure you have:
+
+### Development Environment
+
+```bash
+# Required
+node --version    # v18.0.0 or higher
+python --version  # 3.10 or higher
+go version        # 1.21 or higher
+
+# Optional (for advanced tutorials)
+docker --version  # 24.0 or higher
+```
+
+### LX DEX Node Running
+
+```bash
+# Clone the repository
+git clone https://github.com/luxfi/dex
+cd dex
+
+# Build and run
+make build
+./bin/lxd --testnet
+```
+
+### SDK Installation
+
+Choose your preferred language:
+
+```bash
+# TypeScript/JavaScript
+npm install @luxfi/dex-sdk
+
+# Python
+pip install luxfi-dex
+
+# Go
+go get github.com/luxfi/dex/sdk/go
+```
+
+## Tutorial Format
+
+Each tutorial follows a consistent structure:
+
+1. **Objectives** - What you will accomplish
+2. **Prerequisites** - What you need before starting
+3. **Step-by-step Instructions** - Detailed walkthrough
+4. **Complete Code Examples** - Working code in all supported languages
+5. **Expected Output** - What success looks like
+6. **Common Pitfalls** - Mistakes to avoid
+7. **Next Steps** - Where to go from here
+
+## Code Examples
+
+All tutorials include complete, working code examples in:
+
+- **TypeScript** - Web and Node.js applications
+- **Python** - Data analysis and algorithmic trading
+- **Go** - High-performance server applications
+- **cURL** - Command-line testing
+
+## Support
+
+If you get stuck:
+
+1. Check the [FAQ](/docs/faq) for common issues
+2. Review the [API Reference](/docs/api) for detailed specifications
+3. Join our [Discord](https://discord.gg/luxfi) for community help
+4. Open an issue on [GitHub](https://github.com/luxfi/dex/issues)
+
+## Quick Reference
+
+### Endpoints
+
+| Environment | JSON-RPC | WebSocket | gRPC |
+|-------------|----------|-----------|------|
+| Testnet | `http://localhost:8080/rpc` | `ws://localhost:8081` | `localhost:50051` |
+| Mainnet | `https://api.lux.network/rpc` | `wss://api.lux.network/ws` | `grpc.lux.network:443` |
+
+### Common Operations
+
+```typescript
+// Quick reference - TypeScript
+const client = new LXDexClient({ endpoint: 'http://localhost:8080/rpc' });
+
+// Place order
+await client.placeOrder({ symbol: 'BTC-USD', side: 'buy', type: 'limit', price: 50000, size: 0.1 });
+
+// Cancel order
+await client.cancelOrder(orderId);
+
+// Get orderbook
+const book = await client.getOrderBook('BTC-USD', 20);
+```
+
+---
+
+Ready to start? Begin with [Your First Trade](/docs/tutorials/first-trade).

@@ -1,0 +1,686 @@
+---
+title: Configuration
+description: Complete configuration reference for LX DEX
+---
+
+# Configuration
+
+LX DEX supports configuration via YAML files, environment variables, and command-line flags. This reference covers all available options.
+
+## Configuration Loading Order
+
+Configuration sources are merged in this order (later overrides earlier):
+
+1. Built-in defaults
+2. `/etc/lxdex/node.yaml` - System-wide config
+3. `~/.lxd/config.yaml` - User config
+4. `$LX_CONFIG` - Custom config path
+5. Environment variables (`LX_*`)
+6. Command-line flags
+
+## Complete Configuration Reference
+
+### Full Configuration File
+
+```yaml
+# /etc/lxdex/node.yaml
+# LX DEX Configuration Reference
+
+#
+# Node Settings
+#
+node:
+  # Unique node identifier (auto-generated if empty)
+  id: ""
+
+  # Data directory for state and indexes
+  data_dir: /var/lib/lxdex
+
+  # Log level: debug, info, warn, error
+  log_level: info
+
+  # Log format: text, json
+  log_format: json
+
+  # Enable profiling endpoints
+  enable_profiling: false
+
+  # PID file location
+  pid_file: /var/run/lxdex.pid
+
+#
+# Network Settings
+#
+network:
+  # HTTP REST API port
+  http_port: 8080
+
+  # WebSocket port for real-time feeds
+  ws_port: 8081
+
+  # gRPC port for internal communication
+  grpc_port: 50051
+
+  # QZMQ PUB port for market data
+  qzmq_pub_port: 5555
+
+  # QZMQ SUB port for order flow
+  qzmq_sub_port: 5556
+
+  # Metrics port (Prometheus)
+  metrics_port: 9090
+
+  # Bind address (0.0.0.0 for all interfaces)
+  bind_address: 0.0.0.0
+
+  # Maximum concurrent connections
+  max_connections: 10000
+
+  # Connection timeout
+  connection_timeout: 30s
+
+  # Peer nodes for cluster mode
+  peers: []
+  # Example:
+  #   - "node-1.lxdex.local:50051"
+  #   - "node-2.lxdex.local:50051"
+
+#
+# TLS/SSL Settings
+#
+tls:
+  # Enable TLS
+  enabled: true
+
+  # Certificate file path
+  cert_file: /etc/lxdex/tls/server.crt
+
+  # Private key file path
+  key_file: /etc/lxdex/tls/server.key
+
+  # CA certificate for client verification
+  ca_file: /etc/lxdex/tls/ca.crt
+
+  # Require client certificates
+  client_auth: false
+
+  # Minimum TLS version: 1.2, 1.3
+  min_version: "1.3"
+
+  # Cipher suites (empty = use defaults)
+  cipher_suites: []
+
+#
+# Consensus Settings
+#
+consensus:
+  # Enable distributed consensus
+  enable: true
+
+  # Number of nodes in quorum (k)
+  k: 3
+
+  # Total nodes in network (n)
+  n: 3
+
+  # Target block time
+  block_time: 1ms
+
+  # Finality threshold (fraction)
+  finality_threshold: 0.67
+
+  # Bootstrap node (for joining existing cluster)
+  bootstrap: false
+
+  # Bootstrap peer address
+  bootstrap_peer: ""
+
+  # Consensus algorithm: fpc, raft, pbft
+  algorithm: fpc
+
+  # Election timeout
+  election_timeout: 150ms
+
+  # Heartbeat interval
+  heartbeat_interval: 50ms
+
+#
+# Engine Settings
+#
+engine:
+  # Engine type: go, cpp, hybrid, gpu
+  type: hybrid
+
+  # Enable MLX acceleration (Apple Silicon)
+  enable_mlx: false
+
+  # Enable GPU acceleration (CUDA)
+  enable_gpu: false
+
+  # Enable FPGA acceleration
+  enable_fpga: false
+
+  # Maximum batch size for order processing
+  max_batch_size: 10000
+
+  # Pre-allocate memory for orders
+  preallocate_orders: 1000000
+
+  # Worker threads for matching engine
+  worker_threads: 0  # 0 = auto-detect
+
+  # Order processing queue size
+  queue_size: 100000
+
+  # Tick-to-trade target latency
+  target_latency: 1us
+
+#
+# Orderbook Settings
+#
+orderbook:
+  # Maximum orders per user
+  max_orders_per_user: 1000
+
+  # Maximum order size (base currency)
+  max_order_size: 100000
+
+  # Minimum order size (base currency)
+  min_order_size: 0.0001
+
+  # Price precision (decimal places)
+  price_precision: 7
+
+  # Enable order cancellation
+  enable_cancel: true
+
+  # Enable order modification
+  enable_modify: true
+
+  # Self-trade prevention mode: cancel_oldest, cancel_newest, cancel_both, none
+  self_trade_prevention: cancel_oldest
+
+  # Time in force types: GTC, IOC, FOK, GTD
+  supported_tif:
+    - GTC
+    - IOC
+    - FOK
+    - GTD
+
+#
+# Risk Management
+#
+risk:
+  # Enable risk checks
+  enable: true
+
+  # Maximum leverage allowed
+  max_leverage: 100
+
+  # Minimum margin requirement (fraction)
+  min_margin: 0.01
+
+  # Liquidation threshold (fraction of margin)
+  liquidation_threshold: 0.95
+
+  # Enable position limits
+  position_limits: true
+
+  # Maximum position per user (USD equivalent)
+  max_position: 10000000
+
+  # Maximum daily loss per user (USD)
+  max_daily_loss: 100000
+
+  # Circuit breaker threshold (price move %)
+  circuit_breaker_threshold: 0.10
+
+  # Circuit breaker cooldown period
+  circuit_breaker_cooldown: 5m
+
+#
+# Market Configuration
+#
+markets:
+  - symbol: BTC-USD
+    tick_size: 0.01
+    min_size: 0.00001
+    max_size: 1000
+    maker_fee: 0.0001     # 0.01%
+    taker_fee: 0.0005     # 0.05%
+    enabled: true
+
+  - symbol: ETH-USD
+    tick_size: 0.01
+    min_size: 0.0001
+    max_size: 10000
+    maker_fee: 0.0001
+    taker_fee: 0.0005
+    enabled: true
+
+  - symbol: LUX-USD
+    tick_size: 0.0001
+    min_size: 1
+    max_size: 1000000
+    maker_fee: 0
+    taker_fee: 0.0002
+    enabled: true
+
+#
+# Database Settings
+#
+database:
+  # Database driver: postgres, sqlite
+  driver: postgres
+
+  # Connection string
+  dsn: "postgres://lxdex:password@localhost:5432/lxdex?sslmode=require"
+
+  # Maximum open connections
+  max_open_conns: 100
+
+  # Maximum idle connections
+  max_idle_conns: 10
+
+  # Connection max lifetime
+  conn_max_lifetime: 1h
+
+  # Enable query logging
+  log_queries: false
+
+#
+# Cache Settings (Redis)
+#
+cache:
+  # Enable Redis cache
+  enabled: true
+
+  # Redis address
+  address: "localhost:6379"
+
+  # Redis password
+  password: ""
+
+  # Redis database number
+  db: 0
+
+  # Connection pool size
+  pool_size: 100
+
+  # Default TTL for cache entries
+  default_ttl: 5m
+
+#
+# QZMQ Post-Quantum Transport
+#
+qzmq:
+  # Enable QZMQ
+  enabled: true
+
+  # Enforce post-quantum only (no fallback)
+  pq_only: false
+
+  # Cryptographic suite: default, high_security, performance
+  suite: default
+
+  # Enable 0-RTT for performance
+  zero_rtt: false
+
+  # Log level for QZMQ
+  log_level: info
+
+  # Certificate path
+  cert_path: /etc/qzmq/certs
+
+  # Key rotation interval
+  key_rotation_interval: 10m
+
+  # Maximum frame size (bytes)
+  max_frame_size: 16777216
+
+#
+# Authentication
+#
+auth:
+  # Enable authentication
+  enabled: true
+
+  # JWT signing key (use env var in production)
+  jwt_secret: "${JWT_SECRET}"
+
+  # JWT token expiration
+  jwt_expiration: 24h
+
+  # Enable API key authentication
+  api_keys: true
+
+  # Rate limit per API key (requests/second)
+  rate_limit: 100
+
+  # IP whitelist (empty = allow all)
+  ip_whitelist: []
+
+#
+# Monitoring
+#
+monitoring:
+  # Enable Prometheus metrics
+  metrics_enabled: true
+
+  # Metrics endpoint path
+  metrics_path: /metrics
+
+  # Enable health checks
+  health_enabled: true
+
+  # Health check path
+  health_path: /health
+
+  # Enable readiness checks
+  ready_enabled: true
+
+  # Readiness check path
+  ready_path: /ready
+
+  # Enable pprof profiling
+  pprof_enabled: false
+
+#
+# Logging
+#
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log format: text, json
+  format: json
+
+  # Output: stdout, stderr, file
+  output: stdout
+
+  # Log file path (if output=file)
+  file_path: /var/log/lxdex/node.log
+
+  # Maximum log file size (MB)
+  max_size: 100
+
+  # Maximum log file backups
+  max_backups: 10
+
+  # Maximum log file age (days)
+  max_age: 30
+
+  # Compress rotated logs
+  compress: true
+```
+
+## Environment Variables
+
+All configuration options can be set via environment variables using the `LX_` prefix and uppercase snake case:
+
+| Config Path | Environment Variable |
+|-------------|---------------------|
+| `node.id` | `LX_NODE_ID` |
+| `node.data_dir` | `LX_NODE_DATA_DIR` |
+| `node.log_level` | `LX_NODE_LOG_LEVEL` |
+| `network.http_port` | `LX_NETWORK_HTTP_PORT` |
+| `consensus.enable` | `LX_CONSENSUS_ENABLE` |
+| `engine.type` | `LX_ENGINE_TYPE` |
+| `database.dsn` | `LX_DATABASE_DSN` |
+| `auth.jwt_secret` | `LX_AUTH_JWT_SECRET` |
+
+### Example Environment File
+
+```bash
+# /etc/lxdex/env
+LX_NODE_ID=node-0
+LX_NODE_LOG_LEVEL=info
+LX_NETWORK_HTTP_PORT=8080
+LX_CONSENSUS_ENABLE=true
+LX_CONSENSUS_K=3
+LX_CONSENSUS_N=3
+LX_ENGINE_TYPE=hybrid
+LX_DATABASE_DSN=postgres://lxdex:secret@db:5432/lxdex?sslmode=require
+LX_AUTH_JWT_SECRET=your-secret-key-here
+LX_CACHE_ADDRESS=redis:6379
+LX_CACHE_PASSWORD=redis-password
+```
+
+Load in systemd:
+
+```ini
+[Service]
+EnvironmentFile=/etc/lxdex/env
+```
+
+## Command-Line Flags
+
+```bash
+# Show all flags
+luxd --help
+
+# Common flags
+luxd \
+  --config /etc/lxdex/node.yaml \
+  --data-dir /var/lib/lxdex \
+  --log-level info \
+  --http-port 8080 \
+  --ws-port 8081 \
+  --grpc-port 50051 \
+  --enable-consensus \
+  --enable-mlx \
+  --enable-qzmq
+
+# Override specific settings
+luxd --config /etc/lxdex/node.yaml --log-level debug
+```
+
+## Configuration Profiles
+
+### Development Profile
+
+```yaml
+# config/dev.yaml
+node:
+  log_level: debug
+  data_dir: ./data
+
+consensus:
+  enable: false
+
+engine:
+  type: go
+  enable_mlx: false
+
+database:
+  driver: sqlite
+  dsn: "./data/lxdex.db"
+
+cache:
+  enabled: false
+
+qzmq:
+  enabled: false
+
+auth:
+  enabled: false
+```
+
+### Staging Profile
+
+```yaml
+# config/staging.yaml
+node:
+  log_level: info
+  data_dir: /data/lxdex
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  block_time: 10ms
+
+engine:
+  type: hybrid
+  max_batch_size: 1000
+
+risk:
+  max_leverage: 10  # Conservative
+  circuit_breaker_threshold: 0.05  # Tighter
+
+database:
+  driver: postgres
+  max_open_conns: 50
+
+qzmq:
+  enabled: true
+  pq_only: false  # Allow fallback
+
+auth:
+  rate_limit: 50
+```
+
+### Production Profile
+
+```yaml
+# config/production.yaml
+node:
+  log_level: warn
+  data_dir: /data/lxdex
+
+consensus:
+  enable: true
+  k: 3
+  n: 3
+  block_time: 1ms
+  finality_threshold: 0.67
+
+engine:
+  type: hybrid
+  enable_mlx: true
+  enable_gpu: true
+  max_batch_size: 10000
+
+risk:
+  enable: true
+  max_leverage: 100
+  position_limits: true
+
+database:
+  driver: postgres
+  max_open_conns: 100
+  log_queries: false
+
+qzmq:
+  enabled: true
+  pq_only: true
+  suite: high_security
+
+auth:
+  enabled: true
+  rate_limit: 100
+
+monitoring:
+  metrics_enabled: true
+  health_enabled: true
+```
+
+## Dynamic Configuration
+
+Some settings can be updated at runtime via the admin API:
+
+```bash
+# Update log level
+curl -X PUT http://localhost:8080/admin/config/log_level \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"value": "debug"}'
+
+# Update rate limit
+curl -X PUT http://localhost:8080/admin/config/rate_limit \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"value": 200}'
+
+# Enable/disable market
+curl -X PUT http://localhost:8080/admin/markets/BTC-USD \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"enabled": false}'
+```
+
+Dynamically configurable settings:
+
+- `log_level`
+- `rate_limit`
+- `market.*.enabled`
+- `circuit_breaker_threshold`
+- `max_orders_per_user`
+
+## Configuration Validation
+
+Validate configuration before starting:
+
+```bash
+# Validate config file
+luxd config validate --config /etc/lxdex/node.yaml
+
+# Show effective configuration (merged)
+luxd config show --config /etc/lxdex/node.yaml
+
+# Export configuration as environment variables
+luxd config export --format env > /etc/lxdex/env
+```
+
+## Security Best Practices
+
+### Secret Management
+
+Never store secrets in configuration files. Use environment variables or secret managers:
+
+```yaml
+# Bad - hardcoded secret
+auth:
+  jwt_secret: "my-secret-key"
+
+# Good - environment variable reference
+auth:
+  jwt_secret: "${JWT_SECRET}"
+
+# Good - secret file reference
+auth:
+  jwt_secret_file: /run/secrets/jwt_secret
+```
+
+### File Permissions
+
+```bash
+# Configuration files
+chmod 640 /etc/lxdex/node.yaml
+chown root:lxdex /etc/lxdex/node.yaml
+
+# TLS certificates
+chmod 600 /etc/lxdex/tls/*.key
+chmod 644 /etc/lxdex/tls/*.crt
+chown lxdex:lxdex /etc/lxdex/tls/*
+
+# Data directory
+chmod 750 /var/lib/lxdex
+chown lxdex:lxdex /var/lib/lxdex
+```
+
+### Sensitive Options
+
+Mark sensitive values in logs:
+
+```yaml
+logging:
+  redact_fields:
+    - password
+    - jwt_secret
+    - api_key
+    - dsn
+```
+
+## Next Steps
+
+- [Docker](/docs/operations/docker) - Container configuration
+- [Monitoring](/docs/operations/monitoring) - Metrics and alerting
+- [Scaling](/docs/operations/scaling) - Cluster configuration

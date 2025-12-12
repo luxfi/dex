@@ -1,0 +1,845 @@
+---
+title: Order Book Channel
+description: Real-time order book snapshots and incremental updates via WebSocket
+---
+
+# Order Book Channel
+
+The `orderbook` channel provides real-time Level 2 (L2) order book data with price-aggregated depth. Subscribe to receive an initial snapshot followed by incremental updates.
+
+## Subscribe
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT",
+    "depth": 20
+  }
+}
+```
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `symbol` | string | Yes | - | Trading pair (e.g., BTC-USDT) |
+| `depth` | number | No | 20 | Number of price levels (5, 10, 20, 50, 100) |
+
+## Message Flow
+
+```
+┌──────────┐                           ┌──────────┐
+│  Client  │                           │  Server  │
+└──────────┘                           └──────────┘
+     │                                       │
+     │ ──── subscribe ─────────────────────► │
+     │                                       │
+     │ ◄─── subscribed ────────────────────  │
+     │                                       │
+     │ ◄─── orderbook_snapshot (seq: 1000) ─ │  Full book state
+     │                                       │
+     │ ◄─── orderbook_update (seq: 1001) ─── │  [50001, 0]     (ask removed)
+     │ ◄─── orderbook_update (seq: 1002) ─── │  [49999, 2.5]   (bid updated)
+     │ ◄─── orderbook_update (seq: 1003) ─── │  [50002, 1.2]   (new ask)
+     │                                       │
+```
+
+## Snapshot Message
+
+Upon subscription, the server sends a complete order book snapshot:
+
+```json
+{
+  "type": "orderbook_snapshot",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT",
+    "bids": [
+      [50000.00, 1.5000],
+      [49999.50, 2.0000],
+      [49999.00, 0.7500],
+      [49998.50, 3.2500],
+      [49998.00, 1.0000]
+    ],
+    "asks": [
+      [50000.50, 1.2000],
+      [50001.00, 0.8000],
+      [50001.50, 2.1000],
+      [50002.00, 1.5000],
+      [50002.50, 0.5000]
+    ],
+    "checksum": 2847563912
+  },
+  "sequence": 1000,
+  "timestamp": 1702339200000
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bids` | array | Bid levels `[[price, size], ...]` sorted descending by price |
+| `asks` | array | Ask levels `[[price, size], ...]` sorted ascending by price |
+| `checksum` | number | CRC32 checksum for data integrity verification |
+
+## Update Message
+
+After the snapshot, incremental updates are sent:
+
+```json
+{
+  "type": "orderbook_update",
+  "channel": "orderbook",
+  "data": {
+    "symbol": "BTC-USDT",
+    "side": "bid",
+    "updates": [
+      [49999.50, 2.5000],
+      [49997.00, 1.0000]
+    ],
+    "checksum": 3928471056
+  },
+  "sequence": 1001,
+  "prev_sequence": 1000,
+  "timestamp": 1702339200100
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `side` | string | `bid` or `ask` |
+| `updates` | array | Price level updates `[[price, size], ...]` |
+| `checksum` | number | CRC32 checksum after applying update |
+
+**Update Semantics:**
+
+- **Size > 0**: Insert or update the price level
+- **Size = 0**: Remove the price level
+
+## Checksum Calculation
+
+The checksum validates data integrity. Calculate CRC32 over the concatenated string of top 25 levels:
+
+```
+bid_price1:bid_size1:ask_price1:ask_size1:bid_price2:bid_size2:ask_price2:ask_size2:...
+```
+
+### TypeScript Implementation
+
+```typescript
+import { crc32 } from 'crc';
+
+interface OrderBook {
+  bids: Map<number, number>;  // price -> size
+  asks: Map<number, number>;
+}
+
+function calculateChecksum(book: OrderBook): number {
+  const sortedBids = [...book.bids.entries()]
+    .sort((a, b) => b[0] - a[0])  // Descending
+    .slice(0, 25);
+
+  const sortedAsks = [...book.asks.entries()]
+    .sort((a, b) => a[0] - b[0])  // Ascending
+    .slice(0, 25);
+
+  const parts: string[] = [];
+  const maxLen = Math.max(sortedBids.length, sortedAsks.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    if (sortedBids[i]) {
+      parts.push(`${sortedBids[i][0]}:${sortedBids[i][1]}`);
+    }
+    if (sortedAsks[i]) {
+      parts.push(`${sortedAsks[i][0]}:${sortedAsks[i][1]}`);
+    }
+  }
+
+  return crc32(parts.join(':'));
+}
+
+function verifyChecksum(book: OrderBook, expected: number): boolean {
+  return calculateChecksum(book) === expected;
+}
+```
+
+### Python Implementation
+
+```python
+import zlib
+from typing import Dict, List, Tuple
+
+def calculate_checksum(bids: Dict[float, float], asks: Dict[float, float]) -> int:
+    """Calculate CRC32 checksum for order book."""
+    sorted_bids = sorted(bids.items(), key=lambda x: -x[0])[:25]  # Descending
+    sorted_asks = sorted(asks.items(), key=lambda x: x[0])[:25]   # Ascending
+
+    parts = []
+    max_len = max(len(sorted_bids), len(sorted_asks))
+
+    for i in range(max_len):
+        if i < len(sorted_bids):
+            parts.append(f"{sorted_bids[i][0]}:{sorted_bids[i][1]}")
+        if i < len(sorted_asks):
+            parts.append(f"{sorted_asks[i][0]}:{sorted_asks[i][1]}")
+
+    checksum_str = ":".join(parts)
+    return zlib.crc32(checksum_str.encode()) & 0xFFFFFFFF
+
+def verify_checksum(bids: Dict[float, float], asks: Dict[float, float],
+                    expected: int) -> bool:
+    """Verify order book checksum."""
+    return calculate_checksum(bids, asks) == expected
+```
+
+### Go Implementation
+
+```go
+package orderbook
+
+import (
+    "fmt"
+    "hash/crc32"
+    "sort"
+    "strings"
+)
+
+type OrderBook struct {
+    Bids map[float64]float64
+    Asks map[float64]float64
+}
+
+func (ob *OrderBook) CalculateChecksum() uint32 {
+    // Sort bids descending
+    bidPrices := make([]float64, 0, len(ob.Bids))
+    for price := range ob.Bids {
+        bidPrices = append(bidPrices, price)
+    }
+    sort.Sort(sort.Reverse(sort.Float64Slice(bidPrices)))
+
+    // Sort asks ascending
+    askPrices := make([]float64, 0, len(ob.Asks))
+    for price := range ob.Asks {
+        askPrices = append(askPrices, price)
+    }
+    sort.Float64s(askPrices)
+
+    // Take top 25
+    if len(bidPrices) > 25 {
+        bidPrices = bidPrices[:25]
+    }
+    if len(askPrices) > 25 {
+        askPrices = askPrices[:25]
+    }
+
+    // Build checksum string
+    var parts []string
+    maxLen := len(bidPrices)
+    if len(askPrices) > maxLen {
+        maxLen = len(askPrices)
+    }
+
+    for i := 0; i < maxLen; i++ {
+        if i < len(bidPrices) {
+            parts = append(parts, fmt.Sprintf("%g:%g",
+                bidPrices[i], ob.Bids[bidPrices[i]]))
+        }
+        if i < len(askPrices) {
+            parts = append(parts, fmt.Sprintf("%g:%g",
+                askPrices[i], ob.Asks[askPrices[i]]))
+        }
+    }
+
+    return crc32.ChecksumIEEE([]byte(strings.Join(parts, ":")))
+}
+
+func (ob *OrderBook) VerifyChecksum(expected uint32) bool {
+    return ob.CalculateChecksum() == expected
+}
+```
+
+## Maintaining Local Order Book
+
+### Full Implementation (TypeScript)
+
+```typescript
+interface OrderBookLevel {
+  price: number;
+  size: number;
+}
+
+class LocalOrderBook {
+  private symbol: string;
+  private bids: Map<number, number> = new Map();
+  private asks: Map<number, number> = new Map();
+  private lastSequence: number = 0;
+  private isReady: boolean = false;
+
+  constructor(symbol: string) {
+    this.symbol = symbol;
+  }
+
+  handleSnapshot(msg: any): void {
+    this.bids.clear();
+    this.asks.clear();
+
+    for (const [price, size] of msg.data.bids) {
+      this.bids.set(price, size);
+    }
+    for (const [price, size] of msg.data.asks) {
+      this.asks.set(price, size);
+    }
+
+    this.lastSequence = msg.sequence;
+    this.isReady = true;
+
+    // Verify checksum
+    if (!this.verifyChecksum(msg.data.checksum)) {
+      console.error('Snapshot checksum mismatch');
+      this.requestResync();
+    }
+  }
+
+  handleUpdate(msg: any): boolean {
+    // Check sequence continuity
+    if (msg.prev_sequence !== this.lastSequence) {
+      console.warn(`Sequence gap: expected ${this.lastSequence}, got prev ${msg.prev_sequence}`);
+      return false;
+    }
+
+    // Apply updates
+    const book = msg.data.side === 'bid' ? this.bids : this.asks;
+    for (const [price, size] of msg.data.updates) {
+      if (size === 0) {
+        book.delete(price);
+      } else {
+        book.set(price, size);
+      }
+    }
+
+    this.lastSequence = msg.sequence;
+
+    // Verify checksum
+    if (!this.verifyChecksum(msg.data.checksum)) {
+      console.error('Update checksum mismatch');
+      return false;
+    }
+
+    return true;
+  }
+
+  getBestBid(): OrderBookLevel | null {
+    if (this.bids.size === 0) return null;
+    const price = Math.max(...this.bids.keys());
+    return { price, size: this.bids.get(price)! };
+  }
+
+  getBestAsk(): OrderBookLevel | null {
+    if (this.asks.size === 0) return null;
+    const price = Math.min(...this.asks.keys());
+    return { price, size: this.asks.get(price)! };
+  }
+
+  getSpread(): number | null {
+    const bid = this.getBestBid();
+    const ask = this.getBestAsk();
+    if (!bid || !ask) return null;
+    return ask.price - bid.price;
+  }
+
+  getMidPrice(): number | null {
+    const bid = this.getBestBid();
+    const ask = this.getBestAsk();
+    if (!bid || !ask) return null;
+    return (bid.price + ask.price) / 2;
+  }
+
+  getDepth(levels: number): { bids: OrderBookLevel[]; asks: OrderBookLevel[] } {
+    const sortedBids = [...this.bids.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, levels)
+      .map(([price, size]) => ({ price, size }));
+
+    const sortedAsks = [...this.asks.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .slice(0, levels)
+      .map(([price, size]) => ({ price, size }));
+
+    return { bids: sortedBids, asks: sortedAsks };
+  }
+
+  private verifyChecksum(expected: number): boolean {
+    // Implementation from above
+    return true;
+  }
+
+  private requestResync(): void {
+    // Trigger resubscription
+  }
+}
+```
+
+### Full Implementation (Python)
+
+```python
+import asyncio
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+import zlib
+
+@dataclass
+class OrderBookLevel:
+    price: float
+    size: float
+
+class LocalOrderBook:
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        self.bids: Dict[float, float] = {}
+        self.asks: Dict[float, float] = {}
+        self.last_sequence: int = 0
+        self.is_ready: bool = False
+        self._resync_callback = None
+
+    def set_resync_callback(self, callback):
+        self._resync_callback = callback
+
+    def handle_snapshot(self, msg: dict) -> None:
+        """Process orderbook snapshot."""
+        self.bids.clear()
+        self.asks.clear()
+
+        for price, size in msg['data']['bids']:
+            self.bids[price] = size
+        for price, size in msg['data']['asks']:
+            self.asks[price] = size
+
+        self.last_sequence = msg['sequence']
+        self.is_ready = True
+
+        # Verify checksum
+        if not self._verify_checksum(msg['data']['checksum']):
+            print("Snapshot checksum mismatch")
+            self._request_resync()
+
+    def handle_update(self, msg: dict) -> bool:
+        """Process orderbook update. Returns False if resync needed."""
+        # Check sequence continuity
+        if msg['prev_sequence'] != self.last_sequence:
+            print(f"Sequence gap: expected {self.last_sequence}, "
+                  f"got prev {msg['prev_sequence']}")
+            return False
+
+        # Apply updates
+        book = self.bids if msg['data']['side'] == 'bid' else self.asks
+        for price, size in msg['data']['updates']:
+            if size == 0:
+                book.pop(price, None)
+            else:
+                book[price] = size
+
+        self.last_sequence = msg['sequence']
+
+        # Verify checksum
+        if not self._verify_checksum(msg['data']['checksum']):
+            print("Update checksum mismatch")
+            return False
+
+        return True
+
+    def get_best_bid(self) -> Optional[OrderBookLevel]:
+        if not self.bids:
+            return None
+        price = max(self.bids.keys())
+        return OrderBookLevel(price=price, size=self.bids[price])
+
+    def get_best_ask(self) -> Optional[OrderBookLevel]:
+        if not self.asks:
+            return None
+        price = min(self.asks.keys())
+        return OrderBookLevel(price=price, size=self.asks[price])
+
+    def get_spread(self) -> Optional[float]:
+        bid = self.get_best_bid()
+        ask = self.get_best_ask()
+        if not bid or not ask:
+            return None
+        return ask.price - bid.price
+
+    def get_mid_price(self) -> Optional[float]:
+        bid = self.get_best_bid()
+        ask = self.get_best_ask()
+        if not bid or not ask:
+            return None
+        return (bid.price + ask.price) / 2
+
+    def get_depth(self, levels: int) -> Tuple[List[OrderBookLevel], List[OrderBookLevel]]:
+        sorted_bids = sorted(self.bids.items(), key=lambda x: -x[0])[:levels]
+        sorted_asks = sorted(self.asks.items(), key=lambda x: x[0])[:levels]
+
+        bids = [OrderBookLevel(price=p, size=s) for p, s in sorted_bids]
+        asks = [OrderBookLevel(price=p, size=s) for p, s in sorted_asks]
+        return bids, asks
+
+    def _calculate_checksum(self) -> int:
+        sorted_bids = sorted(self.bids.items(), key=lambda x: -x[0])[:25]
+        sorted_asks = sorted(self.asks.items(), key=lambda x: x[0])[:25]
+
+        parts = []
+        max_len = max(len(sorted_bids), len(sorted_asks))
+
+        for i in range(max_len):
+            if i < len(sorted_bids):
+                parts.append(f"{sorted_bids[i][0]}:{sorted_bids[i][1]}")
+            if i < len(sorted_asks):
+                parts.append(f"{sorted_asks[i][0]}:{sorted_asks[i][1]}")
+
+        return zlib.crc32(":".join(parts).encode()) & 0xFFFFFFFF
+
+    def _verify_checksum(self, expected: int) -> bool:
+        return self._calculate_checksum() == expected
+
+    def _request_resync(self) -> None:
+        if self._resync_callback:
+            self._resync_callback(self.symbol)
+```
+
+### Full Implementation (Go)
+
+```go
+package orderbook
+
+import (
+    "fmt"
+    "hash/crc32"
+    "sort"
+    "strings"
+    "sync"
+)
+
+type Level struct {
+    Price float64
+    Size  float64
+}
+
+type LocalOrderBook struct {
+    Symbol       string
+    bids         map[float64]float64
+    asks         map[float64]float64
+    lastSequence int64
+    isReady      bool
+    mu           sync.RWMutex
+    onResync     func(symbol string)
+}
+
+func NewLocalOrderBook(symbol string) *LocalOrderBook {
+    return &LocalOrderBook{
+        Symbol: symbol,
+        bids:   make(map[float64]float64),
+        asks:   make(map[float64]float64),
+    }
+}
+
+func (ob *LocalOrderBook) SetResyncCallback(fn func(string)) {
+    ob.onResync = fn
+}
+
+func (ob *LocalOrderBook) HandleSnapshot(msg map[string]interface{}) {
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+
+    ob.bids = make(map[float64]float64)
+    ob.asks = make(map[float64]float64)
+
+    data := msg["data"].(map[string]interface{})
+
+    for _, level := range data["bids"].([]interface{}) {
+        l := level.([]interface{})
+        ob.bids[l[0].(float64)] = l[1].(float64)
+    }
+    for _, level := range data["asks"].([]interface{}) {
+        l := level.([]interface{})
+        ob.asks[l[0].(float64)] = l[1].(float64)
+    }
+
+    ob.lastSequence = int64(msg["sequence"].(float64))
+    ob.isReady = true
+
+    // Verify checksum
+    if !ob.verifyChecksumLocked(uint32(data["checksum"].(float64))) {
+        fmt.Println("Snapshot checksum mismatch")
+        ob.requestResync()
+    }
+}
+
+func (ob *LocalOrderBook) HandleUpdate(msg map[string]interface{}) bool {
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+
+    prevSeq := int64(msg["prev_sequence"].(float64))
+    if prevSeq != ob.lastSequence {
+        fmt.Printf("Sequence gap: expected %d, got prev %d\n",
+            ob.lastSequence, prevSeq)
+        return false
+    }
+
+    data := msg["data"].(map[string]interface{})
+    side := data["side"].(string)
+    book := ob.bids
+    if side == "ask" {
+        book = ob.asks
+    }
+
+    for _, update := range data["updates"].([]interface{}) {
+        u := update.([]interface{})
+        price := u[0].(float64)
+        size := u[1].(float64)
+
+        if size == 0 {
+            delete(book, price)
+        } else {
+            book[price] = size
+        }
+    }
+
+    ob.lastSequence = int64(msg["sequence"].(float64))
+
+    // Verify checksum
+    if !ob.verifyChecksumLocked(uint32(data["checksum"].(float64))) {
+        fmt.Println("Update checksum mismatch")
+        return false
+    }
+
+    return true
+}
+
+func (ob *LocalOrderBook) GetBestBid() *Level {
+    ob.mu.RLock()
+    defer ob.mu.RUnlock()
+
+    if len(ob.bids) == 0 {
+        return nil
+    }
+
+    maxPrice := float64(0)
+    for price := range ob.bids {
+        if price > maxPrice {
+            maxPrice = price
+        }
+    }
+    return &Level{Price: maxPrice, Size: ob.bids[maxPrice]}
+}
+
+func (ob *LocalOrderBook) GetBestAsk() *Level {
+    ob.mu.RLock()
+    defer ob.mu.RUnlock()
+
+    if len(ob.asks) == 0 {
+        return nil
+    }
+
+    minPrice := float64(0)
+    first := true
+    for price := range ob.asks {
+        if first || price < minPrice {
+            minPrice = price
+            first = false
+        }
+    }
+    return &Level{Price: minPrice, Size: ob.asks[minPrice]}
+}
+
+func (ob *LocalOrderBook) GetSpread() float64 {
+    bid := ob.GetBestBid()
+    ask := ob.GetBestAsk()
+    if bid == nil || ask == nil {
+        return 0
+    }
+    return ask.Price - bid.Price
+}
+
+func (ob *LocalOrderBook) GetMidPrice() float64 {
+    bid := ob.GetBestBid()
+    ask := ob.GetBestAsk()
+    if bid == nil || ask == nil {
+        return 0
+    }
+    return (bid.Price + ask.Price) / 2
+}
+
+func (ob *LocalOrderBook) GetDepth(levels int) ([]Level, []Level) {
+    ob.mu.RLock()
+    defer ob.mu.RUnlock()
+
+    bidPrices := make([]float64, 0, len(ob.bids))
+    for price := range ob.bids {
+        bidPrices = append(bidPrices, price)
+    }
+    sort.Sort(sort.Reverse(sort.Float64Slice(bidPrices)))
+
+    askPrices := make([]float64, 0, len(ob.asks))
+    for price := range ob.asks {
+        askPrices = append(askPrices, price)
+    }
+    sort.Float64s(askPrices)
+
+    if len(bidPrices) > levels {
+        bidPrices = bidPrices[:levels]
+    }
+    if len(askPrices) > levels {
+        askPrices = askPrices[:levels]
+    }
+
+    bids := make([]Level, len(bidPrices))
+    for i, price := range bidPrices {
+        bids[i] = Level{Price: price, Size: ob.bids[price]}
+    }
+
+    asks := make([]Level, len(askPrices))
+    for i, price := range askPrices {
+        asks[i] = Level{Price: price, Size: ob.asks[price]}
+    }
+
+    return bids, asks
+}
+
+func (ob *LocalOrderBook) verifyChecksumLocked(expected uint32) bool {
+    bidPrices := make([]float64, 0, len(ob.bids))
+    for price := range ob.bids {
+        bidPrices = append(bidPrices, price)
+    }
+    sort.Sort(sort.Reverse(sort.Float64Slice(bidPrices)))
+
+    askPrices := make([]float64, 0, len(ob.asks))
+    for price := range ob.asks {
+        askPrices = append(askPrices, price)
+    }
+    sort.Float64s(askPrices)
+
+    if len(bidPrices) > 25 {
+        bidPrices = bidPrices[:25]
+    }
+    if len(askPrices) > 25 {
+        askPrices = askPrices[:25]
+    }
+
+    var parts []string
+    maxLen := len(bidPrices)
+    if len(askPrices) > maxLen {
+        maxLen = len(askPrices)
+    }
+
+    for i := 0; i < maxLen; i++ {
+        if i < len(bidPrices) {
+            parts = append(parts, fmt.Sprintf("%g:%g",
+                bidPrices[i], ob.bids[bidPrices[i]]))
+        }
+        if i < len(askPrices) {
+            parts = append(parts, fmt.Sprintf("%g:%g",
+                askPrices[i], ob.asks[askPrices[i]]))
+        }
+    }
+
+    checksum := crc32.ChecksumIEEE([]byte(strings.Join(parts, ":")))
+    return checksum == expected
+}
+
+func (ob *LocalOrderBook) requestResync() {
+    if ob.onResync != nil {
+        ob.onResync(ob.Symbol)
+    }
+}
+```
+
+## Depth Levels
+
+| Depth | Update Frequency | Use Case |
+|-------|------------------|----------|
+| 5 | ~100ms | Ticker display, spread monitoring |
+| 10 | ~100ms | Basic trading UI |
+| 20 | ~50ms | Standard trading |
+| 50 | ~20ms | Market making |
+| 100 | ~10ms | High-frequency trading |
+
+## Best Practices
+
+### 1. Always Verify Checksums
+
+Checksum verification catches:
+- Network corruption
+- Message loss
+- Processing errors
+
+### 2. Handle Sequence Gaps
+
+```typescript
+if (msg.prev_sequence !== lastSequence) {
+  // Don't apply the update
+  // Request resync immediately
+  requestResync();
+  return;
+}
+```
+
+### 3. Use Appropriate Depth
+
+Higher depth = more data = more bandwidth. Choose the minimum depth needed.
+
+### 4. Throttle UI Updates
+
+Order book updates can arrive every 10ms. Throttle UI rendering:
+
+```typescript
+const throttledRender = throttle(() => {
+  renderOrderBook(localBook.getDepth(20));
+}, 100);  // 10 FPS max
+```
+
+## Error Handling
+
+### Checksum Mismatch
+
+```json
+{
+  "type": "orderbook_error",
+  "channel": "orderbook",
+  "data": {
+    "code": "CHECKSUM_MISMATCH",
+    "message": "Local state checksum does not match server",
+    "symbol": "BTC-USDT",
+    "action": "resync"
+  },
+  "timestamp": 1702339200000
+}
+```
+
+**Action:** Unsubscribe and resubscribe to get fresh snapshot.
+
+### Symbol Not Found
+
+```json
+{
+  "type": "subscribe_error",
+  "data": {
+    "code": "INVALID_SYMBOL",
+    "message": "Symbol 'INVALID-PAIR' is not available",
+    "channel": "orderbook"
+  }
+}
+```
+
+## Performance Considerations
+
+| Metric | Typical Value |
+|--------|---------------|
+| Snapshot latency | < 50ms |
+| Update latency | < 10ms |
+| Update frequency (BTC-USDT) | ~50-200/sec |
+| Message size (depth 20) | ~2-4 KB |
+| Message size (update) | ~100-500 bytes |
+
+## Next Steps
+
+- [Trades Channel](/docs/api/websocket/trades) - Real-time trade feed
+- [Ticker Channel](/docs/api/websocket/ticker) - Price updates
+- [Heartbeat](/docs/api/websocket/heartbeat) - Connection health

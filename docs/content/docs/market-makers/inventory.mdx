@@ -1,0 +1,447 @@
+---
+title: Inventory Management
+description: Position limits, hedging strategies, risk management, and inventory optimization for LX DEX market makers
+---
+
+# Inventory Management
+
+Effective inventory management is critical for market maker profitability and risk control. This guide covers position limits, hedging strategies, risk management tools, and best practices for LX DEX market makers.
+
+## Position Limits
+
+### Maximum Position by Tier
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    POSITION LIMITS BY TIER                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Tier   │ Per-Market Limit │ Total Exposure │ Concentration Limit   │
+│  ────────┼──────────────────┼────────────────┼─────────────────────  │
+│  Tier 1  │ $500K            │ $2M            │ 50% single market    │
+│  Tier 2  │ $2M              │ $10M           │ 40% single market    │
+│  Tier 3  │ $10M             │ $50M           │ 30% single market    │
+│  Tier 4  │ $50M             │ $250M          │ 25% single market    │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Position Limit Calculation
+
+```python
+# Position limit enforcement
+class PositionLimits:
+    def __init__(self, tier: int):
+        self.limits = {
+            1: {"per_market": 500_000, "total": 2_000_000, "concentration": 0.50},
+            2: {"per_market": 2_000_000, "total": 10_000_000, "concentration": 0.40},
+            3: {"per_market": 10_000_000, "total": 50_000_000, "concentration": 0.30},
+            4: {"per_market": 50_000_000, "total": 250_000_000, "concentration": 0.25},
+        }[tier]
+
+    def check_order(self, order, current_positions):
+        # Check per-market limit
+        market_position = current_positions.get(order.symbol, 0)
+        new_position = market_position + order.notional_value
+        if abs(new_position) > self.limits["per_market"]:
+            return False, "Per-market limit exceeded"
+
+        # Check total exposure
+        total_exposure = sum(abs(p) for p in current_positions.values())
+        total_exposure += order.notional_value
+        if total_exposure > self.limits["total"]:
+            return False, "Total exposure limit exceeded"
+
+        # Check concentration
+        if abs(new_position) / total_exposure > self.limits["concentration"]:
+            return False, "Concentration limit exceeded"
+
+        return True, "OK"
+```
+
+### Dynamic Position Limits
+
+Position limits may be adjusted based on:
+
+| Factor | Impact | Example |
+|--------|--------|---------|
+| Market Volatility | -20% to -50% | 30-day vol > 100% reduces limits |
+| Liquidity Conditions | -10% to -30% | Thin markets reduce limits |
+| Account Equity | +/- proportional | Higher equity = higher limits |
+| Track Record | +10% to +25% | 12+ months good standing |
+| Collateral Quality | +/- 20% | Stablecoin vs volatile collateral |
+
+---
+
+## Collateral Management
+
+### Accepted Collateral
+
+| Asset | Haircut | Max Weight | Notes |
+|-------|---------|------------|-------|
+| USDC | 0% | 100% | Primary collateral |
+| USDT | 2% | 80% | Secondary stablecoin |
+| DAI | 3% | 60% | Decentralized stable |
+| BTC | 15% | 50% | Volatile, liquid |
+| ETH | 18% | 50% | Volatile, liquid |
+| LUX | 20% | 40% | Native token |
+| Other | 25-50% | 30% | Case by case |
+
+### Margin Calculation
+
+```
+Portfolio Margin Model:
+
+1. Mark-to-Market Valuation
+   - All positions valued at mid-price
+   - Unrealized P&L included in equity
+
+2. Initial Margin (IM)
+   - Base requirement: 10% of notional
+   - Volatility adjustment: +/- 5%
+   - Correlation offset: Up to -30%
+
+3. Maintenance Margin (MM)
+   - Standard: 80% of IM
+   - Reduced for hedged positions
+   - Minimum: 5% of notional
+
+4. Margin Call Trigger
+   - Account equity < MM
+   - 2-hour cure period
+   - Auto-liquidation at 50% of MM
+```
+
+### Cross-Margin Example
+
+```typescript
+// Example: Cross-margin calculation for hedged position
+const positions = [
+  { symbol: 'BTC-USD', size: 10, notional: 500000, side: 'long' },
+  { symbol: 'BTC-PERP', size: -9.5, notional: 475000, side: 'short' },
+];
+
+// Without cross-margin:
+// IM = (500000 + 475000) * 0.10 = $97,500
+
+// With cross-margin (90% correlation offset):
+// Net exposure = 500000 - 475000 = $25,000
+// Hedged portion = 475000 * 2 = $950,000
+// IM = 25000 * 0.10 + 950000 * 0.10 * (1 - 0.90) = $2,500 + $9,500 = $12,000
+
+// Savings: 87% margin reduction for hedged position
+```
+
+---
+
+## Hedging Strategies
+
+### On-Platform Hedging
+
+LX DEX provides native hedging capabilities:
+
+#### 1. Perpetual Futures Hedge
+
+```
+Spot-Perp Basis Trade:
+
+Position:
+- Long 10 BTC spot at $50,000
+- Short 10 BTC-PERP at $50,100
+
+Outcome:
+- Locked in $1,000 basis
+- Annualized yield: ~7.3%
+- Delta neutral
+- Funding P&L variable
+```
+
+#### 2. Cross-Asset Hedge
+
+```
+BTC-ETH Correlation Hedge:
+
+Position:
+- Long 10 BTC ($500,000)
+- Short 166 ETH ($500,000)
+
+Hedge Ratio: ~0.8 (beta-adjusted)
+Correlation: 85%
+Residual Risk: 15% of position
+```
+
+### External Hedging
+
+Market makers may hedge on external venues:
+
+| Venue Type | Latency | Cost | Capacity |
+|------------|---------|------|----------|
+| CEX Spot | 10-50ms | Low | High |
+| CEX Perps | 10-50ms | Medium | High |
+| OTC Desks | 1-5s | Variable | Very High |
+| Other DEXs | 2-30s | High | Medium |
+
+### Automated Hedging
+
+```python
+class AutoHedger:
+    def __init__(self, config):
+        self.max_unhedged = config.max_unhedged_exposure
+        self.hedge_threshold = config.hedge_threshold
+        self.venues = config.hedge_venues
+
+    def check_and_hedge(self, positions):
+        for symbol, position in positions.items():
+            # Calculate unhedged exposure
+            unhedged = self.calculate_unhedged(symbol, position)
+
+            if abs(unhedged) > self.hedge_threshold:
+                # Select optimal venue
+                venue = self.select_venue(symbol, unhedged)
+
+                # Execute hedge
+                self.execute_hedge(venue, symbol, -unhedged)
+
+    def select_venue(self, symbol, size):
+        # Score venues by cost, latency, and capacity
+        scores = []
+        for venue in self.venues:
+            cost = venue.estimate_cost(symbol, size)
+            latency = venue.expected_latency
+            capacity = venue.available_capacity(symbol)
+
+            score = self.score_venue(cost, latency, capacity)
+            scores.append((venue, score))
+
+        return max(scores, key=lambda x: x[1])[0]
+```
+
+---
+
+## Risk Management
+
+### Real-Time Risk Monitoring
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    RISK DASHBOARD                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Account Health                                                     │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │ Equity: $10,450,000    │  Used Margin: $2,100,000         │    │
+│  │ Available: $8,350,000  │  Margin Ratio: 497%              │    │
+│  └────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  Position Limits                                                    │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │ BTC-USD:  $4.2M / $10M  ████████░░░░░░░░░░░░  42%        │    │
+│  │ ETH-USD:  $2.1M / $10M  ████░░░░░░░░░░░░░░░░  21%        │    │
+│  │ Total:    $8.5M / $50M  █████████░░░░░░░░░░░  17%        │    │
+│  └────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  Risk Metrics                                                       │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │ VaR (1d, 99%):    $125,000                                │    │
+│  │ Greeks Delta:      +$50,000/1%                             │    │
+│  │ Greeks Gamma:      +$5,000/1%^2                           │    │
+│  │ Max Drawdown:      $85,000 (0.8%)                          │    │
+│  └────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Risk Limits
+
+| Metric | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
+|--------|--------|--------|--------|--------|
+| Max Daily Loss | 5% equity | 3% equity | 2% equity | 1.5% equity |
+| Max Weekly Loss | 10% equity | 7% equity | 5% equity | 4% equity |
+| Max Drawdown | 15% equity | 12% equity | 10% equity | 8% equity |
+| VaR Limit (99%) | 3% equity | 2% equity | 1.5% equity | 1% equity |
+
+### Kill Switch
+
+Market makers must implement kill switch functionality:
+
+```typescript
+interface KillSwitch {
+  // Trigger conditions
+  triggers: {
+    maxLoss: number;        // $ loss threshold
+    maxDrawdown: number;    // % drawdown threshold
+    marginRatio: number;    // Minimum margin ratio
+    heartbeat: number;      // Max seconds without heartbeat
+    manualTrigger: boolean; // Manual activation
+  };
+
+  // Actions on trigger
+  actions: {
+    cancelAllOrders: boolean;   // Cancel open orders
+    closePositions: boolean;    // Close all positions
+    notifyOps: boolean;         // Alert operations team
+    pauseTrading: boolean;      // Prevent new orders
+  };
+}
+
+// Example configuration
+const killSwitch: KillSwitch = {
+  triggers: {
+    maxLoss: 500000,        // $500K loss
+    maxDrawdown: 0.05,      // 5% drawdown
+    marginRatio: 1.5,       // 150% margin ratio
+    heartbeat: 30,          // 30 seconds
+    manualTrigger: false,
+  },
+  actions: {
+    cancelAllOrders: true,
+    closePositions: false,  // Manual review preferred
+    notifyOps: true,
+    pauseTrading: true,
+  },
+};
+```
+
+---
+
+## Inventory Optimization
+
+### Target Inventory Model
+
+```python
+class InventoryOptimizer:
+    def __init__(self, config):
+        self.target_inventory = config.target  # Usually 0 or small long bias
+        self.max_inventory = config.max
+        self.skew_factor = config.skew_factor
+
+    def calculate_quote_skew(self, current_inventory):
+        """
+        Skew quotes based on inventory to mean-revert position.
+
+        Positive inventory -> lower bid, higher ask
+        Negative inventory -> higher bid, lower ask
+        """
+        inventory_ratio = current_inventory / self.max_inventory
+
+        # Linear skew model
+        bid_skew = -self.skew_factor * inventory_ratio
+        ask_skew = +self.skew_factor * inventory_ratio
+
+        return bid_skew, ask_skew
+
+    def example(self):
+        # Example: $2M position limit, $500K current long
+        # skew_factor = 2 bps per 10% inventory
+
+        # inventory_ratio = 500K / 2M = 0.25 (25%)
+        # bid_skew = -2 * 0.25 = -0.5 bps (lower bid)
+        # ask_skew = +2 * 0.25 = +0.5 bps (higher ask)
+
+        # Result: Slightly discourage buying, encourage selling
+        pass
+```
+
+### Inventory Decay Strategies
+
+| Strategy | Use Case | Parameters |
+|----------|----------|------------|
+| **Linear Decay** | Gradual reduction | Rate: 10%/hour |
+| **Time-Weighted** | EOD flat target | Window: Market close |
+| **Volatility-Adjusted** | Risk reduction | Vol threshold: 50% |
+| **P&L Based** | Lock in profits | Profit target: 5% |
+
+### Rebalancing
+
+```
+Inventory Rebalancing Protocol:
+
+1. Passive Rebalancing (Default)
+   - Skew quotes to attract offsetting flow
+   - Adjust over 1-4 hours
+   - Minimal market impact
+
+2. Active Rebalancing (Urgent)
+   - Submit market/aggressive limit orders
+   - Complete within 15-30 minutes
+   - Accept some slippage
+
+3. Block Trade (Large Positions)
+   - Contact OTC desk
+   - Negotiate block price
+   - Single execution
+
+Trigger Conditions:
+- Inventory > 80% of limit
+- VaR > 80% of limit
+- Margin ratio < 200%
+- Risk event detected
+```
+
+---
+
+## Reporting
+
+### Daily Inventory Report
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  DAILY INVENTORY REPORT - 2024-12-10                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Position Summary                                                   │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Symbol    │ Position   │ Notional   │ Avg Price  │ Unrealized P&L │
+│  BTC-USD   │ +5.23      │ $261,500   │ $50,000    │ +$1,150       │
+│  ETH-USD   │ -42.5      │ -$127,500  │ $3,000     │ -$425         │
+│  LUX-USD   │ +10,000    │ $50,000    │ $5.00      │ +$500         │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Total Net Exposure: $184,000                                       │
+│  Total Gross Exposure: $439,000                                     │
+│                                                                      │
+│  Risk Metrics                                                       │
+│  ─────────────────────────────────────────────────────────────────  │
+│  Daily P&L:        +$1,225    │  MTD P&L:        +$15,340          │
+│  Daily VaR:        $8,500     │  Max Drawdown:   $3,200            │
+│  Turnover:         $2.5M      │  Trades:         847               │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Weekly Risk Summary
+
+Generated every Monday covering:
+- Position limits utilization
+- VaR trend analysis
+- P&L attribution
+- Hedging effectiveness
+- Concentration analysis
+
+---
+
+## Best Practices
+
+### Inventory Management Checklist
+
+- [ ] Set appropriate position limits per market
+- [ ] Configure inventory skew parameters
+- [ ] Implement kill switch with tested triggers
+- [ ] Establish hedging venues and protocols
+- [ ] Monitor real-time risk dashboard
+- [ ] Review daily inventory reports
+- [ ] Test rebalancing procedures monthly
+- [ ] Document all risk policies
+
+### Common Pitfalls
+
+| Pitfall | Impact | Prevention |
+|---------|--------|------------|
+| Oversized positions | Margin call risk | Strict per-market limits |
+| Concentration | Correlated losses | Diversification rules |
+| Stale hedges | Basis risk | Regular hedge review |
+| Manual overrides | Human error | Approval workflows |
+| Ignoring correlation | Understated risk | Portfolio VaR models |
+
+---
+
+*Risk management guidelines are supplementary to individual firm policies. Last updated: December 2024*

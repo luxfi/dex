@@ -1,0 +1,730 @@
+---
+title: Order Methods
+description: LP-9002 JSON-RPC order management methods
+---
+
+# Order Methods
+
+Methods for placing, cancelling, and querying orders. All order methods require authentication.
+
+## lx_placeOrder
+
+Submit a new order to the matching engine.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair (e.g., "BTC-USDT") |
+| `side` | string | Yes | Order side: "buy" or "sell" |
+| `type` | string | Yes | Order type: "limit", "market", "stop_limit", "stop_market" |
+| `price` | string | Conditional | Limit price (required for limit/stop_limit orders) |
+| `quantity` | string | Yes | Order quantity in base asset |
+| `stopPrice` | string | Conditional | Trigger price (required for stop orders) |
+| `timeInForce` | string | No | Time in force: "GTC", "IOC", "FOK", "GTD" (default: "GTC") |
+| `postOnly` | boolean | No | Reject if would take liquidity (default: false) |
+| `reduceOnly` | boolean | No | Only reduce position (default: false) |
+| `clientOrderId` | string | No | Client-specified order ID (max 36 chars) |
+| `expiresAt` | integer | Conditional | Expiration timestamp (required for GTD) |
+
+### Order Types
+
+| Type | Description | Required Fields |
+|------|-------------|-----------------|
+| `limit` | Limit order at specified price | price, quantity |
+| `market` | Market order at best available price | quantity |
+| `stop_limit` | Stop-limit order | price, quantity, stopPrice |
+| `stop_market` | Stop-market order | quantity, stopPrice |
+
+### Time in Force
+
+| Value | Description |
+|-------|-------------|
+| `GTC` | Good Till Cancelled - remains until filled or cancelled |
+| `IOC` | Immediate Or Cancel - fill what's possible, cancel rest |
+| `FOK` | Fill Or Kill - fill entirely or reject completely |
+| `GTD` | Good Till Date - expires at specified timestamp |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_placeOrder",
+  "params": {
+    "market": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": "42000.00",
+    "quantity": "0.5",
+    "timeInForce": "GTC",
+    "postOnly": true,
+    "clientOrderId": "my-order-001"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "clientOrderId": "my-order-001",
+    "market": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": "42000.00",
+    "quantity": "0.5",
+    "filledQuantity": "0",
+    "remainingQuantity": "0.5",
+    "status": "open",
+    "timeInForce": "GTC",
+    "postOnly": true,
+    "reduceOnly": false,
+    "createdAt": 1702300000000,
+    "updatedAt": 1702300000000
+  }
+}
+```
+
+### Order Status Values
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Order received, awaiting processing |
+| `open` | Order active in order book |
+| `partially_filled` | Partially executed |
+| `filled` | Completely executed |
+| `cancelled` | Cancelled by user or system |
+| `rejected` | Rejected (insufficient funds, etc.) |
+| `expired` | Expired (GTD orders) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_placeOrder",
+    "params": {
+      "market": "BTC-USDT",
+      "side": "buy",
+      "type": "limit",
+      "price": "42000.00",
+      "quantity": "0.5",
+      "timeInForce": "GTC"
+    }
+  }'
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32001 | Market not found | Invalid market symbol |
+| -32002 | Insufficient balance | Not enough funds |
+| -32010 | Invalid price | Price validation failed |
+| -32011 | Invalid quantity | Quantity below minimum |
+| -32012 | Invalid side | Side must be "buy" or "sell" |
+| -32013 | Invalid order type | Unsupported order type |
+| -32014 | Invalid time in force | Unsupported TIF value |
+| -32030 | Market suspended | Trading is halted |
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+- **Burst**: 100 requests
+
+---
+
+## lx_cancelOrder
+
+Cancel an existing open order.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `orderId` | string | Conditional | Order ID to cancel |
+| `clientOrderId` | string | Conditional | Client order ID to cancel |
+| `market` | string | No | Market filter (required with clientOrderId) |
+
+One of `orderId` or `clientOrderId` must be provided.
+
+### Request (by Order ID)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_cancelOrder",
+  "params": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### Request (by Client Order ID)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_cancelOrder",
+  "params": {
+    "clientOrderId": "my-order-001",
+    "market": "BTC-USDT"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "clientOrderId": "my-order-001",
+    "market": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": "42000.00",
+    "quantity": "0.5",
+    "filledQuantity": "0.1",
+    "remainingQuantity": "0.4",
+    "status": "cancelled",
+    "cancelledAt": 1702300500000
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_cancelOrder",
+    "params": {
+      "orderId": "550e8400-e29b-41d4-a716-446655440000"
+    }
+  }'
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32000 | Order not found | Order ID does not exist |
+| -32004 | Order already cancelled | Cannot cancel twice |
+| -32005 | Order already filled | Cannot cancel filled order |
+| -32023 | Permission denied | Not your order |
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+- **Burst**: 100 requests
+
+---
+
+## lx_cancelAllOrders
+
+Cancel all open orders, optionally filtered by market or side.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | No | Cancel only orders for this market |
+| `side` | string | No | Cancel only "buy" or "sell" orders |
+
+### Request (Cancel All)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_cancelAllOrders",
+  "params": {}
+}
+```
+
+### Request (Cancel by Market)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_cancelAllOrders",
+  "params": {
+    "market": "BTC-USDT"
+  }
+}
+```
+
+### Request (Cancel by Side)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_cancelAllOrders",
+  "params": {
+    "market": "BTC-USDT",
+    "side": "buy"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "cancelledCount": 5,
+    "cancelledOrders": [
+      "550e8400-e29b-41d4-a716-446655440000",
+      "550e8400-e29b-41d4-a716-446655440001",
+      "550e8400-e29b-41d4-a716-446655440002",
+      "550e8400-e29b-41d4-a716-446655440003",
+      "550e8400-e29b-41d4-a716-446655440004"
+    ],
+    "failedCount": 0,
+    "failedOrders": []
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_cancelAllOrders",
+    "params": {
+      "market": "BTC-USDT"
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 10 requests per second
+- **Note**: This is a heavy operation
+
+---
+
+## lx_getOrder
+
+Get details of a specific order.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `orderId` | string | Conditional | Order ID |
+| `clientOrderId` | string | Conditional | Client order ID |
+| `market` | string | No | Market (required with clientOrderId) |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrder",
+  "params": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "clientOrderId": "my-order-001",
+    "market": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": "42000.00",
+    "avgPrice": "41998.50",
+    "quantity": "0.5",
+    "filledQuantity": "0.3",
+    "remainingQuantity": "0.2",
+    "filledValue": "12599.55",
+    "fee": "6.30",
+    "feeAsset": "USDT",
+    "status": "partially_filled",
+    "timeInForce": "GTC",
+    "postOnly": true,
+    "reduceOnly": false,
+    "createdAt": 1702300000000,
+    "updatedAt": 1702300500000,
+    "fills": [
+      {
+        "tradeId": "660e8400-e29b-41d4-a716-446655440100",
+        "price": "41998.50",
+        "quantity": "0.3",
+        "fee": "6.30",
+        "feeAsset": "USDT",
+        "timestamp": 1702300500000,
+        "role": "maker"
+      }
+    ]
+  }
+}
+```
+
+### Fill Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tradeId` | string | Trade identifier |
+| `price` | string | Execution price |
+| `quantity` | string | Filled quantity |
+| `fee` | string | Fee amount |
+| `feeAsset` | string | Fee currency |
+| `timestamp` | integer | Execution timestamp (ms) |
+| `role` | string | "maker" or "taker" |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getOrder",
+    "params": {
+      "orderId": "550e8400-e29b-41d4-a716-446655440000"
+    }
+  }'
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32000 | Order not found | Order ID does not exist |
+| -32023 | Permission denied | Not your order |
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+
+---
+
+## lx_getOrders
+
+Get list of orders with filtering and pagination.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | No | Filter by market |
+| `status` | string \| array | No | Filter by status(es) |
+| `side` | string | No | Filter by "buy" or "sell" |
+| `type` | string | No | Filter by order type |
+| `startTime` | integer | No | Start timestamp (ms) |
+| `endTime` | integer | No | End timestamp (ms) |
+| `limit` | integer | No | Max results (default: 100, max: 500) |
+| `offset` | integer | No | Pagination offset (default: 0) |
+| `orderBy` | string | No | Sort: "createdAt" or "updatedAt" |
+| `orderDir` | string | No | Direction: "asc" or "desc" (default) |
+
+### Request (Open Orders)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrders",
+  "params": {
+    "status": ["open", "partially_filled"],
+    "market": "BTC-USDT",
+    "limit": 50
+  }
+}
+```
+
+### Request (Order History)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrders",
+  "params": {
+    "status": ["filled", "cancelled"],
+    "startTime": 1702200000000,
+    "endTime": 1702300000000,
+    "limit": 100,
+    "orderDir": "desc"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orders": [
+      {
+        "orderId": "550e8400-e29b-41d4-a716-446655440000",
+        "clientOrderId": "my-order-001",
+        "market": "BTC-USDT",
+        "side": "buy",
+        "type": "limit",
+        "price": "42000.00",
+        "quantity": "0.5",
+        "filledQuantity": "0",
+        "remainingQuantity": "0.5",
+        "status": "open",
+        "timeInForce": "GTC",
+        "createdAt": 1702300000000,
+        "updatedAt": 1702300000000
+      },
+      {
+        "orderId": "550e8400-e29b-41d4-a716-446655440001",
+        "market": "BTC-USDT",
+        "side": "sell",
+        "type": "limit",
+        "price": "43000.00",
+        "quantity": "0.25",
+        "filledQuantity": "0.1",
+        "remainingQuantity": "0.15",
+        "status": "partially_filled",
+        "timeInForce": "GTC",
+        "createdAt": 1702299000000,
+        "updatedAt": 1702300500000
+      }
+    ],
+    "total": 25,
+    "limit": 50,
+    "offset": 0,
+    "hasMore": false
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getOrders",
+    "params": {
+      "status": ["open", "partially_filled"],
+      "limit": 100
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+
+---
+
+## lx_amendOrder
+
+Modify an existing open order (price and/or quantity).
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `orderId` | string | Conditional | Order ID to amend |
+| `clientOrderId` | string | Conditional | Client order ID to amend |
+| `market` | string | No | Market (required with clientOrderId) |
+| `price` | string | No | New price |
+| `quantity` | string | No | New quantity |
+
+At least one of `price` or `quantity` must be provided.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_amendOrder",
+  "params": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "price": "42500.00",
+    "quantity": "0.6"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "clientOrderId": "my-order-001",
+    "market": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": "42500.00",
+    "quantity": "0.6",
+    "filledQuantity": "0",
+    "remainingQuantity": "0.6",
+    "status": "open",
+    "timeInForce": "GTC",
+    "createdAt": 1702300000000,
+    "updatedAt": 1702300600000,
+    "amendments": 1
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-API-Secret: your_api_secret" \
+  -H "X-API-Timestamp: 1702300000000" \
+  -H "X-API-Signature: signature_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_amendOrder",
+    "params": {
+      "orderId": "550e8400-e29b-41d4-a716-446655440000",
+      "price": "42500.00"
+    }
+  }'
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32000 | Order not found | Order does not exist |
+| -32003 | Invalid order | Cannot amend (filled/cancelled) |
+| -32010 | Invalid price | Price validation failed |
+| -32011 | Invalid quantity | Quantity validation failed |
+| -32023 | Permission denied | Not your order |
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+- **Note**: Counts against order placement limits
+
+---
+
+## OpenRPC Schema Reference
+
+```json
+{
+  "name": "lx_placeOrder",
+  "summary": "Place a new order",
+  "params": [
+    {
+      "name": "market",
+      "required": true,
+      "schema": {"type": "string", "pattern": "^[A-Z]+-[A-Z]+$"}
+    },
+    {
+      "name": "side",
+      "required": true,
+      "schema": {"type": "string", "enum": ["buy", "sell"]}
+    },
+    {
+      "name": "type",
+      "required": true,
+      "schema": {"type": "string", "enum": ["limit", "market", "stop_limit", "stop_market"]}
+    },
+    {
+      "name": "price",
+      "required": false,
+      "schema": {"type": "string", "pattern": "^[0-9]+\\.?[0-9]*$"}
+    },
+    {
+      "name": "quantity",
+      "required": true,
+      "schema": {"type": "string", "pattern": "^[0-9]+\\.?[0-9]*$"}
+    },
+    {
+      "name": "timeInForce",
+      "required": false,
+      "schema": {"type": "string", "enum": ["GTC", "IOC", "FOK", "GTD"], "default": "GTC"}
+    },
+    {
+      "name": "postOnly",
+      "required": false,
+      "schema": {"type": "boolean", "default": false}
+    },
+    {
+      "name": "clientOrderId",
+      "required": false,
+      "schema": {"type": "string", "maxLength": 36}
+    }
+  ],
+  "result": {
+    "name": "OrderResult",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "orderId": {"type": "string", "format": "uuid"},
+        "status": {"type": "string"},
+        "createdAt": {"type": "integer"}
+      }
+    }
+  }
+}
+```

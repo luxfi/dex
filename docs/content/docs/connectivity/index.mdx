@@ -1,0 +1,212 @@
+---
+title: Connectivity
+description: Network connectivity options for LX DEX - remote access, colocation, dedicated links, and cloud connectivity
+---
+
+# Connectivity Overview
+
+> **Contact**: connectivity@lux.network | +1-833-LUX-TRADE | [Enterprise Portal](https://enterprise.lux.network)
+
+## Introduction
+
+LX DEX provides multiple connectivity options designed for different trading requirements, from retail traders accessing via public internet to institutional market makers requiring sub-microsecond latency through colocation. This documentation covers all available connectivity methods, regional endpoints, latency specifications, and enterprise connectivity programs.
+
+## Connectivity Tiers
+
+```
++------------------------------------------------------------------+
+|                    LX DEX CONNECTIVITY TIERS                      |
++------------------------------------------------------------------+
+|                                                                    |
+|  TIER 1: COLOCATION (Sub-microsecond)                             |
+|  +------------------------------------------------------------+   |
+|  | Direct rack access in primary data centers                  |   |
+|  | Kernel bypass, FPGA connectivity                           |   |
+|  | Latency: 50-500 nanoseconds                               |   |
+|  +------------------------------------------------------------+   |
+|                              |                                     |
+|  TIER 2: DEDICATED (Microsecond)                                  |
+|  +------------------------------------------------------------+   |
+|  | Private fiber/wavelength                                    |   |
+|  | AWS/GCP/Azure DirectConnect                                |   |
+|  | Latency: 1-100 microseconds                               |   |
+|  +------------------------------------------------------------+   |
+|                              |                                     |
+|  TIER 3: VPN (Millisecond)                                        |
+|  +------------------------------------------------------------+   |
+|  | Encrypted tunnels over public internet                      |   |
+|  | Site-to-site or client VPN                                 |   |
+|  | Latency: 1-50 milliseconds                                |   |
+|  +------------------------------------------------------------+   |
+|                              |                                     |
+|  TIER 4: PUBLIC (Standard)                                        |
+|  +------------------------------------------------------------+   |
+|  | REST/WebSocket over HTTPS                                   |   |
+|  | Regional endpoints with CDN                                |   |
+|  | Latency: 10-200 milliseconds                              |   |
+|  +------------------------------------------------------------+   |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+## Quick Comparison
+
+| Feature | Public | VPN | Dedicated | Colocation |
+|---------|--------|-----|-----------|------------|
+| **Latency** | 10-200ms | 1-50ms | 1-100us | 50-500ns |
+| **Bandwidth** | Shared | 100Mbps-1Gbps | 1-100Gbps | 100Gbps+ |
+| **Reliability** | 99.5% | 99.9% | 99.99% | 99.999% |
+| **Security** | TLS | IPSec/WireGuard | Private fiber | Physical isolation |
+| **Setup Time** | Instant | 1-3 days | 2-4 weeks | 4-8 weeks |
+| **Monthly Cost** | Free tier | $500+ | $5,000+ | $25,000+ |
+| **Best For** | Retail | Prop traders | Institutions | HFT/Market makers |
+
+## Connectivity Decision Matrix
+
+### Choose Public API if:
+- Trading volume < 10,000 orders/day
+- Latency requirements > 50ms acceptable
+- No dedicated infrastructure budget
+- Getting started or testing
+
+### Choose VPN if:
+- Trading volume 10,000-100,000 orders/day
+- Latency requirements 5-50ms
+- Need encrypted access from multiple locations
+- Regulatory requirement for secure channels
+
+### Choose Dedicated if:
+- Trading volume 100,000-1,000,000 orders/day
+- Latency requirements < 1ms
+- Running algorithmic strategies
+- Need guaranteed bandwidth
+
+### Choose Colocation if:
+- Trading volume > 1,000,000 orders/day
+- Latency requirements < 100us
+- High-frequency trading strategies
+- Market making operations
+
+## Network Architecture
+
+```
+                           GLOBAL NETWORK TOPOLOGY
+
+                     +------------------+
+                     |  LX DEX PRIMARY  |
+                     |    NY5 (Equinix) |
+                     +--------+---------+
+                              |
+         +--------------------+--------------------+
+         |                    |                    |
++--------v--------+  +--------v--------+  +--------v--------+
+|   LD4 London    |  |   TY3 Tokyo     |  |   SG1 Singapore |
+|   Secondary     |  |   Secondary     |  |   Secondary     |
++-----------------+  +-----------------+  +-----------------+
+         |                    |                    |
+         +--------------------+--------------------+
+                              |
+              +---------------+---------------+
+              |               |               |
+     +--------v------+ +------v------+ +------v------+
+     | AWS Regions   | | GCP Regions | | Azure       |
+     | us-east-1     | | us-central1 | | eastus      |
+     | eu-west-1     | | europe-west1| | westeurope  |
+     | ap-northeast-1| | asia-east1  | | japaneast   |
+     +---------------+ +-------------+ +-------------+
+              |               |               |
+              +---------------+---------------+
+                              |
+                     +--------v--------+
+                     |  Global PoPs    |
+                     |  (45+ locations)|
+                     +-----------------+
+```
+
+## Primary Data Centers
+
+| Location | Facility | Role | Cross-Connects |
+|----------|----------|------|----------------|
+| New York | Equinix NY5 | Primary Matching | 1000+ |
+| London | Equinix LD4 | EMEA Secondary | 500+ |
+| Tokyo | Equinix TY3 | APAC Secondary | 400+ |
+| Singapore | Equinix SG1 | SEA Secondary | 300+ |
+| Frankfurt | Equinix FR5 | EU Secondary | 350+ |
+| Chicago | Equinix CH1 | US Secondary | 450+ |
+
+## Getting Started
+
+### 1. Public API Access
+
+Instant access via public endpoints:
+
+```bash
+# Production
+curl https://api.lux.network/v1/health
+
+# WebSocket
+wscat -c wss://ws.lux.network/v1
+```
+
+### 2. VPN Access Request
+
+Contact our connectivity team:
+
+```
+Email: connectivity@lux.network
+Subject: VPN Access Request - [Company Name]
+
+Required Information:
+- Company name and registration
+- Expected trading volume
+- Primary users (names, emails)
+- Preferred VPN protocol
+- Source IP ranges
+```
+
+### 3. Dedicated Connection
+
+Submit enterprise connectivity request:
+
+```
+https://enterprise.lux.network/connectivity/dedicated
+```
+
+### 4. Colocation Program
+
+Apply for colocation program:
+
+```
+https://enterprise.lux.network/connectivity/colocation
+```
+
+## SLA Summary
+
+| Tier | Availability | Latency SLA | Support Response |
+|------|--------------|-------------|------------------|
+| Public | 99.5% | Best effort | 24 hours |
+| VPN | 99.9% | < 50ms p99 | 4 hours |
+| Dedicated | 99.99% | < 1ms p99 | 1 hour |
+| Colocation | 99.999% | < 100us p99 | 15 minutes |
+
+## Documentation Sections
+
+- [Endpoints](/docs/connectivity/endpoints) - All API endpoints and regional access points
+- [Regions](/docs/connectivity/regions) - Data center locations and latency maps
+- [Colocation](/docs/connectivity/colocation) - Colocation program details
+- [Dedicated](/docs/connectivity/dedicated) - Dedicated connection options
+- [Cloud](/docs/connectivity/cloud) - AWS, GCP, Azure connectivity
+- [VPN](/docs/connectivity/vpn) - Secure remote access
+- [Latency](/docs/connectivity/latency) - Latency optimization guide
+- [Redundancy](/docs/connectivity/redundancy) - Failover and disaster recovery
+- [Network Specs](/docs/connectivity/network-specs) - Technical specifications
+
+## Support Contacts
+
+| Type | Contact |
+|------|---------|
+| General Inquiries | connectivity@lux.network |
+| Technical Support | noc@lux.network |
+| Enterprise Sales | enterprise@lux.network |
+| Emergency (24/7) | +1-833-LUX-TRADE |
+| Status Page | https://status.lux.network |

@@ -1,0 +1,13 @@
+{
+  "title": "Consensus",
+  "pages": [
+    "index",
+    "photon",
+    "flare",
+    "quasar",
+    "finality",
+    "validators",
+    "integration",
+    "warp"
+  ]
+}

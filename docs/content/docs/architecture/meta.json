@@ -1,0 +1,15 @@
+{
+  "title": "Architecture",
+  "pages": [
+    "index",
+    "sidecar",
+    "chains",
+    "dag",
+    "state",
+    "networking",
+    "storage",
+    "vm",
+    "transactions",
+    "decisions"
+  ]
+}

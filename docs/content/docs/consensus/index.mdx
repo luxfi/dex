@@ -1,0 +1,329 @@
+---
+title: Consensus Overview
+description: DAG-based consensus protocol for ultra-low latency DEX settlement
+---
+
+# Consensus Layer
+
+> **Specifications**: [LP-0111 Photon](https://github.com/luxfi/LPs/blob/main/LPs/lp-0111-photon-consensus-selection.md) | [LP-0112 Flare](https://github.com/luxfi/LPs/blob/main/LPs/lp-0112-flare-dag-finalization-protocol.md) | [LP-4099 Quasar](https://github.com/luxfi/LPs/blob/main/LPs/lp-4099-q-chain-quantum-secure-consensus-protocol-family-quasar.md)
+>
+> **Implementation**: [`github.com/luxfi/consensus`](https://github.com/luxfi/consensus)
+
+LX DEX uses a custom DAG-based consensus protocol designed for ultra-low latency trading with 1ms finality.
+
+## Protocol Stack
+
+The consensus layer implements a three-protocol stack optimized for different aspects of DEX settlement:
+
+```
++------------------------------------------------------------------+
+|                     LX DEX Consensus Stack                        |
++------------------------------------------------------------------+
+|                                                                   |
+|  +--------------------+  +--------------------+  +---------------+ |
+|  |     LP-0111        |  |     LP-0112        |  |   LP-4099     | |
+|  |      Photon        |  |      Flare         |  |    Quasar     | |
+|  |  FPC Selection     |  |  DAG Finalization  |  |  PQ Security  | |
+|  +--------------------+  +--------------------+  +---------------+ |
+|           |                      |                      |         |
+|           v                      v                      v         |
+|  +------------------------------------------------------------------+
+|  |              Unified DAG Consensus Engine                        |
+|  |                                                                  |
+|  |   [Parallel Block Processing]  [Fast Finality]  [No Forks]      |
+|  +------------------------------------------------------------------+
+|                                                                   |
++------------------------------------------------------------------+
+```
+
+## Implementation Status
+
+| Component | Source | Description | Status |
+|-----------|--------|-------------|--------|
+| DAG Engine | [`engine/dag/`](https://github.com/luxfi/consensus/tree/main/engine/dag) | DAG structure and traversal | Complete |
+| Photon FPC | [`protocol/photon/`](https://github.com/luxfi/consensus/tree/main/protocol/photon) | Fast probabilistic consensus | Complete |
+| Flare Finalization | [`protocol/flare/`](https://github.com/luxfi/consensus/tree/main/protocol/flare) | Certificate and skip logic | Complete |
+| Quasar PQ | [`protocol/quasar/`](https://github.com/luxfi/consensus/tree/main/protocol/quasar) | Post-quantum signatures | Complete |
+| Validator Manager | [`validator/`](https://github.com/luxfi/consensus/tree/main/validator) | Validator set management | Complete |
+| Warp Messaging | [`node/vms/platformvm/warp/`](https://github.com/luxfi/node/tree/main/vms/platformvm/warp) | Cross-chain messages | Complete |
+
+## Architecture Overview
+
+### DAG-Based Block Structure
+
+Unlike traditional linear blockchains, LX DEX uses a Directed Acyclic Graph (DAG) structure that enables parallel block processing:
+
+```
+         Block A (Round 1)
+            |  \
+            |   \
+            v    v
+    Block B (R2)  Block C (R2)
+        |    \      /    |
+        |     \    /     |
+        v      v  v      v
+    Block D (R3)  Block E (R3)
+            \      /
+             \    /
+              v  v
+        Block F (R4) [Finalized]
+```
+
+**Key Properties:**
+- Multiple parents per block (DAG structure)
+- Parallel transaction processing
+- No orphaned blocks (all valid blocks contribute)
+- Byzantine fault tolerance with 2f+1 threshold
+
+### Core Types
+
+```go
+// Block represents a block in the DAG
+type Block struct {
+    ID        [32]byte      // Unique block identifier
+    Parents   [][32]byte    // Multiple parent references (DAG)
+    Height    uint64        // Block height (max parent height + 1)
+    Round     uint64        // Consensus round
+    Author    string        // Proposing validator
+    Timestamp int64         // Block creation time
+    TxRoot    [32]byte      // Merkle root of transactions
+    StateRoot [32]byte      // State root after execution
+    Signature []byte        // BLS aggregate signature
+}
+
+// Tx represents a transaction in the DAG
+type Tx interface {
+    ID() ids.ID
+    ParentIDs() []ids.ID
+    Bytes() []byte
+    Verify(context.Context) error
+    Accept(context.Context) error
+    Reject(context.Context) error
+}
+```
+
+### Consensus Parameters
+
+The consensus engine uses a 69% threshold for Byzantine fault tolerance:
+
+```go
+// Parameters defines consensus parameters
+type Parameters struct {
+    K                     int           // Validator sample size
+    Alpha                 float64       // Confidence threshold (0.69)
+    Beta                  uint32        // Consecutive successes needed
+    AlphaPreference       int           // Preference threshold
+    AlphaConfidence       int           // Confidence threshold
+    BetaVirtuous          int           // Virtuous block confidence
+    BetaRogue             int           // Rogue block confidence
+    BlockTime             time.Duration // Target block time
+    RoundTO               time.Duration // Round timeout
+}
+
+// Network parameter presets
+func MainnetParams() Parameters {
+    return Parameters{
+        K:               21,
+        Alpha:           0.69,  // 69% threshold
+        Beta:            14,
+        AlphaPreference: 15,    // ~71% of K
+        AlphaConfidence: 15,
+        BetaVirtuous:    15,
+        BlockTime:       200 * time.Millisecond,
+        RoundTO:         400 * time.Millisecond,
+    }
+}
+
+// DEX-optimized parameters for 1ms finality
+func DEXParams() Parameters {
+    return Parameters{
+        K:               11,
+        Alpha:           0.69,
+        Beta:            8,
+        AlphaPreference: 8,
+        AlphaConfidence: 8,
+        BetaVirtuous:    8,
+        BlockTime:       1 * time.Millisecond,  // 1ms blocks
+        RoundTO:         5 * time.Millisecond,
+    }
+}
+```
+
+## Consensus Flow
+
+### 1. Block Proposal
+
+```go
+// ProposeBlock creates a new block proposal
+func (e *Engine) ProposeBlock(ctx context.Context, txs []Tx) (*Block, error) {
+    // Select parents from DAG frontier
+    parents := e.selectParents()
+
+    // Compute block metadata
+    block := &Block{
+        ID:        computeBlockID(parents, txs),
+        Parents:   parents,
+        Height:    maxParentHeight(parents) + 1,
+        Round:     e.currentRound,
+        Author:    e.validatorID,
+        Timestamp: time.Now().UnixMilli(),
+        TxRoot:    computeMerkleRoot(txs),
+    }
+
+    // Sign with BLS key
+    block.Signature = e.sign(block)
+
+    return block, nil
+}
+```
+
+### 2. Validator Sampling (Photon FPC)
+
+```go
+// SampleValidators selects K validators for voting
+func (e *Engine) SampleValidators() []ValidatorID {
+    validators := e.validatorSet.List()
+
+    // Stake-weighted random sampling
+    seed := e.computeEpochSeed()
+    return stakeWeightedSample(validators, e.params.K, seed)
+}
+```
+
+### 3. Block Finalization (Flare)
+
+```go
+// CheckFinality determines if block can be finalized
+func (e *Engine) CheckFinality(block *Block) Decision {
+    // Check certificate (2f+1 support)
+    if hasCertificate(e.view, block, e.params) {
+        return DecideCommit
+    }
+
+    // Check skip certificate (2f+1 no-support)
+    if hasSkipCertificate(e.view, block, e.params) {
+        return DecideSkip
+    }
+
+    return DecideUndecided
+}
+```
+
+## Performance Characteristics
+
+| Metric | Target | Achieved |
+|--------|--------|----------|
+| Block Time | 1ms | 1ms |
+| Time to Finality | 1ms | <1ms |
+| Throughput | 100K TPS | 150K TPS |
+| Concurrent Blocks | 4 | 4 |
+| Fork Rate | 0% | 0% |
+
+### Latency Breakdown
+
+```
+Order Submission    --> 0.1ms
+|
+Mempool Inclusion   --> 0.1ms
+|
+Block Proposal      --> 0.2ms
+|
+Validator Voting    --> 0.3ms
+|
+Certificate         --> 0.2ms
+|
+Finalization        --> 0.1ms
+--------------------------------
+Total               ~= 1.0ms
+```
+
+## Security Model
+
+### Byzantine Fault Tolerance
+
+The consensus protocol tolerates up to f Byzantine validators where:
+
+```
+n >= 3f + 1
+```
+
+For the standard 21-validator set:
+- Total validators (n): 21
+- Byzantine tolerance (f): 7
+- Required for consensus: 14 (67%)
+- Actual threshold: 69% (15 validators)
+
+### Attack Resistance
+
+| Attack Type | Mitigation |
+|-------------|------------|
+| Double Voting | BLS signature aggregation |
+| Long-Range Attack | Event horizon finality |
+| Nothing-at-Stake | Slashing conditions |
+| Front-Running | Encrypted mempool |
+| Sybil | Stake-weighted voting |
+
+## Quick Start
+
+### Initialize Consensus Engine
+
+```go
+import (
+    "context"
+    "github.com/luxfi/consensus"
+)
+
+func main() {
+    // Create DEX-optimized engine
+    cfg := consensus.DEXParams()
+    engine := consensus.NewDAG(cfg)
+
+    // Start consensus
+    ctx := context.Background()
+    if err := engine.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer engine.Stop()
+
+    // Subscribe to finalized blocks
+    blocks := engine.SubscribeBlocks(ctx)
+    for block := range blocks {
+        // Process finalized trades
+        processTrades(block.Transactions)
+    }
+}
+```
+
+### DEX Integration Example
+
+```go
+// OrderExecutor handles order execution after finalization
+type OrderExecutor struct {
+    engine *consensus.Engine
+    book   *orderbook.OrderBook
+}
+
+func (e *OrderExecutor) Run(ctx context.Context) error {
+    blocks := e.engine.SubscribeBlocks(ctx)
+
+    for block := range blocks {
+        // Finalized block - execute all matched orders
+        for _, tx := range block.Transactions {
+            if order, ok := tx.(*Order); ok {
+                e.book.Execute(order)
+            }
+        }
+    }
+    return nil
+}
+```
+
+## Related Documentation
+
+- [Photon FPC Protocol](/docs/consensus/photon) - Validator sampling and voting
+- [Flare DAG Finalization](/docs/consensus/flare) - Certificate and skip logic
+- [Quasar Post-Quantum](/docs/consensus/quasar) - Quantum-safe signatures
+- [1ms Finality](/docs/consensus/finality) - Settlement guarantees
+- [Validator Network](/docs/consensus/validators) - Staking and rewards
+- [DEX Integration](/docs/consensus/integration) - Order execution hooks
+- [Warp Messaging](/docs/consensus/warp) - Cross-chain operations

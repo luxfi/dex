@@ -1,0 +1,230 @@
+---
+title: Testnet Overview
+description: LX DEX Testnet - risk-free environment for development, testing, and integration
+---
+
+# LX DEX Testnet
+
+> **Network**: Lux Testnet | **Chain ID**: 96370 | **Status**: [status.testnet.lux.network](https://status.testnet.lux.network)
+
+The LX DEX Testnet provides a full-featured, production-mirror environment for developing, testing, and validating your trading integrations without risking real assets.
+
+## Why Use Testnet
+
+### Risk-Free Development
+
+- **No Real Assets**: Trade with test tokens that have no monetary value
+- **Unlimited Experimentation**: Test edge cases, stress scenarios, and failure modes
+- **Safe Integration Testing**: Validate your systems before mainnet deployment
+
+### Production Parity
+
+- **Identical APIs**: Same endpoints, protocols, and message formats as mainnet
+- **Same Performance**: Sub-millisecond matching engine with identical characteristics
+- **Full Feature Set**: All trading features available including limit orders, market orders, and advanced order types
+
+### Developer Experience
+
+- **Instant Access**: No KYC, no approval process, start trading immediately
+- **Free Test Tokens**: Generous faucet with no rate limits for development
+- **Detailed Logging**: Enhanced debug output and request tracing
+- **Reset Cycles**: Predictable data resets for reproducible testing
+
+## Network Information
+
+| Property | Value |
+|----------|-------|
+| **Network Name** | Lux DEX Testnet |
+| **Chain ID** | 96370 |
+| **Native Token** | tLUX (Test LUX) |
+| **Block Time** | 1ms |
+| **Consensus** | Lux Consensus |
+
+## Endpoints Quick Reference
+
+| Service | URL |
+|---------|-----|
+| **JSON-RPC** | `https://testnet-api.lux.network/rpc` |
+| **WebSocket** | `wss://testnet-api.lux.network/ws` |
+| **REST API** | `https://testnet-api.lux.network/v1` |
+| **gRPC** | `testnet-api.lux.network:9760` |
+| **Faucet** | `https://faucet.testnet.lux.network` |
+| **Explorer** | `https://explorer.testnet.lux.network` |
+
+## Quick Start
+
+### 1. Get Test Tokens
+
+```bash
+# Request tokens via CLI
+curl -X POST https://faucet.testnet.lux.network/api/request \
+  -H "Content-Type: application/json" \
+  -d '{"address": "your_address", "tokens": ["tLUX", "tUSDC", "tBTC"]}'
+```
+
+### 2. Connect to Testnet
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+  network: 'testnet',
+  // Or explicitly:
+  // jsonRpcUrl: 'https://testnet-api.lux.network/rpc',
+  // wsUrl: 'wss://testnet-api.lux.network/ws',
+});
+```
+
+### 3. Place Your First Order
+
+```typescript
+const order = await client.placeOrder({
+  symbol: 'tBTC-tUSDC',
+  type: 'limit',
+  side: 'buy',
+  price: 50000,
+  size: 0.1,
+});
+
+console.log(`Order placed: ${order.orderId}`);
+```
+
+## Testnet vs Mainnet
+
+| Aspect | Testnet | Mainnet |
+|--------|---------|---------|
+| **Assets** | Test tokens (tLUX, tBTC, tUSDC) | Real assets |
+| **Monetary Value** | None | Real value |
+| **KYC Required** | No | Yes (for large volumes) |
+| **Rate Limits** | Relaxed | Standard |
+| **Data Persistence** | Weekly resets | Permanent |
+| **API Keys** | Optional | Required |
+| **Support** | Community | Priority |
+
+## Use Cases
+
+### Integration Development
+
+Build and test your trading systems against a live order book:
+
+```typescript
+// Connect to testnet WebSocket
+const ws = new WebSocket('wss://testnet-api.lux.network/ws');
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    channel: 'orderbook',
+    symbol: 'tBTC-tUSDC',
+  }));
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  // Process order book updates
+  processOrderBook(data);
+};
+```
+
+### Strategy Backtesting
+
+Test trading strategies with realistic market conditions:
+
+```python
+from luxfi_dex import LXDexClient
+
+client = LXDexClient(network='testnet')
+
+# Execute paper trading strategy
+for signal in strategy.signals():
+    if signal.type == 'buy':
+        client.place_order(
+            symbol='tBTC-tUSDC',
+            side='buy',
+            order_type='limit',
+            price=signal.price,
+            size=signal.size
+        )
+```
+
+### Load Testing
+
+Validate system behavior under high throughput:
+
+```bash
+# Generate high-frequency order flow
+for i in {1..1000}; do
+  curl -X POST https://testnet-api.lux.network/rpc \
+    -H "Content-Type: application/json" \
+    -d '{
+      "jsonrpc": "2.0",
+      "method": "lx_placeOrder",
+      "params": {
+        "symbol": "tBTC-tUSDC",
+        "type": 0,
+        "side": 0,
+        "price": '$((50000 + RANDOM % 1000))',
+        "size": 0.01,
+        "userID": "loadtest"
+      },
+      "id": '$i'
+    }' &
+done
+wait
+```
+
+### CI/CD Integration
+
+Automate testing in your deployment pipeline:
+
+```yaml
+# .github/workflows/integration-tests.yml
+name: Integration Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run integration tests
+        env:
+          LX_DEX_NETWORK: testnet
+          LX_DEX_RPC_URL: https://testnet-api.lux.network/rpc
+        run: |
+          npm run test:integration
+```
+
+## Testnet Rules
+
+1. **No Real Value**: Test tokens have no monetary value and cannot be exchanged
+2. **Data Resets**: All data is reset weekly (Sundays 00:00 UTC)
+3. **Fair Use**: Avoid excessive load that impacts other users
+4. **No SLA**: Testnet availability is best-effort
+5. **Public Network**: Do not store sensitive data
+
+## Getting Help
+
+- **Documentation**: Continue reading the guides below
+- **Discord**: [#testnet-support](https://discord.gg/luxfi)
+- **GitHub**: [Issues](https://github.com/luxfi/dex/issues)
+- **Status**: [status.testnet.lux.network](https://status.testnet.lux.network)
+
+## Next Steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/testnet/quickstart">
+    Get trading on testnet in 5 minutes
+  </Card>
+  <Card title="Faucet" href="/docs/testnet/faucet">
+    Get free test tokens
+  </Card>
+  <Card title="Endpoints" href="/docs/testnet/endpoints">
+    Complete API endpoint reference
+  </Card>
+  <Card title="Markets" href="/docs/testnet/markets">
+    Available trading pairs
+  </Card>
+</Cards>

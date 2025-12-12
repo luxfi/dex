@@ -1,0 +1,630 @@
+---
+title: MPC Wallets
+description: Threshold signature and MPC wallet integration for institutional trading on LX DEX
+---
+
+# MPC Wallet Integration
+
+> **Specification**: [LP-333 Dynamic Signer Rotation](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md) | [LP-9002 DEX API](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
+
+## Overview
+
+Multi-Party Computation (MPC) wallets provide institutional-grade security by distributing key material across multiple parties. No single party ever holds the complete private key.
+
+### Benefits
+
+| Feature | Description |
+|---------|-------------|
+| No Single Point of Failure | Key shares distributed across parties |
+| Operational Flexibility | Configurable signing policies |
+| Regulatory Compliance | Audit trails and approval workflows |
+| Sub-second Signing | ~100ms latency for trades |
+| Key Recovery | Threshold-based recovery mechanisms |
+
+## Supported MPC Providers
+
+| Provider | Protocol | Threshold | Latency | Integration |
+|----------|----------|-----------|---------|-------------|
+| Fireblocks | MPC-CMP | Configurable | ~50ms | REST API |
+| BitGo | TSS | 2-of-3 | ~100ms | REST API |
+| Copper | MPC | Configurable | ~80ms | REST API |
+| Anchorage | HSM+MPC | Policy-based | ~150ms | REST API |
+| Lux Threshold | CMP/LSS | Configurable | ~100ms | Native |
+
+## Architecture
+
+```
+MPC Wallet Architecture
+
++------------------+     +------------------+     +------------------+
+|   Trading App    |     |   MPC Provider   |     |   LX DEX         |
+|                  |     |                  |     |                  |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|  | Order      |  |---->|  | Policy     |  |---->|  | Verify     |  |
+|  | Builder    |  |     |  | Engine     |  |     |  | Signature  |  |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|        |         |     |        |         |     |        |         |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|  | Sign Req   |  |---->|  | MPC Sign   |  |---->|  | Execute    |  |
+|  +------------+  |     |  +------------+  |     |  | Order      |  |
++------------------+     +------------------+     +------------------+
+                                  |
+                         +--------+--------+
+                         |        |        |
+                      +----+  +----+  +----+
+                      |Key |  |Key |  |Key |
+                      |Sh1 |  |Sh2 |  |Sh3 |
+                      +----+  +----+  +----+
+```
+
+## Fireblocks Integration
+
+### Setup
+
+```typescript
+import { FireblocksAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+
+const fireblocks = new FireblocksAdapter({
+  apiKey: process.env.FIREBLOCKS_API_KEY,
+  privateKey: process.env.FIREBLOCKS_PRIVATE_KEY,
+  apiBaseUrl: 'https://api.fireblocks.io',
+  vaultAccountId: 'YOUR_VAULT_ACCOUNT_ID'
+});
+
+const client = new LXDexClient({
+  endpoint: 'https://dex.lux.network',
+  wallet: fireblocks
+});
+```
+
+### Create Vault Account
+
+```typescript
+// Create dedicated vault for DEX trading
+async function createTradingVault(): Promise<string> {
+  const vault = await fireblocks.createVaultAccount({
+    name: 'LX DEX Trading',
+    autoFuel: true,
+    hiddenOnUI: false
+  });
+
+  // Create LUX wallet in vault
+  await fireblocks.createVaultWallet(vault.id, {
+    assetId: 'LUX_MAINNET'
+  });
+
+  return vault.id;
+}
+```
+
+### Transaction Signing
+
+```typescript
+// Sign order with Fireblocks MPC
+async function signOrderWithFireblocks(order: Order): Promise<string> {
+  // Build EIP-712 typed data
+  const typedData = buildOrderTypedData(order);
+  const messageHash = hashTypedData(typedData);
+
+  // Request MPC signature
+  const txInfo = await fireblocks.createTransaction({
+    operation: 'TYPED_MESSAGE',
+    assetId: 'LUX_MAINNET',
+    source: {
+      type: 'VAULT_ACCOUNT',
+      id: vaultAccountId
+    },
+    extraParameters: {
+      rawMessageData: {
+        messages: [{
+          content: messageHash,
+          type: 'EIP712'
+        }]
+      }
+    }
+  });
+
+  // Wait for signature
+  const result = await waitForTransaction(txInfo.id);
+  return result.signedMessages[0].signature;
+}
+
+async function waitForTransaction(txId: string): Promise<any> {
+  while (true) {
+    const tx = await fireblocks.getTransaction(txId);
+
+    if (tx.status === 'COMPLETED') {
+      return tx;
+    }
+
+    if (tx.status === 'FAILED' || tx.status === 'CANCELLED') {
+      throw new Error(`Transaction ${tx.status}: ${tx.subStatus}`);
+    }
+
+    await sleep(500);
+  }
+}
+```
+
+### Webhook Integration
+
+```typescript
+import { createHmac } from 'crypto';
+
+// Verify Fireblocks webhook
+function verifyWebhook(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  const hmac = createHmac('sha512', secret);
+  hmac.update(payload);
+  const expectedSig = hmac.digest('hex');
+  return signature === expectedSig;
+}
+
+// Handle transaction status updates
+app.post('/webhook/fireblocks', (req, res) => {
+  const signature = req.headers['fireblocks-signature'];
+
+  if (!verifyWebhook(req.body, signature, WEBHOOK_SECRET)) {
+    return res.status(401).send('Invalid signature');
+  }
+
+  const event = JSON.parse(req.body);
+
+  switch (event.type) {
+    case 'TRANSACTION_STATUS_UPDATED':
+      handleTransactionUpdate(event.data);
+      break;
+    case 'VAULT_ACCOUNT_ASSET_ADDED':
+      handleAssetAdded(event.data);
+      break;
+  }
+
+  res.status(200).send('OK');
+});
+```
+
+## BitGo Integration
+
+### Setup
+
+```typescript
+import { BitGoAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+
+const bitgo = new BitGoAdapter({
+  accessToken: process.env.BITGO_ACCESS_TOKEN,
+  env: 'prod', // or 'test'
+  coin: 'lux'
+});
+
+const client = new LXDexClient({
+  endpoint: 'https://dex.lux.network',
+  wallet: bitgo
+});
+```
+
+### Wallet Creation
+
+```typescript
+// Create BitGo wallet for trading
+async function createBitGoWallet(): Promise<string> {
+  const wallet = await bitgo.createWallet({
+    label: 'LX DEX Trading',
+    passphrase: process.env.WALLET_PASSPHRASE,
+    enterprise: process.env.BITGO_ENTERPRISE_ID
+  });
+
+  return wallet.id;
+}
+```
+
+### Transaction Signing with Policy
+
+```typescript
+// BitGo uses policy-based approvals
+async function signWithBitGo(order: Order): Promise<string> {
+  const typedData = buildOrderTypedData(order);
+
+  // Initiate signing request
+  const pendingApproval = await bitgo.initiateSignMessage({
+    walletId: WALLET_ID,
+    message: typedData,
+    messageType: 'eip712'
+  });
+
+  // If policy requires approval, wait for it
+  if (pendingApproval.state === 'pending') {
+    console.log('Awaiting approval:', pendingApproval.id);
+    return await waitForApproval(pendingApproval.id);
+  }
+
+  return pendingApproval.signature;
+}
+```
+
+## Copper Integration
+
+### Setup
+
+```typescript
+import { CopperAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+
+const copper = new CopperAdapter({
+  apiKey: process.env.COPPER_API_KEY,
+  apiSecret: process.env.COPPER_API_SECRET,
+  portfolioId: process.env.COPPER_PORTFOLIO_ID
+});
+
+const client = new LXDexClient({
+  endpoint: 'https://dex.lux.network',
+  wallet: copper
+});
+```
+
+### Signing Flow
+
+```typescript
+async function signWithCopper(order: Order): Promise<string> {
+  const typedData = buildOrderTypedData(order);
+
+  const signRequest = await copper.createSignRequest({
+    portfolioId: PORTFOLIO_ID,
+    currency: 'LUX',
+    messageType: 'EIP712',
+    message: typedData
+  });
+
+  // Poll for completion
+  return await copper.waitForSignature(signRequest.id);
+}
+```
+
+## Lux Native Threshold (ThresholdVM)
+
+For self-hosted MPC using Lux's native threshold signing:
+
+### Setup
+
+```typescript
+import { ThresholdAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+
+const threshold = new ThresholdAdapter({
+  endpoint: 'https://t-chain.lux.network',
+  partyId: process.env.PARTY_ID,
+  keyShare: process.env.KEY_SHARE_PATH
+});
+```
+
+### Distributed Key Generation
+
+```typescript
+// Initialize new threshold key (t-of-n)
+async function initializeKey(
+  parties: string[],
+  threshold: number
+): Promise<string> {
+  const session = await threshold.startDKG({
+    parties,
+    threshold,
+    curve: 'secp256k1'
+  });
+
+  // Each party runs DKG protocol
+  const publicKey = await session.runDKG();
+
+  // Derive address from public key
+  const address = publicKeyToAddress(publicKey);
+
+  return address;
+}
+```
+
+### Threshold Signing
+
+```typescript
+async function signWithThreshold(
+  message: Uint8Array,
+  signers: string[]
+): Promise<string> {
+  // Start signing session
+  const session = await threshold.startSign({
+    message,
+    signers,
+    keyId: KEY_ID
+  });
+
+  // Run signing protocol rounds
+  const signature = await session.runSign();
+
+  return signature;
+}
+```
+
+### Key Reshare (LP-333)
+
+```typescript
+// Reshare key when signer set changes
+async function reshareKey(
+  oldSigners: string[],
+  newSigners: string[],
+  newThreshold: number
+): Promise<void> {
+  const session = await threshold.startReshare({
+    oldSigners,
+    newSigners,
+    newThreshold,
+    keyId: KEY_ID
+  });
+
+  await session.runReshare();
+
+  console.log('Key reshared successfully');
+}
+```
+
+## Trading Integration
+
+### High-Frequency Trading Setup
+
+```typescript
+// Pre-sign orders for HFT
+class MPCOrderManager {
+  private signatureCache: Map<string, SignedOrder> = new Map();
+  private adapter: MPCAdapter;
+
+  constructor(adapter: MPCAdapter) {
+    this.adapter = adapter;
+  }
+
+  // Pre-generate signed orders at multiple price levels
+  async primeOrderCache(
+    symbol: string,
+    prices: number[],
+    quantity: number
+  ): Promise<void> {
+    const orders = prices.flatMap(price => [
+      { symbol, side: 'buy', price, quantity },
+      { symbol, side: 'sell', price, quantity }
+    ]);
+
+    // Sign in parallel batches
+    const batchSize = 10;
+    for (let i = 0; i < orders.length; i += batchSize) {
+      const batch = orders.slice(i, i + batchSize);
+      const signatures = await Promise.all(
+        batch.map(order => this.signOrder(order))
+      );
+
+      batch.forEach((order, idx) => {
+        const key = `${order.side}-${order.price}`;
+        this.signatureCache.set(key, {
+          ...order,
+          signature: signatures[idx]
+        });
+      });
+    }
+  }
+
+  // Instant order submission from cache
+  async submitCachedOrder(
+    side: 'buy' | 'sell',
+    price: number
+  ): Promise<OrderResult> {
+    const key = `${side}-${price}`;
+    const signedOrder = this.signatureCache.get(key);
+
+    if (!signedOrder) {
+      throw new Error('Order not in cache');
+    }
+
+    return await this.client.submitSignedOrder(signedOrder);
+  }
+}
+```
+
+### Batch Order Signing
+
+```typescript
+// Sign multiple orders in single MPC session
+async function batchSign(orders: Order[]): Promise<string[]> {
+  const messages = orders.map(order => {
+    const typedData = buildOrderTypedData(order);
+    return hashTypedData(typedData);
+  });
+
+  // Fireblocks supports batch signing
+  const txInfo = await fireblocks.createTransaction({
+    operation: 'TYPED_MESSAGE',
+    assetId: 'LUX_MAINNET',
+    source: {
+      type: 'VAULT_ACCOUNT',
+      id: vaultAccountId
+    },
+    extraParameters: {
+      rawMessageData: {
+        messages: messages.map(content => ({
+          content,
+          type: 'EIP712'
+        }))
+      }
+    }
+  });
+
+  const result = await waitForTransaction(txInfo.id);
+  return result.signedMessages.map(m => m.signature);
+}
+```
+
+## Policy Configuration
+
+### Trading Policies
+
+```typescript
+// Configure MPC signing policies
+const tradingPolicy = {
+  // Maximum single order value
+  maxOrderValue: {
+    amount: 1000000,
+    currency: 'USD'
+  },
+
+  // Daily trading limits
+  dailyLimit: {
+    amount: 10000000,
+    currency: 'USD'
+  },
+
+  // Approval requirements
+  approvals: {
+    // Orders under $10K: auto-approve
+    tier1: {
+      maxAmount: 10000,
+      required: 0
+    },
+    // Orders $10K-$100K: 1 approval
+    tier2: {
+      maxAmount: 100000,
+      required: 1
+    },
+    // Orders over $100K: 2 approvals
+    tier3: {
+      maxAmount: Infinity,
+      required: 2
+    }
+  },
+
+  // Allowed trading pairs
+  allowedSymbols: ['BTC-USD', 'ETH-USD', 'LUX-USD'],
+
+  // Allowed counterparties
+  allowedDestinations: [
+    DEX_CONTRACT_ADDRESS
+  ]
+};
+```
+
+### Implementing Policy Checks
+
+```typescript
+class PolicyEnforcedAdapter implements WalletAdapter {
+  private underlying: MPCAdapter;
+  private policy: TradingPolicy;
+
+  async signOrder(order: Order): Promise<string> {
+    // Check symbol allowlist
+    if (!this.policy.allowedSymbols.includes(order.symbol)) {
+      throw new PolicyError('Symbol not allowed');
+    }
+
+    // Check order value
+    const orderValue = await this.calculateOrderValue(order);
+    if (orderValue > this.policy.maxOrderValue.amount) {
+      throw new PolicyError('Order exceeds maximum value');
+    }
+
+    // Check daily limit
+    const dailyTotal = await this.getDailyTotal();
+    if (dailyTotal + orderValue > this.policy.dailyLimit.amount) {
+      throw new PolicyError('Daily limit exceeded');
+    }
+
+    // Determine approval requirement
+    const tier = this.getApprovalTier(orderValue);
+    if (tier.required > 0) {
+      await this.requestApprovals(order, tier.required);
+    }
+
+    return await this.underlying.signOrder(order);
+  }
+}
+```
+
+## Error Handling
+
+```typescript
+enum MPCErrorCode {
+  INSUFFICIENT_SIGNERS = 'INSUFFICIENT_SIGNERS',
+  POLICY_VIOLATION = 'POLICY_VIOLATION',
+  SIGNING_TIMEOUT = 'SIGNING_TIMEOUT',
+  KEY_NOT_FOUND = 'KEY_NOT_FOUND',
+  APPROVAL_REJECTED = 'APPROVAL_REJECTED'
+}
+
+class MPCError extends Error {
+  constructor(
+    public code: MPCErrorCode,
+    message: string,
+    public details?: any
+  ) {
+    super(message);
+  }
+}
+
+async function handleMPCError(error: MPCError): Promise<void> {
+  switch (error.code) {
+    case MPCErrorCode.INSUFFICIENT_SIGNERS:
+      // Wait for more signers to come online
+      await notifyOperators('Insufficient signers available');
+      break;
+
+    case MPCErrorCode.POLICY_VIOLATION:
+      // Log and alert compliance
+      await logComplianceEvent(error.details);
+      break;
+
+    case MPCErrorCode.SIGNING_TIMEOUT:
+      // Retry with extended timeout
+      await retrySigning(error.details.orderId);
+      break;
+
+    case MPCErrorCode.APPROVAL_REJECTED:
+      // Notify trader
+      await notifyTrader(error.details.orderId, 'Approval rejected');
+      break;
+  }
+}
+```
+
+## Monitoring and Audit
+
+```typescript
+// MPC operation audit log
+interface AuditEntry {
+  timestamp: Date;
+  operation: 'sign' | 'keygen' | 'reshare';
+  keyId: string;
+  parties: string[];
+  requestId: string;
+  status: 'success' | 'failure';
+  latencyMs: number;
+  metadata: Record<string, any>;
+}
+
+class MPCAuditLogger {
+  async logOperation(entry: AuditEntry): Promise<void> {
+    // Store in audit database
+    await this.db.insert('mpc_audit', entry);
+
+    // Send to SIEM
+    await this.siem.send({
+      eventType: 'MPC_OPERATION',
+      ...entry
+    });
+
+    // Metrics
+    this.metrics.recordLatency(
+      'mpc_signing_latency',
+      entry.latencyMs,
+      { operation: entry.operation }
+    );
+  }
+}
+```
+
+## Next Steps
+
+- [Hardware Wallets](/docs/wallets/hardware) - Ledger and Trezor integration
+- [Custodial Wallets](/docs/wallets/custodial) - Enterprise custody solutions
+- [Security Best Practices](/docs/wallets/security) - Key management guidelines

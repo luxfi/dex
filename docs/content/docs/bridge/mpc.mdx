@@ -1,0 +1,451 @@
+---
+title: MPC Custody
+description: CGGMP21 threshold signatures, distributed key generation, and secure key management
+---
+
+# MPC Custody
+
+> **Specification**: [LP-6015 MPC Bridge Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md)
+>
+> **Source**: [`github.com/luxfi/threshold`](https://github.com/luxfi/threshold) | [`github.com/luxfi/node/vms/thresholdvm`](https://github.com/luxfi/node/tree/main/vms/thresholdvm)
+
+The Lux bridge uses Multi-Party Computation (MPC) for secure custody of cross-chain assets. Keys are never reconstructed in one place - threshold signatures are produced through distributed computation.
+
+## Implementation Status
+
+| Component | Source | Protocol | Status |
+|-----------|--------|----------|--------|
+| CGGMP21 Core | [`protocols/cmp/`](https://github.com/luxfi/threshold/tree/main/protocols/cmp) | CGGMP21 | Complete |
+| LSS Protocol | [`protocols/lss/`](https://github.com/luxfi/threshold/tree/main/protocols/lss) | LSS | Complete |
+| Corona (PQ) | [`protocols/corona/`](https://github.com/luxfi/threshold/tree/main/protocols/corona) | Corona | Complete |
+| Party Management | [`pkg/party/`](https://github.com/luxfi/threshold/tree/main/pkg/party) | N/A | Complete |
+| Worker Pool | [`pkg/pool/`](https://github.com/luxfi/threshold/tree/main/pkg/pool) | N/A | Complete |
+
+## Why MPC?
+
+Traditional multi-signature requires each party to sign independently, exposing individual private keys. MPC threshold signatures provide stronger security:
+
+| Property | Multi-sig | MPC Threshold |
+|----------|-----------|---------------|
+| Key exists in one place | Yes (per party) | Never |
+| Single point of compromise | Yes | No |
+| Signature reveals signers | Yes | No |
+| Dynamic threshold | Difficult | Easy (reshare) |
+| Cross-chain compatible | Limited | Full |
+
+## CGGMP21 Protocol
+
+The bridge uses CGGMP21 (Canetti-Gennaro-Goldfeder-Malavolta-Peled 2021), an efficient threshold ECDSA protocol:
+
+### Protocol Properties
+
+- **Threshold**: t-of-n (any t+1 parties can sign)
+- **Rounds**: 4 rounds for signing (3 presign + 1 online)
+- **Security**: UC-secure under CDH assumption
+- **Identifiable Abort**: Cheating parties are detected
+
+### Key Generation (DKG)
+
+```
+Round 1: Commitment
++--------+     commitment_i     +--------+
+|Party 1 | ------------------> |        |
++--------+                     |        |
++--------+     commitment_j    |Bulletin|
+|Party 2 | ------------------> | Board  |
++--------+                     |        |
+    ...                        |        |
++--------+     commitment_n    |        |
+|Party n | ------------------> |        |
++--------+                     +--------+
+
+Round 2: Share Distribution
++--------+     share_1j        +--------+
+|Party 1 | ------------------> |Party 2 |
++--------+                     +--------+
+          \    share_1n        +--------+
+           `-----------------> |Party n |
+                               +--------+
+
+Round 3: Verification
++--------+   verify_shares     +--------+
+|Party i | <-----------------> |Party j |
++--------+                     +--------+
+              All verify: PK = g^x
+```
+
+### Threshold Signing
+
+```
+Presign Phase (offline, can be batched):
++--------+                     +--------+
+|Party 1 |  k_1, gamma_1       |Party 2 |
+|        | ------------------> |        |
+|        | <------------------ |        |
+|        |  k_2, gamma_2       |        |
++--------+                     +--------+
+         Delta = sum(k_i * gamma_i)
+         R = g^(1/Delta)
+         Store (R, k_i, chi_i) as presignature
+
+Online Phase (with message):
++--------+                     +--------+
+|Party 1 |  sigma_1            |Party 2 |
+|        | ------------------> |        |
+|        | <------------------ |        |
+|        |  sigma_2            |        |
++--------+                     +--------+
+         s = sum(sigma_i)
+         Signature: (r, s)
+```
+
+## LSS Protocol (Lux Signature Scheme)
+
+LSS is Lux's optimized threshold signature protocol built on CGGMP21:
+
+### Improvements Over CGGMP21
+
+1. **Proactive Security**: Automatic key refresh
+2. **Dynamic Threshold**: Change t without full DKG
+3. **Efficient Reshare**: Add/remove parties with minimal rounds
+4. **Batch Presigning**: Generate multiple presignatures in parallel
+
+### LSS Configuration
+
+```go
+// Source: github.com/luxfi/threshold/protocols/lss/config
+
+// Config represents an LSS party configuration
+type Config struct {
+    // Party identification
+    PartyID   party.ID
+    PartyIDs  []party.ID
+    Threshold int
+
+    // Key material (never leaves secure enclave)
+    SecretShare *big.Int
+    PublicKey   *ecdsa.PublicKey
+
+    // Presignature pool
+    PresignPool []*Presignature
+
+    // Protocol state
+    Generation  uint64
+    RefreshTime time.Time
+}
+```
+
+## Protocol Comparison
+
+| Protocol | Use Case | Security | Performance |
+|----------|----------|----------|-------------|
+| CGGMP21 | Standard ECDSA | Classical | Fast |
+| LSS | Lux optimized | Classical + refresh | Faster |
+| Corona | Quantum-safe | Post-quantum | Moderate |
+| BLS | Aggregation | Classical | Fast |
+
+## Key Operations
+
+### Distributed Key Generation
+
+```go
+// Initiate DKG for a new bridge key
+session, err := thresholdVM.StartKeygen(
+    "bridge-key-001",     // Key ID
+    "secp256k1",          // Key type
+    "B-Chain",            // Requesting chain
+)
+
+// Wait for DKG to complete
+for session.Status != "completed" {
+    time.Sleep(time.Second)
+    session, _ = thresholdVM.GetKeygenSession(session.SessionID)
+}
+
+// Get the resulting public key
+pubKey, err := thresholdVM.GetPublicKey("bridge-key-001")
+// pubKey can now be used in bridge contracts
+```
+
+### Threshold Signing
+
+```go
+// Request signature from T-Chain
+session, err := thresholdVM.RequestSignature(
+    "B-Chain",                  // Requesting chain
+    "bridge-key-001",           // Key ID
+    messageHash,                // 32-byte hash to sign
+    "eth_sign",                 // Signature type
+)
+
+// Poll for completion
+for session.Status == "signing" {
+    time.Sleep(100 * time.Millisecond)
+    session, _ = thresholdVM.GetSignature(session.SessionID)
+}
+
+// Extract signature components
+sig := session.Signature
+r := sig.R
+s := sig.S
+v := sig.V
+
+// Signature is now ready for submission to external chain
+```
+
+### Key Resharing
+
+Resharing allows changing the signer set without changing the public key:
+
+```go
+// Triggered when signer is replaced (LP-333)
+newPartyIDs := append(currentPartyIDs[:removedIndex],
+    append([]party.ID{newPartyID}, currentPartyIDs[removedIndex+1:]...)...)
+
+session, err := thresholdVM.ReshareKey(
+    "bridge-key-001",
+    newPartyIDs,
+    "B-Chain",
+)
+
+// After reshare:
+// - Public key UNCHANGED (same addresses work)
+// - All parties have new shares
+// - Removed party's old share is useless
+```
+
+### Key Refresh
+
+Refresh rotates key shares without changing the public key or threshold:
+
+```go
+// Periodic refresh for proactive security
+session, err := thresholdVM.RefreshKey(
+    "bridge-key-001",
+    "B-Chain",
+)
+
+// After refresh:
+// - Public key UNCHANGED
+// - All parties have new shares
+// - Old shares become invalid
+// - Prevents long-term compromise
+```
+
+## Security Properties
+
+### Threshold Security
+
+With t-of-n threshold:
+
+- **t parties compromised**: Cannot sign (need t+1)
+- **t+1 parties compromised**: Can sign (threshold met)
+- **Security margin**: Always choose t such that compromising t+1 is infeasible
+
+Example configurations:
+
+| n (total) | t (threshold) | Required to sign | Security |
+|-----------|---------------|------------------|----------|
+| 3 | 1 | 2 | Low (testing) |
+| 5 | 2 | 3 | Medium |
+| 10 | 6 | 7 | High |
+| 100 | 66 | 67 | Very high (production) |
+
+### Identifiable Abort
+
+CGGMP21 provides identifiable abort - if a party cheats, all honest parties can identify the cheater:
+
+```go
+// During signing, if party cheats:
+result, cheaters, err := protocol.Sign(ctx, message)
+if err == protocol.ErrAbort {
+    for _, cheaterID := range cheaters {
+        // Report cheater for slashing
+        bridgeVM.SlashSigner(&SlashSignerInput{
+            NodeID:       cheaterID,
+            Reason:       "protocol_abort",
+            SlashPercent: 100,
+            Evidence:     cheaters.Evidence(),
+        })
+    }
+}
+```
+
+### Proactive Security
+
+LSS implements proactive security through periodic refresh:
+
+1. **Epoch-based refresh**: Every N blocks or time period
+2. **Event-triggered refresh**: After any signer change
+3. **Compromise window**: Limited to time between refreshes
+
+```
+Time ------>
+[Refresh]----[Safe]----[Refresh]----[Safe]----[Refresh]
+    |                      |                      |
+    v                      v                      v
+Old shares invalid    Old shares invalid    Current shares
+```
+
+## Implementation Details
+
+### Party Management
+
+```go
+// Source: github.com/luxfi/threshold/pkg/party
+
+// ID uniquely identifies a party in the MPC protocol
+type ID string
+
+// FromNodeID converts a Lux NodeID to Party ID
+func FromNodeID(nodeID ids.NodeID) ID {
+    return ID(nodeID.String())
+}
+```
+
+### Worker Pool
+
+MPC operations are parallelized using a worker pool:
+
+```go
+// Source: github.com/luxfi/threshold/pkg/pool
+
+// Pool manages concurrent MPC operations
+type Pool struct {
+    workers    int
+    taskQueue  chan task
+    resultChan chan result
+}
+
+// NewPool creates a worker pool with n workers
+func NewPool(n int) *Pool {
+    p := &Pool{
+        workers:   n,
+        taskQueue: make(chan task, n*2),
+    }
+    for i := 0; i < n; i++ {
+        go p.worker()
+    }
+    return p
+}
+```
+
+### Secure Communication
+
+MPC messages are authenticated and encrypted:
+
+```go
+// All MPC messages are:
+// 1. Authenticated with sender's party key
+// 2. Encrypted to recipient's party key
+// 3. Delivered via consensus (no direct P2P)
+
+type MPCMessage struct {
+    SessionID   string
+    FromParty   party.ID
+    ToParty     party.ID
+    Round       int
+    Payload     []byte  // Encrypted
+    Signature   []byte  // Authentication
+}
+```
+
+## Bridge Integration
+
+### B-Chain to T-Chain Communication
+
+```go
+// B-Chain sends MPC request via CrossChainAppRequest
+func (vm *BridgeVM) requestSignature(hash []byte) error {
+    req := &CrossChainMPCRequest{
+        Type:            "sign",
+        RequestingChain: "B-Chain",
+        KeyID:           vm.activeKeyID,
+        MessageHash:     hash,
+    }
+
+    reqBytes, _ := Codec.Marshal(CodecVersion, req)
+
+    return vm.appSender.SendCrossChainAppRequest(
+        ctx,
+        vm.thresholdVMChainID,
+        vm.nextRequestID(),
+        reqBytes,
+    )
+}
+```
+
+### T-Chain Response
+
+```go
+// T-Chain processes request and returns signature
+func (vm *ThresholdVM) CrossChainAppRequest(
+    ctx context.Context,
+    chainID ids.ID,
+    requestID uint32,
+    deadline time.Time,
+    request []byte,
+) error {
+    var req CrossChainMPCRequest
+    Codec.Unmarshal(request, &req)
+
+    switch req.Type {
+    case "sign":
+        session, err := vm.RequestSignature(
+            req.RequestingChain,
+            req.KeyID,
+            req.MessageHash,
+            req.MessageType,
+        )
+        // Response sent when signing completes
+    }
+    return nil
+}
+```
+
+## Performance
+
+### Benchmarks
+
+| Operation | Parties | Time | Notes |
+|-----------|---------|------|-------|
+| DKG | 3-of-5 | ~2s | One-time |
+| DKG | 67-of-100 | ~30s | One-time |
+| Presign | 3-of-5 | ~500ms | Batched |
+| Online Sign | 3-of-5 | ~50ms | Per signature |
+| Reshare | 67-of-100 | ~45s | Per signer change |
+| Refresh | 67-of-100 | ~20s | Periodic |
+
+### Optimization Strategies
+
+1. **Presignature Pool**: Generate presignatures during idle time
+2. **Batch Operations**: Multiple signatures in parallel
+3. **Network Optimization**: Minimize round trips
+4. **Hardware Acceleration**: Use HSMs for key operations
+
+## Security Considerations
+
+### Key Storage
+
+- Party shares stored in secure enclaves (HSM, SGX)
+- Never written to disk unencrypted
+- Memory cleared after use
+
+### Network Security
+
+- All MPC traffic over TLS 1.3
+- Mutual authentication between parties
+- Rate limiting to prevent DoS
+
+### Operational Security
+
+- Geographic distribution of parties
+- Independent infrastructure
+- No single operator controls t+1 parties
+
+## Related Documentation
+
+- [ThresholdVM](/docs/bridge/threshold) - T-Chain VM implementation
+- [Corona](/docs/bridge/corona) - Quantum-safe threshold signatures
+- [Security](/docs/bridge/security) - Full security model
+- [LP-6015 Specification](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md)

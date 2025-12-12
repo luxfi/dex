@@ -1,0 +1,677 @@
+---
+title: Account Management
+description: Account queries, balance types, positions, and portfolio management with the Rust SDK
+---
+
+# Account Management
+
+The Rust SDK provides type-safe account management with comprehensive balance tracking, position management, and portfolio analytics.
+
+## Get Account Info
+
+### Basic Query
+
+```rust
+use lux_dex_sdk::{Client, Result};
+
+async fn get_account(client: &Client) -> Result<()> {
+    let account = client.get_account().await?;
+
+    println!("Account ID: {}", account.id);
+    println!("Status: {:?}", account.status);
+    println!("Created: {}", account.created_at);
+
+    Ok(())
+}
+```
+
+### Account Types
+
+```rust
+/// User account information
+#[derive(Debug, Clone)]
+pub struct Account {
+    pub id: AccountId,
+    pub status: AccountStatus,
+    pub tier: AccountTier,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub trading_enabled: bool,
+    pub margin_enabled: bool,
+    pub maker_fee: f64,
+    pub taker_fee: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AccountStatus {
+    Active,
+    Suspended,
+    Restricted,
+    PendingVerification,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AccountTier {
+    Standard,
+    Pro,
+    Institutional,
+    MarketMaker,
+}
+```
+
+## Balances
+
+### Get All Balances
+
+```rust
+async fn get_balances(client: &Client) -> Result<()> {
+    let balances = client.get_balances().await?;
+
+    for balance in balances {
+        if balance.total() > 0.0 {
+            println!(
+                "{}: available={:.8}, hold={:.8}, total={:.8}",
+                balance.currency,
+                balance.available,
+                balance.hold,
+                balance.total()
+            );
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Get Specific Balance
+
+```rust
+let btc = client.get_balance("BTC").await?;
+println!("BTC available: {}", btc.available);
+println!("BTC on hold: {}", btc.hold);
+```
+
+### Balance Types
+
+```rust
+/// Currency balance
+#[derive(Debug, Clone)]
+pub struct Balance {
+    pub currency: String,
+    pub available: f64,     // Available for trading
+    pub hold: f64,          // Reserved for open orders
+    pub pending: f64,       // Pending deposits/withdrawals
+    pub staked: f64,        // Staked amount
+}
+
+impl Balance {
+    /// Total balance
+    pub fn total(&self) -> f64 {
+        self.available + self.hold + self.pending + self.staked
+    }
+
+    /// Tradeable balance (excludes pending)
+    pub fn tradeable(&self) -> f64 {
+        self.available + self.hold
+    }
+}
+
+/// Detailed balance with valuation
+#[derive(Debug, Clone)]
+pub struct DetailedBalance {
+    pub balance: Balance,
+    pub usd_value: f64,
+    pub btc_value: f64,
+    pub price: f64,
+    pub change_24h: f64,
+}
+```
+
+### Balance with USD Valuation
+
+```rust
+async fn get_portfolio_value(client: &Client) -> Result<f64> {
+    let balances = client.get_balances_with_valuation().await?;
+
+    let total_usd: f64 = balances.iter()
+        .map(|b| b.usd_value)
+        .sum();
+
+    println!("Portfolio value: ${:.2}", total_usd);
+
+    // Top holdings
+    let mut sorted = balances;
+    sorted.sort_by(|a, b| b.usd_value.partial_cmp(&a.usd_value).unwrap());
+
+    println!("\nTop holdings:");
+    for balance in sorted.iter().take(5) {
+        println!(
+            "  {}: ${:.2} ({:.2}%)",
+            balance.balance.currency,
+            balance.usd_value,
+            balance.usd_value / total_usd * 100.0
+        );
+    }
+
+    Ok(total_usd)
+}
+```
+
+## Positions
+
+### Get Open Positions
+
+```rust
+async fn get_positions(client: &Client) -> Result<()> {
+    let positions = client.get_positions().await?;
+
+    for pos in positions {
+        let pnl = pos.unrealized_pnl();
+        let pnl_pct = pos.unrealized_pnl_percent();
+
+        println!(
+            "{} | {} {:.4} @ {:.2} | PnL: ${:.2} ({:.2}%)",
+            pos.symbol,
+            pos.side,
+            pos.size.abs(),
+            pos.entry_price,
+            pnl,
+            pnl_pct
+        );
+    }
+
+    Ok(())
+}
+```
+
+### Position Types
+
+```rust
+/// Trading position
+#[derive(Debug, Clone)]
+pub struct Position {
+    pub symbol: String,
+    pub side: PositionSide,
+    pub size: f64,              // Positive for long, negative for short
+    pub entry_price: f64,       // Average entry price
+    pub mark_price: f64,        // Current market price
+    pub liquidation_price: Option<f64>,
+    pub margin: f64,
+    pub leverage: f64,
+    pub realized_pnl: f64,
+    pub funding_fee: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PositionSide {
+    Long,
+    Short,
+    Both,  // Hedge mode
+}
+
+impl Position {
+    /// Unrealized P&L
+    pub fn unrealized_pnl(&self) -> f64 {
+        (self.mark_price - self.entry_price) * self.size
+    }
+
+    /// Unrealized P&L percentage
+    pub fn unrealized_pnl_percent(&self) -> f64 {
+        if self.entry_price == 0.0 {
+            return 0.0;
+        }
+        (self.mark_price - self.entry_price) / self.entry_price * 100.0
+    }
+
+    /// Total P&L (realized + unrealized)
+    pub fn total_pnl(&self) -> f64 {
+        self.realized_pnl + self.unrealized_pnl()
+    }
+
+    /// Position value at current price
+    pub fn notional_value(&self) -> f64 {
+        self.size.abs() * self.mark_price
+    }
+
+    /// Return on equity
+    pub fn roe(&self) -> f64 {
+        if self.margin == 0.0 {
+            return 0.0;
+        }
+        self.unrealized_pnl() / self.margin * 100.0
+    }
+}
+```
+
+### Position Summary
+
+```rust
+async fn position_summary(client: &Client) -> Result<()> {
+    let positions = client.get_positions().await?;
+
+    let total_pnl: f64 = positions.iter()
+        .map(|p| p.unrealized_pnl())
+        .sum();
+
+    let total_notional: f64 = positions.iter()
+        .map(|p| p.notional_value())
+        .sum();
+
+    let total_margin: f64 = positions.iter()
+        .map(|p| p.margin)
+        .sum();
+
+    println!("Position Summary:");
+    println!("  Count: {}", positions.len());
+    println!("  Total Notional: ${:.2}", total_notional);
+    println!("  Total Margin: ${:.2}", total_margin);
+    println!("  Total Unrealized PnL: ${:.2}", total_pnl);
+    println!("  Average ROE: {:.2}%", total_pnl / total_margin * 100.0);
+
+    Ok(())
+}
+```
+
+## Transaction History
+
+### Get Deposits/Withdrawals
+
+```rust
+use lux_dex_sdk::TransactionFilter;
+
+async fn get_transactions(client: &Client) -> Result<()> {
+    let filter = TransactionFilter {
+        currency: Some("BTC".into()),
+        tx_type: Some(TransactionType::Deposit),
+        start_time: Some(Utc::now() - Duration::days(30)),
+        limit: Some(100),
+        ..Default::default()
+    };
+
+    let transactions = client.get_transactions(filter).await?;
+
+    for tx in transactions {
+        println!(
+            "{} | {} {} | {} | {}",
+            tx.created_at.format("%Y-%m-%d"),
+            tx.tx_type,
+            tx.amount,
+            tx.currency,
+            tx.status
+        );
+    }
+
+    Ok(())
+}
+```
+
+### Transaction Types
+
+```rust
+/// Account transaction
+#[derive(Debug, Clone)]
+pub struct Transaction {
+    pub id: TransactionId,
+    pub tx_type: TransactionType,
+    pub currency: String,
+    pub amount: f64,
+    pub fee: f64,
+    pub status: TransactionStatus,
+    pub address: Option<String>,
+    pub tx_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TransactionType {
+    Deposit,
+    Withdrawal,
+    Transfer,
+    Trade,
+    Fee,
+    Rebate,
+    Funding,
+    Liquidation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TransactionStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled,
+}
+```
+
+## Trade History
+
+### Get Fills
+
+```rust
+async fn get_fills(client: &Client) -> Result<()> {
+    let fills = client.get_fills("BTC-USD", 100).await?;
+
+    let mut total_bought = 0.0;
+    let mut total_sold = 0.0;
+    let mut total_fees = 0.0;
+
+    for fill in &fills {
+        match fill.side {
+            Side::Buy => total_bought += fill.size,
+            Side::Sell => total_sold += fill.size,
+        }
+        total_fees += fill.fee;
+    }
+
+    println!("Trade Summary (BTC-USD):");
+    println!("  Total bought: {:.8} BTC", total_bought);
+    println!("  Total sold: {:.8} BTC", total_sold);
+    println!("  Total fees: ${:.2}", total_fees);
+
+    Ok(())
+}
+```
+
+### Fill Types
+
+```rust
+/// Trade fill (execution)
+#[derive(Debug, Clone)]
+pub struct Fill {
+    pub id: FillId,
+    pub order_id: OrderId,
+    pub trade_id: TradeId,
+    pub symbol: String,
+    pub side: Side,
+    pub price: f64,
+    pub size: f64,
+    pub fee: f64,
+    pub fee_currency: String,
+    pub liquidity: Liquidity,
+    pub timestamp: DateTime<Utc>,
+}
+```
+
+## Portfolio Analytics
+
+### Portfolio Manager
+
+```rust
+/// Portfolio analytics and management
+pub struct PortfolioManager {
+    client: Arc<Client>,
+}
+
+impl PortfolioManager {
+    pub fn new(client: Arc<Client>) -> Self {
+        Self { client }
+    }
+
+    /// Get portfolio allocation
+    pub async fn allocation(&self) -> Result<Vec<Allocation>> {
+        let balances = self.client.get_balances_with_valuation().await?;
+        let total: f64 = balances.iter().map(|b| b.usd_value).sum();
+
+        Ok(balances.into_iter()
+            .filter(|b| b.usd_value > 0.0)
+            .map(|b| Allocation {
+                currency: b.balance.currency,
+                value: b.usd_value,
+                percent: b.usd_value / total * 100.0,
+            })
+            .collect())
+    }
+
+    /// Get portfolio performance
+    pub async fn performance(&self, period: Duration) -> Result<Performance> {
+        let history = self.client
+            .get_portfolio_history(Utc::now() - period, Utc::now())
+            .await?;
+
+        if history.is_empty() {
+            return Err(Error::InsufficientData);
+        }
+
+        let start_value = history.first().unwrap().value;
+        let end_value = history.last().unwrap().value;
+        let returns = (end_value - start_value) / start_value;
+
+        // Calculate daily returns for volatility
+        let daily_returns: Vec<f64> = history.windows(2)
+            .map(|w| (w[1].value - w[0].value) / w[0].value)
+            .collect();
+
+        let volatility = std_dev(&daily_returns) * (365.0_f64).sqrt();
+
+        Ok(Performance {
+            period,
+            start_value,
+            end_value,
+            returns,
+            volatility,
+            sharpe: returns / volatility,
+            max_drawdown: max_drawdown(&history),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Allocation {
+    pub currency: String,
+    pub value: f64,
+    pub percent: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Performance {
+    pub period: Duration,
+    pub start_value: f64,
+    pub end_value: f64,
+    pub returns: f64,
+    pub volatility: f64,
+    pub sharpe: f64,
+    pub max_drawdown: f64,
+}
+
+fn std_dev(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance = values.iter()
+        .map(|x| (x - mean).powi(2))
+        .sum::<f64>() / values.len() as f64;
+    variance.sqrt()
+}
+
+fn max_drawdown(history: &[PortfolioSnapshot]) -> f64 {
+    let mut peak = 0.0;
+    let mut max_dd = 0.0;
+
+    for snapshot in history {
+        if snapshot.value > peak {
+            peak = snapshot.value;
+        }
+        let dd = (peak - snapshot.value) / peak;
+        if dd > max_dd {
+            max_dd = dd;
+        }
+    }
+
+    max_dd
+}
+```
+
+## Risk Management
+
+### Margin Info
+
+```rust
+async fn check_margin(client: &Client) -> Result<()> {
+    let margin = client.get_margin_info().await?;
+
+    println!("Margin Info:");
+    println!("  Equity: ${:.2}", margin.equity);
+    println!("  Used Margin: ${:.2}", margin.used_margin);
+    println!("  Free Margin: ${:.2}", margin.free_margin);
+    println!("  Margin Level: {:.2}%", margin.margin_level * 100.0);
+
+    if margin.margin_level < 1.5 {
+        println!("WARNING: Low margin level!");
+    }
+
+    Ok(())
+}
+```
+
+### Margin Types
+
+```rust
+/// Margin account information
+#[derive(Debug, Clone)]
+pub struct MarginInfo {
+    pub equity: f64,
+    pub used_margin: f64,
+    pub free_margin: f64,
+    pub margin_level: f64,       // equity / used_margin
+    pub maintenance_margin: f64,
+    pub initial_margin: f64,
+    pub unrealized_pnl: f64,
+    pub available_balance: f64,
+}
+
+impl MarginInfo {
+    /// Check if position can be opened
+    pub fn can_open_position(&self, required_margin: f64) -> bool {
+        self.free_margin >= required_margin
+    }
+
+    /// Distance to margin call (percentage)
+    pub fn margin_call_distance(&self) -> f64 {
+        if self.maintenance_margin == 0.0 {
+            return f64::INFINITY;
+        }
+        (self.equity - self.maintenance_margin) / self.equity * 100.0
+    }
+}
+```
+
+## WebSocket Account Updates
+
+### Subscribe to Balance Updates
+
+```rust
+use tokio_stream::StreamExt;
+
+async fn stream_balances(client: &Client) -> Result<()> {
+    let mut stream = client.subscribe_balance_updates().await?;
+
+    while let Some(update) = stream.next().await {
+        let update = update?;
+        println!(
+            "Balance update: {} available={:.8} hold={:.8}",
+            update.currency,
+            update.available,
+            update.hold
+        );
+    }
+
+    Ok(())
+}
+```
+
+### Subscribe to Position Updates
+
+```rust
+async fn stream_positions(client: &Client) -> Result<()> {
+    let mut stream = client.subscribe_position_updates().await?;
+
+    while let Some(update) = stream.next().await {
+        let pos = update?;
+        println!(
+            "Position: {} {} @ {:.2} | PnL: ${:.2}",
+            pos.symbol,
+            pos.side,
+            pos.entry_price,
+            pos.unrealized_pnl()
+        );
+    }
+
+    Ok(())
+}
+```
+
+## Complete Example
+
+```rust
+use lux_dex_sdk::{Client, Result};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Arc::new(
+        Client::builder()
+            .json_rpc_url("http://localhost:8080/rpc")
+            .websocket_url("ws://localhost:8081")
+            .api_key(std::env::var("LUX_API_KEY")?)
+            .api_secret(std::env::var("LUX_API_SECRET")?)
+            .build()
+            .await?
+    );
+
+    // Get account info
+    let account = client.get_account().await?;
+    println!("Account: {} ({})", account.id, account.tier);
+
+    // Portfolio summary
+    let portfolio = PortfolioManager::new(Arc::clone(&client));
+    let allocation = portfolio.allocation().await?;
+
+    println!("\nPortfolio Allocation:");
+    for alloc in allocation.iter().take(5) {
+        println!("  {}: ${:.2} ({:.1}%)",
+            alloc.currency, alloc.value, alloc.percent);
+    }
+
+    // Check positions
+    let positions = client.get_positions().await?;
+    if !positions.is_empty() {
+        println!("\nOpen Positions:");
+        for pos in &positions {
+            println!("  {} {} @ {:.2} | PnL: ${:.2} ({:.2}%)",
+                pos.symbol,
+                pos.side,
+                pos.entry_price,
+                pos.unrealized_pnl(),
+                pos.unrealized_pnl_percent()
+            );
+        }
+    }
+
+    // Check margin
+    let margin = client.get_margin_info().await?;
+    println!("\nMargin Status:");
+    println!("  Free: ${:.2}", margin.free_margin);
+    println!("  Level: {:.0}%", margin.margin_level * 100.0);
+
+    // Stream updates
+    let client_clone = Arc::clone(&client);
+    tokio::spawn(async move {
+        let mut stream = client_clone.subscribe_balance_updates().await.unwrap();
+        while let Some(update) = stream.next().await {
+            if let Ok(bal) = update {
+                println!("[Balance] {}: {:.8}", bal.currency, bal.available);
+            }
+        }
+    });
+
+    // Keep running
+    tokio::signal::ctrl_c().await?;
+
+    Ok(())
+}
+```

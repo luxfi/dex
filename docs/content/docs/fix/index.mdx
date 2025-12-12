@@ -1,0 +1,294 @@
+---
+title: FIX Protocol
+description: Financial Information eXchange (FIX) protocol connectivity for institutional trading on LX DEX
+---
+
+# FIX Protocol
+
+> **Contact**: fix-support@lux.network | +1-833-LUX-TRADE | [FIX Certification Portal](https://fix.lux.network)
+
+## Overview
+
+LX DEX provides full FIX protocol support for institutional clients requiring standardized electronic trading connectivity. Our FIX implementation enables seamless integration with existing trading infrastructure, order management systems (OMS), and execution management systems (EMS).
+
+## Supported FIX Versions
+
+| Version | Status | Use Case | Specification |
+|---------|--------|----------|---------------|
+| FIX 4.2 | Supported | Legacy systems, simple order flow | [FIX 4.2 Spec](https://www.fixtrading.org/standards/fix-4-2/) |
+| FIX 4.4 | **Recommended** | Standard institutional connectivity | [FIX 4.4 Spec](https://www.fixtrading.org/standards/fix-4-4/) |
+| FIX 5.0 SP2 | Supported | Advanced features, FIXML | [FIX 5.0 SP2 Spec](https://www.fixtrading.org/standards/fix-5-0-sp-2/) |
+| FIXT 1.1 | Supported | Transport layer for FIX 5.0 | [FIXT 1.1 Spec](https://www.fixtrading.org/standards/fixt-1-1/) |
+
+<Callout type="info">
+**Recommendation**: Use FIX 4.4 for new integrations. It provides the best balance of feature support, industry adoption, and implementation simplicity.
+</Callout>
+
+## Architecture
+
+```
++------------------------------------------------------------------+
+|                     LX DEX FIX ARCHITECTURE                       |
++------------------------------------------------------------------+
+|                                                                    |
+|  CLIENT INFRASTRUCTURE                                             |
+|  +--------------------+    +--------------------+                  |
+|  |  Order Management  |    |  Execution Mgmt    |                  |
+|  |  System (OMS)      |    |  System (EMS)      |                  |
+|  +----------+---------+    +----------+---------+                  |
+|             |                         |                            |
+|             +------------+------------+                            |
+|                          |                                         |
+|                          v                                         |
+|  +----------------------------------------------------------+     |
+|  |                    FIX ENGINE                             |     |
+|  |  QuickFIX/J | QuickFIX/n | Custom Implementation          |     |
+|  +----------------------------------------------------------+     |
+|                          |                                         |
+|                          | FIX 4.4 / TCP-TLS                       |
+|                          |                                         |
++------------------------------------------------------------------+
+|                          v                                         |
+|  +----------------------------------------------------------+     |
+|  |                 LX DEX FIX GATEWAY                        |     |
+|  |  +----------+  +----------+  +----------+  +----------+  |     |
+|  |  | Session  |  | Message  |  | Order    |  | Market   |  |     |
+|  |  | Manager  |  | Router   |  | Router   |  | Data     |  |     |
+|  |  +----------+  +----------+  +----------+  +----------+  |     |
+|  +----------------------------------------------------------+     |
+|                          |                                         |
+|                          v                                         |
+|  +----------------------------------------------------------+     |
+|  |              LX DEX MATCHING ENGINE                       |     |
+|  |                   487ns Latency                           |     |
+|  +----------------------------------------------------------+     |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+## Connection Endpoints
+
+### Production
+
+| Region | Primary | Backup | Port |
+|--------|---------|--------|------|
+| US East | fix.lux.network | fix-dr.lux.network | 5001 |
+| EU West | fix-eu.lux.network | fix-eu-dr.lux.network | 5001 |
+| APAC | fix-ap.lux.network | fix-ap-dr.lux.network | 5001 |
+
+### Sandbox (Testing)
+
+| Environment | Endpoint | Port |
+|-------------|----------|------|
+| Sandbox | fix-sandbox.lux.network | 5001 |
+| Certification | fix-cert.lux.network | 5001 |
+| UAT | fix-uat.lux.network | 5001 |
+
+## Session Configuration
+
+```ini
+# Sample QuickFIX configuration
+[DEFAULT]
+ConnectionType=initiator
+ReconnectInterval=30
+HeartBtInt=30
+StartTime=00:00:00
+EndTime=23:59:59
+UseDataDictionary=Y
+DataDictionary=FIX44.xml
+
+[SESSION]
+BeginString=FIX.4.4
+SenderCompID=YOUR_SENDER_ID
+TargetCompID=LXDEX
+SocketConnectHost=fix.lux.network
+SocketConnectPort=5001
+SSLEnable=Y
+SSLProtocols=TLSv1.2,TLSv1.3
+```
+
+## Message Flow
+
+### Order Lifecycle
+
+```
+Client                          LX DEX FIX Gateway
+   |                                    |
+   |  Logon (A)                         |
+   |----------------------------------->|
+   |                                    |
+   |  Logon (A) - Confirmed             |
+   |<-----------------------------------|
+   |                                    |
+   |  NewOrderSingle (D)                |
+   |----------------------------------->|
+   |                                    |
+   |  ExecutionReport (8) - New/Ack     |
+   |<-----------------------------------|
+   |                                    |
+   |  ExecutionReport (8) - Filled      |
+   |<-----------------------------------|
+   |                                    |
+   |  Heartbeat (0) <---------------->  | (every 30s)
+   |                                    |
+   |  Logout (5)                        |
+   |----------------------------------->|
+   |                                    |
+   |  Logout (5) - Confirmed            |
+   |<-----------------------------------|
+```
+
+## Supported Message Types
+
+### Session Level
+
+| MsgType | Name | Direction | Description |
+|---------|------|-----------|-------------|
+| 0 | Heartbeat | Both | Keep-alive message |
+| 1 | TestRequest | Both | Request heartbeat |
+| 2 | ResendRequest | Both | Request message retransmission |
+| 3 | Reject | Both | Session-level reject |
+| 4 | SequenceReset | Both | Reset sequence numbers |
+| 5 | Logout | Both | Terminate session |
+| A | Logon | Both | Establish session |
+
+### Application Level - Orders
+
+| MsgType | Name | Direction | Description |
+|---------|------|-----------|-------------|
+| D | NewOrderSingle | Client -> LX | Submit new order |
+| F | OrderCancelRequest | Client -> LX | Cancel order |
+| G | OrderCancelReplaceRequest | Client -> LX | Modify order |
+| H | OrderStatusRequest | Client -> LX | Query order status |
+| 8 | ExecutionReport | LX -> Client | Order acknowledgment, fill, reject |
+| 9 | OrderCancelReject | LX -> Client | Cancel/replace rejection |
+| j | BusinessMessageReject | Both | Business logic rejection |
+
+### Application Level - Market Data
+
+| MsgType | Name | Direction | Description |
+|---------|------|-----------|-------------|
+| V | MarketDataRequest | Client -> LX | Subscribe to market data |
+| W | MarketDataSnapshotFullRefresh | LX -> Client | Full book snapshot |
+| X | MarketDataIncrementalRefresh | LX -> Client | Book updates |
+| Y | MarketDataRequestReject | LX -> Client | Subscription rejection |
+
+### Application Level - Drop Copy
+
+| MsgType | Name | Direction | Description |
+|---------|------|-----------|-------------|
+| AE | TradeCaptureReport | LX -> Client | Trade notification |
+| AD | TradeCaptureReportRequest | Client -> LX | Request trade history |
+| AQ | TradeCaptureReportRequestAck | LX -> Client | Request acknowledgment |
+
+## Quick Start
+
+### 1. Obtain Credentials
+
+Contact institutional sales to receive:
+- SenderCompID
+- TargetCompID
+- API credentials for authentication
+- FIX data dictionary (customized)
+
+### 2. Configure Session
+
+```java
+// QuickFIX/J Example
+SessionSettings settings = new SessionSettings("fix-config.cfg");
+MessageStoreFactory storeFactory = new FileStoreFactory(settings);
+LogFactory logFactory = new FileLogFactory(settings);
+MessageFactory messageFactory = new DefaultMessageFactory();
+Application application = new LXDEXApplication();
+
+Initiator initiator = new SocketInitiator(
+    application,
+    storeFactory,
+    settings,
+    logFactory,
+    messageFactory
+);
+
+initiator.start();
+```
+
+### 3. Send Test Order
+
+```java
+// Create NewOrderSingle
+NewOrderSingle order = new NewOrderSingle(
+    new ClOrdID("ORD-" + System.currentTimeMillis()),
+    new Side(Side.BUY),
+    new TransactTime(),
+    new OrdType(OrdType.LIMIT)
+);
+
+order.set(new Symbol("BTC-USD"));
+order.set(new OrderQty(1.0));
+order.set(new Price(50000.00));
+order.set(new TimeInForce(TimeInForce.DAY));
+
+Session.sendToTarget(order, sessionID);
+```
+
+## Performance Specifications
+
+| Metric | Value |
+|--------|-------|
+| Gateway Latency | < 50 microseconds |
+| Message Processing | < 10 microseconds |
+| Max Messages/Second | 100,000 |
+| Max Sessions/Client | 10 |
+| Max Orders/Second | 10,000 |
+| Heartbeat Interval | 30 seconds (configurable) |
+
+## Security Requirements
+
+| Requirement | Specification |
+|-------------|---------------|
+| Transport | TLS 1.2 or TLS 1.3 required |
+| Authentication | SenderCompID + Password + IP whitelist |
+| Encryption | AES-256-GCM |
+| Certificate | Client certificate optional |
+| IP Whitelist | Required for production |
+
+## Documentation Sections
+
+<Cards>
+  <Card title="Quick Start" href="/docs/fix/quickstart">
+    Connect in 15 minutes with step-by-step guide
+  </Card>
+  <Card title="Sessions" href="/docs/fix/sessions">
+    Session management, logon, heartbeat, logout
+  </Card>
+  <Card title="Orders" href="/docs/fix/orders">
+    NewOrderSingle, Cancel, Modify messages
+  </Card>
+  <Card title="Execution Reports" href="/docs/fix/execution">
+    Fills, rejects, and order status updates
+  </Card>
+  <Card title="Market Data" href="/docs/fix/market-data">
+    Subscribe to real-time market data via FIX
+  </Card>
+  <Card title="Drop Copy" href="/docs/fix/drop-copy">
+    Trade capture and reporting
+  </Card>
+  <Card title="Tag Reference" href="/docs/fix/tags">
+    Complete FIX tag documentation
+  </Card>
+  <Card title="Testing" href="/docs/fix/testing">
+    Certification process and testing tools
+  </Card>
+  <Card title="Examples" href="/docs/fix/examples">
+    Sample messages and code examples
+  </Card>
+</Cards>
+
+## Support
+
+| Channel | Contact |
+|---------|---------|
+| FIX Technical Support | fix-support@lux.network |
+| FIX Certification | fix-cert@lux.network |
+| 24/7 Trading Desk | +1-833-LUX-TRADE |
+| Status Page | https://status.lux.network/fix |

@@ -1,0 +1,362 @@
+---
+title: Risk Management
+description: Comprehensive risk management system for professional trading - pre-trade checks, position limits, margin, liquidation, and monitoring
+---
+
+# Risk Management
+
+> **Specification**: [LP-9004: DEX Risk Management](https://github.com/luxfi/LPs/blob/main/LPs/lp-9004-dex-risk-management.md)
+
+LX DEX implements institutional-grade risk management with real-time monitoring, automated safeguards, and comprehensive exposure controls.
+
+## Risk Management Architecture
+
+```
+                           LX DEX RISK MANAGEMENT ARCHITECTURE
+
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                              ORDER FLOW                                      │
+    └─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                         PRE-TRADE RISK CHECKS                               │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+    │  │ Order Validation│  │  Balance Check  │  │    Position Limits Check    │  │
+    │  │  Price/Size     │  │  Margin Calc    │  │   Exposure/Concentration    │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                          MATCHING ENGINE                                     │
+    └─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                       POST-TRADE RISK MONITORING                            │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+    │  │  Margin Health  │  │ Position Update │  │    Exposure Recalculation   │  │
+    │  │  Monitoring     │  │   & P&L Calc    │  │       & Alerting            │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                       AUTOMATED RISK RESPONSES                              │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+    │  │   Liquidation   │  │ Circuit Breaker │  │      Kill Switch            │  │
+    │  │     Engine      │  │    Trigger      │  │    (Emergency Halt)         │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+    └─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       v
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                         INSURANCE FUND / ADL                                │
+    │  ┌─────────────────────────────────────────────────────────────────────┐    │
+    │  │  Insurance Fund covers bankrupt positions; ADL for extreme events   │    │
+    │  └─────────────────────────────────────────────────────────────────────┘    │
+    └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Risk Categories
+
+### 1. Market Risk
+Risk from adverse price movements affecting positions.
+
+| Risk Type | Mitigation | Documentation |
+|-----------|------------|---------------|
+| Price volatility | Circuit breakers, price bands | [Circuit Breakers](/docs/risk/circuit-breakers) |
+| Gap risk | Pre-trade price validation | [Pre-Trade Checks](/docs/risk/pre-trade) |
+| Liquidity risk | Order size limits, market depth checks | [Position Limits](/docs/risk/position-limits) |
+
+### 2. Credit Risk
+Risk of counterparty default or insufficient margin.
+
+| Risk Type | Mitigation | Documentation |
+|-----------|------------|---------------|
+| Margin shortfall | Initial/maintenance margin | [Margin](/docs/risk/margin) |
+| Liquidation cascade | ADL mechanism, insurance fund | [Liquidation](/docs/risk/liquidation) |
+| Socialized loss | Insurance fund coverage | [Insurance Fund](/docs/risk/insurance) |
+
+### 3. Operational Risk
+Risk from system failures or malicious activity.
+
+| Risk Type | Mitigation | Documentation |
+|-----------|------------|---------------|
+| System failure | Kill switch, graceful degradation | [Kill Switch](/docs/risk/kill-switch) |
+| Fat-finger errors | Order validation, size limits | [Pre-Trade Checks](/docs/risk/pre-trade) |
+| Market manipulation | Rate limits, wash trade detection | [Monitoring](/docs/risk/monitoring) |
+
+## Key Risk Parameters
+
+### Global Parameters
+
+```typescript
+interface GlobalRiskConfig {
+  // Circuit breaker thresholds
+  circuitBreaker: {
+    priceMovementThreshold: 0.10,      // 10% price move triggers halt
+    volumeSpikeThreshold: 10,           // 10x normal volume
+    haltDurationSeconds: 300,           // 5-minute cooling period
+  },
+
+  // Position limits
+  positionLimits: {
+    maxLeverageSpot: 10,                // 10x max for margin
+    maxLeveragePerp: 50,                // 50x max for perpetuals
+    maxPositionUSD: 10_000_000,         // $10M max position
+    maxConcentration: 0.25,             // 25% max in single asset
+  },
+
+  // Margin requirements
+  margin: {
+    initialMarginSpot: 0.10,            // 10% initial (10x leverage)
+    maintenanceMarginSpot: 0.05,        // 5% maintenance
+    initialMarginPerp: 0.02,            // 2% initial (50x leverage)
+    maintenanceMarginPerp: 0.005,       // 0.5% maintenance
+  },
+
+  // Liquidation
+  liquidation: {
+    liquidationFee: 0.005,              // 0.5% liquidation fee
+    insuranceFundContribution: 0.20,    // 20% to insurance fund
+    adlThreshold: 0.80,                 // ADL at 80% insurance depletion
+  },
+}
+```
+
+### Per-Market Risk Tiers
+
+| Tier | Assets | Max Leverage | Position Limit | Margin Buffer |
+|------|--------|--------------|----------------|---------------|
+| **Tier 1** | BTC, ETH | 50x | $50M | 1.5x maintenance |
+| **Tier 2** | LUX, SOL, AVAX | 25x | $25M | 2x maintenance |
+| **Tier 3** | Mid-caps | 10x | $5M | 2.5x maintenance |
+| **Tier 4** | Small-caps | 5x | $1M | 3x maintenance |
+| **Tier 5** | New listings | 3x | $100K | 5x maintenance |
+
+## Risk Check Flow
+
+### Order Submission
+
+```go
+func (r *RiskEngine) ValidateOrder(order *Order) error {
+    // 1. Structural validation
+    if err := r.validateOrderStructure(order); err != nil {
+        return fmt.Errorf("invalid order structure: %w", err)
+    }
+
+    // 2. Price band check
+    if err := r.checkPriceBands(order); err != nil {
+        return fmt.Errorf("price band violation: %w", err)
+    }
+
+    // 3. Balance/margin check
+    if err := r.checkMarginRequirement(order); err != nil {
+        return fmt.Errorf("insufficient margin: %w", err)
+    }
+
+    // 4. Position limit check
+    if err := r.checkPositionLimits(order); err != nil {
+        return fmt.Errorf("position limit exceeded: %w", err)
+    }
+
+    // 5. Rate limit check
+    if err := r.checkRateLimits(order.UserID); err != nil {
+        return fmt.Errorf("rate limit exceeded: %w", err)
+    }
+
+    return nil
+}
+```
+
+### Real-Time Monitoring
+
+```go
+type RiskMetrics struct {
+    // Account-level metrics
+    AccountEquity        float64   `json:"account_equity"`
+    UnrealizedPnL        float64   `json:"unrealized_pnl"`
+    MarginUsed           float64   `json:"margin_used"`
+    MarginAvailable      float64   `json:"margin_available"`
+    MarginLevel          float64   `json:"margin_level"`      // equity/margin
+    HealthFactor         float64   `json:"health_factor"`     // >1 = healthy
+
+    // Position-level metrics
+    TotalExposure        float64   `json:"total_exposure"`
+    LargestPosition      float64   `json:"largest_position"`
+    Concentration        float64   `json:"concentration"`     // % in single asset
+
+    // Market-level metrics
+    TotalOpenInterest    float64   `json:"total_open_interest"`
+    FundingRate          float64   `json:"funding_rate"`
+    MarkPrice            float64   `json:"mark_price"`
+    IndexPrice           float64   `json:"index_price"`
+}
+```
+
+## API Endpoints
+
+### Risk Status
+
+```http
+GET /api/v1/risk/status
+Authorization: Bearer {api_key}
+```
+
+Response:
+```json
+{
+  "account_id": "acc_123456",
+  "equity": 100000.00,
+  "margin_used": 25000.00,
+  "margin_available": 75000.00,
+  "health_factor": 4.0,
+  "risk_level": "low",
+  "positions": 3,
+  "total_exposure_usd": 250000.00,
+  "largest_position_pct": 0.40,
+  "warnings": [],
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### Position Risk
+
+```http
+GET /api/v1/risk/positions
+Authorization: Bearer {api_key}
+```
+
+Response:
+```json
+{
+  "positions": [
+    {
+      "symbol": "BTC-PERP",
+      "side": "long",
+      "size": 2.5,
+      "entry_price": 42000.00,
+      "mark_price": 43500.00,
+      "liquidation_price": 38640.00,
+      "margin_used": 10500.00,
+      "unrealized_pnl": 3750.00,
+      "leverage": 10.0,
+      "margin_ratio": 0.097
+    }
+  ]
+}
+```
+
+### Risk Configuration
+
+```http
+GET /api/v1/risk/config
+Authorization: Bearer {api_key}
+```
+
+```http
+PUT /api/v1/risk/config
+Authorization: Bearer {api_key}
+Content-Type: application/json
+
+{
+  "max_leverage": 25,
+  "position_limit_usd": 500000,
+  "risk_alerts": {
+    "margin_warning_threshold": 0.80,
+    "liquidation_warning_threshold": 0.90
+  }
+}
+```
+
+## Risk Alerts
+
+### WebSocket Alerts
+
+```typescript
+// Subscribe to risk alerts
+ws.send(JSON.stringify({
+  op: 'subscribe',
+  channel: 'risk',
+  params: { account_id: 'acc_123456' }
+}))
+
+// Receive alerts
+{
+  "channel": "risk",
+  "type": "margin_warning",
+  "data": {
+    "account_id": "acc_123456",
+    "current_margin_level": 0.15,
+    "warning_threshold": 0.20,
+    "action_required": "reduce_positions_or_add_margin",
+    "time_to_liquidation_estimate": "2h 15m",
+    "timestamp": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### Alert Types
+
+| Alert Type | Trigger | Urgency |
+|------------|---------|---------|
+| `margin_warning` | Margin level < 80% | Medium |
+| `margin_critical` | Margin level < 50% | High |
+| `liquidation_imminent` | Margin level < 20% | Critical |
+| `position_limit_warning` | Position > 80% of limit | Medium |
+| `circuit_breaker_triggered` | Market halted | High |
+| `kill_switch_activated` | Trading suspended | Critical |
+
+## Best Practices
+
+### For Traders
+
+1. **Monitor health factor continuously** - Keep above 2.0 for safety buffer
+2. **Use stop-loss orders** - Automated exits prevent catastrophic losses
+3. **Diversify positions** - Avoid concentration in single assets
+4. **Start with lower leverage** - Scale up as you gain experience
+5. **Set up risk alerts** - Enable all notification channels
+
+### For Market Makers
+
+1. **Implement delta hedging** - Reduce directional exposure
+2. **Monitor funding rates** - Adjust positions around funding
+3. **Use reduce-only mode** - When approaching limits
+4. **Maintain margin buffers** - At least 3x maintenance margin
+5. **Configure sub-accounts** - Isolate strategy risk
+
+### For Institutions
+
+1. **Implement pre-trade risk** - Check before order submission
+2. **Use portfolio margining** - Optimize capital efficiency
+3. **Configure kill switches** - Emergency halt capability
+4. **Set up risk reporting** - Daily/weekly exposure reports
+5. **Conduct stress testing** - Regular scenario analysis
+
+## Risk Documentation
+
+| Topic | Description | Link |
+|-------|-------------|------|
+| Pre-Trade Checks | Order validation, price bands, balance checks | [Pre-Trade](/docs/risk/pre-trade) |
+| Position Limits | Size limits, exposure caps, concentration limits | [Position Limits](/docs/risk/position-limits) |
+| Margin Requirements | Initial/maintenance margin, cross/isolated modes | [Margin](/docs/risk/margin) |
+| Liquidation | Liquidation process, cascade prevention, ADL | [Liquidation](/docs/risk/liquidation) |
+| Kill Switch | Emergency procedures, cancel-all, trading halt | [Kill Switch](/docs/risk/kill-switch) |
+| Circuit Breakers | Market halts, price bands, cooldown periods | [Circuit Breakers](/docs/risk/circuit-breakers) |
+| Insurance Fund | Fund mechanics, ADL mechanism, coverage | [Insurance Fund](/docs/risk/insurance) |
+| Monitoring | Real-time dashboards, alerts, anomaly detection | [Monitoring](/docs/risk/monitoring) |
+| Reporting | Risk reports, exposure analysis, audit trails | [Reporting](/docs/risk/reporting) |
+
+## Implementation Status
+
+| Component | Status | Source |
+|-----------|--------|--------|
+| Pre-Trade Risk Engine | Complete | [pkg/risk/pretrade.go](https://github.com/luxfi/dex/blob/main/pkg/risk/pretrade.go) |
+| Position Limit Manager | Complete | [pkg/risk/limits.go](https://github.com/luxfi/dex/blob/main/pkg/risk/limits.go) |
+| Margin Calculator | Complete | [pkg/risk/margin.go](https://github.com/luxfi/dex/blob/main/pkg/risk/margin.go) |
+| Liquidation Engine | Complete | [pkg/risk/liquidation.go](https://github.com/luxfi/dex/blob/main/pkg/risk/liquidation.go) |
+| Circuit Breaker | Complete | [pkg/risk/circuit_breaker.go](https://github.com/luxfi/dex/blob/main/pkg/risk/circuit_breaker.go) |
+| Insurance Fund | Complete | [pkg/risk/insurance.go](https://github.com/luxfi/dex/blob/main/pkg/risk/insurance.go) |
+| Risk Monitoring | Complete | [pkg/risk/monitor.go](https://github.com/luxfi/dex/blob/main/pkg/risk/monitor.go) |

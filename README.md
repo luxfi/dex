@@ -74,8 +74,21 @@ chmod +x lx-dex
 The DEX uses a multi-engine architecture:
 
 - **Pure Go Engine**: Portable, 830K orders/sec
-- **C++ Engine**: Low latency, 400K+ orders/sec  
-- **MLX GPU Engine**: Apple Silicon Metal, 100M+ orders/sec
+- **C++ Engine**: Low latency, 800K+ orders/sec
+- **Rust Engine**: High performance, 585K+ orders/sec
+- **MLX GPU Engine**: Apple Silicon Metal, 6M+ msgs/sec (FIX), 434M+ orders/sec
+
+### FIX Protocol Performance (December 2024)
+
+| Engine | NewOrderSingle | ExecutionReport | MarketDataSnapshot |
+|--------|----------------|-----------------|-------------------|
+| Pure Go | 163K/sec | 124K/sec | 332K/sec |
+| Hybrid Go/C++ | 167K/sec | 378K/sec | 616K/sec |
+| Pure C++ | 444K/sec | 804K/sec | 1.08M/sec |
+| Rust | 484K/sec | 232K/sec | 586K/sec |
+| **MLX (Apple Silicon)** | **3.12M/sec** | **4.27M/sec** | **5.95M/sec** |
+
+*MLX achieves sub-2μs average latency (0.68-1.75μs) via GPU parallelism
 
 See [docs/](docs/) for detailed documentation.
 

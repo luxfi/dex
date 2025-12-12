@@ -1,0 +1,431 @@
+---
+title: WebSocket API
+description: Real-time WebSocket API for LX DEX - connection, authentication, and streaming data
+---
+
+# WebSocket API Overview
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
+
+The LX DEX WebSocket API provides real-time, bidirectional communication for market data and trading operations. All messages use JSON encoding with strict ordering guarantees.
+
+## Connection Endpoints
+
+| Environment | URL | Port |
+|-------------|-----|------|
+| Development | `ws://localhost:8080/ws` | 8080 |
+| Testnet | `wss://testnet-api.lux.network/ws` | 443 |
+| Production | `wss://api.lux.network/ws` | 443 |
+
+## Connection Lifecycle
+
+```
+┌──────────┐     TCP/TLS      ┌──────────┐
+│  Client  │ ───────────────► │  Server  │
+└──────────┘                  └──────────┘
+     │                              │
+     │ ◄─── WebSocket Upgrade ────► │
+     │                              │
+     │ ──── Authentication ───────► │
+     │ ◄─── auth_success ────────── │
+     │                              │
+     │ ──── Subscribe ────────────► │
+     │ ◄─── Snapshot ───────────── │
+     │ ◄─── Updates ─────────────── │
+     │ ◄─── Updates ─────────────── │
+     │                              │
+     │ ──── Unsubscribe ──────────► │
+     │ ◄─── unsubscribed ────────── │
+     │                              │
+     │ ──── close ────────────────► │
+     │ ◄─── close ──────────────── │
+```
+
+## Message Format
+
+All WebSocket messages follow this envelope structure:
+
+```json
+{
+  "id": "req-001",
+  "type": "message_type",
+  "channel": "channel_name",
+  "data": {},
+  "sequence": 12345,
+  "timestamp": 1702339200000
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Client msgs | Client-provided request identifier for correlation |
+| `type` | string | Yes | Message type (subscribe, unsubscribe, snapshot, update, error) |
+| `channel` | string | Subscriptions | Channel name (orderbook, trades, orders, ticker) |
+| `data` | object | Yes | Message payload |
+| `sequence` | number | Server msgs | Monotonically increasing sequence number |
+| `timestamp` | number | Server msgs | Unix millisecond timestamp |
+
+## Authentication
+
+### API Key Authentication
+
+For private channels (orders, positions, balances), authenticate immediately after connection:
+
+```json
+{
+  "id": "auth-001",
+  "type": "authenticate",
+  "data": {
+    "api_key": "your_api_key",
+    "timestamp": 1702339200000,
+    "signature": "hmac_sha256_signature"
+  }
+}
+```
+
+**Signature Generation:**
+
+```typescript
+const timestamp = Date.now();
+const message = `${timestamp}websocket_connect`;
+const signature = crypto
+  .createHmac('sha256', apiSecret)
+  .update(message)
+  .digest('hex');
+```
+
+```python
+import hmac
+import hashlib
+import time
+
+timestamp = int(time.time() * 1000)
+message = f"{timestamp}websocket_connect"
+signature = hmac.new(
+    api_secret.encode(),
+    message.encode(),
+    hashlib.sha256
+).hexdigest()
+```
+
+```go
+timestamp := time.Now().UnixMilli()
+message := fmt.Sprintf("%dwebsocket_connect", timestamp)
+mac := hmac.New(sha256.New, []byte(apiSecret))
+mac.Write([]byte(message))
+signature := hex.EncodeToString(mac.Sum(nil))
+```
+
+**Success Response:**
+
+```json
+{
+  "type": "auth_success",
+  "data": {
+    "user_id": "user-123",
+    "permissions": ["trade", "view_orders", "view_balances"],
+    "rate_limit": {
+      "orders_per_second": 10,
+      "messages_per_second": 100
+    }
+  },
+  "timestamp": 1702339200100
+}
+```
+
+**Failure Response:**
+
+```json
+{
+  "type": "auth_error",
+  "data": {
+    "code": "INVALID_SIGNATURE",
+    "message": "Signature verification failed"
+  },
+  "timestamp": 1702339200100
+}
+```
+
+### JWT Authentication
+
+Alternatively, authenticate using a JWT token obtained from the REST API:
+
+```json
+{
+  "id": "auth-001",
+  "type": "authenticate",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+## Connection Limits
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Connections per IP | 5 | Shared across all users from same IP |
+| Connections per user | 3 | Per API key |
+| Subscriptions per connection | 50 | Across all channels |
+| Messages per second | 100 | Client-to-server |
+| Message size | 64 KB | Per message |
+| Idle timeout | 30 seconds | Send ping to keep alive |
+
+## Quick Start Examples
+
+### TypeScript/JavaScript
+
+```typescript
+const ws = new WebSocket('wss://api.lux.network/ws');
+
+ws.onopen = () => {
+  // Authenticate
+  ws.send(JSON.stringify({
+    id: 'auth-001',
+    type: 'authenticate',
+    data: {
+      api_key: process.env.API_KEY,
+      timestamp: Date.now(),
+      signature: generateSignature()
+    }
+  }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+
+  switch (msg.type) {
+    case 'auth_success':
+      // Subscribe to orderbook
+      ws.send(JSON.stringify({
+        id: 'sub-001',
+        type: 'subscribe',
+        channel: 'orderbook',
+        data: { symbol: 'BTC-USDT', depth: 20 }
+      }));
+      break;
+
+    case 'orderbook_snapshot':
+      console.log('Orderbook:', msg.data);
+      break;
+
+    case 'orderbook_update':
+      console.log('Update:', msg.data);
+      break;
+  }
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = (event) => {
+  console.log('Disconnected:', event.code, event.reason);
+};
+```
+
+### Python
+
+```python
+import asyncio
+import websockets
+import json
+import hmac
+import hashlib
+import time
+import os
+
+async def connect():
+    uri = "wss://api.lux.network/ws"
+
+    async with websockets.connect(uri) as ws:
+        # Authenticate
+        timestamp = int(time.time() * 1000)
+        message = f"{timestamp}websocket_connect"
+        signature = hmac.new(
+            os.environ['API_SECRET'].encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        await ws.send(json.dumps({
+            "id": "auth-001",
+            "type": "authenticate",
+            "data": {
+                "api_key": os.environ['API_KEY'],
+                "timestamp": timestamp,
+                "signature": signature
+            }
+        }))
+
+        async for message in ws:
+            msg = json.loads(message)
+
+            if msg["type"] == "auth_success":
+                # Subscribe to trades
+                await ws.send(json.dumps({
+                    "id": "sub-001",
+                    "type": "subscribe",
+                    "channel": "trades",
+                    "data": {"symbol": "BTC-USDT"}
+                }))
+
+            elif msg["type"] == "trade":
+                print(f"Trade: {msg['data']}")
+
+asyncio.run(connect())
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "log"
+    "os"
+    "time"
+
+    "github.com/gorilla/websocket"
+)
+
+func main() {
+    conn, _, err := websocket.DefaultDialer.Dial("wss://api.lux.network/ws", nil)
+    if err != nil {
+        log.Fatal("dial:", err)
+    }
+    defer conn.Close()
+
+    // Authenticate
+    timestamp := time.Now().UnixMilli()
+    message := fmt.Sprintf("%dwebsocket_connect", timestamp)
+    mac := hmac.New(sha256.New, []byte(os.Getenv("API_SECRET")))
+    mac.Write([]byte(message))
+    signature := hex.EncodeToString(mac.Sum(nil))
+
+    authMsg := map[string]interface{}{
+        "id":   "auth-001",
+        "type": "authenticate",
+        "data": map[string]interface{}{
+            "api_key":   os.Getenv("API_KEY"),
+            "timestamp": timestamp,
+            "signature": signature,
+        },
+    }
+    conn.WriteJSON(authMsg)
+
+    // Read messages
+    for {
+        _, message, err := conn.ReadMessage()
+        if err != nil {
+            log.Println("read:", err)
+            return
+        }
+
+        var msg map[string]interface{}
+        json.Unmarshal(message, &msg)
+
+        switch msg["type"] {
+        case "auth_success":
+            // Subscribe
+            conn.WriteJSON(map[string]interface{}{
+                "id":      "sub-001",
+                "type":    "subscribe",
+                "channel": "orderbook",
+                "data":    map[string]interface{}{"symbol": "BTC-USDT", "depth": 20},
+            })
+        case "orderbook_snapshot":
+            fmt.Printf("Orderbook: %v\n", msg["data"])
+        }
+    }
+}
+```
+
+### Rust
+
+```rust
+use futures_util::{SinkExt, StreamExt};
+use hmac::{Hmac, Mac};
+use serde_json::{json, Value};
+use sha2::Sha256;
+use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+type HmacSha256 = Hmac<Sha256>;
+
+#[tokio::main]
+async fn main() {
+    let url = "wss://api.lux.network/ws";
+    let (mut ws, _) = connect_async(url).await.expect("Failed to connect");
+
+    // Authenticate
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    let message = format!("{}websocket_connect", timestamp);
+    let api_secret = env::var("API_SECRET").unwrap();
+
+    let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).unwrap();
+    mac.update(message.as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+
+    let auth_msg = json!({
+        "id": "auth-001",
+        "type": "authenticate",
+        "data": {
+            "api_key": env::var("API_KEY").unwrap(),
+            "timestamp": timestamp,
+            "signature": signature
+        }
+    });
+
+    ws.send(Message::Text(auth_msg.to_string())).await.unwrap();
+
+    // Read messages
+    while let Some(msg) = ws.next().await {
+        if let Ok(Message::Text(text)) = msg {
+            let parsed: Value = serde_json::from_str(&text).unwrap();
+
+            match parsed["type"].as_str() {
+                Some("auth_success") => {
+                    let sub_msg = json!({
+                        "id": "sub-001",
+                        "type": "subscribe",
+                        "channel": "trades",
+                        "data": {"symbol": "BTC-USDT"}
+                    });
+                    ws.send(Message::Text(sub_msg.to_string())).await.unwrap();
+                }
+                Some("trade") => {
+                    println!("Trade: {}", parsed["data"]);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+```
+
+## Available Channels
+
+| Channel | Auth Required | Description |
+|---------|---------------|-------------|
+| [`orderbook`](/docs/api/websocket/orderbook) | No | Real-time order book snapshots and updates |
+| [`trades`](/docs/api/websocket/trades) | No | Public trade feed |
+| [`ticker`](/docs/api/websocket/ticker) | No | Price ticker updates |
+| [`orders`](/docs/api/websocket/orders) | Yes | Private order status updates |
+
+## Next Steps
+
+- [Subscribe Model](/docs/api/websocket/subscribe) - Learn the subscription patterns
+- [Order Book Channel](/docs/api/websocket/orderbook) - Maintain a local order book
+- [Error Handling](/docs/api/websocket/errors) - Handle errors and disconnections
+- [Heartbeat](/docs/api/websocket/heartbeat) - Keep connections alive
