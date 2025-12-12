@@ -75,12 +75,12 @@ LX supports comprehensive wallet integration for all user types:
 ### TypeScript SDK
 
 ```typescript
-import { LXDexClient, WalletAdapter } from '@luxfi/dex-sdk';
-import { MetaMaskAdapter } from '@luxfi/dex-sdk/wallets';
+import { Client, WalletAdapter } from '@luxfi/trading';
+import { MetaMaskAdapter } from '@luxfi/trading/wallets';
 
 // Create client with wallet adapter
 const wallet = new MetaMaskAdapter();
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'https://dex.lux.network',
   wallet: wallet
 });
@@ -101,12 +101,12 @@ const order = await client.placeOrder({
 ### Python SDK
 
 ```python
-from lx_dex import LXDexClient
+from lx_dex import Client
 from lx_dex.wallets import Web3Wallet
 
 # Create client with wallet
 wallet = Web3Wallet(private_key=os.environ['PRIVATE_KEY'])
-client = LXDexClient(
+client = Client(
     endpoint='https://dex.lux.network',
     wallet=wallet
 )
@@ -276,7 +276,7 @@ const LUX_TESTNET = {
 ## Error Handling
 
 ```typescript
-import { WalletError, WalletErrorCode } from '@luxfi/dex-sdk/wallets';
+import { WalletError, WalletErrorCode } from '@luxfi/trading/wallets';
 
 try {
   await wallet.connect();

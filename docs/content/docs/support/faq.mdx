@@ -190,14 +190,14 @@ See [Consensus](/docs/consensus) for details.
 
 ### How does settlement work?
 
-1. Order matched in DEX sidecar (sub-millisecond)
-2. Settlement message sent via Warp
+1. Order matched on LX L2 chain (sub-millisecond)
+2. Settlement message sent via Warp to C-Chain
 3. On-chain confirmation (1ms finality)
 4. Balances updated atomically
 
 ### Is the order book really on-chain?
 
-Yes. Every order, cancel, and trade is recorded on-chain with full transparency. The matching engine runs as a sidecar for performance but settlement is atomic and on-chain.
+Yes. Every order, cancel, and trade is recorded on-chain with full transparency. The matching engine runs on the LX L2 chain for performance, sharing consensus and finality with the main Lux network. Settlement is atomic and on-chain.
 
 ### What about MEV?
 

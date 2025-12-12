@@ -333,9 +333,9 @@ order = client.place_order("BTC-USDT", "buy", "limit", 50000, 0.1)
 
 ### TypeScript SDK
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({
+const client = new Client({
   apiKey: 'your_key',
   apiSecret: 'your_secret'
 });

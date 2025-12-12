@@ -65,12 +65,12 @@ curl -X POST https://faucet.testnet.lux.network/api/request \
 ### 2. Connect to Testnet
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({
+const client = new Client({
   network: 'testnet',
   // Or explicitly:
-  // jsonRpcUrl: 'https://testnet-api.lux.network/rpc',
+  // rpcUrl: 'https://testnet-api.lux.network/rpc',
   // wsUrl: 'wss://testnet-api.lux.network/ws',
 });
 ```
@@ -131,9 +131,9 @@ ws.onmessage = (event) => {
 Test trading strategies with realistic market conditions:
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(network='testnet')
+client = Client(network='testnet')
 
 # Execute paper trading strategy
 for signal in strategy.signals():
