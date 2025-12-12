@@ -11,7 +11,7 @@ import (
 )
 
 // ClearingHouse manages perps margin state and spot balances for each address
-// Implements HyperCore-style clearing with cross and isolated margin
+// Implements LX-style clearing with cross and isolated margin
 type ClearingHouse struct {
 	// Perps margin state
 	perpAccounts map[string]*PerpAccountState // address -> account state
