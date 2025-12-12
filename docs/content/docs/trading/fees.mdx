@@ -122,9 +122,9 @@ See [Market Maker Program](/docs/market-makers/program) for details.
 ### Get Fee Schedule
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Get your current fee tier
 const fees = await dex.getFees()
@@ -235,15 +235,13 @@ Trading fees are distributed as follows:
 ### Fee-Efficient Trading
 
 ```typescript
-// Post-only order ensures maker fee
-const order = await dex.placeOrder({
-  symbol: 'BTC-USD',
-  side: 'buy',
-  type: 'limit',
-  price: '49900.00',  // Below market
-  quantity: '1.0',
-  postOnly: true      // Reject if would be taker
-})
+import { DEX } from '@luxfi/trading'
+
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
+
+// Use limit orders for maker fees
+const order = await dex.limitBuy('BTC-USDC', '1.0', '49900.00')
+console.log(`Order placed: ${order.orderId}`)
 ```
 
 ## Related Documentation

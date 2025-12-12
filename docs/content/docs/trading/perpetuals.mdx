@@ -71,9 +71,9 @@ When perp price < spot:
 ### Open a Long Position
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Long BTC perpetual with 10x leverage
 const position = await dex.perpetual.openPosition({
