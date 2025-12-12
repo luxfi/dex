@@ -1,0 +1,9 @@
+{
+  "title": "Operations",
+  "pages": [
+    "index",
+    "installation",
+    "configuration",
+    "docker"
+  ]
+}
