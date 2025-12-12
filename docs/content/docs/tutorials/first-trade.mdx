@@ -237,7 +237,7 @@ func checkOrderBook(ctx context.Context, client *lxdex.Client) {
 
     fmt.Println("\n=== BTC-USD Order Book ===")
     fmt.Println("\nAsks (Sell Orders):")
-    for i := len(book.Asks) - 1; i &gt;= 0; i-- {
+    for i := len(book.Asks) - 1; i >= 0; i-- {
         ask := book.Asks[i]
         fmt.Printf("  %.2f | %.4f BTC\n", ask.Price, ask.Size)
     }

@@ -475,7 +475,7 @@ static int find_level(struct lxdex_level *levels, size_t count,
 
 static void insert_level(struct lxdex_level *levels, size_t *count,
                          int pos, const struct lxdex_level *level) {
-    if (*count &gt;= MAX_LEVELS) return;
+    if (*count >= MAX_LEVELS) return;
 
     // Shift levels down
     memmove(&levels[pos + 1], &levels[pos],
@@ -486,7 +486,7 @@ static void insert_level(struct lxdex_level *levels, size_t *count,
 }
 
 static void remove_level(struct lxdex_level *levels, size_t *count, int pos) {
-    if (pos &gt;= (int)*count) return;
+    if (pos >= (int)*count) return;
 
     memmove(&levels[pos], &levels[pos + 1],
             (*count - pos - 1) * sizeof(struct lxdex_level));
@@ -496,7 +496,7 @@ static void remove_level(struct lxdex_level *levels, size_t *count, int pos) {
 void local_book_apply_delta(struct local_orderbook *book,
                             const struct lxdex_orderbook_delta *delta) {
     // Skip old updates
-    if (delta->sequence &lt;= book->sequence) {
+    if (delta->sequence <= book->sequence) {
         return;
     }
 
@@ -527,13 +527,13 @@ void local_book_apply_delta(struct local_orderbook *book,
         break;
 
     case LXDEX_DELTA_UPDATE:
-        if (idx &gt;= 0) {
+        if (idx >= 0) {
             levels[idx].size = delta->size;
         }
         break;
 
     case LXDEX_DELTA_DELETE:
-        if (idx &gt;= 0) {
+        if (idx >= 0) {
             remove_level(levels, count, idx);
         }
         break;

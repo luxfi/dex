@@ -192,7 +192,7 @@ export GOMEMLIMIT=8GiB       # Hard memory limit
 export GOMAXPROCS=8          # Match physical cores
 
 # Enable memory ballast (reduces GC frequency)
-# In code: var ballast = make([]byte, 10<&lt;30) // 10GB ballast
+# In code: var ballast = make([]byte, 10<<30) // 10GB ballast
 ```
 
 ### Hardware Requirements

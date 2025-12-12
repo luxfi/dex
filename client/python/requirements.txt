@@ -1,1 +1,11 @@
-websocket-client>=1.6.0
+# LX DEX Trading Client Dependencies
+
+# WebSocket protocol support
+websockets>=12.0
+
+# gRPC protocol support
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+
+# Optional: Protocol buffer support (for proto compilation)
+# protobuf>=4.25.0

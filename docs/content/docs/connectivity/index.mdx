@@ -94,45 +94,61 @@ LX DEX provides multiple connectivity options designed for different trading req
 
                      +------------------+
                      |  LX DEX PRIMARY  |
-                     |    NY5 (Equinix) |
+                     |  Kansas City, MO |
+                     |  (Google Fiber)  |
                      +--------+---------+
                               |
+              Microwave Links (sub-ms latency)
+                              |
+         +--------------------+--------------------+
+         |                                         |
++--------v--------+                       +--------v--------+
+|  San Francisco  |                       |    New York     |
+|   (Lab/Dev)     |                       |   (Planned)     |
++-----------------+                       +-----------------+
+         |
++--------v--------+
+|   Vancouver     |
+|   (Secondary)   |
++-----------------+
+
+                    PLANNED EXPANSION
          +--------------------+--------------------+
          |                    |                    |
 +--------v--------+  +--------v--------+  +--------v--------+
-|   LD4 London    |  |   TY3 Tokyo     |  |   SG1 Singapore |
-|   Secondary     |  |   Secondary     |  |   Secondary     |
+|     London      |  |   Singapore     |  |     Tokyo       |
+|    (Planned)    |  |    (Planned)    |  |    (Planned)    |
 +-----------------+  +-----------------+  +-----------------+
-         |                    |                    |
-         +--------------------+--------------------+
-                              |
-              +---------------+---------------+
-              |               |               |
-     +--------v------+ +------v------+ +------v------+
-     | AWS Regions   | | GCP Regions | | Azure       |
-     | us-east-1     | | us-central1 | | eastus      |
-     | eu-west-1     | | europe-west1| | westeurope  |
-     | ap-northeast-1| | asia-east1  | | japaneast   |
-     +---------------+ +-------------+ +-------------+
-              |               |               |
-              +---------------+---------------+
-                              |
-                     +--------v--------+
-                     |  Global PoPs    |
-                     |  (45+ locations)|
-                     +-----------------+
+         |
++--------v--------+  +--------v--------+
+|   Frankfurt     |  |   Stockholm     |
+|    (Planned)    |  |    (Planned)    |
++-----------------+  +-----------------+
 ```
 
-## Primary Data Centers
+## Data Centers
 
-| Location | Facility | Role | Cross-Connects |
-|----------|----------|------|----------------|
-| New York | Equinix NY5 | Primary Matching | 1000+ |
-| London | Equinix LD4 | EMEA Secondary | 500+ |
-| Tokyo | Equinix TY3 | APAC Secondary | 400+ |
-| Singapore | Equinix SG1 | SEA Secondary | 300+ |
-| Frankfurt | Equinix FR5 | EU Secondary | 350+ |
-| Chicago | Equinix CH1 | US Secondary | 450+ |
+### Live
+
+| Location | Bandwidth | Role | Features |
+|----------|-----------|------|----------|
+| **Kansas City, MO** | 20Gbps (100Gbps planned) | Primary Matching | Google Fiber, Microwave to SF/NYC |
+| San Francisco, CA | 1Gbps | Lab/Development | Testing environment |
+| Vancouver, BC | 1Gbps | Secondary | Canada presence |
+
+### Planned (Community-driven prioritization)
+
+| Location | Status | Notes |
+|----------|--------|-------|
+| London | Planned | EMEA hub |
+| Singapore | Planned | APAC hub |
+| Frankfurt | Planned | EU compliance |
+| Stockholm | Planned | Nordic hub |
+| Tokyo | Planned | Japan market |
+
+<Callout type="info">
+**Spin up anywhere**: LX DEX can deploy a light-speed HFT DEX in any colocated datacenter. Contact us for custom deployments.
+</Callout>
 
 ## Getting Started
 
@@ -141,12 +157,27 @@ LX DEX provides multiple connectivity options designed for different trading req
 Instant access via public endpoints:
 
 ```bash
-# Production
-curl https://api.lux.network/v1/health
+# REST API
+curl https://api.lux.exchange/v1/health
 
 # WebSocket
-wscat -c wss://ws.lux.network/v1
+wscat -c wss://ws.lux.exchange/v1
+
+# gRPC
+grpcurl grpc.lux.exchange:9760 lx.dex.v1.TradingService/GetMarkets
+
+# FIX 4.4
+# Connect to fix.lux.exchange:9880
 ```
+
+**Global Endpoints (GeoDNS Load Balanced)**
+
+| Protocol | Endpoint | Port | Description |
+|----------|----------|------|-------------|
+| REST | `https://api.lux.exchange` | 443 | Primary REST API |
+| WebSocket | `wss://ws.lux.exchange` | 443 | Real-time feeds |
+| gRPC | `grpc.lux.exchange` | 9760 | High-performance RPC |
+| FIX | `fix.lux.exchange` | 9880 | Financial Information eXchange |
 
 ### 2. VPN Access Request
 

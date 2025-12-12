@@ -714,7 +714,7 @@ console.log(`Sell pressure: ${(sellRatio * 100).toFixed(1)}%`);
 ```typescript
 feed.setTradeHandler((trade) => {
   const threshold = 10;  // BTC
-  if (trade.size &gt;= threshold) {
+  if (trade.size >= threshold) {
     console.log(`LARGE TRADE: ${trade.side.toUpperCase()} ${trade.size} BTC @ ${trade.price}`);
     // Alert, log, or act on large trade
   }
