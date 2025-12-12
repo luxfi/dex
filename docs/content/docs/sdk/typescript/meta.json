@@ -1,0 +1,13 @@
+{
+  "title": "TypeScript SDK",
+  "pages": [
+    "index",
+    "client",
+    "orders",
+    "orderbook",
+    "trades",
+    "account",
+    "websocket",
+    "types"
+  ]
+}

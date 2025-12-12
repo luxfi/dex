@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="luxfi-dex",
+    name="lux-dex",
     version="1.0.0",
     author="Lux Network",
     author_email="dev@lux.network",
