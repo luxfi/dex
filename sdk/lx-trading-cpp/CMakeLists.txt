@@ -56,6 +56,12 @@ add_library(lx_trading
     src/risk.cpp
     src/execution.cpp
     src/math.cpp
+    # Arbitrage module
+    src/arbitrage/types.cpp
+    src/arbitrage/scanner.cpp
+    src/arbitrage/lx_first.cpp
+    src/arbitrage/unified.cpp
+    src/arbitrage/cross_chain.cpp
 )
 
 target_include_directories(lx_trading
