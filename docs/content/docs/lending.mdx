@@ -1,0 +1,354 @@
+---
+title: Lending Protocol
+description: Decentralized lending and borrowing with margin trading support
+---
+
+# Lending Protocol
+
+LX DEX includes a decentralized lending protocol for margin trading and yield generation.
+
+## Overview
+
+The lending protocol enables:
+- **Overcollateralized borrowing** with liquidation protection
+- **Variable interest rates** based on utilization
+- **Margin trading** integration
+- **Flash loans** for atomic arbitrage
+
+## Architecture
+
+```
++----------------------------------------------------------+
+|                   Lending Protocol                        |
++----------------------------------------------------------+
+|                                                           |
+|  [Supply Pool] <---> [Interest Rate Model] <---> [Borrow] |
+|       |                                             |     |
+|       v                                             v     |
+|  [Collateral]                                [Debt Position]|
+|       |                                             |     |
+|       +-------------> [Liquidation Engine] <--------+     |
+|                              |                            |
+|                              v                            |
+|                     [Insurance Fund]                      |
++----------------------------------------------------------+
+```
+
+## Supply Assets
+
+Deposit assets to earn yield:
+
+```go
+// Supply USDT to earn interest
+result, err := lending.Supply(ctx, &SupplyParams{
+    Asset:  "USDT",
+    Amount: "10000.00",
+    UserID: "user123",
+})
+
+fmt.Printf("Supplied: %s USDT\n", result.Amount)
+fmt.Printf("Shares received: %s\n", result.Shares)
+fmt.Printf("Current APY: %s%%\n", result.CurrentAPY)
+```
+
+### Interest Accrual
+
+Interest accrues continuously:
+
+```go
+// Check accrued interest
+position, err := lending.GetSupplyPosition(ctx, "user123", "USDT")
+
+fmt.Printf("Principal: %s\n", position.Principal)
+fmt.Printf("Accrued interest: %s\n", position.AccruedInterest)
+fmt.Printf("Total value: %s\n", position.TotalValue)
+```
+
+## Borrow Assets
+
+Borrow against collateral:
+
+```go
+// Deposit collateral
+collateral, err := lending.DepositCollateral(ctx, &CollateralParams{
+    Asset:  "BTC",
+    Amount: "1.0",
+    UserID: "user123",
+})
+
+// Borrow USDT
+borrow, err := lending.Borrow(ctx, &BorrowParams{
+    Asset:  "USDT",
+    Amount: "30000.00",
+    UserID: "user123",
+})
+
+fmt.Printf("Borrowed: %s USDT\n", borrow.Amount)
+fmt.Printf("Interest rate: %s%%\n", borrow.InterestRate)
+fmt.Printf("Health factor: %s\n", borrow.HealthFactor)
+```
+
+### Health Factor
+
+Health factor determines liquidation risk:
+
+```
+Health Factor = (Collateral Value * Collateral Factor) / Debt Value
+
+> 1.0  = Safe
+< 1.0  = Liquidation eligible
+```
+
+```go
+// Monitor health factor
+health, err := lending.GetHealthFactor(ctx, "user123")
+
+if health.Factor < 1.2 {
+    // Warning: close to liquidation
+    fmt.Printf("Warning: Health factor is %s\n", health.Factor)
+}
+```
+
+## Interest Rate Model
+
+### Utilization-Based Rates
+
+Interest rates adjust based on pool utilization:
+
+```go
+// Rate model parameters
+type InterestRateModel struct {
+    BaseRate       string // Base borrow rate
+    MultiplierRate string // Rate increase per utilization %
+    JumpMultiplier string // Rate multiplier above kink
+    Kink           string // Utilization threshold for jump rate
+}
+
+// Example: USDT pool
+usdtModel := &InterestRateModel{
+    BaseRate:       "0.02",  // 2% base
+    MultiplierRate: "0.10",  // +10% at 100% utilization
+    JumpMultiplier: "2.0",   // 2x multiplier above kink
+    Kink:           "0.80",  // Jump at 80% utilization
+}
+```
+
+### Current Rates
+
+```go
+rates, err := lending.GetMarketRates(ctx, "USDT")
+
+fmt.Printf("Supply APY: %s%%\n", rates.SupplyAPY)
+fmt.Printf("Borrow APY: %s%%\n", rates.BorrowAPY)
+fmt.Printf("Utilization: %s%%\n", rates.Utilization)
+```
+
+## Collateral Management
+
+### Supported Collateral
+
+| Asset | Collateral Factor | Liquidation Threshold |
+|-------|-------------------|----------------------|
+| BTC | 80% | 85% |
+| ETH | 75% | 80% |
+| LUX | 70% | 75% |
+| USDT | 85% | 90% |
+| USDC | 85% | 90% |
+
+### Deposit Collateral
+
+```go
+result, err := lending.DepositCollateral(ctx, &CollateralParams{
+    Asset:  "ETH",
+    Amount: "10.0",
+    UserID: "user123",
+})
+
+fmt.Printf("Collateral value: $%s\n", result.ValueUSD)
+fmt.Printf("Borrowing power: $%s\n", result.BorrowingPower)
+```
+
+### Withdraw Collateral
+
+```go
+result, err := lending.WithdrawCollateral(ctx, &WithdrawParams{
+    Asset:  "ETH",
+    Amount: "2.0",
+    UserID: "user123",
+})
+
+// Will fail if withdrawal would cause health factor < 1.0
+```
+
+## Repay Debt
+
+```go
+// Repay partial debt
+result, err := lending.Repay(ctx, &RepayParams{
+    Asset:  "USDT",
+    Amount: "15000.00",
+    UserID: "user123",
+})
+
+fmt.Printf("Remaining debt: %s\n", result.RemainingDebt)
+fmt.Printf("New health factor: %s\n", result.HealthFactor)
+
+// Repay all debt
+result, err = lending.RepayAll(ctx, "user123", "USDT")
+```
+
+## Liquidation
+
+### Liquidation Process
+
+When health factor falls below 1.0:
+
+```go
+// Check if position is liquidatable
+position, err := lending.GetPosition(ctx, "user123")
+
+if position.HealthFactor < 1.0 {
+    // Position can be liquidated
+    result, err := lending.Liquidate(ctx, &LiquidateParams{
+        Borrower:   "user123",
+        DebtAsset:  "USDT",
+        DebtAmount: "10000.00",
+        CollatAsset: "BTC",
+    })
+    
+    fmt.Printf("Collateral received: %s BTC\n", result.CollateralReceived)
+    fmt.Printf("Bonus: %s BTC\n", result.LiquidationBonus)
+}
+```
+
+### Liquidation Bonus
+
+Liquidators receive a bonus for clearing bad debt:
+
+| Asset | Liquidation Bonus |
+|-------|------------------|
+| BTC | 5% |
+| ETH | 5% |
+| LUX | 7% |
+| Stablecoins | 3% |
+
+## Flash Loans
+
+Borrow without collateral for atomic operations:
+
+```go
+// Flash loan for arbitrage
+err := lending.FlashLoan(ctx, &FlashLoanParams{
+    Asset:  "USDT",
+    Amount: "1000000.00",
+    Callback: func(amount string) error {
+        // 1. Buy BTC on DEX A
+        // 2. Sell BTC on DEX B
+        // 3. Repay loan + fee
+        return nil
+    },
+})
+
+// Fee: 0.09% of borrowed amount
+```
+
+## Margin Trading Integration
+
+Use borrowed funds for trading:
+
+```go
+// Open margin position
+position, err := margin.OpenPosition(ctx, &MarginParams{
+    Symbol:   "BTC-USD",
+    Side:     types.Long,
+    Collateral: "10000.00",  // USDT collateral
+    Leverage: 3,             // 3x leverage
+})
+
+// Position backed by lending protocol
+fmt.Printf("Position size: $%s\n", position.Size)
+fmt.Printf("Liquidation price: $%s\n", position.LiquidationPrice)
+```
+
+## API Reference
+
+### Supply
+
+```go
+func (l *Lending) Supply(ctx context.Context, params *SupplyParams) (*SupplyResult, error)
+```
+
+### Withdraw
+
+```go
+func (l *Lending) Withdraw(ctx context.Context, params *WithdrawParams) (*WithdrawResult, error)
+```
+
+### Borrow
+
+```go
+func (l *Lending) Borrow(ctx context.Context, params *BorrowParams) (*BorrowResult, error)
+```
+
+### Repay
+
+```go
+func (l *Lending) Repay(ctx context.Context, params *RepayParams) (*RepayResult, error)
+```
+
+### GetPosition
+
+```go
+func (l *Lending) GetPosition(ctx context.Context, userID string) (*Position, error)
+```
+
+### GetMarketRates
+
+```go
+func (l *Lending) GetMarketRates(ctx context.Context, asset string) (*MarketRates, error)
+```
+
+## Risk Parameters
+
+### Protocol Limits
+
+| Parameter | Value |
+|-----------|-------|
+| Max LTV | 80% |
+| Liquidation Threshold | 85% |
+| Liquidation Penalty | 5% |
+| Reserve Factor | 10% |
+| Flash Loan Fee | 0.09% |
+
+### Oracle Integration
+
+Prices from multiple oracles with TWAP protection:
+
+```go
+oracle := lending.GetOracle()
+
+price, err := oracle.GetPrice("BTC")
+fmt.Printf("BTC price: $%s\n", price.Value)
+fmt.Printf("Source: %s\n", price.Source)  // Chainlink, Pyth, etc.
+fmt.Printf("Updated: %s\n", price.Timestamp)
+```
+
+## Events
+
+```go
+// Listen for lending events
+lending.OnSupply(func(event *SupplyEvent) {
+    fmt.Printf("Supply: %s %s by %s\n", 
+        event.Amount, event.Asset, event.UserID)
+})
+
+lending.OnBorrow(func(event *BorrowEvent) {
+    fmt.Printf("Borrow: %s %s by %s\n", 
+        event.Amount, event.Asset, event.UserID)
+})
+
+lending.OnLiquidation(func(event *LiquidationEvent) {
+    fmt.Printf("Liquidation: %s -> %s\n", 
+        event.Borrower, event.Liquidator)
+})
+```

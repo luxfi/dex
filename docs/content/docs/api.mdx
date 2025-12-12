@@ -1,0 +1,390 @@
+---
+title: API Reference
+description: Complete API documentation for LX DEX - WebSocket, REST, and gRPC APIs
+---
+
+# LX DEX API Documentation
+
+## Overview
+
+LX DEX provides multiple API protocols for integration:
+- **WebSocket API** - Real-time market data and trading
+- **REST API** - Standard HTTP endpoints
+- **gRPC API** - High-performance binary protocol
+- **JSON-RPC 2.0** - Standard RPC interface
+
+## WebSocket API
+
+### Connection
+
+```
+ws://localhost:8080/ws       # Development
+wss://api.lux.network/ws     # Production
+```
+
+### Message Format
+
+All WebSocket messages use JSON:
+
+```json
+{
+  "type": "message_type",
+  "data": {},
+  "timestamp": 1234567890
+}
+```
+
+### Subscriptions
+
+#### Order Book
+
+Subscribe to real-time order book updates:
+
+```json
+{
+  "type": "subscribe",
+  "channel": "orderbook",
+  "symbol": "BTC-USDT",
+  "depth": 20
+}
+```
+
+**Response:**
+
+```json
+{
+  "type": "orderbook_snapshot",
+  "symbol": "BTC-USDT",
+  "bids": [[50000, 1.5], [49999, 2.0]],
+  "asks": [[50001, 1.2], [50002, 0.8]],
+  "timestamp": 1234567890
+}
+```
+
+#### Trades
+
+Subscribe to trade stream:
+
+```json
+{
+  "type": "subscribe",
+  "channel": "trades",
+  "symbol": "BTC-USDT"
+}
+```
+
+**Response:**
+
+```json
+{
+  "type": "trade",
+  "symbol": "BTC-USDT",
+  "price": 50000,
+  "size": 0.5,
+  "side": "buy",
+  "timestamp": 1234567890
+}
+```
+
+### Trading Operations
+
+#### Place Order
+
+```json
+{
+  "type": "place_order",
+  "symbol": "BTC-USDT",
+  "side": "buy",
+  "order_type": "limit",
+  "price": 50000,
+  "size": 0.1,
+  "time_in_force": "GTC",
+  "post_only": false
+}
+```
+
+**Response:**
+
+```json
+{
+  "type": "order_placed",
+  "order_id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "open",
+  "filled_size": 0,
+  "remaining_size": 0.1,
+  "timestamp": 1234567890
+}
+```
+
+#### Cancel Order
+
+```json
+{
+  "type": "cancel_order",
+  "order_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+## REST API
+
+### Base URL
+
+```
+http://localhost:8080/api/v1      # Development
+https://api.lux.network/v1        # Production
+```
+
+### Endpoints
+
+#### GET /orderbook/:symbol
+
+Get order book snapshot.
+
+**Parameters:**
+- `symbol` (path): Trading pair (e.g., BTC-USDT)
+- `depth` (query): Book depth (default: 20, max: 100)
+
+**Response:**
+
+```json
+{
+  "symbol": "BTC-USDT",
+  "bids": [
+    {"price": 50000, "size": 1.5},
+    {"price": 49999, "size": 2.0}
+  ],
+  "asks": [
+    {"price": 50001, "size": 1.2},
+    {"price": 50002, "size": 0.8}
+  ],
+  "timestamp": 1234567890
+}
+```
+
+#### POST /orders
+
+Place a new order.
+
+**Request:**
+
+```json
+{
+  "symbol": "BTC-USDT",
+  "side": "buy",
+  "type": "limit",
+  "price": 50000,
+  "size": 0.1,
+  "time_in_force": "GTC"
+}
+```
+
+**Response:**
+
+```json
+{
+  "order_id": "123e4567-e89b-12d3-a456-426614174000",
+  "symbol": "BTC-USDT",
+  "side": "buy",
+  "type": "limit",
+  "price": 50000,
+  "size": 0.1,
+  "status": "open",
+  "created_at": 1234567890
+}
+```
+
+#### DELETE /orders/:order_id
+
+Cancel an order.
+
+**Response:**
+
+```json
+{
+  "order_id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "cancelled",
+  "cancelled_at": 1234567890
+}
+```
+
+#### GET /trades
+
+Get recent trades.
+
+**Parameters:**
+- `symbol` (query): Trading pair
+- `limit` (query): Number of trades (default: 100, max: 1000)
+
+**Response:**
+
+```json
+{
+  "trades": [
+    {
+      "trade_id": "abc123",
+      "symbol": "BTC-USDT",
+      "price": 50000,
+      "size": 0.5,
+      "side": "buy",
+      "timestamp": 1234567890
+    }
+  ]
+}
+```
+
+## gRPC API
+
+### Proto Definition
+
+```protobuf
+syntax = "proto3";
+package lxdex;
+
+service TradingService {
+  rpc PlaceOrder(OrderRequest) returns (OrderResponse);
+  rpc CancelOrder(CancelRequest) returns (CancelResponse);
+  rpc GetOrderBook(OrderBookRequest) returns (OrderBookResponse);
+  rpc StreamTrades(StreamRequest) returns (stream Trade);
+}
+
+message OrderRequest {
+  string symbol = 1;
+  string side = 2;
+  string type = 3;
+  double price = 4;
+  double size = 5;
+}
+
+message OrderResponse {
+  string order_id = 1;
+  string status = 2;
+  int64 timestamp = 3;
+}
+```
+
+### Connection
+
+```go
+conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+client := pb.NewTradingServiceClient(conn)
+```
+
+## JSON-RPC 2.0
+
+### Endpoint
+
+```
+POST http://localhost:8080/rpc
+```
+
+### Methods
+
+| Method | Description | Parameters |
+|--------|-------------|------------|
+| `lx_ping` | Test connectivity | `{}` |
+| `lx_getInfo` | Get node information | `{}` |
+| `lx_placeOrder` | Place order | symbol, type, side, price, size, userID |
+| `lx_cancelOrder` | Cancel order | orderId |
+| `lx_getOrder` | Get order details | orderId |
+| `lx_getOrderBook` | Get order book | depth |
+| `lx_getBestBid` | Get best bid | `{}` |
+| `lx_getBestAsk` | Get best ask | `{}` |
+| `lx_getTrades` | Get recent trades | limit |
+
+### Example
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_placeOrder",
+    "params": {
+      "symbol": "BTC-USD",
+      "type": 0,
+      "side": 0,
+      "price": 50000,
+      "size": 1.0,
+      "userID": "trader1"
+    },
+    "id": 1
+  }'
+```
+
+## Authentication
+
+### API Key
+
+Include in headers:
+
+```
+X-API-Key: your_api_key_here
+X-API-Secret: your_api_secret_here
+```
+
+### JWT
+
+After login:
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+## Rate Limiting
+
+### Limits
+
+| Endpoint Type | Limit |
+|---------------|-------|
+| Public endpoints | 100 req/min |
+| Private endpoints | 300 req/min |
+| WebSocket connections | 5 concurrent |
+| Order placement | 10 orders/sec |
+
+### Headers
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1234567890
+```
+
+## Error Handling
+
+### Error Format
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_BALANCE",
+    "message": "Insufficient balance for order",
+    "details": {
+      "required": 100.5,
+      "available": 50.0
+    }
+  }
+}
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `INVALID_SYMBOL` | Trading pair not supported |
+| `INVALID_ORDER_TYPE` | Order type not recognized |
+| `INSUFFICIENT_BALANCE` | Not enough balance |
+| `ORDER_NOT_FOUND` | Order ID does not exist |
+| `RATE_LIMIT_EXCEEDED` | Too many requests |
+| `UNAUTHORIZED` | Authentication required |
+| `FORBIDDEN` | Access denied |
+| `INTERNAL_ERROR` | Server error |
+
+### JSON-RPC Error Codes
+
+| Code | Description |
+|------|-------------|
+| `-32700` | Parse Error |
+| `-32600` | Invalid Request |
+| `-32601` | Method Not Found |
+| `-32602` | Invalid Params |
+| `-32603` | Internal Error |
