@@ -259,7 +259,7 @@ func init() {
 // FindPrice uses binary search within cache lines
 func (t *CacheAlignedTree) FindPrice(price int64) (int64, bool) {
     idx := t.root
-    for idx >= 0 {
+    for idx &gt;= 0 {
         node := &t.nodes[idx]
 
         // Binary search within node (cache-hot)
@@ -291,12 +291,12 @@ package orderbook
 func (ob *OrderBook) ProcessOrderBranchy(order *Order) {
     if order.Side == Buy {
         ob.bids.Insert(order)
-        if order.Price >= ob.bestAsk {
+        if order.Price &gt;= ob.bestAsk {
             ob.matchBuy(order)
         }
     } else {
         ob.asks.Insert(order)
-        if order.Price <= ob.bestBid {
+        if order.Price &lt;= ob.bestBid {
             ob.matchSell(order)
         }
     }
@@ -313,8 +313,8 @@ func NewOrderBook() *OrderBook {
     return &OrderBook{
         books:      [2]*PriceLevels{NewPriceLevels(), NewPriceLevels()},
         compareFns: [2]func(int64, int64) bool{
-            func(a, b int64) bool { return a >= b }, // Buy: price >= ask
-            func(a, b int64) bool { return a <= b }, // Sell: price <= bid
+            func(a, b int64) bool { return a &gt;= b }, // Buy: price &gt;= ask
+            func(a, b int64) bool { return a &lt;= b }, // Sell: price &lt;= bid
         },
     }
 }

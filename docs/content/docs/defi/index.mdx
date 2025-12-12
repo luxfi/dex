@@ -59,46 +59,19 @@ The LX DEX DeFi suite provides institutional-grade financial primitives with pri
 
 ### Core Protocols
 
-<Cards>
-  <Card title="Lending Protocol" href="./lending">
-    Overcollateralized lending with ZK credit scoring, privacy-preserving positions, and confidential liquidations.
-  </Card>
-  <Card title="Margin Trading" href="./margin">
-    Leveraged perpetual trading up to 50x with cross-margin and isolated margin support.
-  </Card>
-  <Card title="DeFi Vaults" href="./vaults">
-    Automated yield strategies with auto-compounding, delta-neutral positions, and risk-adjusted returns.
-  </Card>
-  <Card title="LUX Staking" href="./staking">
-    Native LUX staking with validator delegation, liquid staking derivatives, and governance participation.
-  </Card>
-</Cards>
-
+- [**Lending Protocol**](./lending): Overcollateralized lending with ZK credit scoring, privacy-preserving positions, and confidential liquidations.
+- [**Margin Trading**](./margin): Leveraged perpetual trading up to 50x with cross-margin and isolated margin support.
+- [**DeFi Vaults**](./vaults): Automated yield strategies with auto-compounding, delta-neutral positions, and risk-adjusted returns.
+- [**LUX Staking**](./staking): Native LUX staking with validator delegation, liquid staking derivatives, and governance participation.
 ### Infrastructure
 
-<Cards>
-  <Card title="AMM & Liquidity" href="./amm">
-    Concentrated liquidity market maker (CLMM) with customizable fee tiers and range orders.
-  </Card>
-  <Card title="Flash Loans" href="./flash">
-    Uncollateralized atomic loans for arbitrage, liquidations, and collateral swaps.
-  </Card>
-  <Card title="Price Oracles" href="./oracles">
-    Multi-source oracle aggregation with TWAP, Chainlink, and Pyth integration.
-  </Card>
-  <Card title="Governance" href="./governance">
-    On-chain governance with timelock, proposal voting, and parameter updates.
-  </Card>
-</Cards>
-
+- [**AMM & Liquidity**](./amm): Concentrated liquidity market maker (CLMM) with customizable fee tiers and range orders.
+- [**Flash Loans**](./flash): Uncollateralized atomic loans for arbitrage, liquidations, and collateral swaps.
+- [**Price Oracles**](./oracles): Multi-source oracle aggregation with TWAP, Chainlink, and Pyth integration.
+- [**Governance**](./governance): On-chain governance with timelock, proposal voting, and parameter updates.
 ### Risk Management
 
-<Cards>
-  <Card title="Risk Parameters" href="./risks">
-    Collateral factors, liquidation thresholds, interest rate models, and protocol limits.
-  </Card>
-</Cards>
-
+- [**Risk Parameters**](./risks): Collateral factors, liquidation thresholds, interest rate models, and protocol limits.
 ## Key Features
 
 ### Privacy-Preserving DeFi
@@ -168,7 +141,7 @@ The protocol uses a kinked interest rate model for optimal capital efficiency:
 **Mathematical Formula**:
 
 ```
-If utilization <= kink:
+If utilization &lt;= kink:
     BorrowRate = BaseRate + (Utilization * MultiplierRate)
 
 If utilization > kink:
