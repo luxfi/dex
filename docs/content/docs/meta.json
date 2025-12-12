@@ -1,0 +1,20 @@
+{
+  "title": "LX DEX Documentation",
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "---",
+    "architecture",
+    "orderbook",
+    "consensus",
+    "---",
+    "api",
+    "sdk",
+    "---",
+    "lending",
+    "bridge",
+    "---",
+    "development"
+  ]
+}
