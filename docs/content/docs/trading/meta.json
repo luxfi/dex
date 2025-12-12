@@ -6,8 +6,10 @@
     "perpetuals",
     "margin",
     "order-types",
+    "tpsl",
     "arbitrage",
     "fees",
+    "referral-rebates",
     "limits"
   ]
 }
