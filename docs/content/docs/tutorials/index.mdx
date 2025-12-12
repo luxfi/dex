@@ -95,7 +95,7 @@ Choose your preferred language:
 
 ```bash
 # TypeScript/JavaScript
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 
 # Python
 pip install luxfi-dex
@@ -146,17 +146,19 @@ If you get stuck:
 ### Common Operations
 
 ```typescript
+import { DEX } from '@luxfi/trading'
+
 // Quick reference - TypeScript
-const client = new LXDexClient({ endpoint: 'http://localhost:8080/rpc' });
+const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
 // Place order
-await client.placeOrder({ symbol: 'BTC-USD', side: 'buy', type: 'limit', price: 50000, size: 0.1 });
+await dex.limitBuy('BTC-USD', '0.1', '50000')
 
 // Cancel order
-await client.cancelOrder(orderId);
+await dex.cancelOrder(orderId)
 
 // Get orderbook
-const book = await client.getOrderBook('BTC-USD', 20);
+const book = await dex.getOrderBook('BTC-USD', 20)
 ```
 
 ---

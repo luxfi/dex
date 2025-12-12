@@ -2,7 +2,7 @@
 //!
 //! Provides unified streaming interface across all venues.
 
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::{broadcast, mpsc};
 
-use crate::error::Result;
 use crate::types::*;
 use crate::ws::{Fill, OrderUpdate, OrderbookUpdate, WsEvent};
 
@@ -103,11 +102,10 @@ impl OrderbookStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::OrderbookUpdate(update) = event {
-                        if update.symbol == symbol_filter {
-                            if tx.send(update).await.is_err() {
+                        if update.symbol == symbol_filter
+                            && tx.send(update).await.is_err() {
                                 break;
                             }
-                        }
                     }
                 }
             });
@@ -149,11 +147,10 @@ impl TradeStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::Trade(trade) = event {
-                        if trade.symbol == symbol_filter {
-                            if tx.send(trade).await.is_err() {
+                        if trade.symbol == symbol_filter
+                            && tx.send(trade).await.is_err() {
                                 break;
                             }
-                        }
                     }
                 }
             });
@@ -195,11 +192,10 @@ impl TickerStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::Ticker(ticker) = event {
-                        if ticker.symbol == symbol_filter {
-                            if tx.send(ticker).await.is_err() {
+                        if ticker.symbol == symbol_filter
+                            && tx.send(ticker).await.is_err() {
                                 break;
                             }
-                        }
                     }
                 }
             });

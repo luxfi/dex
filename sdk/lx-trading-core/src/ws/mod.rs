@@ -22,7 +22,6 @@ use tokio_tungstenite::{
 use url::Url;
 
 use crate::error::{Error, Result};
-use crate::orderbook::Orderbook;
 use crate::types::*;
 
 /// WebSocket event types
@@ -169,6 +168,7 @@ pub enum SubscriptionChannel {
 enum WsCommand {
     Subscribe(Subscription),
     Unsubscribe(Subscription),
+    #[allow(dead_code)]
     SendMessage(String),
     Disconnect,
 }
@@ -213,7 +213,7 @@ impl WsConnection {
 
         let url = Url::parse(&self.config.url)?;
         let (ws_stream, _) = connect_async(url).await.map_err(|e| {
-            Error::WebsocketError(format!("Failed to connect: {}", e))
+            Error::WebsocketError(format!("Failed to connect: {e}"))
         })?;
 
         let (write, read) = ws_stream.split();
@@ -295,7 +295,7 @@ impl WsConnection {
         self.command_tx
             .send(WsCommand::Subscribe(sub.clone()))
             .await
-            .map_err(|e| Error::WebsocketError(format!("Failed to send subscribe: {}", e)))?;
+            .map_err(|e| Error::WebsocketError(format!("Failed to send subscribe: {e}")))?;
 
         let key = format!("{}:{}", channel_to_str(channel), symbol);
         self.subscriptions.write().insert(key);
@@ -313,7 +313,7 @@ impl WsConnection {
         self.command_tx
             .send(WsCommand::Unsubscribe(sub))
             .await
-            .map_err(|e| Error::WebsocketError(format!("Failed to send unsubscribe: {}", e)))?;
+            .map_err(|e| Error::WebsocketError(format!("Failed to send unsubscribe: {e}")))?;
 
         let key = format!("{}:{}", channel_to_str(channel), symbol);
         self.subscriptions.write().remove(&key);
@@ -381,12 +381,13 @@ impl Stream for WsEventStream {
 }
 
 /// WebSocket message handler
+#[allow(clippy::too_many_arguments)]
 async fn run_ws_loop<S, R>(
     config: WsConfig,
     state: Arc<RwLock<ConnectionState>>,
     connected: AtomicBool,
     reconnect_count: AtomicU64,
-    subscriptions: Arc<RwLock<HashSet<String>>>,
+    _subscriptions: Arc<RwLock<HashSet<String>>>,
     event_tx: broadcast::Sender<WsEvent>,
     mut command_rx: mpsc::Receiver<WsCommand>,
     mut write: S,
@@ -529,14 +530,11 @@ fn parse_ws_message(text: &str, venue: &str) -> Result<WsEvent> {
     }
 
     Err(Error::DeserializationError(format!(
-        "Unknown message format: {}",
-        text
+        "Unknown message format: {text}"
     )))
 }
 
 fn parse_orderbook_update(value: &serde_json::Value, venue: &str) -> Result<OrderbookUpdate> {
-    use rust_decimal::Decimal;
-
     let symbol = value
         .get("symbol")
         .or_else(|| value.get("s"))
@@ -556,8 +554,8 @@ fn parse_orderbook_update(value: &serde_json::Value, venue: &str) -> Result<Orde
     if let Some(bid_array) = value.get("bids").or_else(|| value.get("b")).and_then(|v| v.as_array()) {
         for bid in bid_array {
             if let (Some(price), Some(qty)) = (
-                bid.get(0).or_else(|| bid.get("price")).and_then(|v| parse_decimal(v)),
-                bid.get(1).or_else(|| bid.get("quantity")).and_then(|v| parse_decimal(v)),
+                bid.get(0).or_else(|| bid.get("price")).and_then(parse_decimal),
+                bid.get(1).or_else(|| bid.get("quantity")).and_then(parse_decimal),
             ) {
                 bids.push(PriceLevel::new(price, qty));
             }
@@ -567,8 +565,8 @@ fn parse_orderbook_update(value: &serde_json::Value, venue: &str) -> Result<Orde
     if let Some(ask_array) = value.get("asks").or_else(|| value.get("a")).and_then(|v| v.as_array()) {
         for ask in ask_array {
             if let (Some(price), Some(qty)) = (
-                ask.get(0).or_else(|| ask.get("price")).and_then(|v| parse_decimal(v)),
-                ask.get(1).or_else(|| ask.get("quantity")).and_then(|v| parse_decimal(v)),
+                ask.get(0).or_else(|| ask.get("price")).and_then(parse_decimal),
+                ask.get(1).or_else(|| ask.get("quantity")).and_then(parse_decimal),
             ) {
                 asks.push(PriceLevel::new(price, qty));
             }
@@ -634,14 +632,14 @@ fn parse_trade(value: &serde_json::Value, venue: &str) -> Result<Trade> {
     let price = value
         .get("price")
         .or_else(|| value.get("p"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let quantity = value
         .get("quantity")
         .or_else(|| value.get("q"))
         .or_else(|| value.get("amount"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let timestamp = value
@@ -686,37 +684,37 @@ fn parse_ticker(value: &serde_json::Value, venue: &str) -> Result<Ticker> {
     let bid = value
         .get("bid")
         .or_else(|| value.get("b"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let ask = value
         .get("ask")
         .or_else(|| value.get("a"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let last = value
         .get("last")
         .or_else(|| value.get("c"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let volume_24h = value
         .get("volume")
         .or_else(|| value.get("v"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let high_24h = value
         .get("high")
         .or_else(|| value.get("h"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let low_24h = value
         .get("low")
         .or_else(|| value.get("l"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let change_24h = value
         .get("change")
         .or_else(|| value.get("P"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let timestamp = value
         .get("timestamp")
@@ -776,18 +774,18 @@ fn parse_order_update(value: &serde_json::Value, venue: &str) -> Result<OrderUpd
     let filled_quantity = value
         .get("filled_quantity")
         .or_else(|| value.get("z"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let remaining_quantity = value
         .get("remaining_quantity")
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let average_price = value
         .get("average_price")
         .or_else(|| value.get("ap"))
-        .and_then(|v| parse_decimal(v));
+        .and_then(parse_decimal);
 
     let timestamp = value
         .get("timestamp")
@@ -809,8 +807,6 @@ fn parse_order_update(value: &serde_json::Value, venue: &str) -> Result<OrderUpd
 }
 
 fn parse_fill(value: &serde_json::Value, venue: &str) -> Result<Fill> {
-    use rust_decimal::Decimal;
-
     let trade_id = value
         .get("trade_id")
         .or_else(|| value.get("t"))
@@ -842,19 +838,19 @@ fn parse_fill(value: &serde_json::Value, venue: &str) -> Result<Fill> {
     let price = value
         .get("price")
         .or_else(|| value.get("p"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let quantity = value
         .get("quantity")
         .or_else(|| value.get("q"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let fee_amount = value
         .get("fee")
         .or_else(|| value.get("n"))
-        .and_then(|v| parse_decimal(v))
+        .and_then(parse_decimal)
         .unwrap_or_default();
 
     let fee_asset = value

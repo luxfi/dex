@@ -47,29 +47,29 @@ INFO  Node ready for trading
 ### TypeScript
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 // Create client instance
-const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+const dex = await DEX({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
-});
+})
 
 // Test connection
 async function testConnection() {
     try {
-        const info = await client.getInfo();
-        console.log('Connected to LX');
-        console.log('Node version:', info.version);
-        console.log('Network:', info.network);
-        return true;
+        const info = await dex.getInfo()
+        console.log('Connected to LX')
+        console.log('Node version:', info.version)
+        console.log('Network:', info.network)
+        return true
     } catch (error) {
-        console.error('Connection failed:', error.message);
-        return false;
+        console.error('Connection failed:', error.message)
+        return false
     }
 }
 
-testConnection();
+testConnection()
 ```
 
 ### Python
@@ -167,33 +167,33 @@ Before placing an order, check the current market state:
 
 ```typescript
 async function checkOrderBook() {
-    const book = await client.getOrderBook('BTC-USD', 5);
+    const book = await dex.getOrderBook('BTC-USD', 5)
 
-    console.log('\n=== BTC-USD Order Book ===');
-    console.log('\nAsks (Sell Orders):');
+    console.log('\n=== BTC-USD Order Book ===')
+    console.log('\nAsks (Sell Orders):')
     book.asks.slice().reverse().forEach(([price, size]) => {
-        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`);
-    });
+        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`)
+    })
 
-    console.log('\n--- Spread ---');
+    console.log('\n--- Spread ---')
 
-    console.log('\nBids (Buy Orders):');
+    console.log('\nBids (Buy Orders):')
     book.bids.forEach(([price, size]) => {
-        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`);
-    });
+        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`)
+    })
 
     // Calculate spread
-    const bestBid = book.bids[0][0];
-    const bestAsk = book.asks[0][0];
-    const spread = bestAsk - bestBid;
-    const spreadPercent = (spread / bestBid) * 100;
+    const bestBid = book.bids[0][0]
+    const bestAsk = book.asks[0][0]
+    const spread = bestAsk - bestBid
+    const spreadPercent = (spread / bestBid) * 100
 
-    console.log(`\nSpread: $${spread.toFixed(2)} (${spreadPercent.toFixed(3)}%)`);
+    console.log(`\nSpread: $${spread.toFixed(2)} (${spreadPercent.toFixed(3)}%)`)
 
-    return book;
+    return book
 }
 
-checkOrderBook();
+checkOrderBook()
 ```
 
 ### Python
@@ -292,33 +292,26 @@ Now let us place a limit buy order:
 ```typescript
 async function placeLimitOrder() {
     try {
-        const order = await client.placeOrder({
-            symbol: 'BTC-USD',
-            side: 'buy',
-            type: 'limit',
-            price: 49500,      // Price below market
-            size: 0.1,         // 0.1 BTC
-            timeInForce: 'GTC' // Good Till Cancelled
-        });
+        const order = await dex.limitBuy('BTC-USD', '0.1', '49500', { timeInForce: 'GTC' })
 
-        console.log('\n=== Order Placed ===');
-        console.log('Order ID:', order.orderId);
-        console.log('Symbol:', order.symbol);
-        console.log('Side:', order.side);
-        console.log('Type:', order.type);
-        console.log('Price:', order.price);
-        console.log('Size:', order.size);
-        console.log('Status:', order.status);
-        console.log('Created:', new Date(order.createdAt).toISOString());
+        console.log('\n=== Order Placed ===')
+        console.log('Order ID:', order.orderId)
+        console.log('Symbol:', order.symbol)
+        console.log('Side:', order.side)
+        console.log('Type:', order.type)
+        console.log('Price:', order.price)
+        console.log('Size:', order.size)
+        console.log('Status:', order.status)
+        console.log('Created:', new Date(order.createdAt).toISOString())
 
-        return order;
+        return order
     } catch (error) {
-        console.error('Failed to place order:', error.message);
-        throw error;
+        console.error('Failed to place order:', error.message)
+        throw error
     }
 }
 
-const myOrder = await placeLimitOrder();
+const myOrder = await placeLimitOrder()
 ```
 
 ### Python
@@ -425,26 +418,26 @@ Monitor your order:
 
 ```typescript
 async function checkOrderStatus(orderId: string) {
-    const order = await client.getOrder(orderId);
+    const order = await dex.getOrder(orderId)
 
-    console.log('\n=== Order Status ===');
-    console.log('Order ID:', order.orderId);
-    console.log('Status:', order.status);
-    console.log('Filled:', order.filledSize, '/', order.size);
-    console.log('Remaining:', order.remainingSize);
-    console.log('Average Fill Price:', order.avgFillPrice || 'N/A');
+    console.log('\n=== Order Status ===')
+    console.log('Order ID:', order.orderId)
+    console.log('Status:', order.status)
+    console.log('Filled:', order.filledSize, '/', order.size)
+    console.log('Remaining:', order.remainingSize)
+    console.log('Average Fill Price:', order.avgFillPrice || 'N/A')
 
     if (order.fills && order.fills.length > 0) {
-        console.log('\nFills:');
+        console.log('\nFills:')
         order.fills.forEach((fill, i) => {
-            console.log(`  ${i + 1}. ${fill.size} @ ${fill.price} (${fill.timestamp})`);
-        });
+            console.log(`  ${i + 1}. ${fill.size} @ ${fill.price} (${fill.timestamp})`)
+        })
     }
 
-    return order;
+    return order
 }
 
-await checkOrderStatus(myOrder.orderId);
+await checkOrderStatus(myOrder.orderId)
 ```
 
 ### Python
@@ -516,23 +509,18 @@ For immediate execution, use a market order:
 
 ```typescript
 async function placeMarketOrder() {
-    const order = await client.placeOrder({
-        symbol: 'BTC-USD',
-        side: 'buy',
-        type: 'market',
-        size: 0.05  // 0.05 BTC
-    });
+    const order = await dex.buy('BTC-USD', '0.05')  // Market buy 0.05 BTC
 
-    console.log('\n=== Market Order Executed ===');
-    console.log('Order ID:', order.orderId);
-    console.log('Status:', order.status);
-    console.log('Filled:', order.filledSize);
-    console.log('Average Price:', order.avgFillPrice);
+    console.log('\n=== Market Order Executed ===')
+    console.log('Order ID:', order.orderId)
+    console.log('Status:', order.status)
+    console.log('Filled:', order.filledSize)
+    console.log('Average Price:', order.avgFillPrice)
 
-    return order;
+    return order
 }
 
-await placeMarketOrder();
+await placeMarketOrder()
 ```
 
 ### Python
@@ -598,24 +586,24 @@ Cancel your open limit order:
 ```typescript
 async function cancelOrder(orderId: string) {
     try {
-        const result = await client.cancelOrder(orderId);
+        const result = await dex.cancelOrder(orderId)
 
-        console.log('\n=== Order Cancelled ===');
-        console.log('Order ID:', result.orderId);
-        console.log('Status:', result.status);
-        console.log('Cancelled At:', new Date(result.cancelledAt).toISOString());
+        console.log('\n=== Order Cancelled ===')
+        console.log('Order ID:', result.orderId)
+        console.log('Status:', result.status)
+        console.log('Cancelled At:', new Date(result.cancelledAt).toISOString())
 
-        return result;
+        return result
     } catch (error) {
         if (error.code === 'ORDER_NOT_FOUND') {
-            console.log('Order not found (may already be filled or cancelled)');
+            console.log('Order not found (may already be filled or cancelled)')
         } else {
-            throw error;
+            throw error
         }
     }
 }
 
-await cancelOrder(myOrder.orderId);
+await cancelOrder(myOrder.orderId)
 ```
 
 ### Python
@@ -676,52 +664,39 @@ Here is a complete script combining all steps:
 ### TypeScript
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 async function main() {
     // Initialize client
-    const client = new LXDexClient({
-        jsonRpcUrl: 'http://localhost:8080/rpc'
-    });
+    const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
     // 1. Test connection
-    const info = await client.getInfo();
-    console.log('Connected to', info.network);
+    const info = await dex.getInfo()
+    console.log('Connected to', info.network)
 
     // 2. Check orderbook
-    const book = await client.getOrderBook('BTC-USD', 5);
-    console.log(`Best bid: ${book.bids[0][0]}, Best ask: ${book.asks[0][0]}`);
+    const book = await dex.getOrderBook('BTC-USD', 5)
+    console.log(`Best bid: ${book.bids[0][0]}, Best ask: ${book.asks[0][0]}`)
 
     // 3. Place limit order
-    const limitOrder = await client.placeOrder({
-        symbol: 'BTC-USD',
-        side: 'buy',
-        type: 'limit',
-        price: 49500,
-        size: 0.1
-    });
-    console.log('Limit order placed:', limitOrder.orderId);
+    const limitOrder = await dex.limitBuy('BTC-USD', '0.1', '49500')
+    console.log('Limit order placed:', limitOrder.orderId)
 
     // 4. Place market order
-    const marketOrder = await client.placeOrder({
-        symbol: 'BTC-USD',
-        side: 'buy',
-        type: 'market',
-        size: 0.05
-    });
-    console.log('Market order filled at:', marketOrder.avgFillPrice);
+    const marketOrder = await dex.buy('BTC-USD', '0.05')
+    console.log('Market order filled at:', marketOrder.avgFillPrice)
 
     // 5. Check and cancel limit order
-    const status = await client.getOrder(limitOrder.orderId);
+    const status = await dex.getOrder(limitOrder.orderId)
     if (status.status === 'open') {
-        await client.cancelOrder(limitOrder.orderId);
-        console.log('Limit order cancelled');
+        await dex.cancelOrder(limitOrder.orderId)
+        console.log('Limit order cancelled')
     }
 
-    console.log('\nTutorial complete!');
+    console.log('\nTutorial complete!')
 }
 
-main().catch(console.error);
+main().catch(console.error)
 ```
 
 ### Python

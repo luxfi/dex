@@ -224,10 +224,10 @@ pub trait VenueAdapter: Send + Sync {
     /// Get swap quote
     async fn get_swap_quote(
         &self,
-        base_token: &str,
-        quote_token: &str,
-        amount: Decimal,
-        is_buy: bool,
+        _base_token: &str,
+        _quote_token: &str,
+        _amount: Decimal,
+        _is_buy: bool,
     ) -> Result<SwapQuote> {
         Err(crate::error::Error::NotImplemented(
             "AMM swap not supported".into(),
@@ -237,11 +237,11 @@ pub trait VenueAdapter: Send + Sync {
     /// Execute swap
     async fn execute_swap(
         &self,
-        base_token: &str,
-        quote_token: &str,
-        amount: Decimal,
-        is_buy: bool,
-        slippage_percent: Decimal,
+        _base_token: &str,
+        _quote_token: &str,
+        _amount: Decimal,
+        _is_buy: bool,
+        _slippage_percent: Decimal,
     ) -> Result<Trade> {
         Err(crate::error::Error::NotImplemented(
             "AMM swap not supported".into(),
@@ -249,7 +249,7 @@ pub trait VenueAdapter: Send + Sync {
     }
 
     /// Get pool information
-    async fn get_pool_info(&self, base_token: &str, quote_token: &str) -> Result<PoolInfo> {
+    async fn get_pool_info(&self, _base_token: &str, _quote_token: &str) -> Result<PoolInfo> {
         Err(crate::error::Error::NotImplemented(
             "Pool info not supported".into(),
         ))
@@ -258,11 +258,11 @@ pub trait VenueAdapter: Send + Sync {
     /// Add liquidity to pool
     async fn add_liquidity(
         &self,
-        base_token: &str,
-        quote_token: &str,
-        base_amount: Decimal,
-        quote_amount: Decimal,
-        slippage_percent: Decimal,
+        _base_token: &str,
+        _quote_token: &str,
+        _base_amount: Decimal,
+        _quote_amount: Decimal,
+        _slippage_percent: Decimal,
     ) -> Result<LiquidityResult> {
         Err(crate::error::Error::NotImplemented(
             "Add liquidity not supported".into(),
@@ -272,9 +272,9 @@ pub trait VenueAdapter: Send + Sync {
     /// Remove liquidity from pool
     async fn remove_liquidity(
         &self,
-        pool_address: &str,
-        liquidity_amount: Decimal,
-        slippage_percent: Decimal,
+        _pool_address: &str,
+        _liquidity_amount: Decimal,
+        _slippage_percent: Decimal,
     ) -> Result<LiquidityResult> {
         Err(crate::error::Error::NotImplemented(
             "Remove liquidity not supported".into(),
