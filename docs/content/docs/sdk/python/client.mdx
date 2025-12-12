@@ -16,7 +16,7 @@ The synchronous client is suitable for scripts, CLI tools, and applications that
 ### Initialization
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 # Basic initialization
 client = Client(
@@ -67,8 +67,8 @@ class Client:
 ### Core Methods
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.types import NodeInfo, Order, OrderBook, Trade
+from lux_dex import Client
+from lux_dex.types import NodeInfo, Order, OrderBook, Trade
 
 client = Client("http://localhost:8080/rpc")
 
@@ -142,7 +142,7 @@ def get_trades(
 ### Usage Examples
 
 ```python
-from luxfi_dex import Client, OrderType, Side
+from lux_dex import Client, OrderType, Side
 
 client = Client("http://localhost:8080/rpc")
 
@@ -185,7 +185,7 @@ The asynchronous client is designed for high-performance applications, web serve
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 # Basic initialization
 async def main():
@@ -204,7 +204,7 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def main():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -253,8 +253,8 @@ class AsyncClient:
 ### Core Methods
 
 ```python
-from luxfi_dex import AsyncClient
-from luxfi_dex.types import NodeInfo, Order, OrderBook, Trade
+from lux_dex import AsyncClient
+from lux_dex.types import NodeInfo, Order, OrderBook, Trade
 
 # All methods are coroutines
 async def get_info(self) -> NodeInfo:
@@ -324,7 +324,7 @@ async def stream_trades(
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient, OrderType, Side
+from lux_dex import AsyncClient, OrderType, Side
 
 async def main():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -357,7 +357,7 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def main():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -406,14 +406,14 @@ class ClientConfig:
     api_secret: Optional[str] = None
     timeout: float = 30.0
     retry: RetryConfig = field(default_factory=RetryConfig)
-    user_agent: str = "luxfi-dex-python/1.0.0"
+    user_agent: str = "lux-dex-python/1.0.0"
 ```
 
 ### Using ClientConfig
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.config import ClientConfig, RetryConfig
+from lux_dex import Client
+from lux_dex.config import ClientConfig, RetryConfig
 
 config = ClientConfig(
     json_rpc_url="https://api.lux.network/rpc",
@@ -436,7 +436,7 @@ client = Client(config=config)
 ### API Key Authentication
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client(
     json_rpc_url="https://api.lux.network/rpc",
@@ -457,7 +457,7 @@ order = client.place_order(
 ### JWT Authentication
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client(
     json_rpc_url="https://api.lux.network/rpc"
@@ -499,8 +499,8 @@ def sign_request(
 ## Error Handling
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.exceptions import (
+from lux_dex import Client
+from lux_dex.exceptions import (
     LXDexError,
     ConnectionError,
     TimeoutError,
@@ -543,11 +543,11 @@ except LXDexError as e:
 
 ```python
 import logging
-from luxfi_dex import Client
+from lux_dex import Client
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("luxfi_dex")
+logger = logging.getLogger("lux_dex")
 logger.setLevel(logging.DEBUG)
 
 # Client automatically logs requests and responses
@@ -568,7 +568,7 @@ The synchronous client is **thread-safe**. You can share a single client instanc
 
 ```python
 import threading
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client("http://localhost:8080/rpc")
 
@@ -599,7 +599,7 @@ The async client is designed for single-threaded async code. Use `asyncio.gather
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def main():
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -620,8 +620,8 @@ asyncio.run(main())
 Both clients use connection pooling internally for efficient resource usage:
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.config import ClientConfig
+from lux_dex import Client
+from lux_dex.config import ClientConfig
 
 config = ClientConfig(
     json_rpc_url="http://localhost:8080/rpc",
