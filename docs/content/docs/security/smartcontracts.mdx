@@ -49,7 +49,7 @@ contract VulnerableVault {
     mapping(address => uint256) public balances;
 
     function withdraw(uint256 amount) external {
-        require(balances[msg.sender] >= amount);
+        require(balances[msg.sender] &gt;= amount);
 
         // External call BEFORE state update - VULNERABLE
         (bool success,) = msg.sender.call{value: amount}("");
@@ -65,7 +65,7 @@ contract SecureVault {
 
     function withdraw(uint256 amount) external {
         // CHECKS
-        require(balances[msg.sender] >= amount, "Insufficient balance");
+        require(balances[msg.sender] &gt;= amount, "Insufficient balance");
 
         // EFFECTS - Update state BEFORE external call
         balances[msg.sender] -= amount;
@@ -83,7 +83,7 @@ contract GuardedVault is ReentrancyGuard {
     mapping(address => uint256) public balances;
 
     function withdraw(uint256 amount) external nonReentrant {
-        require(balances[msg.sender] >= amount, "Insufficient balance");
+        require(balances[msg.sender] &gt;= amount, "Insufficient balance");
         balances[msg.sender] -= amount;
         (bool success,) = msg.sender.call{value: amount}("");
         require(success, "Transfer failed");
@@ -118,7 +118,7 @@ contract SecureToken {
     mapping(address => uint256) public balances;
 
     function transfer(address to, uint256 amount) external {
-        require(balances[msg.sender] >= amount, "Insufficient balance");
+        require(balances[msg.sender] &gt;= amount, "Insufficient balance");
 
         // Solidity 0.8+ reverts on overflow/underflow automatically
         balances[msg.sender] -= amount;
@@ -242,12 +242,12 @@ contract MultiBlockProtection {
 
     function executeAction() external {
         PriceCheckpoint memory cp = checkpoints[msg.sender];
-        require(block.number >= cp.blockNumber + MIN_BLOCKS, "Too soon");
+        require(block.number &gt;= cp.blockNumber + MIN_BLOCKS, "Too soon");
 
         uint256 currentPrice = getPrice();
         require(
-            currentPrice >= cp.price * 99 / 100 &&
-            currentPrice <= cp.price * 101 / 100,
+            currentPrice &gt;= cp.price * 99 / 100 &&
+            currentPrice &lt;= cp.price * 101 / 100,
             "Price deviation"
         );
 
@@ -279,7 +279,7 @@ contract SecureOracle {
         ) = chainlinkOracle.latestRoundData();
 
         require(chainlinkPrice > 0, "Invalid Chainlink price");
-        require(answeredInRound >= roundId, "Stale Chainlink data");
+        require(answeredInRound &gt;= roundId, "Stale Chainlink data");
         require(
             block.timestamp - updatedAt < STALENESS_THRESHOLD,
             "Chainlink data too old"
@@ -295,7 +295,7 @@ contract SecureOracle {
             ? (primaryPrice - twapPrice) * 100 / primaryPrice
             : (twapPrice - primaryPrice) * 100 / twapPrice;
 
-        require(deviation <= MAX_DEVIATION, "Oracle price deviation");
+        require(deviation &lt;= MAX_DEVIATION, "Oracle price deviation");
 
         return primaryPrice;
     }
@@ -350,7 +350,7 @@ contract CommitRevealOrder {
         Commitment storage c = commitments[msg.sender];
 
         require(!c.revealed, "Already revealed");
-        require(block.number >= c.blockNumber + REVEAL_DELAY, "Too early");
+        require(block.number &gt;= c.blockNumber + REVEAL_DELAY, "Too early");
 
         bytes32 expectedHash = keccak256(
             abi.encodePacked(msg.sender, amount, price, isBuy, salt)
@@ -416,7 +416,7 @@ contract SecureSignatures {
         bytes32 r,
         bytes32 s
     ) external {
-        require(block.timestamp <= deadline, "Order expired");
+        require(block.timestamp &lt;= deadline, "Order expired");
 
         bytes32 structHash = keccak256(abi.encode(
             ORDER_TYPEHASH,
@@ -504,7 +504,7 @@ contract EmergencyControl is Pausable, AccessControl {
     function executeUnpause() external onlyRole(UNPAUSER_ROLE) {
         require(unpauseRequestTime != 0, "No request");
         require(
-            block.timestamp >= unpauseRequestTime + UNPAUSE_DELAY,
+            block.timestamp &gt;= unpauseRequestTime + UNPAUSE_DELAY,
             "Timelock active"
         );
 
@@ -569,7 +569,7 @@ contract SecureUpgradeable is Initializable, UUPSUpgradeable, AccessControl {
     {
         require(newImplementation == pendingImplementation, "Wrong implementation");
         require(
-            block.timestamp >= upgradeRequestTime + UPGRADE_DELAY,
+            block.timestamp &gt;= upgradeRequestTime + UPGRADE_DELAY,
             "Timelock active"
         );
 

@@ -17,8 +17,8 @@ Get from zero to your first trade on LX DEX Testnet in under 5 minutes.
 
 Choose your preferred language:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```bash
 npm install @luxfi/dex-sdk
 # or
@@ -26,30 +26,27 @@ pnpm add @luxfi/dex-sdk
 # or
 yarn add @luxfi/dex-sdk
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```bash
 pip install luxfi-dex
 # or
 uv pip install luxfi-dex
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```bash
 go get github.com/luxfi/dex/sdk/go/lxdex@latest
 ```
-  </Tab>
-  <Tab value="curl">
-No installation needed - curl comes pre-installed on most systems.
-  </Tab>
-</Tabs>
+#### curl
 
+No installation needed - curl comes pre-installed on most systems.
 ## Step 2: Get Test Tokens (1 minute)
 
 Request free test tokens from the faucet:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 import { LXDexClient } from '@luxfi/dex-sdk';
 
@@ -64,8 +61,8 @@ const result = await client.faucet.request({
 console.log('Tokens received:', result.amounts);
 // { tLUX: 1000, tUSDC: 100000, tBTC: 1 }
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```python
 from luxfi_dex import LXDexClient
 
@@ -80,8 +77,8 @@ result = client.faucet.request(
 print(f"Tokens received: {result.amounts}")
 # {'tLUX': 1000, 'tUSDC': 100000, 'tBTC': 1}
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```go
 package main
 
@@ -102,8 +99,8 @@ func main() {
     fmt.Printf("Tokens received: %+v\n", result.Amounts)
 }
 ```
-  </Tab>
-  <Tab value="curl">
+#### curl
+
 ```bash
 curl -X POST https://faucet.testnet.lux.network/api/request \
   -H "Content-Type: application/json" \
@@ -125,15 +122,12 @@ Response:
   "txHash": "0x123..."
 }
 ```
-  </Tab>
-</Tabs>
-
 ## Step 3: Check Your Balance (30 seconds)
 
 Verify tokens were received:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 const balances = await client.getBalances();
 console.log('Balances:', balances);
@@ -143,21 +137,21 @@ console.log('Balances:', balances);
 //   tBTC: 1
 // }
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```python
 balances = client.get_balances()
 print(f"Balances: {balances}")
 # {'tLUX': 1000, 'tUSDC': 100000, 'tBTC': 1}
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```go
 balances, _ := client.GetBalances(context.Background())
 fmt.Printf("Balances: %+v\n", balances)
 ```
-  </Tab>
-  <Tab value="curl">
+#### curl
+
 ```bash
 curl -X POST https://testnet-api.lux.network/rpc \
   -H "Content-Type: application/json" \
@@ -168,15 +162,12 @@ curl -X POST https://testnet-api.lux.network/rpc \
     "id": 1
   }'
 ```
-  </Tab>
-</Tabs>
-
 ## Step 4: View Order Book (30 seconds)
 
 Check the current market state:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 const orderBook = await client.getOrderBook({
   symbol: 'tBTC-tUSDC',
@@ -186,16 +177,16 @@ const orderBook = await client.getOrderBook({
 console.log('Best Bid:', orderBook.bids[0]);
 console.log('Best Ask:', orderBook.asks[0]);
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```python
 order_book = client.get_order_book(symbol='tBTC-tUSDC', depth=10)
 
 print(f"Best Bid: {order_book.bids[0]}")
 print(f"Best Ask: {order_book.asks[0]}")
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```go
 orderBook, _ := client.GetOrderBook(context.Background(), &lxdex.OrderBookRequest{
     Symbol: "tBTC-tUSDC",
@@ -205,8 +196,8 @@ orderBook, _ := client.GetOrderBook(context.Background(), &lxdex.OrderBookReques
 fmt.Printf("Best Bid: %+v\n", orderBook.Bids[0])
 fmt.Printf("Best Ask: %+v\n", orderBook.Asks[0])
 ```
-  </Tab>
-  <Tab value="curl">
+#### curl
+
 ```bash
 curl -X POST https://testnet-api.lux.network/rpc \
   -H "Content-Type: application/json" \
@@ -217,15 +208,12 @@ curl -X POST https://testnet-api.lux.network/rpc \
     "id": 1
   }'
 ```
-  </Tab>
-</Tabs>
-
 ## Step 5: Place Your First Order (1 minute)
 
 Place a limit buy order:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 const order = await client.placeOrder({
   symbol: 'tBTC-tUSDC',
@@ -240,8 +228,8 @@ console.log('Order placed!');
 console.log('Order ID:', order.orderId);
 console.log('Status:', order.status);
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```python
 order = client.place_order(
     symbol='tBTC-tUSDC',
@@ -256,8 +244,8 @@ print("Order placed!")
 print(f"Order ID: {order.order_id}")
 print(f"Status: {order.status}")
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```go
 order, _ := client.PlaceOrder(context.Background(), &lxdex.Order{
     Symbol:      "tBTC-tUSDC",
@@ -272,8 +260,8 @@ fmt.Println("Order placed!")
 fmt.Printf("Order ID: %s\n", order.OrderID)
 fmt.Printf("Status: %s\n", order.Status)
 ```
-  </Tab>
-  <Tab value="curl">
+#### curl
+
 ```bash
 curl -X POST https://testnet-api.lux.network/rpc \
   -H "Content-Type: application/json" \
@@ -309,15 +297,12 @@ Response:
   "id": 1
 }
 ```
-  </Tab>
-</Tabs>
-
 ## Step 6: Monitor Your Order (1 minute)
 
 Check order status and subscribe to updates:
 
-<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
-  <Tab value="TypeScript">
+#### TypeScript
+
 ```typescript
 // Get order status
 const status = await client.getOrder(order.orderId);
@@ -330,8 +315,8 @@ client.subscribe('orders', (update) => {
   }
 });
 ```
-  </Tab>
-  <Tab value="Python">
+#### Python
+
 ```python
 # Get order status
 status = client.get_order(order.order_id)
@@ -344,8 +329,8 @@ def on_order_update(update):
 
 client.subscribe('orders', callback=on_order_update)
 ```
-  </Tab>
-  <Tab value="Go">
+#### Go
+
 ```go
 // Get order status
 status, _ := client.GetOrder(context.Background(), order.OrderID)
@@ -358,8 +343,8 @@ client.Subscribe("orders", func(update *lxdex.OrderUpdate) {
     }
 })
 ```
-  </Tab>
-  <Tab value="curl">
+#### curl
+
 ```bash
 # Get order status
 curl -X POST https://testnet-api.lux.network/rpc \
@@ -374,9 +359,6 @@ curl -X POST https://testnet-api.lux.network/rpc \
 # For real-time updates, connect to WebSocket:
 # wss://testnet-api.lux.network/ws
 ```
-  </Tab>
-</Tabs>
-
 ## Complete Example
 
 Here's a full working example that combines all steps:

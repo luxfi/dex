@@ -212,10 +212,10 @@ func (p *Photon) ProcessRound(
     support := p.countSupport(votes, block.ID)
 
     // Check thresholds
-    if support >= p.params.AlphaConfidence {
+    if support &gt;= p.params.AlphaConfidence {
         return DecideAccept, nil
     }
-    if len(votes)-support >= p.params.AlphaConfidence {
+    if len(votes)-support &gt;= p.params.AlphaConfidence {
         return DecideReject, nil
     }
 
@@ -265,7 +265,7 @@ func (s *ConsensusState) UpdateConfidence(
         threshold = params.BetaRogue
     }
 
-    if s.Confidence >= threshold {
+    if s.Confidence &gt;= threshold {
         if s.Preference {
             s.FinalDecision = DecideAccept
         } else {

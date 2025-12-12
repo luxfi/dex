@@ -4,7 +4,7 @@
   "pages": [
     "index",
     "getting-started",
-    "---Core Platform---",
+    "---Core Concepts---",
     "architecture",
     "engine",
     "orderbook",
@@ -13,12 +13,6 @@
     "trading",
     "hft",
     "market-makers",
-    "---API Reference---",
-    "api",
-    "...api",
-    "---SDK Guide---",
-    "sdk",
-    "...sdk",
     "---DeFi & Bridge---",
     "defi",
     "lending",
@@ -41,10 +35,16 @@
     "---Learn---",
     "tutorials",
     "examples",
-    "---Reference---",
+    "---Development---",
+    "development",
     "specifications",
     "source",
     "reference",
-    "development"
+    "---API Reference---",
+    "api",
+    "...api",
+    "---SDK Guide---",
+    "sdk",
+    "...sdk"
   ]
 }
