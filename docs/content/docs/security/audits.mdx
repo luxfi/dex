@@ -175,7 +175,7 @@ Apply the Checks-Effects-Interactions pattern:
 
 ```solidity
 function withdraw(uint256 amount) external {
-    require(balances[msg.sender] >= amount, "Insufficient balance");
+    require(balances[msg.sender] &gt;= amount, "Insufficient balance");
 
     // Effect: Update state before interaction
     balances[msg.sender] -= amount;

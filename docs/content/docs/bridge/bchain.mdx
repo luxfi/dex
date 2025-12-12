@@ -119,7 +119,7 @@ type SignerSet struct {
     Signers      []*SignerInfo `json:"signers"`      // Active signers (max 100)
     Waitlist     []ids.NodeID  `json:"waitlist"`     // Validators waiting for slot
     CurrentEpoch uint64        `json:"currentEpoch"` // Increments ONLY on reshare
-    SetFrozen    bool          `json:"setFrozen"`    // True when signers >= MaxSigners
+    SetFrozen    bool          `json:"setFrozen"`    // True when signers &gt;= MaxSigners
     ThresholdT   int           `json:"thresholdT"`   // Current t value (T+1 to sign)
     PublicKey    []byte        `json:"publicKey"`    // Combined threshold public key
 }
@@ -203,7 +203,7 @@ func (vm *VM) RegisterValidator(input *RegisterValidatorInput) (*RegisterValidat
         vm.signerSet.ThresholdT = int(float64(len(vm.signerSet.Signers)) * vm.config.ThresholdRatio)
 
         // Check if set should freeze
-        if len(vm.signerSet.Signers) >= vm.config.MaxSigners {
+        if len(vm.signerSet.Signers) &gt;= vm.config.MaxSigners {
             vm.signerSet.SetFrozen = true
         }
 
@@ -397,10 +397,10 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
     // Collect ready bridge requests
     var requests []*BridgeRequest
     for _, req := range vm.pendingBridges {
-        if req.Confirmations >= vm.config.MinConfirmations {
+        if req.Confirmations &gt;= vm.config.MinConfirmations {
             requests = append(requests, req)
         }
-        if len(requests) >= 100 {
+        if len(requests) &gt;= 100 {
             break
         }
     }

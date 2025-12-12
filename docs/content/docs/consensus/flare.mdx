@@ -15,8 +15,8 @@ Flare provides DAG finalization through certificate and skip analysis, determini
 
 Flare operates on the DAG structure to determine block finality through two mechanisms:
 
-1. **Certificates**: Block has >= 2f+1 validators supporting it in round r+1
-2. **Skip Certificates**: Block has >= 2f+1 validators NOT supporting it in round r+1
+1. **Certificates**: Block has &gt;= 2f+1 validators supporting it in round r+1
+2. **Skip Certificates**: Block has &gt;= 2f+1 validators NOT supporting it in round r+1
 
 ```
 +------------------------------------------------------------------+
@@ -82,7 +82,7 @@ type Meta interface {
 // Params holds DAG consensus parameters
 type Params struct {
     N int  // Total validators
-    F int  // Maximum Byzantine validators (N >= 3F + 1)
+    F int  // Maximum Byzantine validators (N &gt;= 3F + 1)
 }
 ```
 
@@ -90,7 +90,7 @@ type Params struct {
 
 ### Certificate Detection
 
-A block has a certificate when >= 2f+1 validators in the next round reference it:
+A block has a certificate when &gt;= 2f+1 validators in the next round reference it:
 
 ```go
 // HasCertificate checks if a vertex has achieved certificate status
@@ -102,7 +102,7 @@ func HasCertificate(v View, proposer Meta, p Params) bool {
     for _, m := range next {
         if v.Supports(m.ID(), proposer.Author(), proposer.Round()) {
             support++
-            if support >= 2*p.F+1 {
+            if support &gt;= 2*p.F+1 {
                 return true
             }
         }
@@ -113,7 +113,7 @@ func HasCertificate(v View, proposer Meta, p Params) bool {
 
 ### Skip Certificate Detection
 
-A block should be skipped when >= 2f+1 validators in the next round do NOT reference it:
+A block should be skipped when &gt;= 2f+1 validators in the next round do NOT reference it:
 
 ```go
 // HasSkip checks if a vertex should be skipped
@@ -125,7 +125,7 @@ func HasSkip(v View, proposer Meta, p Params) bool {
     for _, m := range next {
         if !v.Supports(m.ID(), proposer.Author(), proposer.Round()) {
             nos++
-            if nos >= 2*p.F+1 {
+            if nos &gt;= 2*p.F+1 {
                 return true
             }
         }
@@ -234,7 +234,7 @@ func ChooseFrontier[V VID](frontier []V) []V {
     }
 
     // For small frontiers, reference all vertices
-    if len(frontier) <= 3 {
+    if len(frontier) &lt;= 3 {
         return frontier
     }
 
@@ -242,7 +242,7 @@ func ChooseFrontier[V VID](frontier []V) []V {
     f := (len(frontier) - 1) / 3
     required := 2*f + 1
 
-    if required >= len(frontier) {
+    if required &gt;= len(frontier) {
         return frontier
     }
 
@@ -320,7 +320,7 @@ func LCA[V VID](store Store[V], a, b V) V {
 ```go
 // Antichain computes mutually unreachable vertices in the DAG
 func Antichain[V VID](store Store[V], vertices []V) []V {
-    if len(vertices) <= 1 {
+    if len(vertices) &lt;= 1 {
         return vertices
     }
 
@@ -467,7 +467,7 @@ func (f *Flare) SelectParents(
     }
 
     // Select up to maxParents
-    if len(candidates) <= maxParents {
+    if len(candidates) &lt;= maxParents {
         return candidates
     }
 
@@ -611,10 +611,10 @@ func (f *Flare) FairOrdering(block *Block) []Transaction {
 
 | Metric | Value | Description |
 |--------|-------|-------------|
-| Certificate Time | <0.3ms | Time to achieve 2f+1 support |
-| Skip Detection | <0.1ms | Time to detect skip condition |
-| Frontier Update | <0.05ms | Time to update DAG frontier |
-| Total Finalization | <0.5ms | End-to-end finalization |
+| Certificate Time | `&lt;0.3ms` | Time to achieve 2f+1 support |
+| Skip Detection | `&lt;0.1ms` | Time to detect skip condition |
+| Frontier Update | `&lt;0.05ms` | Time to update DAG frontier |
+| Total Finalization | `&lt;0.5ms` | End-to-end finalization |
 
 ### Throughput
 
@@ -641,7 +641,7 @@ type FinalizeMetrics struct {
 
 **Property**: If a block receives a certificate, no conflicting block can receive a certificate.
 
-**Proof**: Certificate requires 2f+1 validators. Two conflicting certificates would require 2*(2f+1) = 4f+2 validators. Since n = 3f+1, this is impossible (4f+2 > 3f+1 for f >= 1).
+**Proof**: Certificate requires 2f+1 validators. Two conflicting certificates would require 2*(2f+1) = 4f+2 validators. Since n = 3f+1, this is impossible (4f+2 > 3f+1 for f &gt;= 1).
 
 ### Liveness
 

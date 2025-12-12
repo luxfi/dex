@@ -175,7 +175,7 @@ The protocol uses a kinked interest rate model that increases borrowing costs as
 ```
 Utilization = TotalBorrows / TotalSupply
 
-If Utilization <= Kink (80%):
+If Utilization &lt;= Kink (80%):
     BorrowRate = BaseRate + Utilization * MultiplierPerYear
 
 If Utilization > Kink:
@@ -231,7 +231,7 @@ contract InterestRateModel {
     ) public view returns (uint256) {
         uint256 util = utilizationRate(cash, borrows, reserves);
 
-        if (util <= kink) {
+        if (util &lt;= kink) {
             return baseRatePerBlock + util * multiplierPerBlock / MANTISSA;
         }
 
@@ -410,9 +410,9 @@ func monitorHealthFactor(ctx context.Context, userID string) error {
     fmt.Printf("Health Factor: %s\n", position.HealthFactor)
 
     switch {
-    case position.HealthFactor.Cmp(big.NewFloat(1.5)) >= 0:
+    case position.HealthFactor.Cmp(big.NewFloat(1.5)) &gt;= 0:
         fmt.Println("Status: SAFE")
-    case position.HealthFactor.Cmp(big.NewFloat(1.0)) >= 0:
+    case position.HealthFactor.Cmp(big.NewFloat(1.0)) &gt;= 0:
         fmt.Println("Status: WARNING - Consider adding collateral")
     default:
         fmt.Println("Status: DANGER - Position is liquidatable!")
@@ -461,7 +461,7 @@ function maxBorrowable(
     uint256 debtPrice = oracle.getPrice(borrowAsset);
     uint256 debtValue = currentDebt * debtPrice / 1e18;
 
-    if (totalCollateralValue <= debtValue) return 0;
+    if (totalCollateralValue &lt;= debtValue) return 0;
     return (totalCollateralValue - debtValue) * 1e18 / debtPrice;
 }
 ```

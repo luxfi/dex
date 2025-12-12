@@ -17,7 +17,7 @@ Traditional DEX architectures embed trading logic directly in blockchain VMs. Th
 |----------|---------|------------|-----------|
 | On-chain VM | 2-30s | 100-1000 TPS | Guaranteed finality, slow |
 | Hybrid | 100ms-2s | 10K TPS | Compromise |
-| **Sidecar** | <100us | 10M+ TPS | Fast matching, async settlement |
+| **Sidecar** | `&lt;100μs` | 10M+ TPS | Fast matching, async settlement |
 
 The sidecar approach separates concerns:
 
@@ -664,7 +664,7 @@ var (
 
 ### ADR-001: Sidecar vs On-Chain Matching
 
-**Context**: Need to achieve <100us order latency while maintaining settlement guarantees.
+**Context**: Need to achieve &lt;100us order latency while maintaining settlement guarantees.
 
 **Decision**: Run matching engine as standalone sidecar, settle via Warp messages.
 
