@@ -34,7 +34,7 @@ BenchmarkCriticalOrderMatching/BookDepth_10000  487,658 orders/sec @ 2.0μs late
 - MLX GPU: 434M orders/sec verified (when enabled)
 - FPGA Ready: Sub-microsecond path implemented
 
-### 2. HyperCore Clearinghouse ✅
+### 2. LX Clearinghouse ✅
 - Cross margin (default) ✅
 - Isolated margin ✅
 - Portfolio margin support ✅
@@ -94,7 +94,7 @@ After 8+ minutes of continuous operation:
 2. ✅ Implemented untested functions
 3. ✅ Added multi-node consensus tests
 4. ✅ Created critical path benchmarks
-5. ✅ Verified HyperCore clearinghouse
+5. ✅ Verified LX clearinghouse
 6. ✅ Confirmed FPGA acceleration paths
 7. ✅ Deployed and running successfully
 
