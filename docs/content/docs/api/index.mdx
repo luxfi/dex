@@ -30,9 +30,18 @@ LX DEX provides multiple API protocols for integration:
 ### Connection
 
 ```
-ws://localhost:8080/ws       # Development
-wss://api.lux.network/ws     # Production
+ws://localhost:8081/ws       # Development
+wss://ws.lux.exchange/v1     # Production
 ```
+
+### Endpoints
+
+| Protocol | Development | Production |
+|----------|-------------|------------|
+| WebSocket | `ws://localhost:8081` | `wss://ws.lux.exchange` |
+| REST | `http://localhost:8080` | `https://api.lux.exchange` |
+| gRPC | `localhost:9760` | `grpc.lux.exchange:9760` |
+| FIX 4.4 | `localhost:9880` | `fix.lux.exchange:9880` |
 
 ### Message Format
 
