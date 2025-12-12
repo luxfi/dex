@@ -29,11 +29,11 @@ interface Trade {
 ### Basic Query
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 async function getRecentTrades(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const trades = await client.getTrades('BTC-USD', 100);
@@ -49,7 +49,7 @@ async function getRecentTrades(): Promise<void> {
 ### With Pagination
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 interface TradeQueryParams {
   symbol: string;
@@ -61,8 +61,8 @@ interface TradeQueryParams {
 async function getTradesWithPagination(
   params: TradeQueryParams
 ): Promise<Trade[]> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   // Note: Pagination support depends on API implementation
@@ -105,11 +105,11 @@ async function fetchAllRecentTrades(
 ### Subscribe to Trades
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 async function subscribeToTrades(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -129,11 +129,11 @@ async function subscribeToTrades(): Promise<void> {
 ### Multiple Symbol Subscription
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 async function subscribeToMultipleSymbols(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -154,11 +154,11 @@ async function subscribeToMultipleSymbols(): Promise<void> {
 ### Unsubscribe from Trades
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 async function manageTradeSubscription(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -184,7 +184,7 @@ async function manageTradeSubscription(): Promise<void> {
 ### Volume Analysis
 
 ```typescript
-import { LXDexClient, Trade, OrderSide } from '@luxfi/dex-sdk';
+import { Client, Trade, OrderSide } from '@luxfi/trading';
 
 interface VolumeAnalysis {
   totalVolume: number;
@@ -229,8 +229,8 @@ function analyzeVolume(trades: Trade[]): VolumeAnalysis {
 }
 
 async function getVolumeAnalysis(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const trades = await client.getTrades('BTC-USD', 1000);
@@ -248,7 +248,7 @@ async function getVolumeAnalysis(): Promise<void> {
 ### Trade Aggregation by Time
 
 ```typescript
-import { Trade } from '@luxfi/dex-sdk';
+import { Trade } from '@luxfi/trading';
 
 interface CandleData {
   open: number;
@@ -308,8 +308,8 @@ function aggregateTradesToCandles(
 
 // Usage: 1-minute candles
 async function getMinuteCandles(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const trades = await client.getTrades('BTC-USD', 1000);
@@ -326,7 +326,7 @@ async function getMinuteCandles(): Promise<void> {
 ### Large Trade Detection
 
 ```typescript
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 interface LargeTrade extends Trade {
   volumeUSD: number;
@@ -337,8 +337,8 @@ async function detectLargeTrades(
   symbol: string,
   threshold: number = 2.0
 ): Promise<LargeTrade[]> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const trades = await client.getTrades(symbol, 1000);
@@ -359,8 +359,8 @@ async function detectLargeTrades(
 }
 
 async function monitorLargeTrades(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -396,7 +396,7 @@ async function monitorLargeTrades(): Promise<void> {
 
 ```tsx
 import { useState, useEffect, useCallback } from 'react';
-import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+import { Client, Trade } from '@luxfi/trading';
 
 interface UseTradesOptions {
   limit?: number;
@@ -411,7 +411,7 @@ interface UseTradesResult {
 }
 
 export function useTrades(
-  client: LXDexClient | null,
+  client: Client | null,
   symbol: string,
   options: UseTradesOptions = {}
 ): UseTradesResult {
@@ -469,7 +469,7 @@ export function useTrades(
 import React from 'react';
 import { useTrades } from './hooks/useTrades';
 import { useDexClient } from './DexProvider';
-import { Trade, OrderSide } from '@luxfi/dex-sdk';
+import { Trade, OrderSide } from '@luxfi/trading';
 
 function TradeHistory(): JSX.Element {
   const { client } = useDexClient();
@@ -521,7 +521,7 @@ function TradeHistory(): JSX.Element {
 
 ```tsx
 import { useState, useEffect } from 'react';
-import { LXDexClient, Trade, OrderSide } from '@luxfi/dex-sdk';
+import { Client, Trade, OrderSide } from '@luxfi/trading';
 
 interface TradeStats {
   totalVolume: number;
@@ -535,7 +535,7 @@ interface TradeStats {
 }
 
 export function useTradeStats(
-  client: LXDexClient | null,
+  client: Client | null,
   symbol: string
 ): TradeStats {
   const [stats, setStats] = useState<TradeStats>({
@@ -602,7 +602,7 @@ export function useTradeStats(
 ### Export to CSV
 
 ```typescript
-import { Trade, OrderSide } from '@luxfi/dex-sdk';
+import { Trade, OrderSide } from '@luxfi/trading';
 
 function tradesToCSV(trades: Trade[]): string {
   const headers = [
@@ -652,7 +652,7 @@ function downloadTradesCSV(trades: Trade[], filename: string): void {
 ### Export to JSON
 
 ```typescript
-import { Trade } from '@luxfi/dex-sdk';
+import { Trade } from '@luxfi/trading';
 
 function tradesToJSON(trades: Trade[]): string {
   return JSON.stringify(trades, null, 2);
@@ -665,8 +665,8 @@ async function exportTradesToFile(
   symbol: string,
   filename: string
 ): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const trades = await client.getTrades(symbol, 10000);

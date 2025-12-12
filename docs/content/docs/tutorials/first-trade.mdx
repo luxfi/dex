@@ -75,10 +75,10 @@ testConnection()
 ### Python
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 # Create client instance
-client = LXDexClient(
+client = Client(
     json_rpc_url='http://localhost:8080/rpc',
     ws_url='ws://localhost:8081'
 )
@@ -702,11 +702,11 @@ main().catch(console.error)
 ### Python
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 def main():
     # Initialize client
-    client = LXDexClient(
+    client = Client(
         json_rpc_url='http://localhost:8080/rpc'
     )
 
