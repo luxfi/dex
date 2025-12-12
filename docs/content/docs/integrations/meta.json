@@ -1,0 +1,9 @@
+{
+  "title": "Integrations",
+  "pages": [
+    "index",
+    "hummingbot",
+    "hummingbot-quickstart",
+    "hummingbot-strategies"
+  ]
+}

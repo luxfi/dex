@@ -1,0 +1,38 @@
+{
+  "name": "hummingbot-gateway-lxdex-plugin",
+  "version": "1.0.0",
+  "description": "Hummingbot Gateway plugin for LX DEX - Ultra-low latency DEX with CLOB, AMM, and CLMM support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "config"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "hummingbot",
+    "gateway",
+    "plugin",
+    "lxdex",
+    "lux",
+    "dex",
+    "trading"
+  ],
+  "author": "Lux Partners Limited",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luxfi/dex.git",
+    "directory": "hummingbot-gateway/plugins/lxdex"
+  },
+  "dependencies": {
+    "@lxdex/hummingbot-gateway-connector": "^1.0.0"
+  },
+  "peerDependencies": {
+    "fastify": "^4.0.0"
+  }
+}
