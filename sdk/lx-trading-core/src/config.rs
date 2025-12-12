@@ -38,7 +38,7 @@ impl Config {
     /// Load configuration from file
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| Error::ConfigError(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| Error::ConfigError(format!("Failed to read config file: {e}")))?;
 
         let config: Config = toml::from_str(&content)?;
         config.validate()?;
@@ -66,7 +66,7 @@ impl Config {
         for (name, cfg) in &self.native {
             if cfg.api_url.is_empty() {
                 return Err(Error::InvalidConfig {
-                    field: format!("native.{}.api_url", name),
+                    field: format!("native.{name}.api_url"),
                     message: "API URL is required".into(),
                 });
             }
@@ -75,7 +75,7 @@ impl Config {
         for (name, cfg) in &self.ccxt {
             if cfg.exchange_id.is_empty() {
                 return Err(Error::InvalidConfig {
-                    field: format!("ccxt.{}.exchange_id", name),
+                    field: format!("ccxt.{name}.exchange_id"),
                     message: "Exchange ID is required".into(),
                 });
             }
