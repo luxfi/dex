@@ -88,3 +88,9 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 QWEN.md
+
+# Test binaries
+*.test
+
+# Server logs
+server.log
