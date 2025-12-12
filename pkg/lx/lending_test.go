@@ -517,7 +517,7 @@ func TestLendingPool_Repay(t *testing.T) {
 		assert.NoError(t, err)
 
 		pool := lp.Pools["ETH"]
-		assert.Equal(t, 0, pool.TotalBorrow.Cmp(big.NewInt(0)))
+		assert.True(t, pool.TotalBorrow.Cmp(big.NewInt(0)) == 0)
 		assert.True(t, pool.TotalReserves.Cmp(big.NewInt(0)) > 0)
 	})
 
