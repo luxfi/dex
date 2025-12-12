@@ -24,13 +24,13 @@ LX provides multiple SDKs and APIs for integration:
 
 | SDK | Package | Install | Status |
 |-----|---------|---------|--------|
-| TypeScript (base) | `@luxfi/dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/typescript) | Complete |
-| TypeScript (trading) | `@luxfi/trading` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/lx-trading-ts) | Complete |
-| Python | `lux-dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/python) | Complete |
-| Go | `github.com/luxfi/dex/sdk/go` | `go get` | Complete |
-| Rust | `lux-dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/rust) | Complete |
-| C | `lxdex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/c) | Complete |
-| C++ | `lxdex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/cpp) | Complete |
+| TypeScript (base) | [`@luxfi/dex`](https://npmjs.com/package/@luxfi/dex) | `npm install @luxfi/dex` | ✅ Published |
+| TypeScript (trading) | [`@luxfi/trading`](https://npmjs.com/package/@luxfi/trading) | `npm install @luxfi/trading` | ✅ Published |
+| Python | [`lux-dex`](https://pypi.org/project/lux-dex/) | `pip install lux-dex` | ✅ Published |
+| Go | `github.com/luxfi/dex/sdk/go` | `go get github.com/luxfi/dex/sdk/go` | ✅ Published |
+| Rust | [`lux-dex`](https://crates.io/crates/lux-dex) | `cargo add lux-dex` | ✅ Published |
+| C | `lxdex` | [Build from source](https://github.com/luxfi/dex/tree/main/sdk/c) | ✅ Complete |
+| C++ | `lxdex` | [Build from source](https://github.com/luxfi/dex/tree/main/sdk/cpp) | ✅ Complete |
 
 ## Quick Start
 
@@ -60,20 +60,14 @@ LX provides two TypeScript packages:
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/luxfi/dex
-cd dex
-
 # Core SDK (for building applications)
-cd sdk/typescript && npm install && npm run build
-npm link  # Makes @luxfi/dex available globally
+npm install @luxfi/dex
 
 # Trading SDK (for bots and trading strategies)
-cd sdk/lx-trading-ts && npm install && npm run build
-npm link  # Makes @luxfi/trading available globally
+npm install @luxfi/trading
 
-# In your project
-npm link @luxfi/dex @luxfi/trading
+# Or install both
+npm install @luxfi/dex @luxfi/trading
 ```
 
 ### Quick Start with @luxfi/trading
@@ -156,13 +150,7 @@ await client.connect()
 ### Installation
 
 ```bash
-# From GitHub
-git clone https://github.com/luxfi/dex
-cd dex/sdk/python
-pip install -e .
-
-# Or install directly from GitHub
-pip install git+https://github.com/luxfi/dex.git#subdirectory=sdk/python
+pip install lux-dex
 ```
 
 ### Basic Usage
@@ -323,14 +311,14 @@ resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
 ### Installation
 
 ```bash
-# From GitHub (add to Cargo.toml)
-[dependencies]
-lux-dex = { git = "https://github.com/luxfi/dex", branch = "main" }
+cargo add lux-dex
+```
 
-# Or clone and build
-git clone https://github.com/luxfi/dex
-cd dex/sdk/rust
-cargo build --release
+Or add to `Cargo.toml`:
+
+```toml
+[dependencies]
+lux-dex = "1.2"
 ```
 
 ### Basic Usage
