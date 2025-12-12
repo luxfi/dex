@@ -1,0 +1,244 @@
+---
+title: FAQ
+description: Frequently asked questions about LX DEX trading, APIs, and integration
+---
+
+# Frequently Asked Questions
+
+## General
+
+### What is LX DEX?
+
+LX DEX is a high-performance decentralized exchange built on the Lux blockchain. It features:
+- Sub-microsecond order matching
+- On-chain order book with 1ms finality
+- Multi-backend support (Go, C++, GPU acceleration)
+- Professional-grade APIs (WebSocket, gRPC, FIX)
+
+### How is LX DEX different from other DEXs?
+
+| Feature | LX DEX | AMM DEXs | Other Order Book DEXs |
+|---------|--------|----------|----------------------|
+| Latency | ~1μs | ~seconds | ~100ms |
+| Order Book | Full on-chain | None | Hybrid/off-chain |
+| Finality | 1ms | Block time | Varies |
+| MEV Protection | Built-in | Limited | Varies |
+
+### Is LX DEX audited?
+
+Yes. See our [Security](/docs/security) page for audit reports and bug bounty program.
+
+## Trading
+
+### What trading pairs are available?
+
+Check the live markets at:
+```bash
+curl https://api.dex.lux.network/v1/markets
+```
+
+Or via WebSocket:
+```json
+{"type": "get_markets"}
+```
+
+### What are the fees?
+
+| Type | Fee |
+|------|-----|
+| Maker | 0.02% |
+| Taker | 0.05% |
+| Withdrawal | Network gas only |
+
+Volume-based discounts available for high-volume traders.
+
+### What order types are supported?
+
+- **Limit**: Execute at specified price or better
+- **Market**: Execute immediately at best available price
+- **Stop-Limit**: Trigger limit order when stop price reached
+- **Stop-Market**: Trigger market order when stop price reached
+- **Iceberg**: Large orders with visible/hidden portions
+- **Post-Only**: Rejected if would take liquidity
+- **IOC**: Immediate-or-cancel, fill what's available
+- **FOK**: Fill-or-kill, complete fill or nothing
+
+### What's the minimum order size?
+
+Varies by market. Typical minimums:
+- BTC pairs: 0.0001 BTC
+- ETH pairs: 0.001 ETH
+- Stablecoin pairs: 1 USD equivalent
+
+### How do I place a limit order?
+
+```typescript
+// WebSocket
+ws.send(JSON.stringify({
+  type: "place_order",
+  data: {
+    symbol: "BTC-USD",
+    side: "buy",
+    type: "limit",
+    price: "50000.00",
+    size: "0.1"
+  }
+}));
+```
+
+### How do I cancel an order?
+
+```typescript
+// Cancel specific order
+ws.send(JSON.stringify({
+  type: "cancel_order",
+  data: { order_id: "ord_123abc" }
+}));
+
+// Cancel all orders for a symbol
+ws.send(JSON.stringify({
+  type: "cancel_all",
+  data: { symbol: "BTC-USD" }
+}));
+```
+
+## API & Integration
+
+### What APIs are available?
+
+| API | Use Case | Latency |
+|-----|----------|---------|
+| WebSocket | Real-time trading, market data | Lowest |
+| gRPC | High-throughput applications | Low |
+| REST | Simple queries, one-off requests | Medium |
+| FIX 4.4 | Institutional integration | Low |
+
+### What's the rate limit?
+
+- **REST API**: 100 requests/second
+- **WebSocket**: 1000 messages/second
+- **gRPC**: 10000 requests/second
+
+Rate limits are per API key. Contact us for higher limits.
+
+### How do I authenticate?
+
+```typescript
+// Generate signature
+const timestamp = Date.now();
+const message = `${timestamp}${method}${path}${body}`;
+const signature = hmacSHA256(apiSecret, message);
+
+// Include in headers
+headers: {
+  "X-API-Key": apiKey,
+  "X-Timestamp": timestamp,
+  "X-Signature": signature
+}
+```
+
+### Do you support FIX protocol?
+
+Yes. FIX 4.4 is supported for institutional clients. See [FIX Documentation](/docs/fix).
+
+### Is there a sandbox/testnet?
+
+Yes. Testnet available at:
+- WebSocket: `wss://testnet.dex.lux.network/ws`
+- REST: `https://testnet.dex.lux.network/api/v1`
+
+See [Testnet Guide](/docs/testnet) for setup.
+
+## SDKs & Clients
+
+### Which programming languages are supported?
+
+| Language | SDK | CLI Client |
+|----------|-----|------------|
+| Go | ✅ | ✅ |
+| Rust | ✅ | ✅ |
+| Python | ✅ | ✅ |
+| TypeScript | ✅ | ✅ |
+| C++ | ✅ | ✅ |
+| C | ✅ | ✅ |
+
+### Where can I find SDK documentation?
+
+See the [SDK Guide](/docs/sdk) for all languages.
+
+### Which SDK is best for HFT?
+
+For lowest latency:
+1. **C/C++**: Direct WebSocket with minimal overhead
+2. **Rust**: Safe low-latency with zero-copy parsing
+3. **Go**: Good balance of performance and ease
+
+### Can I use CCXT?
+
+CCXT integration is planned. For now, use our native SDKs.
+
+## Technical
+
+### What consensus does LX DEX use?
+
+DAG-based consensus with:
+- 1ms finality
+- Parallel transaction processing
+- Quantum-resistant signatures (optional)
+
+See [Consensus](/docs/consensus) for details.
+
+### How does settlement work?
+
+1. Order matched in DEX sidecar (sub-millisecond)
+2. Settlement message sent via Warp
+3. On-chain confirmation (1ms finality)
+4. Balances updated atomically
+
+### Is the order book really on-chain?
+
+Yes. Every order, cancel, and trade is recorded on-chain with full transparency. The matching engine runs as a sidecar for performance but settlement is atomic and on-chain.
+
+### What about MEV?
+
+LX DEX has built-in MEV protection:
+- Encrypted order flow until execution
+- Fair ordering guarantees
+- No front-running possible due to consensus design
+
+## Account & Security
+
+### How do I create an account?
+
+LX DEX uses wallet-based authentication. Connect your wallet to start trading:
+1. Connect wallet (MetaMask, WalletConnect, etc.)
+2. Sign authentication message
+3. Start trading
+
+### How do I generate API keys?
+
+```bash
+# Via CLI
+lx-cli create-api-key --name "Trading Bot" --permissions "trade,read"
+
+# Returns
+# API Key: lx_abc123...
+# Secret: sk_xyz789...
+```
+
+### Are my funds safe?
+
+- Non-custodial: You control your keys
+- On-chain settlement: All trades settled on Lux blockchain
+- Audited smart contracts
+- Bug bounty program active
+
+### What if I lose my API key?
+
+API keys can be revoked and regenerated:
+```bash
+lx-cli revoke-api-key --key-id "key_123"
+lx-cli create-api-key --name "New Key"
+```
+
+Your funds remain safe as API keys cannot withdraw to external addresses.

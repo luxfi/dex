@@ -144,7 +144,7 @@ async fn large_trades(client: &Client, min_size: f64) -> Result<()> {
 
     let mut filtered = stream.filter(|result| {
         match result {
-            Ok(trade) => trade.size &gt;= min_size,
+            Ok(trade) => trade.size >= min_size,
             Err(_) => true, // Let errors through
         }
     });
@@ -240,7 +240,7 @@ impl TradeAggregator {
         }
 
         // Check if bucket should be flushed
-        if self.last_flush.elapsed() &gt;= self.bucket_duration {
+        if self.last_flush.elapsed() >= self.bucket_duration {
             self.flush()
         } else {
             None
@@ -425,7 +425,7 @@ impl TradeFlowAnalyzer {
     }
 
     pub fn add(&mut self, trade: Trade) {
-        if self.window.len() &gt;= self.window_size {
+        if self.window.len() >= self.window_size {
             self.window.pop_front();
         }
         self.window.push_back(trade);

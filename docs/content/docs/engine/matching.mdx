@@ -99,7 +99,7 @@ func (ob *OrderBook) MatchOrders() []Trade {
             break
         }
 
-        // Check if orders cross (bid must be &gt;= ask for a match)
+        // Check if orders cross (bid must be >= ask for a match)
         if bestBid.Price < bestAsk.Price {
             break
         }
@@ -149,8 +149,8 @@ func (ob *OrderBook) MatchOrders() []Trade {
         bestAsk.Filled += tradeSize
 
         // Check if either order is fully filled
-        bidFullyFilled := bestBid.Filled &gt;= bestBid.Size
-        askFullyFilled := bestAsk.Filled &gt;= bestAsk.Size
+        bidFullyFilled := bestBid.Filled >= bestBid.Size
+        askFullyFilled := bestAsk.Filled >= bestAsk.Size
 
         if bidFullyFilled {
             bestBid.Status = Filled
@@ -257,14 +257,14 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
         bestOrder.Filled += tradeSize
 
         // Handle order status
-        if order.RemainingSize &lt;= 0 {
+        if order.RemainingSize <= 0 {
             order.Status = Filled
         } else {
             order.Status = PartiallyFilled
         }
 
-        if (bestOrder.RemainingSize &lt;= 0 && bestOrder.Filled &gt;= bestOrder.Size) ||
-           bestOrder.Filled &gt;= bestOrder.Size {
+        if (bestOrder.RemainingSize <= 0 && bestOrder.Filled >= bestOrder.Size) ||
+           bestOrder.Filled >= bestOrder.Size {
             bestOrder.Status = Filled
             oppositeTree.removeOrder(bestOrder)
             delete(ob.Orders, bestOrder.ID)
@@ -342,10 +342,10 @@ func (ob *OrderBook) checkSelfTrade(order *Order) bool {
     }
 
     if orderUser != "" && orderUser == bestUser {
-        if order.Side == Buy && order.Price &gt;= bestOrder.Price {
+        if order.Side == Buy && order.Price >= bestOrder.Price {
             return true
         }
-        if order.Side == Sell && order.Price &lt;= bestOrder.Price {
+        if order.Side == Sell && order.Price <= bestOrder.Price {
             return true
         }
     }
@@ -372,10 +372,10 @@ func (ob *OrderBook) wouldTakeLiquidity(order *Order) bool {
         return false  // No liquidity to take
     }
 
-    if order.Side == Buy && order.Price &gt;= bestOrder.Price {
+    if order.Side == Buy && order.Price >= bestOrder.Price {
         return true  // Would match immediately
     }
-    if order.Side == Sell && order.Price &lt;= bestOrder.Price {
+    if order.Side == Sell && order.Price <= bestOrder.Price {
         return true
     }
 
@@ -451,7 +451,7 @@ func (book *AdvancedOrderBook) processIcebergOrder(order *AdvancedOrder) ([]Trad
 
 // refillIceberg refills iceberg order after execution
 func (book *AdvancedOrderBook) refillIceberg(order *AdvancedOrder, iceberg *IcebergData) {
-    if iceberg.RemainingSize &lt;= 0 {
+    if iceberg.RemainingSize <= 0 {
         return
     }
 
@@ -493,9 +493,9 @@ func (book *AdvancedOrderBook) processStop(order *AdvancedOrder) ([]Trade, error
 // shouldTriggerStop checks if stop order should trigger
 func (book *AdvancedOrderBook) shouldTriggerStop(order *AdvancedOrder) bool {
     if order.Side == Buy {
-        return book.lastPrice &gt;= order.StopPrice
+        return book.lastPrice >= order.StopPrice
     }
-    return book.lastPrice &lt;= order.StopPrice
+    return book.lastPrice <= order.StopPrice
 }
 
 // triggerStop converts stop order to market/limit
@@ -595,9 +595,9 @@ func (book *AdvancedOrderBook) processLimitOrder(order *AdvancedOrder) ([]Trade,
 
     // Check if order crosses the spread
     canMatch := false
-    if order.Side == Buy && book.bestAsk > 0 && order.Price &gt;= book.bestAsk {
+    if order.Side == Buy && book.bestAsk > 0 && order.Price >= book.bestAsk {
         canMatch = true
-    } else if order.Side == Sell && book.bestBid > 0 && order.Price &lt;= book.bestBid {
+    } else if order.Side == Sell && book.bestBid > 0 && order.Price <= book.bestBid {
         canMatch = true
     }
 
@@ -639,18 +639,18 @@ func (book *AdvancedOrderBook) canFillCompletely(order *AdvancedOrder) bool {
 
     if order.Side == Buy {
         for _, o := range *book.askHeap {
-            if order.Type == Market || order.Price &gt;= o.Price {
+            if order.Type == Market || order.Price >= o.Price {
                 availableSize += o.RemainingSize
-                if availableSize &gt;= order.Size {
+                if availableSize >= order.Size {
                     return true
                 }
             }
         }
     } else {
         for _, o := range *book.bidHeap {
-            if order.Type == Market || order.Price &lt;= o.Price {
+            if order.Type == Market || order.Price <= o.Price {
                 availableSize += o.RemainingSize
-                if availableSize &gt;= order.Size {
+                if availableSize >= order.Size {
                     return true
                 }
             }

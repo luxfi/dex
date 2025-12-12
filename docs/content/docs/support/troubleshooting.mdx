@@ -1,0 +1,423 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for LX DEX
+---
+
+# Troubleshooting Guide
+
+## Connection Issues
+
+### WebSocket Connection Failed
+
+**Symptoms:**
+- "Connection refused" error
+- WebSocket timeout
+- Cannot connect to `ws://localhost:8081`
+
+**Solutions:**
+
+1. **Check if daemon is running:**
+```bash
+# Check process
+ps aux | grep lxd
+
+# Check port
+lsof -i :8081
+```
+
+2. **Start the daemon:**
+```bash
+lxd start --config /path/to/config.yaml
+```
+
+3. **Check firewall:**
+```bash
+# macOS
+sudo pfctl -sr | grep 8081
+
+# Linux
+sudo iptables -L -n | grep 8081
+```
+
+4. **Verify endpoint:**
+```bash
+# Test WebSocket
+wscat -c ws://localhost:8081
+
+# Test REST
+curl http://localhost:8080/health
+```
+
+### SSL/TLS Certificate Errors
+
+**Symptoms:**
+- "Certificate verify failed"
+- "Unable to verify the first certificate"
+
+**Solutions:**
+
+```bash
+# Update CA certificates
+# macOS
+brew install ca-certificates
+
+# Linux
+sudo apt update && sudo apt install ca-certificates
+
+# Or disable verification (development only!)
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+```
+
+### Connection Drops
+
+**Symptoms:**
+- Frequent disconnections
+- "Connection reset by peer"
+
+**Solutions:**
+
+1. **Implement reconnection logic:**
+```typescript
+const connect = () => {
+  const ws = new WebSocket(url);
+  ws.onclose = () => setTimeout(connect, 1000);
+};
+```
+
+2. **Send heartbeats:**
+```typescript
+setInterval(() => ws.send('{"type":"ping"}'), 30000);
+```
+
+3. **Check network stability:**
+```bash
+ping -c 100 dex.lux.network
+```
+
+## Order Issues
+
+### Order Rejected
+
+**Error: "Insufficient balance"**
+```json
+{"error": "insufficient_balance", "required": "1000.00", "available": "500.00"}
+```
+
+**Solution:** Ensure account has sufficient funds including fees.
+
+---
+
+**Error: "Price out of bounds"**
+```json
+{"error": "price_out_of_bounds", "min": "0.01", "max": "1000000.00"}
+```
+
+**Solution:** Adjust price within allowed range.
+
+---
+
+**Error: "Size below minimum"**
+```json
+{"error": "size_below_minimum", "minimum": "0.001", "provided": "0.0001"}
+```
+
+**Solution:** Increase order size to meet minimum.
+
+---
+
+**Error: "Self-trade prevented"**
+```json
+{"error": "self_trade_prevented"}
+```
+
+**Solution:** Your order would match against your own. Adjust price or cancel existing order.
+
+### Order Not Filling
+
+**Possible causes:**
+
+1. **Limit price too aggressive:**
+   - Buy orders: price too low
+   - Sell orders: price too high
+
+2. **Insufficient liquidity:**
+```bash
+# Check order book depth
+lx-cli orderbook BTC-USD --depth 20
+```
+
+3. **Post-only rejection:**
+   - Post-only orders rejected if they would take liquidity
+
+### Order Stuck in Pending
+
+**Solutions:**
+
+1. **Check order status:**
+```bash
+lx-cli orders --status pending
+```
+
+2. **Cancel and retry:**
+```bash
+lx-cli cancel --order-id ord_123
+```
+
+3. **Check network status:**
+```bash
+lx-cli status
+```
+
+## API Issues
+
+### Authentication Failures
+
+**Error: "Invalid signature"**
+
+**Common causes:**
+
+1. **Timestamp drift:**
+```typescript
+// Ensure system time is synchronized
+const timestamp = Date.now();
+// Timestamp must be within 30 seconds
+```
+
+2. **Wrong signing format:**
+```typescript
+// Correct format
+const message = `${timestamp}${method}${path}${body}`;
+const signature = hmacSHA256(secret, message);
+```
+
+3. **Encoding issues:**
+```typescript
+// Ensure UTF-8 encoding
+const body = JSON.stringify(data);  // Not toString()
+```
+
+**Error: "API key not found"**
+
+**Solutions:**
+- Verify key is correct (case-sensitive)
+- Check key hasn't been revoked
+- Ensure key has required permissions
+
+### Rate Limiting
+
+**Error: "Rate limit exceeded"**
+
+```json
+{"error": "rate_limit_exceeded", "retry_after": 1000}
+```
+
+**Solutions:**
+
+1. **Implement backoff:**
+```typescript
+const backoff = async (attempt: number) => {
+  const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+  await sleep(delay);
+};
+```
+
+2. **Batch requests:**
+```typescript
+// Instead of multiple single orders
+const orders = [order1, order2, order3];
+ws.send(JSON.stringify({ type: "batch_orders", data: orders }));
+```
+
+3. **Use WebSocket for real-time data:**
+```typescript
+// Subscribe once instead of polling
+ws.send(JSON.stringify({ type: "subscribe", channel: "orderbook", symbol: "BTC-USD" }));
+```
+
+### Timeout Errors
+
+**Error: "Request timeout"**
+
+**Solutions:**
+
+1. **Increase timeout:**
+```typescript
+const response = await fetch(url, { timeout: 30000 });
+```
+
+2. **Check server health:**
+```bash
+curl -w "@curl-format.txt" https://api.lux.exchange/health
+```
+
+3. **Use primary endpoint:**
+```
+Global (GeoDNS): api.lux.exchange
+Kansas City DC: Direct colocation available
+```
+
+## Balance Issues
+
+### Balance Not Updating
+
+**Possible causes:**
+
+1. **Pending settlement:**
+   - Wait 1-2 blocks (~1-2 seconds)
+
+2. **Funds in open orders:**
+```bash
+# Check reserved balance
+lx-cli balances --show-reserved
+```
+
+3. **Cache issues:**
+```bash
+# Force refresh
+lx-cli balances --no-cache
+```
+
+### Incorrect Balance Shown
+
+**Solutions:**
+
+1. **Reconcile with blockchain:**
+```bash
+lx-cli reconcile --account 0x...
+```
+
+2. **Check all positions:**
+```bash
+lx-cli positions --all
+```
+
+3. **Verify deposits:**
+```bash
+lx-cli deposits --status pending
+```
+
+## SDK Issues
+
+### Installation Failures
+
+**Python:**
+```bash
+# Use virtual environment
+python -m venv venv
+source venv/bin/activate
+pip install luxfi-dex
+```
+
+**TypeScript:**
+```bash
+# Clear npm cache
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
+```
+
+**Rust:**
+```bash
+# Update toolchain
+rustup update
+cargo clean
+cargo build
+```
+
+**Go:**
+```bash
+# Clear module cache
+go clean -modcache
+go mod download
+```
+
+### Build Errors
+
+**C++ missing dependencies:**
+```bash
+# macOS
+brew install cmake nlohmann-json websocketpp asio
+
+# Linux
+sudo apt install cmake nlohmann-json3-dev libwebsocketpp-dev libasio-dev
+```
+
+**C missing libwebsockets:**
+```bash
+# macOS
+brew install libwebsockets
+
+# Linux
+sudo apt install libwebsockets-dev
+```
+
+## Performance Issues
+
+### High Latency
+
+**Diagnosis:**
+```bash
+# Measure round-trip time
+lx-cli ping --count 100
+
+# Check network path
+traceroute dex.lux.network
+```
+
+**Solutions:**
+
+1. **Use colocated servers:**
+   - AWS us-east-1 for US
+   - AWS eu-west-1 for EU
+
+2. **Enable compression:**
+```typescript
+const ws = new WebSocket(url, { perMessageDeflate: true });
+```
+
+3. **Use binary protocol:**
+```typescript
+ws.binaryType = 'arraybuffer';
+```
+
+### Memory Leaks
+
+**Symptoms:**
+- Increasing memory usage over time
+- Out of memory errors
+
+**Solutions:**
+
+1. **Clean up subscriptions:**
+```typescript
+ws.send(JSON.stringify({ type: "unsubscribe", channel: "orderbook" }));
+```
+
+2. **Limit order book depth:**
+```typescript
+// Only subscribe to top 10 levels
+{ type: "subscribe", channel: "orderbook", depth: 10 }
+```
+
+3. **Use streaming instead of snapshots:**
+```typescript
+// Incremental updates instead of full snapshots
+{ type: "subscribe", channel: "orderbook_delta" }
+```
+
+## Still Need Help?
+
+If you've tried the above solutions and still have issues:
+
+1. **Gather diagnostic info:**
+```bash
+lx-cli diagnostics > diagnostics.txt
+```
+
+2. **Open GitHub issue** with:
+   - Error messages
+   - Steps to reproduce
+   - Diagnostic output
+   - SDK/client version
+
+3. **Join Discord** for real-time community help

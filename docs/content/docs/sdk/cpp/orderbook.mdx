@@ -108,7 +108,7 @@ struct PriceLevel {
 };
 
 // Cache-line aligned for performance
-static_assert(sizeof(PriceLevel) &lt;= 64);
+static_assert(sizeof(PriceLevel) <= 64);
 static_assert(alignof(PriceLevel) == 64);
 
 }  // namespace lxdex
@@ -407,7 +407,7 @@ for (const auto& [price_bucket, total_qty] : aggregated.bids()) {
 ```cpp
 // Filter by minimum quantity
 auto large_orders = book.filter([](const PriceLevel& level) {
-    return level.quantity &gt;= Quantity::from_string("10.0");
+    return level.quantity >= Quantity::from_string("10.0");
 });
 
 // Filter by price range
