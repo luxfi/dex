@@ -70,13 +70,12 @@ impl HummingbotAdapter {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             return Err(Error::HummingbotError(format!(
-                "Gateway error [{}]: {}",
-                status, text
+                "Gateway error [{status}]: {text}"
             )));
         }
 
         response.json().await.map_err(|e| {
-            Error::DeserializationError(format!("Failed to parse Gateway response: {}", e))
+            Error::DeserializationError(format!("Failed to parse Gateway response: {e}"))
         })
     }
 
@@ -176,7 +175,7 @@ impl VenueAdapter for HummingbotAdapter {
                     }
 
                     markets.push(MarketInfo {
-                        symbol: format!("{}-{}", base, quote),
+                        symbol: format!("{base}-{quote}"),
                         base: base.to_string(),
                         quote: quote.to_string(),
                         price_precision: 8,
@@ -431,7 +430,7 @@ impl VenueAdapter for HummingbotAdapter {
         Ok(Trade {
             trade_id: tx_hash.clone(),
             order_id: tx_hash,
-            symbol: format!("{}-{}", base_token, quote_token),
+            symbol: format!("{base_token}-{quote_token}"),
             venue: self.name.clone(),
             side: if is_buy { Side::Buy } else { Side::Sell },
             price,

@@ -7,7 +7,7 @@
 //! - Request/response interceptors
 
 use parking_lot::RwLock;
-use reqwest::{Client, Method, Request, Response, StatusCode};
+use reqwest::{Client, Method, Response, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -173,16 +173,18 @@ impl RateLimiter {
     }
 
     /// Acquire a token (wait if necessary)
+    #[allow(clippy::await_holding_lock)]
     pub async fn acquire(&self) {
         loop {
             self.refill();
 
-            let mut tokens = self.tokens.write();
-            if *tokens >= 1.0 {
-                *tokens -= 1.0;
-                return;
-            }
-            drop(tokens);
+            {
+                let mut tokens = self.tokens.write();
+                if *tokens >= 1.0 {
+                    *tokens -= 1.0;
+                    return;
+                }
+            } // Guard dropped here before await
 
             // Wait for token
             let wait_time = Duration::from_secs_f64(1.0 / self.requests_per_second);
@@ -293,7 +295,7 @@ impl HttpClient {
             .pool_max_idle_per_host(config.pool_max_idle_per_host)
             .user_agent(&config.user_agent)
             .build()
-            .map_err(|e| Error::Internal(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to create HTTP client: {e}")))?;
 
         Ok(Self {
             client,
@@ -401,7 +403,7 @@ impl HttpClient {
                     if status.is_success() {
                         self.metrics.successful_requests.fetch_add(1, Ordering::Relaxed);
                         let text = response.text().await.map_err(|e| {
-                            Error::NetworkError(format!("Failed to read response: {}", e))
+                            Error::NetworkError(format!("Failed to read response: {e}"))
                         })?;
                         return serde_json::from_str(&text).map_err(|e| {
                             Error::DeserializationError(format!(
@@ -530,7 +532,7 @@ impl HttpClient {
 
         let status = response.status();
         let text = response.text().await.map_err(|e| {
-            Error::NetworkError(format!("Failed to read response: {}", e))
+            Error::NetworkError(format!("Failed to read response: {e}"))
         })?;
 
         if status.is_success() {

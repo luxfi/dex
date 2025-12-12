@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use rust_decimal::prelude::FromStr;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -26,6 +27,7 @@ pub struct CcxtAdapter {
     capabilities: VenueCapabilities,
     connected: AtomicBool,
     latency: AtomicU64,
+    #[allow(dead_code)]
     markets_cache: RwLock<HashMap<String, MarketInfo>>,
 }
 
@@ -97,7 +99,7 @@ print(json.dumps(result))
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| Error::CcxtError(format!("Failed to execute Python: {}", e)))?;
+            .map_err(|e| Error::CcxtError(format!("Failed to execute Python: {e}")))?;
 
         let latency = start.elapsed().as_millis() as u64;
         self.latency.store(latency, Ordering::Relaxed);
@@ -105,14 +107,13 @@ print(json.dumps(result))
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(Error::CcxtError(format!(
-                "CCXT {} failed: {}",
-                method, stderr
+                "CCXT {method} failed: {stderr}"
             )));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         serde_json::from_str(&stdout).map_err(|e| {
-            Error::DeserializationError(format!("Failed to parse CCXT response: {}", e))
+            Error::DeserializationError(format!("Failed to parse CCXT response: {e}"))
         })
     }
 
@@ -151,13 +152,11 @@ print(json.dumps(result))
 
         let price: Option<Decimal> = ccxt_order["price"]
             .as_f64()
-            .map(|f| Decimal::try_from(f).ok())
-            .flatten();
+            .and_then(|f| Decimal::try_from(f).ok());
 
         let average: Option<Decimal> = ccxt_order["average"]
             .as_f64()
-            .map(|f| Decimal::try_from(f).ok())
-            .flatten();
+            .and_then(|f| Decimal::try_from(f).ok());
 
         Ok(Order {
             order_id: ccxt_order["id"].as_str().unwrap_or("").to_string(),
@@ -295,12 +294,10 @@ impl VenueAdapter for CcxtAdapter {
                         .unwrap_or_default(),
                     max_quantity: market["limits"]["amount"]["max"]
                         .as_f64()
-                        .map(|f| Decimal::try_from(f).ok())
-                        .flatten(),
+                        .and_then(|f| Decimal::try_from(f).ok()),
                     min_notional: market["limits"]["cost"]["min"]
                         .as_f64()
-                        .map(|f| Decimal::try_from(f).ok())
-                        .flatten(),
+                        .and_then(|f| Decimal::try_from(f).ok()),
                     tick_size: market["precision"]["price"]
                         .as_f64()
                         .map(|p| Decimal::from(1) / Decimal::from(10u64.pow(p as u32)))
@@ -325,13 +322,13 @@ impl VenueAdapter for CcxtAdapter {
         Ok(Ticker {
             symbol: ticker["symbol"].as_str().unwrap_or("").to_string(),
             venue: self.name.clone(),
-            bid: ticker["bid"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            ask: ticker["ask"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            last: ticker["last"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            volume_24h: ticker["baseVolume"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            high_24h: ticker["high"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            low_24h: ticker["low"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-            change_24h: ticker["percentage"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
+            bid: ticker["bid"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            ask: ticker["ask"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            last: ticker["last"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            volume_24h: ticker["baseVolume"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            high_24h: ticker["high"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            low_24h: ticker["low"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            change_24h: ticker["percentage"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
             timestamp: ticker["timestamp"].as_i64().unwrap_or(0),
         })
     }
@@ -347,13 +344,13 @@ impl VenueAdapter for CcxtAdapter {
                 result.push(Ticker {
                     symbol: ticker["symbol"].as_str().unwrap_or("").to_string(),
                     venue: self.name.clone(),
-                    bid: ticker["bid"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    ask: ticker["ask"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    last: ticker["last"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    volume_24h: ticker["baseVolume"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    high_24h: ticker["high"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    low_24h: ticker["low"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
-                    change_24h: ticker["percentage"].as_f64().map(|f| Decimal::try_from(f).ok()).flatten(),
+                    bid: ticker["bid"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    ask: ticker["ask"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    last: ticker["last"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    volume_24h: ticker["baseVolume"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    high_24h: ticker["high"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    low_24h: ticker["low"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    change_24h: ticker["percentage"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
                     timestamp: ticker["timestamp"].as_i64().unwrap_or(0),
                 });
             }
@@ -558,8 +555,3 @@ impl VenueAdapter for CcxtAdapter {
     }
 }
 
-use rust_decimal::prelude::FromStr;
-
-fn decimal_from_str(s: &str) -> Result<Decimal> {
-    Decimal::from_str(s).map_err(|e| Error::DeserializationError(e.to_string()))
-}

@@ -174,17 +174,20 @@ Chain A (Lux)              Chain B (Ethereum)
 ### TypeScript
 
 ```typescript
+import { DEX, Client } from '@luxfi/trading'
+
+// For advanced arbitrage features
 import {
-  LxDex,
   UnifiedArbitrage,
   LxFirstArbitrage,
   CrossChainRouter,
   Scanner
-} from '@luxfi/dex-sdk'
+} from '@luxfi/trading/arbitrage'
 
 // Initialize the DEX client
-const dex = new LxDex({
-  endpoint: 'wss://dex.lux.network/ws',
+const dex = await DEX({
+  rpcUrl: 'https://api.lux.network/rpc',
+  wsUrl: 'wss://dex.lux.network/ws',
   apiKey: process.env.LX_API_KEY
 })
 

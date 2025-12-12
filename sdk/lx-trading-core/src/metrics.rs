@@ -44,7 +44,7 @@ impl MetricsCollector {
         let mut latencies = self.latencies.write();
         latencies
             .entry(operation.to_string())
-            .or_insert_with(LatencyTracker::new)
+            .or_default()
             .record(latency);
     }
 
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     fn test_percentile() {
         let samples: Vec<Duration> = (1..=100)
-            .map(|i| Duration::from_millis(i))
+            .map(Duration::from_millis)
             .collect();
 
         // Percentile calculation uses floor, so p50 of 100 items = index 50 = 51ms
