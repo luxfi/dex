@@ -46,10 +46,10 @@ pip install "luxfi-dex[dev]"
 ### Basic Usage
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 # Initialize client
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc",
     ws_url="ws://localhost:8081"
 )
@@ -69,9 +69,9 @@ print(f"Spread: {book.spread}")
 ### Place an Order
 
 ```python
-from luxfi_dex import LXDexClient, OrderType, Side
+from luxfi_dex import Client, OrderType, Side
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Place a limit buy order
 order = client.place_order(
@@ -92,10 +92,10 @@ print(f"Filled: {order.filled_size}/{order.size}")
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient, OrderType, Side
+from luxfi_dex import AsyncClient, OrderType, Side
 
 async def main() -> None:
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Place order asynchronously
         order = await client.place_order(
             symbol="BTC-USD",
@@ -120,7 +120,7 @@ asyncio.run(main())
 ### Client Options
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.config import ClientConfig, RetryConfig
 
 config = ClientConfig(
@@ -136,7 +136,7 @@ config = ClientConfig(
     )
 )
 
-client = LXDexClient(config=config)
+client = Client(config=config)
 ```
 
 ### Environment Variables
@@ -149,10 +149,10 @@ export LX_DEX_API_SECRET="your-api-secret"
 ```
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 # Automatically reads from environment
-client = LXDexClient.from_env()
+client = Client.from_env()
 ```
 
 ## Type Definitions
@@ -207,7 +207,7 @@ type Timestamp = int  # Unix milliseconds
 ## Exception Handling
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.exceptions import (
     LXDexError,
     ConnectionError,
@@ -218,7 +218,7 @@ from luxfi_dex.exceptions import (
     ValidationError
 )
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 try:
     order = client.place_order(
@@ -247,11 +247,11 @@ except LXDexError as e:
 import nest_asyncio
 nest_asyncio.apply()
 
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 import pandas as pd
 
 async def analyze_order_book():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         book = await client.get_order_book("BTC-USD", depth=20)
 
         # Convert to DataFrame
@@ -270,7 +270,7 @@ await analyze_order_book()
 ### Mainnet
 
 ```python
-client = LXDexClient(
+client = Client(
     json_rpc_url="https://api.lux.network/rpc",
     ws_url="wss://api.lux.network/ws"
 )
@@ -279,7 +279,7 @@ client = LXDexClient(
 ### Testnet
 
 ```python
-client = LXDexClient(
+client = Client(
     json_rpc_url="https://testnet-api.lux.network/rpc",
     ws_url="wss://testnet-api.lux.network/ws"
 )
@@ -288,7 +288,7 @@ client = LXDexClient(
 ### Local Development
 
 ```python
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc",
     ws_url="ws://localhost:8081"
 )
@@ -298,7 +298,7 @@ client = LXDexClient(
 
 | Module | Description |
 |--------|-------------|
-| [Client](/docs/sdk/python/client) | LXDexClient and AsyncLXDexClient classes |
+| [Client](/docs/sdk/python/client) | Client and AsyncClient classes |
 | [Orders](/docs/sdk/python/orders) | Order placement, cancellation, and management |
 | [Order Book](/docs/sdk/python/orderbook) | Order book data and subscriptions |
 | [Trades](/docs/sdk/python/trades) | Trade history and streaming |

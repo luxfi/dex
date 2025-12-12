@@ -20,11 +20,11 @@ Choose your preferred language:
 #### TypeScript
 
 ```bash
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 # or
-pnpm add @luxfi/dex-sdk
+pnpm add @luxfi/trading
 # or
-yarn add @luxfi/dex-sdk
+yarn add @luxfi/trading
 ```
 #### Python
 
@@ -48,9 +48,9 @@ Request free test tokens from the faucet:
 #### TypeScript
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({ network: 'testnet' });
+const client = new Client({ network: 'testnet' });
 
 // Request test tokens
 const result = await client.faucet.request({
@@ -64,9 +64,9 @@ console.log('Tokens received:', result.amounts);
 #### Python
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(network='testnet')
+client = Client(network='testnet')
 
 # Request test tokens
 result = client.faucet.request(
@@ -364,11 +364,11 @@ curl -X POST https://testnet-api.lux.network/rpc \
 Here's a full working example that combines all steps:
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 async function main() {
   // Initialize client
-  const client = new LXDexClient({ network: 'testnet' });
+  const client = new Client({ network: 'testnet' });
 
   // Request test tokens
   console.log('Requesting test tokens...');
