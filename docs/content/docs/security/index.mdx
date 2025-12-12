@@ -1,0 +1,253 @@
+---
+title: Security Overview
+description: Comprehensive security architecture for LX DEX - threat models, defense layers, and security principles
+---
+
+# Security Overview
+
+LX DEX implements defense-in-depth security across all layers, combining classical cryptography with post-quantum algorithms to protect against both current and future threats.
+
+## Security Philosophy
+
+LX DEX security follows three core principles:
+
+1. **Defense in Depth**: Multiple independent security layers
+2. **Zero Trust**: Verify everything, trust nothing
+3. **Quantum Readiness**: Post-quantum cryptography throughout
+
+## Threat Model
+
+### Adversary Capabilities
+
+| Adversary Class | Capabilities | Mitigation |
+|-----------------|-------------|------------|
+| **Script Kiddie** | Public exploits, automated tools | Rate limiting, input validation |
+| **Sophisticated Hacker** | Zero-days, targeted attacks | Bug bounty, security audits |
+| **Nation State** | Quantum computers, unlimited resources | Post-quantum cryptography |
+| **Malicious Insider** | Physical access, credentials | MPC, HSM, audit logging |
+| **Colluding Validators** | Up to t-1 of n validators | Threshold signatures (t-of-n) |
+
+### Attack Vectors
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ATTACK SURFACE MAP                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Network Layer                                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  DDoS │ MITM │ Replay │ Sybil │ Eclipse                 │   │
+│  │  ──────────────────────────────────────────────────────│   │
+│  │  Mitigations: Rate limiting, TLS 1.3, Nonces, PoS      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Application Layer                                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Injection │ XSS │ CSRF │ Auth Bypass │ Logic Bugs     │   │
+│  │  ──────────────────────────────────────────────────────│   │
+│  │  Mitigations: Input validation, CSP, HMAC, Audits      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Smart Contract Layer                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Reentrancy │ Overflow │ Flash Loans │ Oracle Manip    │   │
+│  │  ──────────────────────────────────────────────────────│   │
+│  │  Mitigations: CEI, SafeMath, TWAP, Chainlink           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Cryptographic Layer                                             │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Key Extraction │ Side Channel │ Quantum Attack        │   │
+│  │  ──────────────────────────────────────────────────────│   │
+│  │  Mitigations: HSM, Constant-time, Dilithium/Kyber     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Security Architecture
+
+### Layer 1: Network Security
+
+- **TLS 1.3** mandatory for all connections
+- **QZMQ** post-quantum secure messaging between nodes
+- **Rate limiting** per IP, per API key, per account
+- **DDoS protection** via Cloudflare and in-house mitigation
+- **Firewall rules** with default-deny policy
+
+### Layer 2: Authentication & Authorization
+
+- **API Keys** with HMAC-SHA512 signatures
+- **JWT tokens** with short expiry and refresh rotation
+- **Ed25519/Dilithium** signatures for trading operations
+- **Role-based access control** (RBAC) with least privilege
+- **Multi-factor authentication** for sensitive operations
+
+### Layer 3: Cryptographic Security
+
+- **Hybrid signatures**: Ed25519 (classical) + Dilithium (post-quantum)
+- **Hybrid encryption**: X25519 (classical) + Kyber (post-quantum)
+- **Threshold signatures**: t-of-n MPC for hot wallets
+- **Hardware Security Modules** for cold storage
+
+### Layer 4: Smart Contract Security
+
+- **Formal verification** of critical contracts
+- **Multiple audits** from top security firms
+- **Timelock governance** for upgrades
+- **Circuit breakers** for anomaly detection
+- **Bug bounty** up to $1M for critical vulnerabilities
+
+### Layer 5: Operational Security
+
+- **Immutable audit logs** on-chain
+- **24/7 monitoring** with anomaly detection
+- **Incident response** with defined playbooks
+- **Regular penetration testing**
+- **Employee security training**
+
+## Cryptographic Primitives
+
+### Signature Schemes
+
+| Algorithm | Type | Security Level | Use Case |
+|-----------|------|----------------|----------|
+| Ed25519 | Classical | 128-bit | Fast verification |
+| Dilithium-3 | Post-Quantum | 192-bit (NIST Level 3) | Quantum resistance |
+| BLS12-381 | Pairing | 128-bit | Aggregate signatures |
+| Ringtail | Lattice | 128-256 bit | Threshold signatures |
+
+### Encryption Schemes
+
+| Algorithm | Type | Security Level | Use Case |
+|-----------|------|----------------|----------|
+| AES-256-GCM | Symmetric | 256-bit | Data at rest |
+| ChaCha20-Poly1305 | Symmetric | 256-bit | Data in transit |
+| X25519 | Classical KEM | 128-bit | Key exchange |
+| Kyber-768 | Post-Quantum KEM | 192-bit | Quantum-safe exchange |
+
+### Hash Functions
+
+| Algorithm | Output Size | Use Case |
+|-----------|------------|----------|
+| SHA3-256 | 256 bits | General hashing |
+| BLAKE3 | 256 bits | High-performance |
+| Keccak-256 | 256 bits | EVM compatibility |
+| SHAKE256 | Variable | Extendable output |
+
+## Security Zones
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SECURITY ZONES                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Zone 0: Air-Gapped (Cold Storage)                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  HSM │ Cold Wallets │ Recovery Keys │ MPC Key Shares    │   │
+│  │  Access: Physical only, multi-party authorization       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Zone 1: Restricted (Hot Wallets)                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Threshold Wallets │ Signing Servers │ Key Management   │   │
+│  │  Access: MPC only, no single party can sign            │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Zone 2: Internal (Backend Services)                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Matching Engine │ Database │ Settlement │ Risk Engine  │   │
+│  │  Access: Service accounts, mutual TLS                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Zone 3: DMZ (Public APIs)                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  REST API │ WebSocket │ gRPC │ Rate Limiters            │   │
+│  │  Access: Authenticated users, rate limited              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Security Checklist
+
+### For Users
+
+- [ ] Enable 2FA on your account
+- [ ] Use hardware wallet for large balances
+- [ ] Verify contract addresses before interacting
+- [ ] Never share API keys or private keys
+- [ ] Use unique, strong passwords
+- [ ] Monitor account activity regularly
+- [ ] Whitelist withdrawal addresses
+- [ ] Set up notifications for trades/withdrawals
+
+### For Developers
+
+- [ ] Use official SDKs only
+- [ ] Validate all API responses
+- [ ] Implement request signing
+- [ ] Handle errors securely (no stack traces)
+- [ ] Use environment variables for secrets
+- [ ] Implement rate limiting in your app
+- [ ] Keep dependencies updated
+- [ ] Follow secure coding guidelines
+
+### For Validators
+
+- [ ] Use HSM for validator keys
+- [ ] Implement sentry node architecture
+- [ ] Monitor for double-signing
+- [ ] Keep software updated
+- [ ] Secure network perimeter
+- [ ] Implement key rotation
+- [ ] Maintain offline backup keys
+- [ ] Document incident response procedures
+
+## Security Metrics
+
+### Current Status
+
+| Metric | Value | Target |
+|--------|-------|--------|
+| **Security Audits** | 4 completed | Quarterly |
+| **Bug Bounty Payouts** | $125K total | Ongoing |
+| **Critical Vulnerabilities** | 0 open | 0 |
+| **Mean Time to Patch** | 4 hours | < 24 hours |
+| **Uptime** | 99.97% | 99.9% |
+| **Failed Login Attempts Blocked** | 2.3M/day | N/A |
+| **DDoS Attacks Mitigated** | 47 YTD | N/A |
+
+### Monitoring Dashboard
+
+Real-time security metrics available at:
+- Internal: `https://security.internal.lux.network`
+- Public status: `https://status.lux.network`
+
+## Documentation Index
+
+| Document | Description |
+|----------|-------------|
+| [Authentication](/docs/security/authentication) | API keys, JWT, signature auth |
+| [Encryption](/docs/security/encryption) | TLS, data encryption, key management |
+| [Quantum Security](/docs/security/quantum) | Post-quantum cryptography |
+| [MPC Security](/docs/security/mpc) | Threshold signatures, key ceremonies |
+| [Audits](/docs/security/audits) | Security audits, bug bounty |
+| [Smart Contracts](/docs/security/smartcontracts) | Contract security patterns |
+| [Network Security](/docs/security/network) | DDoS protection, rate limiting |
+| [Compliance](/docs/security/compliance) | KYC/AML, regulatory |
+| [Incident Response](/docs/security/incidents) | Emergency procedures |
+
+## Security Contacts
+
+- **Security Team**: security@lux.network
+- **Bug Bounty**: https://hackerone.com/luxfi
+- **Emergency Hotline**: +1-888-LUX-SEC1
+- **PGP Key**: [0xABCD1234](/security/pgp-key.asc)
+
+## References
+
+- [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography)
+- [OWASP Top 10](https://owasp.org/Top10/)
+- [CWE Top 25](https://cwe.mitre.org/top25/)
+- [LP-9000 DEX Security Requirements](https://github.com/luxfi/LPs/blob/main/LPs/lp-9000-dex-core-specification.md)

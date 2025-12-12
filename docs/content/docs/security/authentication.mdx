@@ -1,0 +1,595 @@
+---
+title: Authentication
+description: API keys, JWT tokens, and cryptographic signature authentication for LX DEX
+---
+
+# Authentication
+
+LX DEX supports multiple authentication methods designed for different use cases, from simple API keys to cryptographic signatures for high-security operations.
+
+## Authentication Methods
+
+| Method | Use Case | Security Level | Latency |
+|--------|----------|----------------|---------|
+| **API Key + HMAC** | General API access | High | ~1ms |
+| **JWT Bearer** | Web/mobile apps | Medium-High | ~0.5ms |
+| **Ed25519 Signature** | Trading operations | Very High | ~2ms |
+| **Dilithium Signature** | Quantum-safe trading | Highest | ~5ms |
+| **Passkey/WebAuthn** | User login | High | Variable |
+
+## API Key Authentication
+
+### Generating API Keys
+
+```bash
+# Via CLI
+lx-dex api-key create --name "Trading Bot" --permissions "trade,read"
+
+# Output
+API Key: lx_live_abc123xyz789...
+Secret:  sk_live_secret_key_here...
+
+# IMPORTANT: Secret is shown only once. Store securely!
+```
+
+### Request Signing
+
+All authenticated requests must include HMAC-SHA512 signature:
+
+```typescript
+import { createHmac } from 'crypto'
+
+interface SignedRequest {
+  apiKey: string
+  timestamp: number
+  signature: string
+  body?: string
+}
+
+function signRequest(
+  apiKey: string,
+  secret: string,
+  method: string,
+  path: string,
+  body?: object
+): SignedRequest {
+  const timestamp = Date.now()
+  const bodyStr = body ? JSON.stringify(body) : ''
+
+  // Create signature payload
+  const payload = `${timestamp}${method}${path}${bodyStr}`
+
+  // Sign with HMAC-SHA512
+  const signature = createHmac('sha512', secret)
+    .update(payload)
+    .digest('hex')
+
+  return {
+    apiKey,
+    timestamp,
+    signature,
+    body: bodyStr
+  }
+}
+
+// Usage
+const signed = signRequest(
+  'lx_live_abc123',
+  'sk_live_secret',
+  'POST',
+  '/api/v1/orders',
+  { symbol: 'BTC-USD', side: 'buy', price: '50000', quantity: '1.0' }
+)
+
+// HTTP Request
+fetch('https://api.dex.lux.network/api/v1/orders', {
+  method: 'POST',
+  headers: {
+    'X-LX-API-Key': signed.apiKey,
+    'X-LX-Timestamp': signed.timestamp.toString(),
+    'X-LX-Signature': signed.signature,
+    'Content-Type': 'application/json'
+  },
+  body: signed.body
+})
+```
+
+### Go Implementation
+
+```go
+package auth
+
+import (
+    "crypto/hmac"
+    "crypto/sha512"
+    "encoding/hex"
+    "fmt"
+    "strconv"
+    "time"
+)
+
+// Signer handles API request signing
+type Signer struct {
+    APIKey string
+    Secret []byte
+}
+
+// NewSigner creates a new request signer
+func NewSigner(apiKey, secret string) *Signer {
+    return &Signer{
+        APIKey: apiKey,
+        Secret: []byte(secret),
+    }
+}
+
+// Sign creates signature for a request
+func (s *Signer) Sign(method, path string, body []byte) (timestamp int64, signature string) {
+    timestamp = time.Now().UnixMilli()
+
+    // Build payload: timestamp + method + path + body
+    payload := fmt.Sprintf("%d%s%s%s", timestamp, method, path, string(body))
+
+    // HMAC-SHA512
+    mac := hmac.New(sha512.New, s.Secret)
+    mac.Write([]byte(payload))
+    signature = hex.EncodeToString(mac.Sum(nil))
+
+    return timestamp, signature
+}
+
+// VerifySignature verifies an incoming request signature
+func VerifySignature(
+    apiKey string,
+    secret []byte,
+    timestamp int64,
+    method, path string,
+    body []byte,
+    signature string,
+) error {
+    // Check timestamp freshness (5 minute window)
+    now := time.Now().UnixMilli()
+    if abs(now-timestamp) > 5*60*1000 {
+        return ErrTimestampExpired
+    }
+
+    // Rebuild expected signature
+    payload := fmt.Sprintf("%d%s%s%s", timestamp, method, path, string(body))
+    mac := hmac.New(sha512.New, secret)
+    mac.Write([]byte(payload))
+    expected := hex.EncodeToString(mac.Sum(nil))
+
+    // Constant-time comparison
+    if !hmac.Equal([]byte(signature), []byte(expected)) {
+        return ErrInvalidSignature
+    }
+
+    return nil
+}
+```
+
+### API Key Permissions
+
+| Permission | Description | Risk Level |
+|------------|-------------|------------|
+| `read` | View balances, orders, history | Low |
+| `trade` | Place and cancel orders | Medium |
+| `withdraw` | Withdraw funds | High |
+| `admin` | Manage API keys, settings | High |
+
+```typescript
+// Create restricted API key
+const key = await dex.createApiKey({
+  name: 'Read-Only Bot',
+  permissions: ['read'],
+  ipWhitelist: ['192.168.1.0/24'],
+  expiresAt: new Date('2025-12-31')
+})
+```
+
+## JWT Authentication
+
+### Token Flow
+
+```
+┌──────────┐     ┌──────────┐     ┌──────────┐
+│  Client  │────►│   Auth   │────►│    API   │
+│          │     │  Server  │     │  Server  │
+└──────────┘     └──────────┘     └──────────┘
+     │                │                │
+     │ 1. Login       │                │
+     │───────────────►│                │
+     │                │                │
+     │ 2. JWT + Refresh               │
+     │◄───────────────│                │
+     │                │                │
+     │ 3. API Request with JWT        │
+     │────────────────────────────────►│
+     │                │                │
+     │ 4. Response                     │
+     │◄────────────────────────────────│
+```
+
+### JWT Structure
+
+```typescript
+// Access Token (short-lived: 15 minutes)
+interface AccessTokenPayload {
+  sub: string          // User ID
+  aud: 'lx-dex-api'    // Audience
+  iss: 'lx-dex-auth'   // Issuer
+  iat: number          // Issued at
+  exp: number          // Expiration
+  permissions: string[] // Granted permissions
+  tier: 'retail' | 'pro' | 'institutional'
+}
+
+// Refresh Token (long-lived: 7 days)
+interface RefreshTokenPayload {
+  sub: string
+  jti: string          // Unique token ID (for revocation)
+  iat: number
+  exp: number
+  family: string       // Token family (for rotation detection)
+}
+```
+
+### Token Refresh
+
+```typescript
+async function refreshAccessToken(refreshToken: string): Promise<TokenPair> {
+  const response = await fetch('https://auth.dex.lux.network/token/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken })
+  })
+
+  if (!response.ok) {
+    // Refresh token expired or revoked
+    throw new AuthenticationError('Session expired, please login again')
+  }
+
+  const { access_token, refresh_token } = await response.json()
+  return { accessToken: access_token, refreshToken: refresh_token }
+}
+
+// Token refresh middleware
+class TokenManager {
+  private accessToken: string
+  private refreshToken: string
+  private expiresAt: number
+
+  async getAccessToken(): Promise<string> {
+    // Refresh 1 minute before expiry
+    if (Date.now() > this.expiresAt - 60000) {
+      const tokens = await refreshAccessToken(this.refreshToken)
+      this.accessToken = tokens.accessToken
+      this.refreshToken = tokens.refreshToken
+      this.expiresAt = this.parseExpiry(tokens.accessToken)
+    }
+    return this.accessToken
+  }
+}
+```
+
+## Cryptographic Signatures
+
+### Ed25519 Signatures (Classical)
+
+```go
+package auth
+
+import (
+    "crypto/ed25519"
+    "encoding/hex"
+)
+
+// Ed25519Signer for classical signatures
+type Ed25519Signer struct {
+    privateKey ed25519.PrivateKey
+    publicKey  ed25519.PublicKey
+}
+
+// NewEd25519Signer creates signer from seed
+func NewEd25519Signer(seed []byte) *Ed25519Signer {
+    privateKey := ed25519.NewKeyFromSeed(seed)
+    return &Ed25519Signer{
+        privateKey: privateKey,
+        publicKey:  privateKey.Public().(ed25519.PublicKey),
+    }
+}
+
+// Sign signs a message
+func (s *Ed25519Signer) Sign(message []byte) []byte {
+    return ed25519.Sign(s.privateKey, message)
+}
+
+// Verify verifies a signature
+func (s *Ed25519Signer) Verify(message, signature []byte) bool {
+    return ed25519.Verify(s.publicKey, message, signature)
+}
+
+// SignOrder creates signed order for trading
+func (s *Ed25519Signer) SignOrder(order *Order) (*SignedOrder, error) {
+    // Serialize order deterministically
+    orderBytes, err := order.Marshal()
+    if err != nil {
+        return nil, err
+    }
+
+    // Sign
+    signature := s.Sign(orderBytes)
+
+    return &SignedOrder{
+        Order:     order,
+        Signature: hex.EncodeToString(signature),
+        PublicKey: hex.EncodeToString(s.publicKey),
+        Algorithm: "ed25519",
+    }, nil
+}
+```
+
+### Dilithium Signatures (Post-Quantum)
+
+```go
+package auth
+
+import (
+    "github.com/cloudflare/circl/sign/dilithium/mode3"
+)
+
+// DilithiumSigner for post-quantum signatures
+type DilithiumSigner struct {
+    privateKey mode3.PrivateKey
+    publicKey  mode3.PublicKey
+}
+
+// NewDilithiumSigner generates new key pair
+func NewDilithiumSigner() (*DilithiumSigner, error) {
+    pub, priv, err := mode3.GenerateKey(nil)
+    if err != nil {
+        return nil, err
+    }
+    return &DilithiumSigner{
+        privateKey: *priv,
+        publicKey:  *pub,
+    }, nil
+}
+
+// Sign signs message with Dilithium
+func (s *DilithiumSigner) Sign(message []byte) []byte {
+    return mode3.Sign(&s.privateKey, message)
+}
+
+// Verify verifies Dilithium signature
+func Verify(publicKey *mode3.PublicKey, message, signature []byte) bool {
+    return mode3.Verify(publicKey, message, signature)
+}
+
+// SignatureSize returns Dilithium signature size (3,309 bytes for Level 3)
+func (s *DilithiumSigner) SignatureSize() int {
+    return mode3.SignatureSize // 3309 bytes
+}
+```
+
+### Hybrid Signatures (Recommended)
+
+```go
+package auth
+
+// HybridSigner combines Ed25519 + Dilithium
+type HybridSigner struct {
+    ed25519   *Ed25519Signer
+    dilithium *DilithiumSigner
+}
+
+// HybridSignature contains both signatures
+type HybridSignature struct {
+    Ed25519Sig   []byte `json:"ed25519"`
+    DilithiumSig []byte `json:"dilithium"`
+}
+
+// Sign creates hybrid signature (both must verify)
+func (s *HybridSigner) Sign(message []byte) *HybridSignature {
+    return &HybridSignature{
+        Ed25519Sig:   s.ed25519.Sign(message),
+        DilithiumSig: s.dilithium.Sign(message),
+    }
+}
+
+// Verify checks both signatures
+func (s *HybridSigner) Verify(message []byte, sig *HybridSignature) bool {
+    // BOTH must verify for hybrid security
+    ed25519Valid := s.ed25519.Verify(message, sig.Ed25519Sig)
+    dilithiumValid := Verify(&s.dilithium.publicKey, message, sig.DilithiumSig)
+
+    return ed25519Valid && dilithiumValid
+}
+```
+
+## WebAuthn / Passkeys
+
+### Registration Flow
+
+```typescript
+// Server: Generate challenge
+const challenge = crypto.getRandomValues(new Uint8Array(32))
+
+// Client: Create credential
+const credential = await navigator.credentials.create({
+  publicKey: {
+    challenge,
+    rp: {
+      name: 'LX DEX',
+      id: 'dex.lux.network'
+    },
+    user: {
+      id: Uint8Array.from(userId, c => c.charCodeAt(0)),
+      name: userEmail,
+      displayName: userName
+    },
+    pubKeyCredParams: [
+      { alg: -7, type: 'public-key' },   // ES256 (P-256)
+      { alg: -8, type: 'public-key' },   // EdDSA
+      { alg: -257, type: 'public-key' }  // RS256
+    ],
+    authenticatorSelection: {
+      authenticatorAttachment: 'platform',
+      userVerification: 'required',
+      residentKey: 'required'
+    },
+    timeout: 60000,
+    attestation: 'direct'
+  }
+})
+
+// Server: Verify and store credential
+const verified = await verifyRegistration(credential)
+```
+
+### Authentication Flow
+
+```typescript
+// Server: Generate challenge
+const challenge = crypto.getRandomValues(new Uint8Array(32))
+
+// Client: Get assertion
+const assertion = await navigator.credentials.get({
+  publicKey: {
+    challenge,
+    rpId: 'dex.lux.network',
+    allowCredentials: [{
+      id: credentialId,
+      type: 'public-key',
+      transports: ['internal', 'hybrid']
+    }],
+    userVerification: 'required',
+    timeout: 60000
+  }
+})
+
+// Server: Verify assertion and issue session
+const session = await verifyAssertion(assertion)
+```
+
+## Security Best Practices
+
+### API Key Security
+
+```typescript
+// DO: Store secrets securely
+const apiSecret = process.env.LX_DEX_API_SECRET
+
+// DON'T: Hardcode secrets
+const apiSecret = 'sk_live_abc123...' // NEVER DO THIS
+
+// DO: Rotate keys periodically
+await dex.rotateApiKey(oldKeyId)
+
+// DO: Use IP whitelisting
+await dex.updateApiKey(keyId, {
+  ipWhitelist: ['192.168.1.100', '10.0.0.0/8']
+})
+
+// DO: Set expiration
+await dex.createApiKey({
+  expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days
+})
+```
+
+### Signature Security
+
+```go
+// DO: Use constant-time comparison
+import "crypto/subtle"
+
+func verifyMAC(expected, actual []byte) bool {
+    return subtle.ConstantTimeCompare(expected, actual) == 1
+}
+
+// DON'T: Use regular comparison (timing attack vulnerable)
+func verifyMAC(expected, actual []byte) bool {
+    return bytes.Equal(expected, actual) // VULNERABLE
+}
+
+// DO: Validate timestamp freshness
+const maxTimestampAge = 5 * time.Minute
+
+func validateTimestamp(ts int64) error {
+    age := time.Since(time.UnixMilli(ts))
+    if age > maxTimestampAge || age < -maxTimestampAge {
+        return ErrTimestampOutOfRange
+    }
+    return nil
+}
+```
+
+### Session Security
+
+```typescript
+// DO: Use secure cookie settings
+res.cookie('session', token, {
+  httpOnly: true,     // Prevent XSS access
+  secure: true,       // HTTPS only
+  sameSite: 'strict', // CSRF protection
+  maxAge: 900000,     // 15 minutes
+  path: '/',
+  domain: '.dex.lux.network'
+})
+
+// DO: Implement session binding
+interface Session {
+  userId: string
+  ipHash: string        // Bind to IP
+  userAgentHash: string // Bind to browser
+  createdAt: number
+}
+
+// DO: Detect session anomalies
+function detectAnomaly(session: Session, request: Request): boolean {
+  const currentIpHash = hash(request.ip)
+  const currentUaHash = hash(request.headers['user-agent'])
+
+  return session.ipHash !== currentIpHash ||
+         session.userAgentHash !== currentUaHash
+}
+```
+
+## Rate Limits by Authentication Level
+
+| Level | Requests/sec | Orders/sec | Websocket Streams |
+|-------|-------------|------------|-------------------|
+| **Unauthenticated** | 10 | 0 | 1 |
+| **API Key (Basic)** | 100 | 10 | 5 |
+| **API Key (Pro)** | 1,000 | 100 | 50 |
+| **Institutional** | 10,000 | 1,000 | 500 |
+
+## Troubleshooting
+
+### Common Errors
+
+| Error Code | Message | Solution |
+|------------|---------|----------|
+| `AUTH_001` | Invalid API key | Check key is active and not expired |
+| `AUTH_002` | Invalid signature | Verify signing algorithm and payload |
+| `AUTH_003` | Timestamp expired | Sync system clock, use NTP |
+| `AUTH_004` | IP not whitelisted | Add IP to key whitelist |
+| `AUTH_005` | Insufficient permissions | Request key with required permissions |
+| `AUTH_006` | Rate limit exceeded | Reduce request rate or upgrade tier |
+| `AUTH_007` | Session expired | Refresh token or re-authenticate |
+
+### Debug Mode
+
+```typescript
+// Enable request debugging (development only)
+const dex = new LxDex({
+  debug: true,
+  onRequest: (req) => {
+    console.log('Request:', {
+      method: req.method,
+      path: req.path,
+      timestamp: req.timestamp,
+      signature: req.signature.substring(0, 16) + '...'
+    })
+  }
+})
+```

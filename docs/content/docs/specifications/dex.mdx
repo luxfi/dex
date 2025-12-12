@@ -1,0 +1,460 @@
+---
+title: DEX Specifications
+description: LP-9000 Series - Decentralized Exchange specifications
+---
+
+# DEX Specifications (LP-9000 Series)
+
+The LP-9000 series defines the complete specification for the LX Decentralized Exchange, including order matching, API protocols, and high-frequency trading support.
+
+## LP Index
+
+| LP | Title | Status | Implementation |
+|----|-------|--------|----------------|
+| [LP-9000](#lp-9000) | DEX Core Specification | Final | [luxfi/dex](https://github.com/luxfi/dex) |
+| [LP-9001](#lp-9001) | Trading Engine | Final | [luxfi/dex/pkg/lx](https://github.com/luxfi/dex/tree/main/pkg/lx) |
+| [LP-9002](#lp-9002) | DEX API/RPC | Final | [luxfi/dex/pkg/api](https://github.com/luxfi/dex/tree/main/pkg/api) |
+| [LP-9003](#lp-9003) | High-Performance Protocol | Final | [luxfi/dex/pkg/engine](https://github.com/luxfi/dex/tree/main/pkg/engine) |
+| [LP-9010](#lp-9010) | Orderbook Specification | Final | [luxfi/dex/pkg/orderbook](https://github.com/luxfi/dex/tree/main/pkg/orderbook) |
+| [LP-9020](#lp-9020) | Matching Engine | Final | [luxfi/dex/pkg/matching](https://github.com/luxfi/dex/tree/main/pkg/matching) |
+| [LP-9030](#lp-9030) | Market Data Protocol | Final | [luxfi/dex/pkg/feed](https://github.com/luxfi/dex/tree/main/pkg/feed) |
+| [LP-9040](#lp-9040) | Settlement Protocol | Accepted | [luxfi/dex/pkg/settlement](https://github.com/luxfi/dex/tree/main/pkg/settlement) |
+
+---
+
+## LP-9000: DEX Core Specification {#lp-9000}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9000-dex-core-specification.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9000" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex" />
+</Cards>
+
+### Abstract
+
+LP-9000 defines the core architecture and requirements for the LX Decentralized Exchange, a high-performance trading platform achieving 434M+ orders/sec with sub-microsecond latency.
+
+### Key Requirements
+
+| Requirement | Specification | Achieved |
+|-------------|---------------|----------|
+| Order Latency | < 1 microsecond | 2ns (GPU), 487ns (CPU) |
+| Throughput | > 100M orders/sec | 434M orders/sec |
+| Finality | < 100ms | 1ms (FPC consensus) |
+| Availability | 99.99% | 99.995% |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     LX DEX CORE (LP-9000)                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │  Orderbook  │  │  Matching   │  │  Settlement │          │
+│  │  LP-9010    │  │  LP-9020    │  │  LP-9040    │          │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘          │
+│         │                │                │                  │
+│         └────────────────┼────────────────┘                  │
+│                          v                                   │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │              Trading Engine (LP-9001)                  │  │
+│  │   Go Engine | C++ Engine | GPU/MLX Engine             │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                          │                                   │
+│  ┌───────────────────────┴───────────────────────────────┐  │
+│  │                 API Layer (LP-9002)                    │  │
+│  │   JSON-RPC | gRPC | WebSocket | REST | FIX            │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Order Types
+
+| Type | Description | Support |
+|------|-------------|---------|
+| Market | Execute at best price | Required |
+| Limit | Execute at specified price or better | Required |
+| Stop-Loss | Trigger market order at stop price | Required |
+| Stop-Limit | Trigger limit order at stop price | Required |
+| IOC | Immediate or Cancel | Required |
+| FOK | Fill or Kill | Required |
+| GTC | Good Till Cancel | Required |
+| GTD | Good Till Date | Optional |
+| Iceberg | Hidden quantity | Optional |
+| Bracket | Entry with TP/SL | Optional |
+
+### Related LPs
+
+- [LP-9001](#lp-9001) - Trading Engine implementation
+- [LP-9002](#lp-9002) - API specification
+- [LP-0111](/docs/specifications/consensus#lp-0111) - Consensus for settlement
+
+---
+
+## LP-9001: Trading Engine {#lp-9001}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9001" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/lx" />
+</Cards>
+
+### Abstract
+
+LP-9001 specifies the multi-engine trading architecture supporting Pure Go, C++, and GPU acceleration for maximum performance across different hardware configurations.
+
+### Engine Selection
+
+```go
+type EngineType int
+
+const (
+    EngineGo   EngineType = iota // Pure Go, portable
+    EngineCPP                     // C++, low-latency
+    EngineGPU                     // GPU/MLX, ultra-high throughput
+    EngineAuto                    // Auto-select best available
+)
+```
+
+### Performance Matrix
+
+| Engine | Throughput | Latency | Memory | Use Case |
+|--------|------------|---------|--------|----------|
+| Go | 1M/sec | ~1ms | Low | General trading |
+| C++ | 400K/sec | 25-200ns | Medium | HFT |
+| GPU/MLX | 434M/sec | 2ns | High | Planet-scale |
+
+### Implementation
+
+**Source**: [`pkg/lx/engine.go`](https://github.com/luxfi/dex/blob/main/pkg/lx/engine.go)
+
+```go
+// Engine interface - all engines implement this
+type Engine interface {
+    PlaceOrder(ctx context.Context, order *Order) (*OrderResult, error)
+    CancelOrder(ctx context.Context, orderID string) error
+    GetOrderBook(ctx context.Context, symbol string, depth int) (*OrderBook, error)
+    Subscribe(ctx context.Context, symbol string) (<-chan *Trade, error)
+}
+```
+
+### Related LPs
+
+- [LP-9000](#lp-9000) - Core specification
+- [LP-9003](#lp-9003) - High-performance protocol
+- [LP-9020](#lp-9020) - Matching engine
+
+---
+
+## LP-9002: DEX API/RPC Specification {#lp-9002}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9002" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/api" />
+</Cards>
+
+### Abstract
+
+LP-9002 defines the complete API specification for interacting with the LX DEX, including JSON-RPC, gRPC, WebSocket, REST, and FIX protocols.
+
+### Endpoint Summary
+
+| Protocol | Port | Use Case | Latency |
+|----------|------|----------|---------|
+| JSON-RPC | 8545 | Web clients | ~10ms |
+| gRPC | 50051 | High-performance | ~1ms |
+| WebSocket | 8546 | Real-time feeds | ~5ms |
+| REST | 443 | Simple integration | ~50ms |
+| FIX 4.4 | 9880 | Institutional | ~2ms |
+
+### JSON-RPC Methods
+
+| Method | Description | Parameters |
+|--------|-------------|------------|
+| `dex_placeOrder` | Place new order | `{symbol, side, type, price, quantity}` |
+| `dex_cancelOrder` | Cancel order | `{orderId}` |
+| `dex_getOrder` | Get order status | `{orderId}` |
+| `dex_getOrderBook` | Get orderbook | `{symbol, depth}` |
+| `dex_getTrades` | Get trade history | `{symbol, limit}` |
+| `dex_getBalance` | Get balances | `{address}` |
+| `dex_subscribe` | Subscribe to feed | `{channel, symbols}` |
+
+### Example: Place Order
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "dex_placeOrder",
+  "params": {
+    "symbol": "BTC-USD",
+    "side": "buy",
+    "type": "limit",
+    "price": "50000.00",
+    "quantity": "1.5",
+    "timeInForce": "GTC"
+  }
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "orderId": "ord_abc123",
+    "status": "pending",
+    "symbol": "BTC-USD",
+    "side": "buy",
+    "type": "limit",
+    "price": "50000.00",
+    "quantity": "1.5",
+    "filled": "0",
+    "remaining": "1.5",
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### WebSocket Channels
+
+| Channel | Description | Example |
+|---------|-------------|---------|
+| `trades` | Real-time trades | `{"channel": "trades", "symbol": "BTC-USD"}` |
+| `orderbook` | Orderbook updates | `{"channel": "orderbook", "symbol": "BTC-USD"}` |
+| `ticker` | Price ticker | `{"channel": "ticker", "symbol": "BTC-USD"}` |
+| `orders` | User orders | `{"channel": "orders"}` |
+| `fills` | User fills | `{"channel": "fills"}` |
+
+### Related LPs
+
+- [LP-9000](#lp-9000) - Core specification
+- [LP-9030](#lp-9030) - Market data protocol
+- [LP-5001](/docs/specifications/warp#lp-5001) - Cross-chain messaging
+
+---
+
+## LP-9003: High-Performance Protocol {#lp-9003}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9003-high-performance-dex-protocol.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9003" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/engine" />
+</Cards>
+
+### Abstract
+
+LP-9003 specifies the low-level binary protocol and optimizations for achieving sub-microsecond latency in high-frequency trading scenarios.
+
+### Binary Message Format
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                    Message Header (16 bytes)                │
+├──────────┬──────────┬──────────┬──────────┬───────────────┤
+│ Magic(4) │ Size(4)  │ Type(2)  │ Seq(4)   │ Checksum(2)   │
+├──────────┴──────────┴──────────┴──────────┴───────────────┤
+│                    Message Body (variable)                  │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Message Types
+
+| Type ID | Name | Size | Description |
+|---------|------|------|-------------|
+| 0x01 | NewOrder | 64 bytes | Place new order |
+| 0x02 | CancelOrder | 32 bytes | Cancel order |
+| 0x03 | ModifyOrder | 48 bytes | Modify existing order |
+| 0x10 | OrderAck | 24 bytes | Order acknowledged |
+| 0x11 | OrderFill | 56 bytes | Order filled |
+| 0x12 | OrderCancel | 24 bytes | Order cancelled |
+| 0x20 | BookUpdate | var | Orderbook update |
+
+### Optimization Techniques
+
+| Technique | Latency Reduction |
+|-----------|-------------------|
+| Lock-free queues | 50% |
+| SIMD batch processing | 30% |
+| Memory-mapped I/O | 40% |
+| CPU pinning | 20% |
+| Kernel bypass (DPDK) | 60% |
+
+### Related LPs
+
+- [LP-9001](#lp-9001) - Trading engine
+- [LP-9020](#lp-9020) - Matching engine
+- [LP-0111](/docs/specifications/consensus#lp-0111) - Photon consensus
+
+---
+
+## LP-9010: Orderbook Specification {#lp-9010}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9010-orderbook-specification.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9010" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/orderbook" />
+</Cards>
+
+### Abstract
+
+LP-9010 defines the orderbook data structure, price level management, and order priority rules for the LX DEX.
+
+### Data Structure
+
+```go
+type OrderBook struct {
+    Symbol     string
+    Bids       *PriceLevelTree  // Red-black tree, descending
+    Asks       *PriceLevelTree  // Red-black tree, ascending
+    OrderIndex map[string]*Order
+    Sequence   uint64
+}
+
+type PriceLevel struct {
+    Price   decimal.Decimal
+    Orders  *list.List  // FIFO queue
+    Volume  decimal.Decimal
+}
+```
+
+### Order Priority
+
+1. **Price Priority**: Better price first
+2. **Time Priority**: Earlier orders first (FIFO)
+3. **Size Priority**: Optional, for pro-rata matching
+
+### Related LPs
+
+- [LP-9000](#lp-9000) - Core specification
+- [LP-9020](#lp-9020) - Matching engine
+- [LP-9030](#lp-9030) - Market data
+
+---
+
+## LP-9020: Matching Engine {#lp-9020}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9020-matching-engine.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9020" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/matching" />
+</Cards>
+
+### Abstract
+
+LP-9020 specifies the order matching algorithm, execution rules, and trade generation for the LX DEX.
+
+### Matching Algorithm
+
+```
+MATCH(order):
+    IF order.side == BUY:
+        opposite_side = orderbook.asks
+    ELSE:
+        opposite_side = orderbook.bids
+
+    WHILE order.remaining > 0 AND opposite_side.has_matching_price(order):
+        best_level = opposite_side.top()
+
+        FOR each resting_order IN best_level:
+            IF order.remaining == 0:
+                BREAK
+
+            fill_qty = MIN(order.remaining, resting_order.remaining)
+            fill_price = resting_order.price  # Price-time priority
+
+            CREATE_TRADE(order, resting_order, fill_qty, fill_price)
+
+            UPDATE(order, resting_order, fill_qty)
+
+        IF best_level.empty():
+            REMOVE(best_level)
+
+    IF order.remaining > 0 AND order.type == LIMIT:
+        ADD_TO_BOOK(order)
+```
+
+### Execution Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| Price-Time | FIFO at each price | Standard |
+| Pro-Rata | Proportional allocation | Large orders |
+| Auction | Batch matching | Opening/closing |
+
+### Related LPs
+
+- [LP-9010](#lp-9010) - Orderbook structure
+- [LP-9040](#lp-9040) - Settlement
+- [LP-9003](#lp-9003) - Performance optimization
+
+---
+
+## LP-9030: Market Data Protocol {#lp-9030}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9030-market-data-protocol.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9030" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/feed" />
+</Cards>
+
+### Abstract
+
+LP-9030 defines the market data distribution protocol, including real-time feeds, historical data, and aggregation methods.
+
+### Feed Types
+
+| Feed | Latency | Update Rate | Use Case |
+|------|---------|-------------|----------|
+| Level 1 | <1ms | Every trade | Retail |
+| Level 2 | <1ms | Every change | Active traders |
+| Level 3 | <100us | Every message | Market makers |
+| OHLCV | 1s | Per interval | Analytics |
+
+### Related LPs
+
+- [LP-9002](#lp-9002) - API specification
+- [LP-9010](#lp-9010) - Orderbook data
+
+---
+
+## LP-9040: Settlement Protocol {#lp-9040}
+
+<Cards>
+  <Card title="Full Specification" href="https://github.com/luxfi/LPs/blob/main/LPs/lp-9040-settlement-protocol.md" />
+  <Card title="Discussion" href="https://github.com/luxfi/LPs/discussions/categories/lp-9040" />
+  <Card title="Implementation" href="https://github.com/luxfi/dex/tree/main/pkg/settlement" />
+</Cards>
+
+### Abstract
+
+LP-9040 specifies the settlement protocol for finalizing trades on-chain using Warp messages and atomic swaps.
+
+### Settlement Flow
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Matching   │───>│   Netting   │───>│  On-Chain   │
+│   Engine    │    │   Engine    │    │  Settlement │
+└─────────────┘    └─────────────┘    └─────────────┘
+     │                   │                   │
+     │ Trade             │ Batch             │ Finality
+     │ ~2ns              │ ~10ms             │ ~1ms
+     │                   │                   │
+```
+
+### Settlement Modes
+
+| Mode | Latency | Cost | Use Case |
+|------|---------|------|----------|
+| Instant | 1ms | High | Urgent |
+| Batched | 1s | Medium | Standard |
+| Deferred | 1min | Low | Large orders |
+
+### Related LPs
+
+- [LP-9020](#lp-9020) - Matching engine
+- [LP-5000](/docs/specifications/warp#lp-5000) - Warp messaging
+- [LP-0111](/docs/specifications/consensus#lp-0111) - Consensus finality

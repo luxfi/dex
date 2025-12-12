@@ -1,0 +1,680 @@
+---
+title: ThresholdVM (T-Chain)
+description: T-Chain MPC-as-a-service VM, distributed key generation, signing, and resharing
+---
+
+# ThresholdVM (T-Chain)
+
+> **Specification**: [LP-6015 MPC Bridge Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md)
+>
+> **Source**: [`github.com/luxfi/node/vms/thresholdvm`](https://github.com/luxfi/node/tree/main/vms/thresholdvm)
+
+The T-Chain (Threshold Chain) provides MPC-as-a-service for all Lux chains, handling distributed key generation, threshold signing, and key management.
+
+## Implementation Status
+
+| Component | File | Status |
+|-----------|------|--------|
+| ThresholdVM Core | [`vm.go`](https://github.com/luxfi/node/blob/main/vms/thresholdvm/vm.go) | Complete |
+| Protocol Registry | [`protocols.go`](https://github.com/luxfi/node/blob/main/vms/thresholdvm/protocols.go) | Complete |
+| Block Structure | [`block.go`](https://github.com/luxfi/node/blob/main/vms/thresholdvm/block.go) | Complete |
+| RPC Handlers | [`rpc.go`](https://github.com/luxfi/node/blob/main/vms/thresholdvm/rpc.go) | Complete |
+| Codec | [`codec.go`](https://github.com/luxfi/node/blob/main/vms/thresholdvm/codec.go) | Complete |
+
+## VM Architecture
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// VM implements the Threshold VM for MPC-as-a-service
+type VM struct {
+    ctx      *consensusctx.Context
+    db       database.Database
+    config   ThresholdConfig
+    toEngine chan<- common.Message
+    log      log.Logger
+
+    // Protocol Registry - supports multiple threshold protocols
+    protocolRegistry *ProtocolRegistry
+
+    // LSS MPC Protocol Components (default protocol)
+    lssConfig   *lssconfig.Config // LSS config for this party
+    partyID     party.ID          // This party's ID
+    partyIDs    []party.ID        // All party IDs in the MPC group
+    pool        *pool.Pool        // Worker pool for MPC operations
+    mpcReady    bool              // Whether MPC is ready for signing
+
+    // Key Management
+    keys           map[string]*ManagedKey // KeyID -> Key configuration
+    activeKeyID    string                 // Currently active key for signing
+    keygenSessions map[string]*KeygenSession
+
+    // Signing Sessions
+    signingSessions map[string]*SigningSession
+    sessionsByChain map[string][]string // ChainID -> SessionIDs
+
+    // Quota Tracking
+    dailySigningCount map[string]uint64
+    quotaResetTime    time.Time
+
+    // Block Management
+    preferred      ids.ID
+    lastAcceptedID ids.ID
+    pendingBlocks  map[ids.ID]*Block
+    heightIndex    map[uint64]ids.ID
+
+    mu sync.RWMutex
+}
+```
+
+## Configuration
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// ThresholdConfig contains VM configuration
+type ThresholdConfig struct {
+    // MPC Configuration
+    Threshold    int `json:"threshold"`    // t: Threshold (t+1 parties needed)
+    TotalParties int `json:"totalParties"` // n: Total number of MPC nodes
+
+    // Session Configuration
+    SessionTimeout      time.Duration `json:"sessionTimeout"`
+    MaxActiveSessions   int           `json:"maxActiveSessions"`
+    MaxSessionsPerChain int           `json:"maxSessionsPerChain"`
+
+    // Quota Configuration (daily limits)
+    DailySigningQuota map[string]uint64 `json:"dailySigningQuota"`
+
+    // Authorized Chains that can request MPC services
+    AuthorizedChains map[string]*ChainPermissions `json:"authorizedChains"`
+
+    // Key Management
+    KeyRotationPeriod time.Duration `json:"keyRotationPeriod"`
+    MaxKeyAge         time.Duration `json:"maxKeyAge"`
+}
+```
+
+### Chain Permissions
+
+```go
+// ChainPermissions defines what a chain can do with MPC services
+type ChainPermissions struct {
+    ChainID           string   `json:"chainId"`
+    ChainName         string   `json:"chainName"`
+    CanSign           bool     `json:"canSign"`
+    CanKeygen         bool     `json:"canKeygen"`
+    CanReshare        bool     `json:"canReshare"`
+    AllowedKeyTypes   []string `json:"allowedKeyTypes"`
+    MaxSigningSize    int      `json:"maxSigningSize"`
+    RequirePreHash    bool     `json:"requirePreHash"`
+    DailySigningLimit uint64   `json:"dailySigningLimit"`
+}
+```
+
+### Default Authorized Chains
+
+| Chain | Sign | Keygen | Reshare | Key Types | Daily Limit |
+|-------|------|--------|---------|-----------|-------------|
+| B-Chain | Yes | Yes | Yes | secp256k1 | 100,000 |
+| C-Chain | Yes | No | No | secp256k1 | 50,000 |
+| P-Chain | Yes | Yes | Yes | secp256k1, bls | 10,000 |
+| X-Chain | Yes | No | No | secp256k1 | 10,000 |
+| Q-Chain | Yes | Yes | Yes | secp256k1, dilithium | 10,000 |
+
+## Key Management
+
+### ManagedKey Structure
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// ManagedKey represents a threshold key managed by the T-Chain
+type ManagedKey struct {
+    KeyID        string            `json:"keyId"`
+    KeyType      string            `json:"keyType"`      // secp256k1, ed25519
+    PublicKey    []byte            `json:"publicKey"`    // Compressed public key
+    Address      []byte            `json:"address"`      // Ethereum-style address
+    Threshold    int               `json:"threshold"`    // t value
+    TotalParties int               `json:"totalParties"` // n value
+    Generation   uint64            `json:"generation"`   // Key generation number
+    CreatedAt    time.Time         `json:"createdAt"`
+    LastUsedAt   time.Time         `json:"lastUsedAt"`
+    SignCount    uint64            `json:"signCount"`
+    Status       string            `json:"status"`       // active, rotating, expired
+    Config       *lssconfig.Config `json:"-"`            // LSS config (not serialized)
+    PartyIDs     []party.ID        `json:"partyIds"`
+}
+```
+
+### Key Lifecycle
+
+```
+    +----------+
+    |  Create  |
+    +----+-----+
+         |
+         v
+    +----+-----+     +----------+
+    |  Keygen  | --> |  Active  |
+    +----+-----+     +----+-----+
+                          |
+         +----------------+----------------+
+         |                |                |
+         v                v                v
+    +----+-----+     +----+-----+     +----+-----+
+    |  Refresh |     |  Reshare |     |  Expire  |
+    +----+-----+     +----+-----+     +----+-----+
+         |                |                |
+         +----------------+                |
+                |                          |
+                v                          v
+           +----+-----+              +----+-----+
+           |  Active  |              |  Expired |
+           +----------+              +----------+
+```
+
+## Protocol Registry
+
+The T-Chain supports multiple threshold protocols:
+
+```go
+// Source: vms/thresholdvm/protocols.go
+
+// Protocol identifies a threshold signature protocol
+type Protocol string
+
+const (
+    ProtocolLSS      Protocol = "lss"      // Lux Signature Scheme
+    ProtocolCGGMP21  Protocol = "cggmp21"  // Standard CGGMP21
+    ProtocolBLS      Protocol = "bls"      // BLS signatures
+    ProtocolRingtail Protocol = "ringtail" // Post-quantum
+)
+
+// ProtocolHandler interface for threshold protocols
+type ProtocolHandler interface {
+    Keygen(ctx context.Context, partyID party.ID, partyIDs []party.ID, threshold int) (KeyShare, error)
+    Sign(ctx context.Context, share KeyShare, message []byte, signers []party.ID) (Signature, error)
+    Refresh(ctx context.Context, share KeyShare) (KeyShare, error)
+    Reshare(ctx context.Context, share KeyShare, newPartyIDs []party.ID, threshold int) (KeyShare, error)
+    SupportedCurves() []string
+}
+
+// KeyShare interface for protocol-specific key shares
+type KeyShare interface {
+    PublicKey() []byte
+    Generation() uint64
+}
+
+// Signature interface for protocol-specific signatures
+type Signature interface {
+    R() *big.Int
+    S() *big.Int
+    V() byte
+}
+```
+
+## Core Operations
+
+### Key Generation
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// StartKeygen initiates distributed key generation
+func (vm *VM) StartKeygen(keyID, keyType, requestedBy string) (*KeygenSession, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    // Check authorization
+    perms, ok := vm.config.AuthorizedChains[requestedBy]
+    if !ok || !perms.CanKeygen {
+        return nil, ErrUnauthorizedChain
+    }
+
+    // Validate key type
+    allowed := false
+    for _, kt := range perms.AllowedKeyTypes {
+        if kt == keyType {
+            allowed = true
+            break
+        }
+    }
+    if !allowed {
+        return nil, fmt.Errorf("key type %s not allowed", keyType)
+    }
+
+    // Create session
+    session := &KeygenSession{
+        SessionID:    ids.GenerateTestID().String(),
+        KeyID:        keyID,
+        KeyType:      keyType,
+        Threshold:    vm.config.Threshold,
+        TotalParties: vm.config.TotalParties,
+        PartyIDs:     vm.partyIDs,
+        Status:       "pending",
+        RequestedBy:  requestedBy,
+        StartedAt:    time.Now(),
+    }
+
+    vm.keygenSessions[session.SessionID] = session
+
+    // Start keygen in background
+    go vm.runKeygen(session)
+
+    return session, nil
+}
+```
+
+### Threshold Signing
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// RequestSignature requests a threshold signature
+func (vm *VM) RequestSignature(
+    requestingChain string,
+    keyID string,
+    messageHash []byte,
+    messageType string,
+) (*SigningSession, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    // Check authorization
+    perms, ok := vm.config.AuthorizedChains[requestingChain]
+    if !ok || !perms.CanSign {
+        return nil, ErrUnauthorizedChain
+    }
+
+    // Check message size
+    if len(messageHash) > perms.MaxSigningSize {
+        return nil, fmt.Errorf("message too large")
+    }
+
+    // Check quota
+    vm.checkQuotaReset()
+    if vm.dailySigningCount[requestingChain] >= perms.DailySigningLimit {
+        return nil, ErrQuotaExceeded
+    }
+
+    // Get key
+    key, ok := vm.keys[keyID]
+    if !ok {
+        if keyID == "" && vm.activeKeyID != "" {
+            key = vm.keys[vm.activeKeyID]
+            keyID = vm.activeKeyID
+        } else {
+            return nil, ErrKeyNotFound
+        }
+    }
+
+    // Create session
+    session := &SigningSession{
+        SessionID:       ids.GenerateTestID().String(),
+        KeyID:           keyID,
+        RequestingChain: requestingChain,
+        MessageHash:     messageHash,
+        MessageType:     messageType,
+        Status:          "pending",
+        CreatedAt:       time.Now(),
+        ExpiresAt:       time.Now().Add(vm.config.SessionTimeout),
+    }
+
+    vm.signingSessions[session.SessionID] = session
+    vm.sessionsByChain[requestingChain] = append(
+        vm.sessionsByChain[requestingChain], session.SessionID)
+
+    // Start signing in background
+    go vm.runSigning(session, key)
+
+    return session, nil
+}
+```
+
+### Key Resharing
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// ReshareKey triggers key resharing for adding/removing parties
+func (vm *VM) ReshareKey(keyID string, newPartyIDs []party.ID, requestedBy string) (*KeygenSession, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    // Check authorization
+    perms, ok := vm.config.AuthorizedChains[requestedBy]
+    if !ok || !perms.CanReshare {
+        return nil, ErrUnauthorizedChain
+    }
+
+    key, ok := vm.keys[keyID]
+    if !ok {
+        return nil, ErrKeyNotFound
+    }
+
+    if len(newPartyIDs) < vm.config.Threshold+1 {
+        return nil, ErrInsufficientParties
+    }
+
+    // Create reshare session
+    session := &KeygenSession{
+        SessionID:    ids.GenerateTestID().String(),
+        KeyID:        keyID,
+        KeyType:      key.KeyType,
+        Threshold:    vm.config.Threshold,
+        TotalParties: len(newPartyIDs),
+        PartyIDs:     newPartyIDs,
+        Status:       "pending",
+        RequestedBy:  requestedBy,
+        StartedAt:    time.Now(),
+    }
+
+    vm.keygenSessions[session.SessionID] = session
+
+    // Start resharing in background
+    go vm.runReshare(session, key)
+
+    return session, nil
+}
+```
+
+### Key Refresh
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// RefreshKey refreshes key shares without changing public key
+func (vm *VM) RefreshKey(keyID string, requestedBy string) (*KeygenSession, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    perms, ok := vm.config.AuthorizedChains[requestedBy]
+    if !ok || !perms.CanReshare {
+        return nil, ErrUnauthorizedChain
+    }
+
+    key, ok := vm.keys[keyID]
+    if !ok {
+        return nil, ErrKeyNotFound
+    }
+
+    session := &KeygenSession{
+        SessionID:    ids.GenerateTestID().String(),
+        KeyID:        keyID,
+        KeyType:      key.KeyType,
+        Threshold:    key.Threshold,
+        TotalParties: key.TotalParties,
+        PartyIDs:     key.PartyIDs,
+        Status:       "pending",
+        RequestedBy:  requestedBy,
+        StartedAt:    time.Now(),
+    }
+
+    vm.keygenSessions[session.SessionID] = session
+
+    go vm.runRefresh(session, key)
+
+    return session, nil
+}
+```
+
+## Cross-Chain Interface
+
+### CrossChainAppRequest Handler
+
+```go
+// Source: vms/thresholdvm/vm.go
+
+// CrossChainAppRequest handles MPC requests from other chains
+func (vm *VM) CrossChainAppRequest(
+    ctx context.Context,
+    chainID ids.ID,
+    requestID uint32,
+    deadline time.Time,
+    request []byte,
+) error {
+    var req CrossChainMPCRequest
+    if _, err := Codec.Unmarshal(request, &req); err != nil {
+        return err
+    }
+
+    switch req.Type {
+    case "sign":
+        session, err := vm.RequestSignature(
+            req.RequestingChain,
+            req.KeyID,
+            req.MessageHash,
+            req.MessageType,
+        )
+        if err != nil {
+            return err
+        }
+        // Response sent when signing completes
+
+    case "keygen":
+        _, err := vm.StartKeygen(req.KeyID, req.KeyType, req.RequestingChain)
+        if err != nil {
+            return err
+        }
+
+    case "reshare":
+        _, err := vm.ReshareKey(req.KeyID, nil, req.RequestingChain)
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+```
+
+### Request/Response Types
+
+```go
+// CrossChainMPCRequest is the request format for cross-chain MPC operations
+type CrossChainMPCRequest struct {
+    Type            string   `json:"type"` // sign, keygen, reshare
+    RequestingChain string   `json:"requestingChain"`
+    KeyID           string   `json:"keyId"`
+    KeyType         string   `json:"keyType,omitempty"`
+    MessageHash     []byte   `json:"messageHash,omitempty"`
+    MessageType     string   `json:"messageType,omitempty"`
+}
+```
+
+## Block Structure
+
+### Operation Types
+
+```go
+// Source: vms/thresholdvm/block.go
+
+const (
+    OpTypeKeygen  = "keygen"
+    OpTypeSign    = "sign"
+    OpTypeReshare = "reshare"
+    OpTypeRefresh = "refresh"
+)
+
+// Operation represents an MPC operation in a block
+type Operation struct {
+    Type            string `serialize:"true"`
+    SessionID       string `serialize:"true"`
+    KeyID           string `serialize:"true"`
+    RequestingChain string `serialize:"true"`
+    Timestamp       int64  `serialize:"true"`
+}
+
+// Block represents a T-Chain block
+type Block struct {
+    ParentID_      ids.ID       `serialize:"true"`
+    ID_            ids.ID       `serialize:"false"`
+    BlockHeight    uint64       `serialize:"true"`
+    BlockTimestamp int64        `serialize:"true"`
+    Operations     []*Operation `serialize:"true"`
+    vm             *VM          `serialize:"false"`
+}
+```
+
+## Statistics and Monitoring
+
+```go
+// vmStats tracks internal T-Chain statistics
+type vmStats struct {
+    TotalSignatures    uint64
+    TotalKeygens       uint64
+    ActiveSessions     int
+    SignaturesByChain  map[string]uint64
+    AverageSigningTime time.Duration
+    SuccessRate        float64
+    mu                 sync.RWMutex
+}
+```
+
+### Health Check
+
+```go
+// HealthCheck implements the common.VM interface
+func (vm *VM) HealthCheck(ctx context.Context) (interface{}, error) {
+    vm.mu.RLock()
+    defer vm.mu.RUnlock()
+
+    return map[string]interface{}{
+        "status":         "healthy",
+        "mpcReady":       vm.mpcReady,
+        "activeKey":      vm.activeKeyID,
+        "activeSessions": len(vm.signingSessions),
+        "totalKeys":      len(vm.keys),
+    }, nil
+}
+```
+
+## RPC API
+
+### threshold_requestSignature
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "threshold_requestSignature",
+        "params": {
+            "requestingChain": "B-Chain",
+            "keyId": "bridge-key-001",
+            "messageHash": "0xabc123...",
+            "messageType": "eth_sign"
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/T/rpc
+```
+
+### threshold_getSignature
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "threshold_getSignature",
+        "params": {
+            "sessionId": "session-123"
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/T/rpc
+```
+
+Response:
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "sessionId": "session-123",
+        "status": "completed",
+        "signature": {
+            "r": "0x...",
+            "s": "0x...",
+            "v": 27
+        }
+    },
+    "id": 1
+}
+```
+
+### threshold_startKeygen
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "threshold_startKeygen",
+        "params": {
+            "keyId": "new-bridge-key",
+            "keyType": "secp256k1",
+            "requestingChain": "B-Chain"
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/T/rpc
+```
+
+### threshold_getPublicKey
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "threshold_getPublicKey",
+        "params": {
+            "keyId": "bridge-key-001"
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/T/rpc
+```
+
+## Integration with B-Chain
+
+The T-Chain receives requests from B-Chain via CrossChainAppRequest:
+
+```
+B-Chain                                  T-Chain
++-------------+                         +-------------+
+|             |  CrossChainAppRequest   |             |
+| BridgeVM    | ----------------------> | ThresholdVM |
+|             |  (sign request)         |             |
+|             |                         |             |
+|             |                         | Run MPC     |
+|             |                         | Protocol    |
+|             |                         |             |
+|             |  CrossChainAppResponse  |             |
+|             | <---------------------- |             |
+|             |  (signature)            |             |
++-------------+                         +-------------+
+```
+
+## Error Handling
+
+```go
+var (
+    ErrNotInitialized       = errors.New("MPC not initialized")
+    ErrKeygenInProgress     = errors.New("keygen already in progress")
+    ErrSigningInProgress    = errors.New("signing session already in progress")
+    ErrInvalidThreshold     = errors.New("invalid threshold configuration")
+    ErrInsufficientParties  = errors.New("insufficient parties for operation")
+    ErrSessionNotFound      = errors.New("session not found")
+    ErrSessionExpired       = errors.New("session expired")
+    ErrUnauthorizedChain    = errors.New("unauthorized chain")
+    ErrQuotaExceeded        = errors.New("signing quota exceeded")
+    ErrInvalidSignature     = errors.New("invalid signature")
+    ErrKeyNotFound          = errors.New("key not found")
+)
+```
+
+## Related Documentation
+
+- [B-Chain](/docs/bridge/bchain) - BridgeVM that requests MPC services
+- [MPC Custody](/docs/bridge/mpc) - CGGMP21/LSS protocol details
+- [Ringtail](/docs/bridge/ringtail) - Quantum-safe protocol
+- [LP-6015 Specification](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md)

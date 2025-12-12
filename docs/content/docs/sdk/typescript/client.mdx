@@ -1,0 +1,449 @@
+---
+title: Client Configuration
+description: LXDexClient class configuration, initialization options, and connection management
+---
+
+# LXDexClient Configuration
+
+The `LXDexClient` class is the main entry point for interacting with LX DEX. This guide covers all configuration options and initialization patterns.
+
+## Basic Initialization
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:8080/rpc',
+  wsUrl: 'ws://localhost:8081'
+});
+```
+
+## Configuration Options
+
+### LXDexConfig Interface
+
+```typescript
+interface LXDexConfig {
+  /** JSON-RPC endpoint URL */
+  jsonRpcUrl?: string;
+
+  /** WebSocket endpoint URL */
+  wsUrl?: string;
+
+  /** gRPC endpoint URL (for high-performance operations) */
+  grpcUrl?: string;
+
+  /** API key for authenticated requests */
+  apiKey?: string;
+
+  /** API secret for request signing */
+  apiSecret?: string;
+
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
+
+  /** Retry configuration */
+  retry?: {
+    maxRetries: number;
+    backoffMs: number;
+  };
+}
+```
+
+### Full Configuration Example
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+  // API endpoints
+  jsonRpcUrl: 'https://api.lux.network/rpc',
+  wsUrl: 'wss://api.lux.network/ws',
+  grpcUrl: 'api.lux.network:50051',
+
+  // Authentication
+  apiKey: process.env.LX_DEX_API_KEY,
+  apiSecret: process.env.LX_DEX_API_SECRET,
+
+  // Performance tuning
+  timeout: 30000,
+  retry: {
+    maxRetries: 3,
+    backoffMs: 1000
+  }
+});
+```
+
+## Environment-Based Configuration
+
+### Configuration Factory Pattern
+
+```typescript
+import { LXDexClient, LXDexConfig } from '@luxfi/dex-sdk';
+
+type Environment = 'development' | 'testnet' | 'production';
+
+function createConfig(env: Environment): LXDexConfig {
+  const configs: Record<Environment, LXDexConfig> = {
+    development: {
+      jsonRpcUrl: 'http://localhost:8080/rpc',
+      wsUrl: 'ws://localhost:8081',
+      timeout: 60000 // Longer timeout for debugging
+    },
+    testnet: {
+      jsonRpcUrl: 'http://localhost:18080/rpc',
+      wsUrl: 'ws://localhost:18081',
+      timeout: 30000
+    },
+    production: {
+      jsonRpcUrl: 'https://api.lux.network/rpc',
+      wsUrl: 'wss://api.lux.network/ws',
+      apiKey: process.env.LX_DEX_API_KEY,
+      timeout: 15000,
+      retry: {
+        maxRetries: 3,
+        backoffMs: 500
+      }
+    }
+  };
+
+  return configs[env];
+}
+
+// Usage
+const env = (process.env.NODE_ENV as Environment) || 'development';
+const client = new LXDexClient(createConfig(env));
+```
+
+## Connection Management
+
+### Connecting WebSocket
+
+The WebSocket connection must be explicitly established for real-time subscriptions:
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function setupClient(): Promise<LXDexClient> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  // Connect WebSocket for real-time data
+  await client.connect();
+  console.log('WebSocket connected');
+
+  return client;
+}
+```
+
+### Disconnecting
+
+```typescript
+function cleanup(client: LXDexClient): void {
+  // Gracefully close WebSocket connection
+  client.disconnect();
+  console.log('Client disconnected');
+}
+```
+
+### Connection State Management
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+class TradingBot {
+  private client: LXDexClient;
+  private connected: boolean = false;
+
+  constructor(config: LXDexConfig) {
+    this.client = new LXDexClient(config);
+  }
+
+  async connect(): Promise<void> {
+    if (this.connected) {
+      console.log('Already connected');
+      return;
+    }
+
+    try {
+      await this.client.connect();
+      this.connected = true;
+      console.log('Connected to LX DEX');
+    } catch (error) {
+      console.error('Connection failed:', error);
+      throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.connected) {
+      return;
+    }
+
+    this.client.disconnect();
+    this.connected = false;
+    console.log('Disconnected from LX DEX');
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+}
+```
+
+## Sub-Clients
+
+The main client exposes specialized sub-clients for different operations:
+
+### MarketDataClient
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+  jsonRpcUrl: 'http://localhost:8080/rpc'
+});
+
+// Access market data sub-client
+const marketData = client.marketData;
+
+// Get market statistics
+const stats = await marketData.getMarketStats('BTC-USD');
+console.log('24h Volume:', stats.volume24h);
+console.log('24h High:', stats.high24h);
+console.log('24h Low:', stats.low24h);
+```
+
+### LiquidationMonitor
+
+```typescript
+import { LXDexClient, LiquidationInfo } from '@luxfi/dex-sdk';
+
+async function monitorLiquidations(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  // Access liquidation monitor sub-client
+  const monitor = client.liquidationMonitor;
+
+  // Subscribe to liquidation events
+  monitor.subscribeLiquidations((liquidation: LiquidationInfo) => {
+    console.log('Liquidation event:', liquidation);
+    console.log('  User:', liquidation.userId);
+    console.log('  Symbol:', liquidation.symbol);
+    console.log('  Size:', liquidation.size);
+    console.log('  Price:', liquidation.liquidationPrice);
+  });
+}
+```
+
+## Health Checks
+
+### Ping Test
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function checkHealth(client: LXDexClient): Promise<boolean> {
+  try {
+    const response = await client.ping();
+    return response === 'pong';
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return false;
+  }
+}
+```
+
+### Node Information
+
+```typescript
+import { LXDexClient, NodeInfo } from '@luxfi/dex-sdk';
+
+async function getNodeStatus(client: LXDexClient): Promise<NodeInfo> {
+  const info = await client.getInfo();
+
+  console.log('Node Version:', info.version);
+  console.log('Network:', info.network);
+  console.log('Order Count:', info.orderCount);
+  console.log('Trade Count:', info.tradeCount);
+  console.log('Timestamp:', new Date(info.timestamp));
+
+  return info;
+}
+```
+
+## Singleton Pattern
+
+For applications that need a single shared client instance:
+
+```typescript
+import { LXDexClient, LXDexConfig } from '@luxfi/dex-sdk';
+
+class DexClientSingleton {
+  private static instance: LXDexClient | null = null;
+  private static config: LXDexConfig = {
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  };
+
+  private constructor() {}
+
+  static configure(config: LXDexConfig): void {
+    if (DexClientSingleton.instance) {
+      throw new Error('Client already initialized. Call reset() first.');
+    }
+    DexClientSingleton.config = config;
+  }
+
+  static getInstance(): LXDexClient {
+    if (!DexClientSingleton.instance) {
+      DexClientSingleton.instance = new LXDexClient(DexClientSingleton.config);
+    }
+    return DexClientSingleton.instance;
+  }
+
+  static reset(): void {
+    if (DexClientSingleton.instance) {
+      DexClientSingleton.instance.disconnect();
+      DexClientSingleton.instance = null;
+    }
+  }
+}
+
+// Usage
+DexClientSingleton.configure({
+  jsonRpcUrl: 'https://api.lux.network/rpc',
+  wsUrl: 'wss://api.lux.network/ws'
+});
+
+const client = DexClientSingleton.getInstance();
+```
+
+## React Integration
+
+### Context Provider
+
+```tsx
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { LXDexClient, LXDexConfig } from '@luxfi/dex-sdk';
+
+interface DexContextType {
+  client: LXDexClient | null;
+  connected: boolean;
+  error: Error | null;
+}
+
+const DexContext = createContext<DexContextType>({
+  client: null,
+  connected: false,
+  error: null
+});
+
+interface DexProviderProps {
+  config: LXDexConfig;
+  children: ReactNode;
+}
+
+export function DexProvider({ config, children }: DexProviderProps): JSX.Element {
+  const [client, setClient] = useState<LXDexClient | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const dexClient = new LXDexClient(config);
+    setClient(dexClient);
+
+    dexClient.connect()
+      .then(() => setConnected(true))
+      .catch((err) => setError(err));
+
+    return () => {
+      dexClient.disconnect();
+    };
+  }, [config]);
+
+  return (
+    <DexContext.Provider value={{ client, connected, error }}>
+      {children}
+    </DexContext.Provider>
+  );
+}
+
+export function useDexClient(): DexContextType {
+  const context = useContext(DexContext);
+  if (!context) {
+    throw new Error('useDexClient must be used within DexProvider');
+  }
+  return context;
+}
+```
+
+### Using the Provider
+
+```tsx
+import React from 'react';
+import { DexProvider, useDexClient } from './DexProvider';
+
+function TradingPanel(): JSX.Element {
+  const { client, connected, error } = useDexClient();
+
+  if (error) {
+    return <div>Connection error: {error.message}</div>;
+  }
+
+  if (!connected || !client) {
+    return <div>Connecting...</div>;
+  }
+
+  return (
+    <div>
+      <h1>Trading Panel</h1>
+      {/* Trading UI components */}
+    </div>
+  );
+}
+
+function App(): JSX.Element {
+  return (
+    <DexProvider config={{
+      jsonRpcUrl: 'http://localhost:8080/rpc',
+      wsUrl: 'ws://localhost:8081'
+    }}>
+      <TradingPanel />
+    </DexProvider>
+  );
+}
+```
+
+## Utility Methods
+
+The client provides static utility methods:
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+// Format price with decimals
+const formattedPrice = LXDexClient.formatPrice(50123.456789, 2);
+// Result: "50123.46"
+
+// Format size with decimals
+const formattedSize = LXDexClient.formatSize(1.23456789, 8);
+// Result: "1.23456789"
+
+// Calculate order total
+const total = LXDexClient.calculateTotal(50000, 0.5);
+// Result: 25000
+```
+
+## Next Steps
+
+- [Order Management](/docs/sdk/typescript/orders) - Place and manage orders
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time connections
+- [Type Reference](/docs/sdk/typescript/types) - All TypeScript interfaces

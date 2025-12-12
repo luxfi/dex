@@ -1,0 +1,536 @@
+---
+title: Connectivity
+description: Direct connections, dedicated lines, and network options for ultra-low-latency trading
+---
+
+# Connectivity Options
+
+LX DEX provides multiple connectivity tiers optimized for different latency and throughput requirements.
+
+## Connectivity Tiers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 CONNECTIVITY HIERARCHY                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Tier 1: Colocation Cross-Connect (< 50ns)                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Direct fiber to matching engine                      │   │
+│  │ RDMA/DPDK kernel bypass                              │   │
+│  │ Dedicated gateway instance                           │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                         │                                    │
+│                         ▼                                    │
+│  Tier 2: Proximity Network (< 500us)                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Same metro dedicated line                            │   │
+│  │ Private peering                                      │   │
+│  │ Guaranteed bandwidth                                 │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                         │                                    │
+│                         ▼                                    │
+│  Tier 3: Private WAN (< 5ms)                                │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ MPLS or SD-WAN                                       │   │
+│  │ Dedicated circuits                                   │   │
+│  │ QoS prioritization                                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                         │                                    │
+│                         ▼                                    │
+│  Tier 4: Public Internet (variable)                         │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ WebSocket/REST endpoints                             │   │
+│  │ Regional edge locations                              │   │
+│  │ DDoS protection                                      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Tier 1: Colocation Cross-Connect
+
+### Direct Fiber Connection
+
+The lowest latency option - direct single-mode fiber from your rack to the LX DEX matching engine.
+
+**Specifications**:
+
+| Parameter | 10G | 100G |
+|-----------|-----|------|
+| Interface | SFP+ | QSFP28 |
+| Fiber Type | OS2 Single-mode | OS2 Single-mode |
+| Max Distance | 5 meters | 5 meters |
+| Latency (wire) | < 5ns/meter | < 5ns/meter |
+| Typical RTT | < 20ns | < 20ns |
+
+### RDMA Configuration
+
+Remote Direct Memory Access bypasses the kernel for minimum latency.
+
+```cpp
+// RDMA connection setup for LX DEX
+#include <rdma/rdma_cma.h>
+#include <infiniband/verbs.h>
+
+class RDMAConnection {
+public:
+    RDMAConnection(const char* server, int port) {
+        // Create event channel
+        ec_ = rdma_create_event_channel();
+
+        // Create connection ID
+        rdma_create_id(ec_, &id_, nullptr, RDMA_PS_TCP);
+
+        // Resolve address
+        rdma_resolve_addr(id_, nullptr,
+            get_addr(server, port), 2000);
+
+        // Wait for address resolution
+        rdma_get_cm_event(ec_, &event_);
+        rdma_ack_cm_event(event_);
+
+        // Resolve route
+        rdma_resolve_route(id_, 2000);
+        rdma_get_cm_event(ec_, &event_);
+        rdma_ack_cm_event(event_);
+
+        // Setup QP
+        setup_qp();
+
+        // Connect
+        rdma_connect(id_, &conn_param_);
+    }
+
+    // Zero-copy send (< 500ns)
+    void send_order(const Order& order) {
+        ibv_post_send(qp_, &send_wr_, &bad_wr_);
+    }
+
+    // Poll for completion (busy-wait)
+    int poll_completion() {
+        return ibv_poll_cq(cq_, 1, &wc_);
+    }
+
+private:
+    void setup_qp() {
+        // Allocate protection domain
+        pd_ = ibv_alloc_pd(id_->verbs);
+
+        // Create completion queue
+        cq_ = ibv_create_cq(id_->verbs, 100, nullptr,
+                           nullptr, 0);
+
+        // Create queue pair
+        ibv_qp_init_attr qp_attr = {
+            .send_cq = cq_,
+            .recv_cq = cq_,
+            .cap = {
+                .max_send_wr = 100,
+                .max_recv_wr = 100,
+                .max_send_sge = 1,
+                .max_recv_sge = 1
+            },
+            .qp_type = IBV_QPT_RC
+        };
+        rdma_create_qp(id_, pd_, &qp_attr);
+        qp_ = id_->qp;
+    }
+
+    rdma_event_channel* ec_;
+    rdma_cm_id* id_;
+    rdma_cm_event* event_;
+    ibv_pd* pd_;
+    ibv_cq* cq_;
+    ibv_qp* qp_;
+    rdma_conn_param conn_param_;
+    ibv_send_wr send_wr_;
+    ibv_send_wr* bad_wr_;
+    ibv_wc wc_;
+};
+```
+
+### DPDK Configuration
+
+Data Plane Development Kit for kernel bypass on standard NICs.
+
+```cpp
+// DPDK initialization for LX DEX
+#include <rte_eal.h>
+#include <rte_ethdev.h>
+#include <rte_mbuf.h>
+
+class DPDKClient {
+public:
+    static void init(int argc, char** argv) {
+        // Initialize EAL
+        rte_eal_init(argc, argv);
+
+        // Get port ID
+        uint16_t port_id = 0;
+
+        // Configure port
+        rte_eth_dev_configure(port_id, 1, 1, &port_conf);
+
+        // Setup RX queue
+        rte_eth_rx_queue_setup(port_id, 0, 1024,
+            rte_eth_dev_socket_id(port_id),
+            &rx_conf, mbuf_pool);
+
+        // Setup TX queue
+        rte_eth_tx_queue_setup(port_id, 0, 1024,
+            rte_eth_dev_socket_id(port_id),
+            &tx_conf);
+
+        // Start port
+        rte_eth_dev_start(port_id);
+
+        // Enable promiscuous mode
+        rte_eth_promiscuous_enable(port_id);
+    }
+
+    // Send packet (< 1us)
+    static void send(const uint8_t* data, size_t len) {
+        rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
+        rte_memcpy(rte_pktmbuf_mtod(mbuf, void*),
+                   data, len);
+        mbuf->data_len = len;
+        mbuf->pkt_len = len;
+
+        rte_eth_tx_burst(0, 0, &mbuf, 1);
+    }
+
+    // Receive packets (busy-poll)
+    static int recv(rte_mbuf** bufs, int max) {
+        return rte_eth_rx_burst(0, 0, bufs, max);
+    }
+
+private:
+    static rte_eth_conf port_conf;
+    static rte_eth_rxconf rx_conf;
+    static rte_eth_txconf tx_conf;
+    static rte_mempool* mbuf_pool;
+};
+
+// Port configuration
+rte_eth_conf DPDKClient::port_conf = {
+    .rxmode = {
+        .mq_mode = RTE_ETH_MQ_RX_NONE,
+        .max_lro_pkt_size = RTE_ETHER_MAX_LEN
+    },
+    .txmode = {
+        .mq_mode = RTE_ETH_MQ_TX_NONE
+    }
+};
+```
+
+## Tier 2: Proximity Network
+
+### Dedicated Metro Lines
+
+For firms in the same metropolitan area but not colocated.
+
+**Available Circuits**:
+
+| Type | Bandwidth | Latency | Monthly |
+|------|-----------|---------|---------|
+| Dark Fiber | 100 Gbps | < 100us | $15,000 |
+| Wavelength | 10 Gbps | < 150us | $5,000 |
+| Ethernet | 1 Gbps | < 200us | $1,500 |
+| Ethernet | 10 Gbps | < 200us | $4,000 |
+
+**Metro Connectivity Map (NY5)**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                NY METRO CONNECTIVITY                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│         Manhattan                    Secaucus (NY5)         │
+│         ┌───────┐                    ┌───────┐              │
+│         │ 111   │◄───── 15km ───────►│ LX DEX│              │
+│         │ 8th   │      Dark Fiber    │ Engine│              │
+│         └───────┘      < 100us       └───────┘              │
+│              │                            ▲                  │
+│              │                            │                  │
+│         ┌────┴────┐                  ┌────┴────┐            │
+│         │ 60      │                  │ Equinix │            │
+│         │ Hudson  │◄──── 12km ──────►│ NY4    │            │
+│         └─────────┘                  └─────────┘            │
+│                                                              │
+│  Available Handoffs:                                        │
+│  • 111 8th Avenue (Equinix NY1)                            │
+│  • 60 Hudson Street                                         │
+│  • 32 Avenue of the Americas                               │
+│  • 165 Halsey Street (Newark)                              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Private Peering
+
+Direct BGP peering at major internet exchanges.
+
+**Peering Locations**:
+
+| Exchange | Location | Port | ASN |
+|----------|----------|------|-----|
+| DE-CIX NY | New York | 100G | AS65001 |
+| LINX | London | 100G | AS65001 |
+| AMS-IX | Amsterdam | 100G | AS65001 |
+| JPNAP | Tokyo | 100G | AS65001 |
+| Equinix IX | Multiple | 100G | AS65001 |
+
+**Peering Configuration**:
+
+```
+# BGP peering configuration example
+router bgp 65002  # Your ASN
+  neighbor 10.0.0.1 remote-as 65001  # LX DEX ASN
+  neighbor 10.0.0.1 description LX-DEX-Peering
+
+  address-family ipv4 unicast
+    neighbor 10.0.0.1 activate
+    neighbor 10.0.0.1 prefix-list LX-DEX-IN in
+    neighbor 10.0.0.1 prefix-list LX-DEX-OUT out
+    neighbor 10.0.0.1 route-map LX-LOCALPREF in
+
+  route-map LX-LOCALPREF permit 10
+    set local-preference 200
+
+  ip prefix-list LX-DEX-IN seq 10 permit 10.100.0.0/16
+  ip prefix-list LX-DEX-OUT seq 10 permit 10.200.0.0/16
+```
+
+## Tier 3: Private WAN
+
+### MPLS Circuits
+
+For global firms requiring guaranteed performance.
+
+**Circuit Options**:
+
+| Type | Bandwidth | Latency SLA | Monthly |
+|------|-----------|-------------|---------|
+| MPLS Gold | 1 Gbps | < 5ms regional | $8,000 |
+| MPLS Gold | 10 Gbps | < 5ms regional | $25,000 |
+| MPLS Platinum | 1 Gbps | < 2ms regional | $15,000 |
+| MPLS Platinum | 10 Gbps | < 2ms regional | $45,000 |
+
+**Global PoP Locations**:
+
+- **Americas**: New York, Chicago, Toronto, Sao Paulo
+- **EMEA**: London, Frankfurt, Amsterdam, Zurich
+- **APAC**: Tokyo, Hong Kong, Singapore, Sydney
+
+### SD-WAN
+
+Software-defined WAN with intelligent routing.
+
+```yaml
+# SD-WAN configuration for LX DEX
+network:
+  name: "Trading-Network"
+  provider: "lx-sdwan"
+
+  # Primary path to NY5
+  paths:
+    - name: "primary"
+      destination: "10.100.1.1"  # NY5 gateway
+      bandwidth: "10G"
+      latency_sla: "2ms"
+      jitter_sla: "0.5ms"
+
+    # Backup path
+    - name: "backup"
+      destination: "10.100.2.1"  # LD4 gateway
+      bandwidth: "10G"
+      latency_sla: "30ms"
+      failover_only: true
+
+  # QoS policies
+  qos:
+    - name: "trading"
+      dscp: 46  # EF - Expedited Forwarding
+      priority: "strict"
+      applications:
+        - "lx-binary-protocol"
+        - "lx-market-data"
+
+    - name: "risk"
+      dscp: 34  # AF41
+      priority: "high"
+      applications:
+        - "lx-risk-api"
+
+    - name: "default"
+      dscp: 0
+      priority: "normal"
+
+  # Path selection
+  routing:
+    algorithm: "latency-based"
+    failover_time: "50ms"
+    probe_interval: "100ms"
+```
+
+## Tier 4: Public Internet
+
+### Regional Edge Endpoints
+
+For non-latency-sensitive applications or initial testing.
+
+**Endpoints**:
+
+| Region | Endpoint | Protocols |
+|--------|----------|-----------|
+| US East | api-use.lux.network | WS, REST, gRPC |
+| US West | api-usw.lux.network | WS, REST, gRPC |
+| Europe | api-eu.lux.network | WS, REST, gRPC |
+| Asia | api-asia.lux.network | WS, REST, gRPC |
+| Global (anycast) | api.lux.network | WS, REST, gRPC |
+
+**WebSocket Connection**:
+
+```typescript
+// TypeScript WebSocket client
+import WebSocket from 'ws';
+
+const ws = new WebSocket('wss://api.lux.network/ws', {
+  headers: {
+    'X-API-Key': process.env.LX_API_KEY,
+    'X-Client-ID': 'my-trading-system'
+  }
+});
+
+ws.on('open', () => {
+  // Subscribe to market data
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    channels: ['orderbook.BTC-USD', 'trades.BTC-USD']
+  }));
+});
+
+ws.on('message', (data: Buffer) => {
+  const msg = JSON.parse(data.toString());
+  console.log('Received:', msg);
+});
+
+// Keep-alive ping every 30 seconds
+setInterval(() => {
+  ws.ping();
+}, 30000);
+```
+
+## Network Latency Matrix
+
+### Measured Latencies (p50/p99)
+
+| From | To NY5 | To LD4 | To TY3 | To SG1 |
+|------|--------|--------|--------|--------|
+| **Colo NY5** | 50ns/100ns | 28ms/29ms | 75ms/77ms | 110ms/115ms |
+| **Colo LD4** | 28ms/29ms | 50ns/100ns | 120ms/125ms | 85ms/90ms |
+| **Colo TY3** | 75ms/77ms | 120ms/125ms | 50ns/100ns | 35ms/38ms |
+| **Metro NY** | 100us/200us | 28ms/30ms | 75ms/80ms | 110ms/120ms |
+| **Metro LD** | 28ms/30ms | 100us/200us | 120ms/130ms | 85ms/95ms |
+| **Public US** | 2ms/10ms | 30ms/50ms | 80ms/120ms | 120ms/180ms |
+| **Public EU** | 30ms/50ms | 2ms/10ms | 125ms/180ms | 90ms/140ms |
+
+## Redundancy Options
+
+### Active-Active Configuration
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               ACTIVE-ACTIVE CONNECTIVITY                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Your Infrastructure                LX DEX Infrastructure   │
+│                                                              │
+│  ┌──────────────┐                   ┌──────────────────┐    │
+│  │ Primary      │───── 100G A ─────►│ Gateway A        │    │
+│  │ Router       │                   │ (NY5)            │    │
+│  │              │                   └──────────────────┘    │
+│  │              │                                           │
+│  │              │───── 100G B ─────►┌──────────────────┐    │
+│  │              │                   │ Gateway B        │    │
+│  └──────────────┘                   │ (NY5)            │    │
+│         │                           └──────────────────┘    │
+│         │                                    │              │
+│  ┌──────┴───────┐                   ┌────────┴─────────┐    │
+│  │ Backup       │───── 100G C ─────►│ Gateway C        │    │
+│  │ Router       │                   │ (LD4)            │    │
+│  └──────────────┘                   └──────────────────┘    │
+│                                                              │
+│  Failover Time: < 50 microseconds (within DC)              │
+│  Failover Time: < 100 milliseconds (cross-DC)              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Heartbeat Monitoring
+
+```go
+// Connection health monitoring
+package main
+
+import (
+    "time"
+    "sync/atomic"
+)
+
+type ConnectionMonitor struct {
+    primary   *Connection
+    backup    *Connection
+    active    atomic.Pointer[Connection]
+
+    heartbeatInterval time.Duration
+    failoverThreshold int
+}
+
+func (m *ConnectionMonitor) Start() {
+    m.active.Store(m.primary)
+
+    go func() {
+        missedHeartbeats := 0
+        ticker := time.NewTicker(m.heartbeatInterval)
+
+        for range ticker.C {
+            // Send heartbeat to primary
+            latency, err := m.primary.Ping()
+
+            if err != nil || latency > 1*time.Millisecond {
+                missedHeartbeats++
+
+                if missedHeartbeats >= m.failoverThreshold {
+                    // Failover to backup
+                    m.active.Store(m.backup)
+                    log.Warn("Failover to backup connection")
+                }
+            } else {
+                missedHeartbeats = 0
+
+                // Failback if backup was active
+                if m.active.Load() == m.backup {
+                    m.active.Store(m.primary)
+                    log.Info("Failback to primary connection")
+                }
+            }
+        }
+    }()
+}
+
+func (m *ConnectionMonitor) Send(order *Order) error {
+    return m.active.Load().Send(order)
+}
+```
+
+## Contact
+
+**Network Engineering**
+- Email: network@lux.network
+- NOC: noc@lux.network (24/7)
+
+**Connectivity Sales**
+- Email: connectivity@lux.network
+- Phone: +1 (212) 555-0102

@@ -1,0 +1,824 @@
+---
+title: Order Book
+description: Subscribing to order book updates, depth snapshots, and incremental updates with the Go SDK
+---
+
+# Order Book
+
+The Go SDK provides multiple methods for accessing order book data, from simple snapshots to real-time streaming with incremental updates.
+
+## Order Book Snapshot
+
+### Basic Snapshot
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Get order book with 20 levels of depth
+    orderBook, err := c.GetOrderBook(ctx, "BTC-USD", 20)
+    if err != nil {
+        log.Fatal("Failed to get order book:", err)
+    }
+
+    fmt.Printf("Order Book for %s\n", orderBook.Symbol)
+    fmt.Printf("Timestamp: %d\n\n", orderBook.Timestamp)
+
+    // Display bids (buy orders)
+    fmt.Println("BIDS (Buy Orders)")
+    fmt.Println("Price        | Size")
+    fmt.Println("-------------|-------------")
+    for _, bid := range orderBook.Bids {
+        fmt.Printf("%.2f   | %.8f\n", bid.Price, bid.Size)
+    }
+
+    fmt.Println()
+
+    // Display asks (sell orders)
+    fmt.Println("ASKS (Sell Orders)")
+    fmt.Println("Price        | Size")
+    fmt.Println("-------------|-------------")
+    for _, ask := range orderBook.Asks {
+        fmt.Printf("%.2f   | %.8f\n", ask.Price, ask.Size)
+    }
+}
+```
+
+### Order Book Analytics
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    orderBook, err := c.GetOrderBook(ctx, "BTC-USD", 50)
+    if err != nil {
+        log.Fatal("Failed to get order book:", err)
+    }
+
+    // Use built-in helper methods
+    fmt.Printf("Order Book Analytics for %s\n", orderBook.Symbol)
+    fmt.Println("================================")
+    fmt.Printf("Best Bid:      %.2f\n", orderBook.BestBid())
+    fmt.Printf("Best Ask:      %.2f\n", orderBook.BestAsk())
+    fmt.Printf("Mid Price:     %.2f\n", orderBook.MidPrice())
+    fmt.Printf("Spread:        %.2f (%.4f%%)\n",
+        orderBook.Spread(), orderBook.SpreadPercentage())
+
+    // Calculate depth metrics
+    var bidVolume, askVolume float64
+    for _, bid := range orderBook.Bids {
+        bidVolume += bid.Size
+    }
+    for _, ask := range orderBook.Asks {
+        askVolume += ask.Size
+    }
+
+    fmt.Printf("\nDepth Analysis\n")
+    fmt.Printf("Bid Volume:    %.4f BTC\n", bidVolume)
+    fmt.Printf("Ask Volume:    %.4f BTC\n", askVolume)
+    fmt.Printf("Bid/Ask Ratio: %.2f\n", bidVolume/askVolume)
+
+    // Calculate weighted average price
+    var bidWAP, askWAP float64
+    var bidWeight, askWeight float64
+    for _, bid := range orderBook.Bids {
+        bidWAP += bid.Price * bid.Size
+        bidWeight += bid.Size
+    }
+    for _, ask := range orderBook.Asks {
+        askWAP += ask.Price * ask.Size
+        askWeight += ask.Size
+    }
+
+    if bidWeight > 0 {
+        fmt.Printf("Bid VWAP:      %.2f\n", bidWAP/bidWeight)
+    }
+    if askWeight > 0 {
+        fmt.Printf("Ask VWAP:      %.2f\n", askWAP/askWeight)
+    }
+}
+```
+
+## WebSocket Streaming
+
+### Subscribe to Order Book Updates
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect WebSocket:", err)
+    }
+
+    // Subscribe to order book updates
+    err = c.SubscribeOrderBook("BTC-USD", func(ob *client.OrderBook) {
+        fmt.Printf("\n[%s] Order Book Update\n",
+            time.Now().Format("15:04:05.000"))
+        fmt.Printf("Best Bid: %.2f (%.4f)\n",
+            ob.BestBid(), ob.Bids[0].Size)
+        fmt.Printf("Best Ask: %.2f (%.4f)\n",
+            ob.BestAsk(), ob.Asks[0].Size)
+        fmt.Printf("Spread:   %.2f (%.4f%%)\n",
+            ob.Spread(), ob.SpreadPercentage())
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    fmt.Println("Subscribed to BTC-USD order book. Press Ctrl+C to exit.")
+
+    // Wait for interrupt signal
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+
+    fmt.Println("\nShutting down...")
+}
+```
+
+### Multiple Symbol Subscription
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type OrderBookCache struct {
+    mu     sync.RWMutex
+    books  map[string]*client.OrderBook
+}
+
+func NewOrderBookCache() *OrderBookCache {
+    return &OrderBookCache{
+        books: make(map[string]*client.OrderBook),
+    }
+}
+
+func (c *OrderBookCache) Update(ob *client.OrderBook) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.books[ob.Symbol] = ob
+}
+
+func (c *OrderBookCache) Get(symbol string) *client.OrderBook {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    return c.books[symbol]
+}
+
+func (c *OrderBookCache) GetAll() map[string]*client.OrderBook {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    result := make(map[string]*client.OrderBook, len(c.books))
+    for k, v := range c.books {
+        result[k] = v
+    }
+    return result
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect WebSocket:", err)
+    }
+
+    cache := NewOrderBookCache()
+
+    // Subscribe to multiple symbols
+    symbols := []string{"BTC-USD", "ETH-USD", "LUX-USD"}
+    for _, symbol := range symbols {
+        sym := symbol // Capture for closure
+        err := c.SubscribeOrderBook(sym, func(ob *client.OrderBook) {
+            cache.Update(ob)
+            fmt.Printf("[%s] Bid: %.2f | Ask: %.2f | Spread: %.4f%%\n",
+                ob.Symbol, ob.BestBid(), ob.BestAsk(), ob.SpreadPercentage())
+        })
+        if err != nil {
+            log.Printf("Failed to subscribe to %s: %v", symbol, err)
+        } else {
+            fmt.Printf("Subscribed to %s\n", symbol)
+        }
+    }
+
+    // Wait for interrupt
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+
+    // Print final state
+    fmt.Println("\nFinal order book state:")
+    for symbol, ob := range cache.GetAll() {
+        if ob != nil {
+            fmt.Printf("%s: Bid=%.2f, Ask=%.2f\n",
+                symbol, ob.BestBid(), ob.BestAsk())
+        }
+    }
+}
+```
+
+## gRPC Streaming
+
+### Stream Order Book via gRPC
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect gRPC:", err)
+    }
+
+    // Start streaming
+    obChan, err := c.StreamOrderBook(ctx, "BTC-USD")
+    if err != nil {
+        log.Fatal("Failed to start stream:", err)
+    }
+
+    // Handle shutdown
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+    var updateCount int
+    startTime := time.Now()
+
+    fmt.Println("Streaming BTC-USD order book via gRPC...")
+
+    for {
+        select {
+        case ob, ok := <-obChan:
+            if !ok {
+                fmt.Println("Stream closed")
+                return
+            }
+            updateCount++
+            if updateCount%100 == 0 {
+                elapsed := time.Since(startTime)
+                rate := float64(updateCount) / elapsed.Seconds()
+                fmt.Printf("[%d updates, %.1f/sec] Bid: %.2f | Ask: %.2f\n",
+                    updateCount, rate, ob.BestBid(), ob.BestAsk())
+            }
+
+        case <-sigCh:
+            fmt.Printf("\nReceived %d updates in %v\n",
+                updateCount, time.Since(startTime))
+            return
+        }
+    }
+}
+```
+
+### High-Performance Stream Processing
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync/atomic"
+    "syscall"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+type OrderBookProcessor struct {
+    client      *client.Client
+    symbol      string
+    updateCount uint64
+    lastUpdate  atomic.Value // *client.OrderBook
+}
+
+func NewOrderBookProcessor(c *client.Client, symbol string) *OrderBookProcessor {
+    return &OrderBookProcessor{
+        client: c,
+        symbol: symbol,
+    }
+}
+
+func (p *OrderBookProcessor) Start(ctx context.Context) error {
+    obChan, err := p.client.StreamOrderBook(ctx, p.symbol)
+    if err != nil {
+        return err
+    }
+
+    go p.processUpdates(ctx, obChan)
+    return nil
+}
+
+func (p *OrderBookProcessor) processUpdates(ctx context.Context, updates <-chan *client.OrderBook) {
+    for {
+        select {
+        case ob, ok := <-updates:
+            if !ok {
+                return
+            }
+            atomic.AddUint64(&p.updateCount, 1)
+            p.lastUpdate.Store(ob)
+
+            // Process update (e.g., trading logic)
+            p.onUpdate(ob)
+
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+
+func (p *OrderBookProcessor) onUpdate(ob *client.OrderBook) {
+    // Example: Alert on spread widening
+    spreadPct := ob.SpreadPercentage()
+    if spreadPct > 0.5 {
+        log.Printf("Wide spread alert: %.4f%%", spreadPct)
+    }
+}
+
+func (p *OrderBookProcessor) GetStats() (count uint64, last *client.OrderBook) {
+    count = atomic.LoadUint64(&p.updateCount)
+    if v := p.lastUpdate.Load(); v != nil {
+        last = v.(*client.OrderBook)
+    }
+    return
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    processor := NewOrderBookProcessor(c, "BTC-USD")
+    if err := processor.Start(ctx); err != nil {
+        log.Fatal("Failed to start processor:", err)
+    }
+
+    // Print stats periodically
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
+
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+    startTime := time.Now()
+    for {
+        select {
+        case <-ticker.C:
+            count, last := processor.GetStats()
+            elapsed := time.Since(startTime)
+            rate := float64(count) / elapsed.Seconds()
+
+            if last != nil {
+                fmt.Printf("Updates: %d (%.1f/sec) | Bid: %.2f | Ask: %.2f\n",
+                    count, rate, last.BestBid(), last.BestAsk())
+            }
+
+        case <-sigCh:
+            count, _ := processor.GetStats()
+            fmt.Printf("\nTotal updates: %d\n", count)
+            return
+        }
+    }
+}
+```
+
+## Order Book Depth Analysis
+
+### Calculate Market Impact
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+// MarketImpact calculates the price impact of a given order size
+func MarketImpact(ob *client.OrderBook, side client.OrderSide, size float64) (avgPrice, impact float64) {
+    var levels []client.PriceLevel
+    var referencePrice float64
+
+    if side == client.OrderSideBuy {
+        levels = ob.Asks
+        referencePrice = ob.BestAsk()
+    } else {
+        levels = ob.Bids
+        referencePrice = ob.BestBid()
+    }
+
+    if len(levels) == 0 || referencePrice == 0 {
+        return 0, 0
+    }
+
+    var remaining = size
+    var totalCost float64
+
+    for _, level := range levels {
+        if remaining <= 0 {
+            break
+        }
+
+        fillSize := min(remaining, level.Size)
+        totalCost += fillSize * level.Price
+        remaining -= fillSize
+    }
+
+    if remaining > 0 {
+        // Not enough liquidity
+        return 0, -1 // Indicate insufficient liquidity
+    }
+
+    filledSize := size - remaining
+    avgPrice = totalCost / filledSize
+
+    if side == client.OrderSideBuy {
+        impact = (avgPrice - referencePrice) / referencePrice * 100
+    } else {
+        impact = (referencePrice - avgPrice) / referencePrice * 100
+    }
+
+    return avgPrice, impact
+}
+
+func min(a, b float64) float64 {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Get deep order book
+    ob, err := c.GetOrderBook(ctx, "BTC-USD", 100)
+    if err != nil {
+        log.Fatal("Failed to get order book:", err)
+    }
+
+    fmt.Printf("Market Impact Analysis for %s\n", ob.Symbol)
+    fmt.Printf("Best Bid: %.2f | Best Ask: %.2f\n\n", ob.BestBid(), ob.BestAsk())
+
+    // Calculate impact for various order sizes
+    sizes := []float64{0.1, 0.5, 1.0, 5.0, 10.0}
+
+    fmt.Println("BUY Orders:")
+    fmt.Println("Size (BTC) | Avg Price  | Impact %")
+    fmt.Println("-----------|------------|----------")
+    for _, size := range sizes {
+        avgPrice, impact := MarketImpact(ob, client.OrderSideBuy, size)
+        if impact < 0 {
+            fmt.Printf("%.1f       | Insufficient liquidity\n", size)
+        } else {
+            fmt.Printf("%.1f       | %.2f   | %.4f%%\n", size, avgPrice, impact)
+        }
+    }
+
+    fmt.Println("\nSELL Orders:")
+    fmt.Println("Size (BTC) | Avg Price  | Impact %")
+    fmt.Println("-----------|------------|----------")
+    for _, size := range sizes {
+        avgPrice, impact := MarketImpact(ob, client.OrderSideSell, size)
+        if impact < 0 {
+            fmt.Printf("%.1f       | Insufficient liquidity\n", size)
+        } else {
+            fmt.Printf("%.1f       | %.2f   | %.4f%%\n", size, avgPrice, impact)
+        }
+    }
+}
+```
+
+### Order Book Imbalance
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "math"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+// OrderBookImbalance calculates the bid/ask imbalance within a price range
+func OrderBookImbalance(ob *client.OrderBook, pctRange float64) float64 {
+    midPrice := ob.MidPrice()
+    if midPrice == 0 {
+        return 0
+    }
+
+    upperBound := midPrice * (1 + pctRange/100)
+    lowerBound := midPrice * (1 - pctRange/100)
+
+    var bidVolume, askVolume float64
+
+    for _, bid := range ob.Bids {
+        if bid.Price >= lowerBound {
+            bidVolume += bid.Size
+        }
+    }
+
+    for _, ask := range ob.Asks {
+        if ask.Price <= upperBound {
+            askVolume += ask.Size
+        }
+    }
+
+    totalVolume := bidVolume + askVolume
+    if totalVolume == 0 {
+        return 0
+    }
+
+    // Imbalance: positive = more bids, negative = more asks
+    return (bidVolume - askVolume) / totalVolume
+}
+
+// OrderBookPressure calculates buying/selling pressure
+func OrderBookPressure(ob *client.OrderBook, levels int) (bidPressure, askPressure float64) {
+    if len(ob.Bids) == 0 || len(ob.Asks) == 0 {
+        return 0, 0
+    }
+
+    midPrice := ob.MidPrice()
+
+    // Weight by inverse distance from mid price
+    for i := 0; i < levels && i < len(ob.Bids); i++ {
+        bid := ob.Bids[i]
+        distance := math.Abs(midPrice - bid.Price)
+        if distance > 0 {
+            bidPressure += bid.Size / distance
+        }
+    }
+
+    for i := 0; i < levels && i < len(ob.Asks); i++ {
+        ask := ob.Asks[i]
+        distance := math.Abs(ask.Price - midPrice)
+        if distance > 0 {
+            askPressure += ask.Size / distance
+        }
+    }
+
+    return bidPressure, askPressure
+}
+
+func main() {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    ob, err := c.GetOrderBook(ctx, "BTC-USD", 50)
+    if err != nil {
+        log.Fatal("Failed to get order book:", err)
+    }
+
+    fmt.Printf("Order Book Analysis for %s\n", ob.Symbol)
+    fmt.Printf("Mid Price: %.2f\n\n", ob.MidPrice())
+
+    // Calculate imbalance at different ranges
+    fmt.Println("Imbalance Analysis:")
+    ranges := []float64{0.1, 0.5, 1.0, 2.0}
+    for _, r := range ranges {
+        imbalance := OrderBookImbalance(ob, r)
+        direction := "neutral"
+        if imbalance > 0.1 {
+            direction = "bullish"
+        } else if imbalance < -0.1 {
+            direction = "bearish"
+        }
+        fmt.Printf("  %.1f%% range: %.4f (%s)\n", r, imbalance, direction)
+    }
+
+    // Calculate pressure
+    fmt.Println("\nPressure Analysis:")
+    bidP, askP := OrderBookPressure(ob, 10)
+    ratio := bidP / (bidP + askP)
+    fmt.Printf("  Bid Pressure: %.2f\n", bidP)
+    fmt.Printf("  Ask Pressure: %.2f\n", askP)
+    fmt.Printf("  Ratio (bid/(bid+ask)): %.4f\n", ratio)
+
+    if ratio > 0.55 {
+        fmt.Println("  Signal: Bullish pressure")
+    } else if ratio < 0.45 {
+        fmt.Println("  Signal: Bearish pressure")
+    } else {
+        fmt.Println("  Signal: Neutral")
+    }
+}
+```
+
+## Unsubscribe
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    c, err := client.NewClient(
+        client.WithWebSocketURL("ws://localhost:8081"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Disconnect()
+
+    ctx := context.Background()
+
+    if err := c.ConnectWebSocket(ctx); err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Subscribe
+    err = c.SubscribeOrderBook("BTC-USD", func(ob *client.OrderBook) {
+        fmt.Printf("Update: Bid=%.2f, Ask=%.2f\n", ob.BestBid(), ob.BestAsk())
+    })
+    if err != nil {
+        log.Fatal("Failed to subscribe:", err)
+    }
+
+    fmt.Println("Subscribed, waiting 10 seconds...")
+    time.Sleep(10 * time.Second)
+
+    // Unsubscribe
+    if err := c.Unsubscribe("orderbook:BTC-USD"); err != nil {
+        log.Printf("Failed to unsubscribe: %v", err)
+    } else {
+        fmt.Println("Unsubscribed successfully")
+    }
+
+    time.Sleep(2 * time.Second)
+}
+```
+
+## Next Steps
+
+- [Trades](/docs/sdk/go/trades) - Trade history and streaming
+- [Account](/docs/sdk/go/account) - Balances and positions
+- [WebSocket](/docs/sdk/go/websocket) - Advanced WebSocket patterns

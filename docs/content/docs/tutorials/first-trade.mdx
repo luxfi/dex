@@ -1,0 +1,920 @@
+---
+title: Your First Trade
+description: Place your first order on LX DEX - a complete beginner guide with code examples in TypeScript, Python, and Go
+---
+
+# Your First Trade
+
+This tutorial walks you through placing your first order on LX DEX. By the end, you will understand the complete trading flow from connection to order confirmation.
+
+## Objectives
+
+After completing this tutorial, you will be able to:
+
+- Connect to the LX DEX API
+- Query market data
+- Place limit and market orders
+- Check order status and fills
+- Cancel open orders
+
+## Prerequisites
+
+- LX DEX node running locally (see [Getting Started](/docs/getting-started))
+- SDK installed for your preferred language
+- Basic understanding of trading concepts (orders, orderbooks)
+
+## Step 1: Start the DEX Node
+
+First, ensure your local DEX node is running:
+
+```bash
+# In the dex directory
+./bin/lxd --testnet --log-level=info
+```
+
+You should see output indicating the node is ready:
+
+```
+INFO  Starting LX DEX node
+INFO  JSON-RPC server listening on :8080
+INFO  WebSocket server listening on :8081
+INFO  gRPC server listening on :50051
+INFO  Node ready for trading
+```
+
+## Step 2: Connect to the API
+
+### TypeScript
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+// Create client instance
+const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+});
+
+// Test connection
+async function testConnection() {
+    try {
+        const info = await client.getInfo();
+        console.log('Connected to LX DEX');
+        console.log('Node version:', info.version);
+        console.log('Network:', info.network);
+        return true;
+    } catch (error) {
+        console.error('Connection failed:', error.message);
+        return false;
+    }
+}
+
+testConnection();
+```
+
+### Python
+
+```python
+from luxfi_dex import LXDexClient
+
+# Create client instance
+client = LXDexClient(
+    json_rpc_url='http://localhost:8080/rpc',
+    ws_url='ws://localhost:8081'
+)
+
+# Test connection
+def test_connection():
+    try:
+        info = client.get_info()
+        print('Connected to LX DEX')
+        print(f'Node version: {info["version"]}')
+        print(f'Network: {info["network"]}')
+        return True
+    except Exception as e:
+        print(f'Connection failed: {e}')
+        return False
+
+test_connection()
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    // Create client instance
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+    )
+
+    ctx := context.Background()
+
+    // Test connection
+    info, err := client.GetInfo(ctx)
+    if err != nil {
+        log.Fatalf("Connection failed: %v", err)
+    }
+
+    fmt.Println("Connected to LX DEX")
+    fmt.Printf("Node version: %s\n", info.Version)
+    fmt.Printf("Network: %s\n", info.Network)
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_getInfo",
+    "params": {},
+    "id": 1
+  }'
+```
+
+**Expected Output:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "version": "1.0.0",
+    "network": "testnet",
+    "uptime": 3600,
+    "orders_processed": 1250000
+  },
+  "id": 1
+}
+```
+
+## Step 3: Check the Order Book
+
+Before placing an order, check the current market state:
+
+### TypeScript
+
+```typescript
+async function checkOrderBook() {
+    const book = await client.getOrderBook('BTC-USD', 5);
+
+    console.log('\n=== BTC-USD Order Book ===');
+    console.log('\nAsks (Sell Orders):');
+    book.asks.slice().reverse().forEach(([price, size]) => {
+        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`);
+    });
+
+    console.log('\n--- Spread ---');
+
+    console.log('\nBids (Buy Orders):');
+    book.bids.forEach(([price, size]) => {
+        console.log(`  ${price.toFixed(2)} | ${size.toFixed(4)} BTC`);
+    });
+
+    // Calculate spread
+    const bestBid = book.bids[0][0];
+    const bestAsk = book.asks[0][0];
+    const spread = bestAsk - bestBid;
+    const spreadPercent = (spread / bestBid) * 100;
+
+    console.log(`\nSpread: $${spread.toFixed(2)} (${spreadPercent.toFixed(3)}%)`);
+
+    return book;
+}
+
+checkOrderBook();
+```
+
+### Python
+
+```python
+def check_order_book():
+    book = client.get_order_book('BTC-USD', depth=5)
+
+    print('\n=== BTC-USD Order Book ===')
+    print('\nAsks (Sell Orders):')
+    for price, size in reversed(book['asks']):
+        print(f'  {price:,.2f} | {size:.4f} BTC')
+
+    print('\n--- Spread ---')
+
+    print('\nBids (Buy Orders):')
+    for price, size in book['bids']:
+        print(f'  {price:,.2f} | {size:.4f} BTC')
+
+    # Calculate spread
+    best_bid = book['bids'][0][0]
+    best_ask = book['asks'][0][0]
+    spread = best_ask - best_bid
+    spread_percent = (spread / best_bid) * 100
+
+    print(f'\nSpread: ${spread:,.2f} ({spread_percent:.3f}%)')
+
+    return book
+
+check_order_book()
+```
+
+### Go
+
+```go
+func checkOrderBook(ctx context.Context, client *lxdex.Client) {
+    book, err := client.GetOrderBook(ctx, "BTC-USD", 5)
+    if err != nil {
+        log.Fatalf("Failed to get order book: %v", err)
+    }
+
+    fmt.Println("\n=== BTC-USD Order Book ===")
+    fmt.Println("\nAsks (Sell Orders):")
+    for i := len(book.Asks) - 1; i >= 0; i-- {
+        ask := book.Asks[i]
+        fmt.Printf("  %.2f | %.4f BTC\n", ask.Price, ask.Size)
+    }
+
+    fmt.Println("\n--- Spread ---")
+
+    fmt.Println("\nBids (Buy Orders):")
+    for _, bid := range book.Bids {
+        fmt.Printf("  %.2f | %.4f BTC\n", bid.Price, bid.Size)
+    }
+
+    // Calculate spread
+    bestBid := book.Bids[0].Price
+    bestAsk := book.Asks[0].Price
+    spread := bestAsk - bestBid
+    spreadPercent := (spread / bestBid) * 100
+
+    fmt.Printf("\nSpread: $%.2f (%.3f%%)\n", spread, spreadPercent)
+}
+```
+
+**Expected Output:**
+
+```
+=== BTC-USD Order Book ===
+
+Asks (Sell Orders):
+  50,150.00 | 0.8500 BTC
+  50,125.00 | 1.2000 BTC
+  50,100.00 | 2.5000 BTC
+  50,075.00 | 0.5000 BTC
+  50,050.00 | 1.0000 BTC
+
+--- Spread ---
+
+Bids (Buy Orders):
+  50,000.00 | 1.5000 BTC
+  49,975.00 | 2.0000 BTC
+  49,950.00 | 0.7500 BTC
+  49,925.00 | 1.8000 BTC
+  49,900.00 | 3.0000 BTC
+
+Spread: $50.00 (0.100%)
+```
+
+## Step 4: Place a Limit Order
+
+Now let us place a limit buy order:
+
+### TypeScript
+
+```typescript
+async function placeLimitOrder() {
+    try {
+        const order = await client.placeOrder({
+            symbol: 'BTC-USD',
+            side: 'buy',
+            type: 'limit',
+            price: 49500,      // Price below market
+            size: 0.1,         // 0.1 BTC
+            timeInForce: 'GTC' // Good Till Cancelled
+        });
+
+        console.log('\n=== Order Placed ===');
+        console.log('Order ID:', order.orderId);
+        console.log('Symbol:', order.symbol);
+        console.log('Side:', order.side);
+        console.log('Type:', order.type);
+        console.log('Price:', order.price);
+        console.log('Size:', order.size);
+        console.log('Status:', order.status);
+        console.log('Created:', new Date(order.createdAt).toISOString());
+
+        return order;
+    } catch (error) {
+        console.error('Failed to place order:', error.message);
+        throw error;
+    }
+}
+
+const myOrder = await placeLimitOrder();
+```
+
+### Python
+
+```python
+def place_limit_order():
+    try:
+        order = client.place_order(
+            symbol='BTC-USD',
+            side='buy',
+            order_type='limit',
+            price=49500,       # Price below market
+            size=0.1,          # 0.1 BTC
+            time_in_force='GTC'  # Good Till Cancelled
+        )
+
+        print('\n=== Order Placed ===')
+        print(f'Order ID: {order["order_id"]}')
+        print(f'Symbol: {order["symbol"]}')
+        print(f'Side: {order["side"]}')
+        print(f'Type: {order["type"]}')
+        print(f'Price: {order["price"]}')
+        print(f'Size: {order["size"]}')
+        print(f'Status: {order["status"]}')
+        print(f'Created: {order["created_at"]}')
+
+        return order
+    except Exception as e:
+        print(f'Failed to place order: {e}')
+        raise
+
+my_order = place_limit_order()
+```
+
+### Go
+
+```go
+func placeLimitOrder(ctx context.Context, client *lxdex.Client) (*lxdex.Order, error) {
+    order, err := client.PlaceOrder(ctx, &lxdex.OrderRequest{
+        Symbol:      "BTC-USD",
+        Side:        lxdex.Buy,
+        Type:        lxdex.Limit,
+        Price:       49500,    // Price below market
+        Size:        0.1,      // 0.1 BTC
+        TimeInForce: lxdex.GTC, // Good Till Cancelled
+    })
+    if err != nil {
+        return nil, fmt.Errorf("failed to place order: %w", err)
+    }
+
+    fmt.Println("\n=== Order Placed ===")
+    fmt.Printf("Order ID: %s\n", order.OrderID)
+    fmt.Printf("Symbol: %s\n", order.Symbol)
+    fmt.Printf("Side: %s\n", order.Side)
+    fmt.Printf("Type: %s\n", order.Type)
+    fmt.Printf("Price: %.2f\n", order.Price)
+    fmt.Printf("Size: %.4f\n", order.Size)
+    fmt.Printf("Status: %s\n", order.Status)
+    fmt.Printf("Created: %s\n", order.CreatedAt.Format(time.RFC3339))
+
+    return order, nil
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_placeOrder",
+    "params": {
+      "symbol": "BTC-USD",
+      "side": 0,
+      "type": 0,
+      "price": 49500,
+      "size": 0.1,
+      "userID": "tutorial-user"
+    },
+    "id": 1
+  }'
+```
+
+**Expected Output:**
+
+```
+=== Order Placed ===
+Order ID: 550e8400-e29b-41d4-a716-446655440000
+Symbol: BTC-USD
+Side: buy
+Type: limit
+Price: 49500
+Size: 0.1
+Status: open
+Created: 2024-01-15T10:30:45.123Z
+```
+
+## Step 5: Check Order Status
+
+Monitor your order:
+
+### TypeScript
+
+```typescript
+async function checkOrderStatus(orderId: string) {
+    const order = await client.getOrder(orderId);
+
+    console.log('\n=== Order Status ===');
+    console.log('Order ID:', order.orderId);
+    console.log('Status:', order.status);
+    console.log('Filled:', order.filledSize, '/', order.size);
+    console.log('Remaining:', order.remainingSize);
+    console.log('Average Fill Price:', order.avgFillPrice || 'N/A');
+
+    if (order.fills && order.fills.length > 0) {
+        console.log('\nFills:');
+        order.fills.forEach((fill, i) => {
+            console.log(`  ${i + 1}. ${fill.size} @ ${fill.price} (${fill.timestamp})`);
+        });
+    }
+
+    return order;
+}
+
+await checkOrderStatus(myOrder.orderId);
+```
+
+### Python
+
+```python
+def check_order_status(order_id):
+    order = client.get_order(order_id)
+
+    print('\n=== Order Status ===')
+    print(f'Order ID: {order["order_id"]}')
+    print(f'Status: {order["status"]}')
+    print(f'Filled: {order["filled_size"]} / {order["size"]}')
+    print(f'Remaining: {order["remaining_size"]}')
+    print(f'Average Fill Price: {order.get("avg_fill_price", "N/A")}')
+
+    if order.get('fills'):
+        print('\nFills:')
+        for i, fill in enumerate(order['fills'], 1):
+            print(f'  {i}. {fill["size"]} @ {fill["price"]} ({fill["timestamp"]})')
+
+    return order
+
+check_order_status(my_order['order_id'])
+```
+
+### Go
+
+```go
+func checkOrderStatus(ctx context.Context, client *lxdex.Client, orderID string) {
+    order, err := client.GetOrder(ctx, orderID)
+    if err != nil {
+        log.Fatalf("Failed to get order: %v", err)
+    }
+
+    fmt.Println("\n=== Order Status ===")
+    fmt.Printf("Order ID: %s\n", order.OrderID)
+    fmt.Printf("Status: %s\n", order.Status)
+    fmt.Printf("Filled: %.4f / %.4f\n", order.FilledSize, order.Size)
+    fmt.Printf("Remaining: %.4f\n", order.RemainingSize)
+    if order.AvgFillPrice > 0 {
+        fmt.Printf("Average Fill Price: %.2f\n", order.AvgFillPrice)
+    }
+
+    if len(order.Fills) > 0 {
+        fmt.Println("\nFills:")
+        for i, fill := range order.Fills {
+            fmt.Printf("  %d. %.4f @ %.2f (%s)\n", i+1, fill.Size, fill.Price, fill.Timestamp)
+        }
+    }
+}
+```
+
+**Expected Output:**
+
+```
+=== Order Status ===
+Order ID: 550e8400-e29b-41d4-a716-446655440000
+Status: open
+Filled: 0 / 0.1
+Remaining: 0.1
+Average Fill Price: N/A
+```
+
+## Step 6: Place a Market Order
+
+For immediate execution, use a market order:
+
+### TypeScript
+
+```typescript
+async function placeMarketOrder() {
+    const order = await client.placeOrder({
+        symbol: 'BTC-USD',
+        side: 'buy',
+        type: 'market',
+        size: 0.05  // 0.05 BTC
+    });
+
+    console.log('\n=== Market Order Executed ===');
+    console.log('Order ID:', order.orderId);
+    console.log('Status:', order.status);
+    console.log('Filled:', order.filledSize);
+    console.log('Average Price:', order.avgFillPrice);
+
+    return order;
+}
+
+await placeMarketOrder();
+```
+
+### Python
+
+```python
+def place_market_order():
+    order = client.place_order(
+        symbol='BTC-USD',
+        side='buy',
+        order_type='market',
+        size=0.05  # 0.05 BTC
+    )
+
+    print('\n=== Market Order Executed ===')
+    print(f'Order ID: {order["order_id"]}')
+    print(f'Status: {order["status"]}')
+    print(f'Filled: {order["filled_size"]}')
+    print(f'Average Price: {order["avg_fill_price"]}')
+
+    return order
+
+place_market_order()
+```
+
+### Go
+
+```go
+func placeMarketOrder(ctx context.Context, client *lxdex.Client) {
+    order, err := client.PlaceOrder(ctx, &lxdex.OrderRequest{
+        Symbol: "BTC-USD",
+        Side:   lxdex.Buy,
+        Type:   lxdex.Market,
+        Size:   0.05, // 0.05 BTC
+    })
+    if err != nil {
+        log.Fatalf("Failed to place market order: %v", err)
+    }
+
+    fmt.Println("\n=== Market Order Executed ===")
+    fmt.Printf("Order ID: %s\n", order.OrderID)
+    fmt.Printf("Status: %s\n", order.Status)
+    fmt.Printf("Filled: %.4f\n", order.FilledSize)
+    fmt.Printf("Average Price: %.2f\n", order.AvgFillPrice)
+}
+```
+
+**Expected Output:**
+
+```
+=== Market Order Executed ===
+Order ID: 660f9500-f30c-52e5-b827-557766551111
+Status: filled
+Filled: 0.05
+Average Price: 50050.00
+```
+
+## Step 7: Cancel an Order
+
+Cancel your open limit order:
+
+### TypeScript
+
+```typescript
+async function cancelOrder(orderId: string) {
+    try {
+        const result = await client.cancelOrder(orderId);
+
+        console.log('\n=== Order Cancelled ===');
+        console.log('Order ID:', result.orderId);
+        console.log('Status:', result.status);
+        console.log('Cancelled At:', new Date(result.cancelledAt).toISOString());
+
+        return result;
+    } catch (error) {
+        if (error.code === 'ORDER_NOT_FOUND') {
+            console.log('Order not found (may already be filled or cancelled)');
+        } else {
+            throw error;
+        }
+    }
+}
+
+await cancelOrder(myOrder.orderId);
+```
+
+### Python
+
+```python
+def cancel_order(order_id):
+    try:
+        result = client.cancel_order(order_id)
+
+        print('\n=== Order Cancelled ===')
+        print(f'Order ID: {result["order_id"]}')
+        print(f'Status: {result["status"]}')
+        print(f'Cancelled At: {result["cancelled_at"]}')
+
+        return result
+    except Exception as e:
+        if 'ORDER_NOT_FOUND' in str(e):
+            print('Order not found (may already be filled or cancelled)')
+        else:
+            raise
+
+cancel_order(my_order['order_id'])
+```
+
+### Go
+
+```go
+func cancelOrder(ctx context.Context, client *lxdex.Client, orderID string) {
+    result, err := client.CancelOrder(ctx, orderID)
+    if err != nil {
+        if errors.Is(err, lxdex.ErrOrderNotFound) {
+            fmt.Println("Order not found (may already be filled or cancelled)")
+            return
+        }
+        log.Fatalf("Failed to cancel order: %v", err)
+    }
+
+    fmt.Println("\n=== Order Cancelled ===")
+    fmt.Printf("Order ID: %s\n", result.OrderID)
+    fmt.Printf("Status: %s\n", result.Status)
+    fmt.Printf("Cancelled At: %s\n", result.CancelledAt.Format(time.RFC3339))
+}
+```
+
+**Expected Output:**
+
+```
+=== Order Cancelled ===
+Order ID: 550e8400-e29b-41d4-a716-446655440000
+Status: cancelled
+Cancelled At: 2024-01-15T10:35:22.456Z
+```
+
+## Complete Example
+
+Here is a complete script combining all steps:
+
+### TypeScript
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function main() {
+    // Initialize client
+    const client = new LXDexClient({
+        jsonRpcUrl: 'http://localhost:8080/rpc'
+    });
+
+    // 1. Test connection
+    const info = await client.getInfo();
+    console.log('Connected to', info.network);
+
+    // 2. Check orderbook
+    const book = await client.getOrderBook('BTC-USD', 5);
+    console.log(`Best bid: ${book.bids[0][0]}, Best ask: ${book.asks[0][0]}`);
+
+    // 3. Place limit order
+    const limitOrder = await client.placeOrder({
+        symbol: 'BTC-USD',
+        side: 'buy',
+        type: 'limit',
+        price: 49500,
+        size: 0.1
+    });
+    console.log('Limit order placed:', limitOrder.orderId);
+
+    // 4. Place market order
+    const marketOrder = await client.placeOrder({
+        symbol: 'BTC-USD',
+        side: 'buy',
+        type: 'market',
+        size: 0.05
+    });
+    console.log('Market order filled at:', marketOrder.avgFillPrice);
+
+    // 5. Check and cancel limit order
+    const status = await client.getOrder(limitOrder.orderId);
+    if (status.status === 'open') {
+        await client.cancelOrder(limitOrder.orderId);
+        console.log('Limit order cancelled');
+    }
+
+    console.log('\nTutorial complete!');
+}
+
+main().catch(console.error);
+```
+
+### Python
+
+```python
+from luxfi_dex import LXDexClient
+
+def main():
+    # Initialize client
+    client = LXDexClient(
+        json_rpc_url='http://localhost:8080/rpc'
+    )
+
+    # 1. Test connection
+    info = client.get_info()
+    print(f'Connected to {info["network"]}')
+
+    # 2. Check orderbook
+    book = client.get_order_book('BTC-USD', depth=5)
+    print(f'Best bid: {book["bids"][0][0]}, Best ask: {book["asks"][0][0]}')
+
+    # 3. Place limit order
+    limit_order = client.place_order(
+        symbol='BTC-USD',
+        side='buy',
+        order_type='limit',
+        price=49500,
+        size=0.1
+    )
+    print(f'Limit order placed: {limit_order["order_id"]}')
+
+    # 4. Place market order
+    market_order = client.place_order(
+        symbol='BTC-USD',
+        side='buy',
+        order_type='market',
+        size=0.05
+    )
+    print(f'Market order filled at: {market_order["avg_fill_price"]}')
+
+    # 5. Check and cancel limit order
+    status = client.get_order(limit_order['order_id'])
+    if status['status'] == 'open':
+        client.cancel_order(limit_order['order_id'])
+        print('Limit order cancelled')
+
+    print('\nTutorial complete!')
+
+if __name__ == '__main__':
+    main()
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Initialize client
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+    )
+
+    // 1. Test connection
+    info, err := client.GetInfo(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Connected to %s\n", info.Network)
+
+    // 2. Check orderbook
+    book, _ := client.GetOrderBook(ctx, "BTC-USD", 5)
+    fmt.Printf("Best bid: %.2f, Best ask: %.2f\n", book.Bids[0].Price, book.Asks[0].Price)
+
+    // 3. Place limit order
+    limitOrder, _ := client.PlaceOrder(ctx, &lxdex.OrderRequest{
+        Symbol: "BTC-USD",
+        Side:   lxdex.Buy,
+        Type:   lxdex.Limit,
+        Price:  49500,
+        Size:   0.1,
+    })
+    fmt.Printf("Limit order placed: %s\n", limitOrder.OrderID)
+
+    // 4. Place market order
+    marketOrder, _ := client.PlaceOrder(ctx, &lxdex.OrderRequest{
+        Symbol: "BTC-USD",
+        Side:   lxdex.Buy,
+        Type:   lxdex.Market,
+        Size:   0.05,
+    })
+    fmt.Printf("Market order filled at: %.2f\n", marketOrder.AvgFillPrice)
+
+    // 5. Check and cancel limit order
+    status, _ := client.GetOrder(ctx, limitOrder.OrderID)
+    if status.Status == "open" {
+        client.CancelOrder(ctx, limitOrder.OrderID)
+        fmt.Println("Limit order cancelled")
+    }
+
+    fmt.Println("\nTutorial complete!")
+}
+```
+
+## Common Pitfalls
+
+### 1. Insufficient Balance
+
+```
+Error: INSUFFICIENT_BALANCE
+```
+
+**Solution:** Ensure your account has enough funds. On testnet, use the faucet:
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -d '{"jsonrpc":"2.0","method":"lx_faucet","params":{"address":"your-address","amount":10000},"id":1}'
+```
+
+### 2. Invalid Price Tick
+
+```
+Error: INVALID_PRICE_TICK
+```
+
+**Solution:** Prices must follow the market's tick size. For BTC-USD, the tick size is 0.01:
+
+```typescript
+// Wrong
+price: 50000.001
+
+// Correct
+price: 50000.00
+```
+
+### 3. Order Already Cancelled
+
+```
+Error: ORDER_NOT_FOUND
+```
+
+**Solution:** The order may have been filled or already cancelled. Always check status first.
+
+### 4. Rate Limiting
+
+```
+Error: RATE_LIMIT_EXCEEDED
+```
+
+**Solution:** Slow down your requests. Use exponential backoff:
+
+```typescript
+async function withRetry(fn, maxRetries = 3) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (error.code === 'RATE_LIMIT_EXCEEDED' && i < maxRetries - 1) {
+                await sleep(Math.pow(2, i) * 1000);
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+```
+
+## Next Steps
+
+Congratulations on completing your first trade! Continue your learning:
+
+1. **[Authentication Setup](/docs/tutorials/authentication)** - Secure your API access
+2. **[Testing on Testnet](/docs/tutorials/testing)** - Practice safely before going live
+3. **[Orderbook Synchronization](/docs/tutorials/orderbook-sync)** - Build real-time market views
+
+## Summary
+
+In this tutorial, you learned to:
+
+- Connect to the LX DEX API
+- Query order book data
+- Place limit and market orders
+- Monitor order status
+- Cancel open orders
+
+The complete code examples are available in all supported languages and can be used as starting points for your trading applications.

@@ -1,0 +1,293 @@
+---
+title: DeFi Protocols
+description: Comprehensive decentralized finance protocol suite for the Lux ecosystem
+---
+
+# DeFi Protocols
+
+> **Specifications**: [LP-9060 DeFi Protocols Overview](https://github.com/luxfi/lps/blob/main/LPs/lp-9060-defi-protocols-overview.md) | [LP-8401 Confidential Lending](https://github.com/luxfi/lps/blob/main/LPs/lp-8401-confidential-lending-protocol.md) | [LP-9050 AMM Standard](https://github.com/luxfi/lps/blob/main/LPs/lp-9050-amm-standard.md)
+>
+> **Implementation**: [`github.com/luxfi/standard`](https://github.com/luxfi/standard)
+
+The LX DEX DeFi suite provides institutional-grade financial primitives with privacy-preserving capabilities, post-quantum security, and cross-chain interoperability.
+
+## Implementation Status
+
+| Protocol | Source | Status | LP Spec |
+|----------|--------|--------|---------|
+| Lending Core | [`standard/src/lending/`](https://github.com/luxfi/standard/tree/main/src/lending) | Production | LP-8401 |
+| Margin Trading | [`standard/src/gmx2/`](https://github.com/luxfi/standard/tree/main/src/gmx2) | Production | LP-9060 |
+| DeFi Vaults | [`standard/src/alcx2/`](https://github.com/luxfi/standard/tree/main/src/alcx2) | Production | LP-9060 |
+| LUX Staking | [`node/vms/platformvm/`](https://github.com/luxfi/node/tree/main/vms/platformvm) | Production | LP-70 |
+| AMM/CLMM | [`dex/contracts/`](https://github.com/luxfi/dex/tree/main/contracts) | Production | LP-9050 |
+| Flash Loans | [`standard/src/lending/flash/`](https://github.com/luxfi/standard/tree/main/src/lending/flash) | Production | LP-8401 |
+| Price Oracles | [`standard/src/oracles/`](https://github.com/luxfi/standard/tree/main/src/oracles) | Production | LP-9060 |
+| Governance | [`standard/src/dao/`](https://github.com/luxfi/standard/tree/main/src/dao) | Production | LP-9060 |
+
+## Architecture Overview
+
+```
++------------------------------------------------------------------+
+|                      LX DEX DeFi Protocol Suite                   |
++------------------------------------------------------------------+
+|                                                                   |
+|  +-------------+  +-------------+  +-------------+  +-----------+ |
+|  |   Lending   |  |   Margin    |  |   Vaults    |  |  Staking  | |
+|  |   Protocol  |  |   Trading   |  |   & Yield   |  |   (LUX)   | |
+|  +------+------+  +------+------+  +------+------+  +-----+-----+ |
+|         |                |                |               |       |
+|         +--------+-------+--------+-------+-------+-------+       |
+|                  |                |                               |
+|           +------v------+  +------v------+                        |
+|           | Price Oracle|  |   AMM/CLMM  |                        |
+|           |   Feeds     |  |   Pools     |                        |
+|           +------+------+  +------+------+                        |
+|                  |                |                               |
+|           +------v----------------v------+                        |
+|           |     Flash Loan Engine        |                        |
+|           +------------------------------+                        |
+|                          |                                        |
+|           +------v----------------v------+                        |
+|           |  Governance & Risk Mgmt      |                        |
+|           +------------------------------+                        |
++------------------------------------------------------------------+
+|                    Cross-Chain Bridge (B-Chain)                   |
++------------------------------------------------------------------+
+```
+
+## Protocol Suite
+
+### Core Protocols
+
+<Cards>
+  <Card title="Lending Protocol" href="./lending">
+    Overcollateralized lending with ZK credit scoring, privacy-preserving positions, and confidential liquidations.
+  </Card>
+  <Card title="Margin Trading" href="./margin">
+    Leveraged perpetual trading up to 50x with cross-margin and isolated margin support.
+  </Card>
+  <Card title="DeFi Vaults" href="./vaults">
+    Automated yield strategies with auto-compounding, delta-neutral positions, and risk-adjusted returns.
+  </Card>
+  <Card title="LUX Staking" href="./staking">
+    Native LUX staking with validator delegation, liquid staking derivatives, and governance participation.
+  </Card>
+</Cards>
+
+### Infrastructure
+
+<Cards>
+  <Card title="AMM & Liquidity" href="./amm">
+    Concentrated liquidity market maker (CLMM) with customizable fee tiers and range orders.
+  </Card>
+  <Card title="Flash Loans" href="./flash">
+    Uncollateralized atomic loans for arbitrage, liquidations, and collateral swaps.
+  </Card>
+  <Card title="Price Oracles" href="./oracles">
+    Multi-source oracle aggregation with TWAP, Chainlink, and Pyth integration.
+  </Card>
+  <Card title="Governance" href="./governance">
+    On-chain governance with timelock, proposal voting, and parameter updates.
+  </Card>
+</Cards>
+
+### Risk Management
+
+<Cards>
+  <Card title="Risk Parameters" href="./risks">
+    Collateral factors, liquidation thresholds, interest rate models, and protocol limits.
+  </Card>
+</Cards>
+
+## Key Features
+
+### Privacy-Preserving DeFi
+
+Built on LP-8401 Confidential Lending Protocol:
+
+```solidity
+// Zero-knowledge credit scoring
+interface IZKCreditScoring {
+    function verifyCreditScore(
+        bytes32 userCommitment,
+        uint256 minRequired,
+        bytes calldata proof
+    ) external view returns (bool eligible);
+}
+
+// Confidential collateral management
+interface IConfidentialCollateral {
+    function verifyCollateralization(
+        bytes32 positionId,
+        uint256 loanAmount,
+        bytes calldata solvencyProof
+    ) external view returns (bool sufficient);
+}
+```
+
+### Post-Quantum Security
+
+All DeFi protocols integrate with Lux's quantum-resistant cryptography:
+
+- **Ringtail Signatures**: ML-DSA-65 lattice-based signatures for transaction signing
+- **Hybrid BLS+RT**: Dual verification for cross-chain Warp messages
+- **Q-Chain Integration**: Quantum-safe key derivation and storage
+
+### Cross-Chain Composability
+
+DeFi protocols operate across Lux chains via Warp messaging:
+
+```go
+// Cross-chain lending position
+type CrossChainPosition struct {
+    ChainID      ids.ID
+    PositionID   [32]byte
+    Collateral   *big.Int
+    Debt         *big.Int
+    WarpProof    *warp.Message
+}
+```
+
+## Interest Rate Model
+
+The protocol uses a kinked interest rate model for optimal capital efficiency:
+
+```
+                    Borrow Rate
+                        |
+                        |                    ____
+                        |                ___/
+                        |            ___/
+                        |        ___/
+                        |    ___/
+                        |___/
+                        +------------------------> Utilization
+                            Kink (80%)
+```
+
+**Mathematical Formula**:
+
+```
+If utilization <= kink:
+    BorrowRate = BaseRate + (Utilization * MultiplierRate)
+
+If utilization > kink:
+    BorrowRate = BaseRate + (Kink * MultiplierRate) +
+                 ((Utilization - Kink) * JumpMultiplier)
+```
+
+**Default Parameters**:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Base Rate | 2% | Minimum borrow rate |
+| Multiplier | 10% | Rate increase per utilization |
+| Jump Multiplier | 200% | Rate multiplier above kink |
+| Kink | 80% | Utilization threshold |
+
+## Quick Start
+
+### Supply Assets
+
+```go
+import "github.com/luxfi/dex/pkg/defi/lending"
+
+func supplyAssets(ctx context.Context) error {
+    client, err := lending.NewClient(ctx, &lending.Config{
+        Endpoint: "https://api.lux.network",
+        ChainID:  96369,
+    })
+    if err != nil {
+        return err
+    }
+
+    result, err := client.Supply(ctx, &lending.SupplyParams{
+        Asset:  "USDT",
+        Amount: "10000.00",
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Supplied: %s USDT\n", result.Amount)
+    fmt.Printf("Shares: %s\n", result.Shares)
+    fmt.Printf("APY: %s%%\n", result.CurrentAPY)
+    return nil
+}
+```
+
+### Open Margin Position
+
+```go
+import "github.com/luxfi/dex/pkg/defi/margin"
+
+func openPosition(ctx context.Context) error {
+    client, err := margin.NewClient(ctx, &margin.Config{
+        Endpoint: "https://api.lux.network",
+        ChainID:  96369,
+    })
+    if err != nil {
+        return err
+    }
+
+    position, err := client.OpenPosition(ctx, &margin.OpenParams{
+        Symbol:     "BTC-USD",
+        Side:       margin.Long,
+        Collateral: "10000.00",
+        Leverage:   5,
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Position: %s\n", position.ID)
+    fmt.Printf("Size: $%s\n", position.Size)
+    fmt.Printf("Entry: $%s\n", position.EntryPrice)
+    fmt.Printf("Liquidation: $%s\n", position.LiquidationPrice)
+    return nil
+}
+```
+
+## Security Considerations
+
+### Smart Contract Security
+
+- **Reentrancy Protection**: All external calls use CEI pattern
+- **Integer Safety**: SafeMath for Solidity 0.6.x, native checks for 0.8.x+
+- **Access Control**: Role-based permissions with timelock
+- **Emergency Pause**: Circuit breakers for critical operations
+
+### Economic Security
+
+- **Liquidation Buffers**: Health factor thresholds prevent bad debt
+- **Insurance Fund**: Protocol fees fund liquidation shortfalls
+- **Rate Limits**: Maximum borrow/supply limits per block
+- **Oracle Validation**: Multi-source price verification with deviation checks
+
+### Audit Status
+
+| Protocol | Auditor | Date | Report |
+|----------|---------|------|--------|
+| Lending Core | Trail of Bits | 2025-06 | [Link](https://github.com/luxfi/audits) |
+| Margin Vault | OpenZeppelin | 2025-05 | [Link](https://github.com/luxfi/audits) |
+| AMM/CLMM | Consensys | 2025-04 | [Link](https://github.com/luxfi/audits) |
+
+## Gas Costs
+
+Typical gas costs on C-Chain (96369):
+
+| Operation | Gas | USD @ 25 gwei |
+|-----------|-----|---------------|
+| Supply | 150,000 | ~$0.08 |
+| Borrow | 200,000 | ~$0.11 |
+| Repay | 120,000 | ~$0.06 |
+| Liquidate | 350,000 | ~$0.18 |
+| Flash Loan | 250,000 | ~$0.13 |
+
+## Related Specifications
+
+- [LP-9060: DeFi Protocols Overview](https://github.com/luxfi/lps/blob/main/LPs/lp-9060-defi-protocols-overview.md)
+- [LP-8401: Confidential Lending Protocol](https://github.com/luxfi/lps/blob/main/LPs/lp-8401-confidential-lending-protocol.md)
+- [LP-9050: AMM Standard](https://github.com/luxfi/lps/blob/main/LPs/lp-9050-amm-standard.md)
+- [LP-70: NFT Staking Standard](https://github.com/luxfi/lps/blob/main/LPs/lp-70-nft-staking-standard.md)
+- [LP-20: LRC-20 Fungible Token](https://github.com/luxfi/lps/blob/main/LPs/lp-20-lrc-20-fungible-token-standard.md)

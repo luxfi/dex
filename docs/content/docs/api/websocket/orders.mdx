@@ -1,0 +1,909 @@
+---
+title: Orders Channel
+description: Private order status updates and fills via WebSocket
+---
+
+# Orders Channel
+
+The `orders` channel provides real-time updates for your private orders including status changes, partial fills, and completions. **Authentication is required.**
+
+## Authentication Required
+
+You must authenticate before subscribing to the orders channel:
+
+```json
+{
+  "id": "auth-001",
+  "type": "authenticate",
+  "data": {
+    "api_key": "your_api_key",
+    "timestamp": 1702339200000,
+    "signature": "hmac_sha256_signature"
+  }
+}
+```
+
+## Subscribe
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe",
+  "channel": "orders",
+  "data": {
+    "symbol": "BTC-USDT"
+  }
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | No | Filter by symbol. Omit to receive all order updates. |
+
+**Subscribe to all orders:**
+
+```json
+{
+  "id": "sub-001",
+  "type": "subscribe",
+  "channel": "orders",
+  "data": {}
+}
+```
+
+## Message Flow
+
+```
+┌──────────┐                           ┌──────────┐
+│  Client  │                           │  Server  │
+└──────────┘                           └──────────┘
+     │                                       │
+     │ ──── authenticate ──────────────────► │
+     │ ◄─── auth_success ────────────────── │
+     │                                       │
+     │ ──── subscribe (orders) ────────────► │
+     │ ◄─── subscribed ────────────────────  │
+     │                                       │
+     │ ◄─── orders_snapshot ─────────────── │  Open orders
+     │                                       │
+     │ ──── place_order ───────────────────► │  Client places order
+     │ ◄─── order_accepted ────────────────  │  Order received
+     │ ◄─── order_open ────────────────────  │  Order on book
+     │                                       │
+     │ ◄─── order_fill ────────────────────  │  Partial fill
+     │ ◄─── order_fill ────────────────────  │  More fills
+     │ ◄─── order_done ────────────────────  │  Order completed
+     │                                       │
+```
+
+## Orders Snapshot
+
+Upon subscription, receive all open orders:
+
+```json
+{
+  "type": "orders_snapshot",
+  "channel": "orders",
+  "data": {
+    "orders": [
+      {
+        "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+        "client_order_id": "my-order-001",
+        "symbol": "BTC-USDT",
+        "side": "buy",
+        "type": "limit",
+        "price": 49500.00,
+        "size": 1.0000,
+        "filled_size": 0.2500,
+        "remaining_size": 0.7500,
+        "status": "open",
+        "time_in_force": "GTC",
+        "post_only": false,
+        "reduce_only": false,
+        "created_at": 1702339100000,
+        "updated_at": 1702339150000
+      }
+    ]
+  },
+  "sequence": 1000,
+  "timestamp": 1702339200000
+}
+```
+
+## Order Status Messages
+
+### Order Accepted
+
+Order received and validated:
+
+```json
+{
+  "type": "order_accepted",
+  "channel": "orders",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": 50000.00,
+    "size": 1.0000,
+    "time_in_force": "GTC",
+    "post_only": false,
+    "created_at": 1702339200100
+  },
+  "sequence": 1001,
+  "timestamp": 1702339200100
+}
+```
+
+### Order Open
+
+Order placed on the order book:
+
+```json
+{
+  "type": "order_open",
+  "channel": "orders",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "status": "open",
+    "price": 50000.00,
+    "size": 1.0000,
+    "filled_size": 0,
+    "remaining_size": 1.0000
+  },
+  "sequence": 1002,
+  "timestamp": 1702339200150
+}
+```
+
+### Order Fill
+
+Order partially or fully filled:
+
+```json
+{
+  "type": "order_fill",
+  "channel": "orders",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "trade_id": "t-1702339200-001",
+    "side": "buy",
+    "price": 50000.00,
+    "fill_price": 49999.50,
+    "fill_size": 0.2500,
+    "fill_fee": 0.00125,
+    "fee_currency": "USDT",
+    "filled_size": 0.2500,
+    "remaining_size": 0.7500,
+    "liquidity": "taker",
+    "timestamp": 1702339200200
+  },
+  "sequence": 1003,
+  "timestamp": 1702339200200
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fill_price` | number | Actual execution price |
+| `fill_size` | number | Size of this fill |
+| `fill_fee` | number | Fee for this fill |
+| `fee_currency` | string | Currency of the fee |
+| `liquidity` | string | `maker` or `taker` |
+| `filled_size` | number | Cumulative filled size |
+| `remaining_size` | number | Remaining unfilled size |
+
+### Order Done
+
+Order completed (filled or cancelled):
+
+```json
+{
+  "type": "order_done",
+  "channel": "orders",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "status": "filled",
+    "reason": "filled",
+    "side": "buy",
+    "type": "limit",
+    "price": 50000.00,
+    "size": 1.0000,
+    "filled_size": 1.0000,
+    "remaining_size": 0,
+    "avg_fill_price": 49999.75,
+    "total_fees": 0.005,
+    "fee_currency": "USDT",
+    "created_at": 1702339200100,
+    "done_at": 1702339200500
+  },
+  "sequence": 1004,
+  "timestamp": 1702339200500
+}
+```
+
+**Status values:**
+
+| Status | Description |
+|--------|-------------|
+| `filled` | Fully filled |
+| `cancelled` | User cancelled |
+| `expired` | Time-in-force expired |
+| `rejected` | Order rejected |
+
+**Reason values:**
+
+| Reason | Description |
+|--------|-------------|
+| `filled` | Order fully filled |
+| `user_cancelled` | User requested cancel |
+| `self_trade_prevention` | Would have matched own order |
+| `post_only_would_take` | Post-only order would take liquidity |
+| `insufficient_balance` | Balance no longer sufficient |
+| `ioc_incomplete` | IOC order not fully filled |
+| `fok_incomplete` | FOK order not fully filled |
+| `gtd_expired` | GTD order expired |
+
+### Order Rejected
+
+Order failed validation:
+
+```json
+{
+  "type": "order_rejected",
+  "channel": "orders",
+  "data": {
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": 50000.00,
+    "size": 1000.0000,
+    "reason": "INSUFFICIENT_BALANCE",
+    "message": "Insufficient USDT balance. Required: 50000000, Available: 10000",
+    "timestamp": 1702339200100
+  },
+  "sequence": 1005,
+  "timestamp": 1702339200100
+}
+```
+
+## Placing Orders via WebSocket
+
+### Limit Order
+
+```json
+{
+  "id": "req-001",
+  "type": "place_order",
+  "data": {
+    "client_order_id": "my-order-001",
+    "symbol": "BTC-USDT",
+    "side": "buy",
+    "type": "limit",
+    "price": 50000.00,
+    "size": 1.0,
+    "time_in_force": "GTC",
+    "post_only": false
+  }
+}
+```
+
+### Market Order
+
+```json
+{
+  "id": "req-002",
+  "type": "place_order",
+  "data": {
+    "client_order_id": "my-order-002",
+    "symbol": "BTC-USDT",
+    "side": "buy",
+    "type": "market",
+    "size": 1.0
+  }
+}
+```
+
+### Order Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `client_order_id` | string | No | Your custom order ID (max 36 chars) |
+| `symbol` | string | Yes | Trading pair |
+| `side` | string | Yes | `buy` or `sell` |
+| `type` | string | Yes | `limit`, `market`, `stop_limit`, `stop_market` |
+| `price` | number | Limit orders | Limit price |
+| `size` | number | Yes | Order size |
+| `time_in_force` | string | No | `GTC`, `IOC`, `FOK`, `GTD` (default: `GTC`) |
+| `post_only` | boolean | No | Only make liquidity (default: `false`) |
+| `reduce_only` | boolean | No | Only reduce position (default: `false`) |
+| `stop_price` | number | Stop orders | Trigger price |
+
+### Time in Force
+
+| Value | Description |
+|-------|-------------|
+| `GTC` | Good Till Cancelled |
+| `IOC` | Immediate Or Cancel |
+| `FOK` | Fill Or Kill |
+| `GTD` | Good Till Date (requires `expire_time`) |
+
+## Cancelling Orders
+
+### Cancel Single Order
+
+```json
+{
+  "id": "req-003",
+  "type": "cancel_order",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+Or by client order ID:
+
+```json
+{
+  "id": "req-003",
+  "type": "cancel_order",
+  "data": {
+    "client_order_id": "my-order-001"
+  }
+}
+```
+
+### Cancel All Orders
+
+```json
+{
+  "id": "req-004",
+  "type": "cancel_all_orders",
+  "data": {
+    "symbol": "BTC-USDT"
+  }
+}
+```
+
+Omit `symbol` to cancel all orders across all symbols.
+
+### Cancel Response
+
+```json
+{
+  "id": "req-003",
+  "type": "order_cancel_accepted",
+  "data": {
+    "order_id": "o-123e4567-e89b-12d3-a456-426614174000",
+    "client_order_id": "my-order-001"
+  },
+  "timestamp": 1702339200300
+}
+```
+
+## Code Examples
+
+### TypeScript Order Manager
+
+```typescript
+interface Order {
+  orderId: string;
+  clientOrderId?: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: string;
+  price?: number;
+  size: number;
+  filledSize: number;
+  remainingSize: number;
+  status: string;
+  avgFillPrice?: number;
+  totalFees: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Fill {
+  tradeId: string;
+  orderId: string;
+  fillPrice: number;
+  fillSize: number;
+  fee: number;
+  liquidity: 'maker' | 'taker';
+  timestamp: number;
+}
+
+class OrderManager {
+  private ws: WebSocket;
+  private orders: Map<string, Order> = new Map();
+  private fills: Map<string, Fill[]> = new Map();
+  private pendingRequests: Map<string, {
+    resolve: (value: any) => void;
+    reject: (error: any) => void;
+    timeout: NodeJS.Timeout;
+  }> = new Map();
+
+  private onOrderUpdate: ((order: Order) => void) | null = null;
+  private onFill: ((fill: Fill) => void) | null = null;
+
+  constructor(ws: WebSocket) {
+    this.ws = ws;
+    ws.onmessage = (event) => this.handleMessage(JSON.parse(event.data));
+  }
+
+  setOrderUpdateHandler(handler: (order: Order) => void) {
+    this.onOrderUpdate = handler;
+  }
+
+  setFillHandler(handler: (fill: Fill) => void) {
+    this.onFill = handler;
+  }
+
+  async placeOrder(params: {
+    clientOrderId?: string;
+    symbol: string;
+    side: 'buy' | 'sell';
+    type: 'limit' | 'market';
+    price?: number;
+    size: number;
+    timeInForce?: string;
+    postOnly?: boolean;
+  }): Promise<Order> {
+    const requestId = `place-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return this.sendRequest(requestId, {
+      type: 'place_order',
+      data: {
+        client_order_id: params.clientOrderId,
+        symbol: params.symbol,
+        side: params.side,
+        type: params.type,
+        price: params.price,
+        size: params.size,
+        time_in_force: params.timeInForce || 'GTC',
+        post_only: params.postOnly || false
+      }
+    });
+  }
+
+  async cancelOrder(orderId: string): Promise<void> {
+    const requestId = `cancel-${Date.now()}`;
+
+    return this.sendRequest(requestId, {
+      type: 'cancel_order',
+      data: { order_id: orderId }
+    });
+  }
+
+  async cancelAllOrders(symbol?: string): Promise<void> {
+    const requestId = `cancel-all-${Date.now()}`;
+
+    return this.sendRequest(requestId, {
+      type: 'cancel_all_orders',
+      data: symbol ? { symbol } : {}
+    });
+  }
+
+  getOrder(orderId: string): Order | undefined {
+    return this.orders.get(orderId);
+  }
+
+  getOpenOrders(symbol?: string): Order[] {
+    const orders = [...this.orders.values()].filter(o =>
+      o.status === 'open' || o.status === 'pending'
+    );
+
+    if (symbol) {
+      return orders.filter(o => o.symbol === symbol);
+    }
+    return orders;
+  }
+
+  getFills(orderId: string): Fill[] {
+    return this.fills.get(orderId) || [];
+  }
+
+  private sendRequest<T>(id: string, message: any): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error('Request timeout'));
+      }, 10000);
+
+      this.pendingRequests.set(id, { resolve, reject, timeout });
+      this.ws.send(JSON.stringify({ id, ...message }));
+    });
+  }
+
+  private handleMessage(msg: any) {
+    // Handle request responses
+    if (msg.id && this.pendingRequests.has(msg.id)) {
+      const pending = this.pendingRequests.get(msg.id)!;
+      clearTimeout(pending.timeout);
+      this.pendingRequests.delete(msg.id);
+
+      if (msg.type.includes('error') || msg.type.includes('rejected')) {
+        pending.reject(new Error(msg.data?.message || 'Request failed'));
+      } else {
+        pending.resolve(msg.data);
+      }
+      return;
+    }
+
+    // Handle order updates
+    switch (msg.type) {
+      case 'orders_snapshot':
+        for (const o of msg.data.orders) {
+          this.updateOrder(this.parseOrder(o));
+        }
+        break;
+
+      case 'order_accepted':
+      case 'order_open':
+      case 'order_done':
+        this.updateOrder(this.parseOrder(msg.data));
+        break;
+
+      case 'order_fill':
+        this.handleFill(msg.data);
+        break;
+
+      case 'order_rejected':
+        if (this.onOrderUpdate) {
+          this.onOrderUpdate({
+            ...this.parseOrder(msg.data),
+            status: 'rejected'
+          });
+        }
+        break;
+    }
+  }
+
+  private parseOrder(data: any): Order {
+    return {
+      orderId: data.order_id,
+      clientOrderId: data.client_order_id,
+      symbol: data.symbol,
+      side: data.side,
+      type: data.type,
+      price: data.price,
+      size: data.size,
+      filledSize: data.filled_size || 0,
+      remainingSize: data.remaining_size || data.size,
+      status: data.status || 'pending',
+      avgFillPrice: data.avg_fill_price,
+      totalFees: data.total_fees || 0,
+      createdAt: data.created_at || Date.now(),
+      updatedAt: data.updated_at || data.done_at || Date.now()
+    };
+  }
+
+  private updateOrder(order: Order) {
+    this.orders.set(order.orderId, order);
+    if (this.onOrderUpdate) {
+      this.onOrderUpdate(order);
+    }
+  }
+
+  private handleFill(data: any) {
+    const fill: Fill = {
+      tradeId: data.trade_id,
+      orderId: data.order_id,
+      fillPrice: data.fill_price,
+      fillSize: data.fill_size,
+      fee: data.fill_fee,
+      liquidity: data.liquidity,
+      timestamp: data.timestamp
+    };
+
+    // Store fill
+    if (!this.fills.has(fill.orderId)) {
+      this.fills.set(fill.orderId, []);
+    }
+    this.fills.get(fill.orderId)!.push(fill);
+
+    // Update order
+    const order = this.orders.get(data.order_id);
+    if (order) {
+      order.filledSize = data.filled_size;
+      order.remainingSize = data.remaining_size;
+      order.updatedAt = data.timestamp;
+      this.updateOrder(order);
+    }
+
+    if (this.onFill) {
+      this.onFill(fill);
+    }
+  }
+}
+
+// Usage
+const ws = new WebSocket('wss://api.lux.network/ws');
+const orderManager = new OrderManager(ws);
+
+orderManager.setOrderUpdateHandler((order) => {
+  console.log(`Order ${order.orderId}: ${order.status}`);
+});
+
+orderManager.setFillHandler((fill) => {
+  console.log(`Fill: ${fill.fillSize} @ ${fill.fillPrice}`);
+});
+
+// Place order
+const order = await orderManager.placeOrder({
+  clientOrderId: 'my-order-001',
+  symbol: 'BTC-USDT',
+  side: 'buy',
+  type: 'limit',
+  price: 50000,
+  size: 0.1
+});
+```
+
+### Python Order Manager
+
+```python
+import asyncio
+import websockets
+import json
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional
+import time
+
+@dataclass
+class Order:
+    order_id: str
+    symbol: str
+    side: str
+    type: str
+    price: Optional[float]
+    size: float
+    filled_size: float = 0.0
+    remaining_size: float = 0.0
+    status: str = "pending"
+    client_order_id: Optional[str] = None
+    avg_fill_price: Optional[float] = None
+    total_fees: float = 0.0
+    created_at: int = 0
+    updated_at: int = 0
+
+@dataclass
+class Fill:
+    trade_id: str
+    order_id: str
+    fill_price: float
+    fill_size: float
+    fee: float
+    liquidity: str
+    timestamp: int
+
+class OrderManager:
+    def __init__(self, ws):
+        self.ws = ws
+        self.orders: Dict[str, Order] = {}
+        self.fills: Dict[str, List[Fill]] = {}
+        self.pending_requests: Dict[str, asyncio.Future] = {}
+        self.on_order_update: Optional[Callable[[Order], None]] = None
+        self.on_fill: Optional[Callable[[Fill], None]] = None
+
+    async def start(self):
+        """Start processing messages."""
+        asyncio.create_task(self._message_loop())
+
+    async def _message_loop(self):
+        async for message in self.ws:
+            msg = json.loads(message)
+            await self._handle_message(msg)
+
+    async def place_order(
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        size: float,
+        price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+        time_in_force: str = "GTC",
+        post_only: bool = False
+    ) -> Order:
+        """Place a new order."""
+        request_id = f"place-{int(time.time() * 1000)}"
+
+        data = {
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "size": size,
+            "time_in_force": time_in_force,
+            "post_only": post_only
+        }
+        if price is not None:
+            data["price"] = price
+        if client_order_id:
+            data["client_order_id"] = client_order_id
+
+        return await self._send_request(request_id, "place_order", data)
+
+    async def cancel_order(self, order_id: str) -> None:
+        """Cancel an order."""
+        request_id = f"cancel-{int(time.time() * 1000)}"
+        await self._send_request(request_id, "cancel_order", {"order_id": order_id})
+
+    async def cancel_all_orders(self, symbol: Optional[str] = None) -> None:
+        """Cancel all orders."""
+        request_id = f"cancel-all-{int(time.time() * 1000)}"
+        data = {"symbol": symbol} if symbol else {}
+        await self._send_request(request_id, "cancel_all_orders", data)
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Order]:
+        """Get all open orders."""
+        orders = [o for o in self.orders.values() if o.status in ("open", "pending")]
+        if symbol:
+            orders = [o for o in orders if o.symbol == symbol]
+        return orders
+
+    async def _send_request(self, request_id: str, msg_type: str, data: dict):
+        future = asyncio.Future()
+        self.pending_requests[request_id] = future
+
+        await self.ws.send(json.dumps({
+            "id": request_id,
+            "type": msg_type,
+            "data": data
+        }))
+
+        try:
+            return await asyncio.wait_for(future, timeout=10.0)
+        except asyncio.TimeoutError:
+            self.pending_requests.pop(request_id, None)
+            raise TimeoutError("Request timed out")
+
+    async def _handle_message(self, msg: dict):
+        # Handle request responses
+        request_id = msg.get("id")
+        if request_id and request_id in self.pending_requests:
+            future = self.pending_requests.pop(request_id)
+            if "error" in msg.get("type", "") or "rejected" in msg.get("type", ""):
+                future.set_exception(Exception(msg.get("data", {}).get("message", "Request failed")))
+            else:
+                future.set_result(msg.get("data"))
+            return
+
+        # Handle order updates
+        msg_type = msg.get("type")
+
+        if msg_type == "orders_snapshot":
+            for o in msg["data"]["orders"]:
+                self._update_order(self._parse_order(o))
+
+        elif msg_type in ("order_accepted", "order_open", "order_done"):
+            self._update_order(self._parse_order(msg["data"]))
+
+        elif msg_type == "order_fill":
+            self._handle_fill(msg["data"])
+
+        elif msg_type == "order_rejected":
+            order = self._parse_order(msg["data"])
+            order.status = "rejected"
+            if self.on_order_update:
+                self.on_order_update(order)
+
+    def _parse_order(self, data: dict) -> Order:
+        return Order(
+            order_id=data["order_id"],
+            client_order_id=data.get("client_order_id"),
+            symbol=data["symbol"],
+            side=data["side"],
+            type=data["type"],
+            price=data.get("price"),
+            size=data["size"],
+            filled_size=data.get("filled_size", 0),
+            remaining_size=data.get("remaining_size", data["size"]),
+            status=data.get("status", "pending"),
+            avg_fill_price=data.get("avg_fill_price"),
+            total_fees=data.get("total_fees", 0),
+            created_at=data.get("created_at", int(time.time() * 1000)),
+            updated_at=data.get("updated_at", data.get("done_at", int(time.time() * 1000)))
+        )
+
+    def _update_order(self, order: Order):
+        self.orders[order.order_id] = order
+        if self.on_order_update:
+            self.on_order_update(order)
+
+    def _handle_fill(self, data: dict):
+        fill = Fill(
+            trade_id=data["trade_id"],
+            order_id=data["order_id"],
+            fill_price=data["fill_price"],
+            fill_size=data["fill_size"],
+            fee=data["fill_fee"],
+            liquidity=data["liquidity"],
+            timestamp=data["timestamp"]
+        )
+
+        # Store fill
+        if fill.order_id not in self.fills:
+            self.fills[fill.order_id] = []
+        self.fills[fill.order_id].append(fill)
+
+        # Update order
+        if fill.order_id in self.orders:
+            order = self.orders[fill.order_id]
+            order.filled_size = data["filled_size"]
+            order.remaining_size = data["remaining_size"]
+            order.updated_at = data["timestamp"]
+            self._update_order(order)
+
+        if self.on_fill:
+            self.on_fill(fill)
+
+
+# Usage
+async def main():
+    async with websockets.connect("wss://api.lux.network/ws") as ws:
+        # Authenticate first...
+
+        manager = OrderManager(ws)
+
+        def on_order(order: Order):
+            print(f"Order {order.order_id}: {order.status}")
+
+        def on_fill(fill: Fill):
+            print(f"Fill: {fill.fill_size} @ {fill.fill_price}")
+
+        manager.on_order_update = on_order
+        manager.on_fill = on_fill
+
+        await manager.start()
+
+        # Place order
+        order = await manager.place_order(
+            symbol="BTC-USDT",
+            side="buy",
+            order_type="limit",
+            price=50000,
+            size=0.1,
+            client_order_id="my-order-001"
+        )
+        print(f"Placed: {order}")
+
+asyncio.run(main())
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `INSUFFICIENT_BALANCE` | Not enough balance |
+| `INVALID_PRICE` | Price outside allowed range |
+| `INVALID_SIZE` | Size below minimum or above maximum |
+| `INVALID_SYMBOL` | Symbol not found |
+| `ORDER_NOT_FOUND` | Order ID not found |
+| `POST_ONLY_WOULD_TAKE` | Post-only order would take liquidity |
+| `RATE_LIMIT_EXCEEDED` | Too many orders |
+| `SELF_TRADE_PREVENTION` | Order would match own order |
+
+## Rate Limits
+
+| Operation | Limit |
+|-----------|-------|
+| Place orders | 10/second |
+| Cancel orders | 50/second |
+| Cancel all | 1/second |
+
+## Next Steps
+
+- [Order Book Channel](/docs/api/websocket/orderbook) - Market depth
+- [Trades Channel](/docs/api/websocket/trades) - Public trades
+- [Error Handling](/docs/api/websocket/errors) - Error handling

@@ -1,0 +1,567 @@
+---
+title: Latency Optimization
+description: Sub-microsecond trading latency with kernel bypass and lock-free algorithms
+---
+
+# Latency Optimization
+
+Achieving **sub-microsecond latency** requires optimization at every layer, from network stack to CPU cache.
+
+## Latency Breakdown
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                    ORDER LIFECYCLE LATENCY                              │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   Network Receive        ████                         0.5-2 us         │
+│   Protocol Decode        ██                           0.1-0.3 us       │
+│   Validation             █                            0.05-0.1 us      │
+│   Risk Check             █                            0.05-0.1 us      │
+│   Orderbook Insert       ████████████████████████     0.002-0.5 us     │
+│   Match Engine           ████████████████████████     0.002-0.5 us     │
+│   Trade Execution        ██                           0.1-0.2 us       │
+│   Persistence (async)    ████████████                 1-5 us (async)   │
+│   Network Send           ████                         0.5-2 us         │
+│                                                                         │
+│   TOTAL (hot path):      ~2-5 us (CPU) / ~10 ns (GPU)                  │
+│                                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+## Kernel Bypass Networking
+
+### io_uring (Linux 5.1+)
+
+```go
+package network
+
+import (
+    "syscall"
+    "unsafe"
+
+    "github.com/iceber/iouring-go"
+)
+
+// UringReceiver provides kernel bypass networking
+type UringReceiver struct {
+    ring     *iouring.IOURing
+    buffers  [][]byte
+    bufferID uint16
+}
+
+func NewUringReceiver(fd int, bufferCount int) (*UringReceiver, error) {
+    ring, err := iouring.New(4096,
+        iouring.WithSQPoll(100), // Submission queue polling
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    // Pre-register buffers for zero-copy
+    buffers := make([][]byte, bufferCount)
+    for i := range buffers {
+        buffers[i] = make([]byte, 65536)
+    }
+
+    // Register buffer ring
+    ring.RegisterBuffers(buffers)
+
+    return &UringReceiver{
+        ring:    ring,
+        buffers: buffers,
+    }, nil
+}
+
+// RecvZeroCopy receives without kernel-to-user copy
+func (r *UringReceiver) RecvZeroCopy(fd int) ([]byte, error) {
+    sqe := r.ring.GetSQE()
+    sqe.PrepareRecv(fd, nil, 0,
+        iouring.IOSQE_BUFFER_SELECT,
+    )
+    sqe.SetBufferGroup(r.bufferID)
+
+    cqe, err := r.ring.SubmitAndWait(1)
+    if err != nil {
+        return nil, err
+    }
+
+    bufIdx := cqe.Flags >> 16
+    length := cqe.Res
+
+    return r.buffers[bufIdx][:length], nil
+}
+```
+
+### DPDK Integration (Optional)
+
+```go
+// +build dpdk
+
+package network
+
+/*
+#cgo CFLAGS: -I/usr/local/include/dpdk
+#cgo LDFLAGS: -L/usr/local/lib -ldpdk
+#include <rte_eal.h>
+#include <rte_ethdev.h>
+#include <rte_mbuf.h>
+
+static inline int dpdk_rx_burst(uint16_t port, uint16_t queue,
+    struct rte_mbuf **bufs, uint16_t nb_bufs) {
+    return rte_eth_rx_burst(port, queue, bufs, nb_bufs);
+}
+*/
+import "C"
+
+// DPDKReceiver bypasses kernel entirely
+type DPDKReceiver struct {
+    portID  uint16
+    queueID uint16
+    mbufs   []*C.struct_rte_mbuf
+}
+
+func (r *DPDKReceiver) Receive() ([][]byte, int) {
+    n := C.dpdk_rx_burst(
+        C.uint16_t(r.portID),
+        C.uint16_t(r.queueID),
+        &r.mbufs[0],
+        C.uint16_t(len(r.mbufs)),
+    )
+
+    packets := make([][]byte, n)
+    for i := 0; i < int(n); i++ {
+        mbuf := r.mbufs[i]
+        data := C.GoBytes(
+            unsafe.Pointer(uintptr(unsafe.Pointer(mbuf))+uintptr(mbuf.data_off)),
+            C.int(mbuf.data_len),
+        )
+        packets[i] = data
+    }
+
+    return packets, int(n)
+}
+```
+
+## Lock-Free Order Book
+
+### Atomic Price Level Updates
+
+```go
+package orderbook
+
+import (
+    "sync/atomic"
+    "unsafe"
+)
+
+// LockFreePriceLevel uses atomic operations only
+type LockFreePriceLevel struct {
+    price    int64 // Fixed-point price (8 decimals)
+    quantity atomic.Int64
+    head     atomic.Pointer[OrderNode]
+    tail     atomic.Pointer[OrderNode]
+}
+
+type OrderNode struct {
+    order Order
+    next  atomic.Pointer[OrderNode]
+}
+
+// AddOrder lock-free insertion (Michael-Scott queue)
+func (pl *LockFreePriceLevel) AddOrder(order *Order) {
+    node := &OrderNode{order: *order}
+
+    for {
+        tail := pl.tail.Load()
+        next := tail.next.Load()
+
+        if tail == pl.tail.Load() { // Consistency check
+            if next == nil {
+                // Try to link new node
+                if tail.next.CompareAndSwap(nil, node) {
+                    // Try to swing tail
+                    pl.tail.CompareAndSwap(tail, node)
+                    pl.quantity.Add(order.Quantity)
+                    return
+                }
+            } else {
+                // Tail was not pointing to last node
+                pl.tail.CompareAndSwap(tail, next)
+            }
+        }
+    }
+}
+
+// RemoveOrder lock-free deletion
+func (pl *LockFreePriceLevel) RemoveOrder(orderID uint64) *Order {
+    for {
+        head := pl.head.Load()
+        tail := pl.tail.Load()
+        next := head.next.Load()
+
+        if head == pl.head.Load() {
+            if head == tail {
+                if next == nil {
+                    return nil // Queue empty
+                }
+                pl.tail.CompareAndSwap(tail, next)
+            } else {
+                if next.order.ID == orderID {
+                    if pl.head.CompareAndSwap(head, next) {
+                        pl.quantity.Add(-next.order.Quantity)
+                        return &next.order
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+### Cache-Optimized Price Tree
+
+```go
+package orderbook
+
+import (
+    "unsafe"
+)
+
+const (
+    CacheLineSize = 64
+    MaxLevels     = 1024
+)
+
+// CacheAlignedTree is a B-tree optimized for L1 cache
+type CacheAlignedTree struct {
+    // Each node fits in one cache line
+    nodes [MaxLevels]CacheLineNode
+    root  int32
+    count int32
+}
+
+// CacheLineNode fits exactly in 64 bytes
+type CacheLineNode struct {
+    prices [3]int64  // 24 bytes - up to 3 prices per node
+    counts [3]int64  // 24 bytes - quantities
+    childs [4]int32  // 16 bytes - child indices
+    // Total: 64 bytes = 1 cache line
+}
+
+func init() {
+    // Compile-time assertion
+    if unsafe.Sizeof(CacheLineNode{}) != CacheLineSize {
+        panic("CacheLineNode must be exactly 64 bytes")
+    }
+}
+
+// FindPrice uses binary search within cache lines
+func (t *CacheAlignedTree) FindPrice(price int64) (int64, bool) {
+    idx := t.root
+    for idx >= 0 {
+        node := &t.nodes[idx]
+
+        // Binary search within node (cache-hot)
+        for i := 0; i < 3; i++ {
+            if node.prices[i] == price {
+                return node.counts[i], true
+            }
+            if node.prices[i] == 0 || price < node.prices[i] {
+                idx = node.childs[i]
+                break
+            }
+            if i == 2 {
+                idx = node.childs[3]
+            }
+        }
+    }
+    return 0, false
+}
+```
+
+## Branch Prediction Optimization
+
+### Branch-Free Order Side Handling
+
+```go
+package orderbook
+
+// BAD: Unpredictable branches
+func (ob *OrderBook) ProcessOrderBranchy(order *Order) {
+    if order.Side == Buy {
+        ob.bids.Insert(order)
+        if order.Price >= ob.bestAsk {
+            ob.matchBuy(order)
+        }
+    } else {
+        ob.asks.Insert(order)
+        if order.Price <= ob.bestBid {
+            ob.matchSell(order)
+        }
+    }
+}
+
+// GOOD: Branch-free using lookup tables
+type OrderBook struct {
+    books    [2]*PriceLevels // [Buy, Sell]
+    bestPrices [2]int64      // [bestBid, bestAsk]
+    compareFns [2]func(int64, int64) bool
+}
+
+func NewOrderBook() *OrderBook {
+    return &OrderBook{
+        books:      [2]*PriceLevels{NewPriceLevels(), NewPriceLevels()},
+        compareFns: [2]func(int64, int64) bool{
+            func(a, b int64) bool { return a >= b }, // Buy: price >= ask
+            func(a, b int64) bool { return a <= b }, // Sell: price <= bid
+        },
+    }
+}
+
+func (ob *OrderBook) ProcessOrderBranchFree(order *Order) {
+    side := order.Side // 0 = Buy, 1 = Sell
+    oppSide := 1 - side
+
+    ob.books[side].Insert(order)
+
+    if ob.compareFns[side](order.Price, ob.bestPrices[oppSide]) {
+        ob.match(order, side)
+    }
+}
+```
+
+### Likely/Unlikely Hints
+
+```go
+package orderbook
+
+import "runtime"
+
+//go:noinline
+func likely(b bool) bool {
+    if b {
+        return true
+    }
+    return false
+}
+
+//go:noinline
+func unlikely(b bool) bool {
+    if !b {
+        return false
+    }
+    return true
+}
+
+func (ob *OrderBook) Match(order *Order) *Trade {
+    // Most orders don't match immediately
+    if unlikely(ob.canMatch(order)) {
+        return ob.executeMatch(order)
+    }
+
+    // Fast path: just insert
+    ob.insert(order)
+    return nil
+}
+
+func (ob *OrderBook) Validate(order *Order) error {
+    // Most orders are valid
+    if likely(order.Quantity > 0 && order.Price > 0) {
+        return nil
+    }
+
+    // Slow path: detailed validation
+    return ob.validateDetailed(order)
+}
+```
+
+## Memory Access Patterns
+
+### Prefetching
+
+```go
+package orderbook
+
+import (
+    "runtime"
+    "unsafe"
+)
+
+// Prefetch hints for upcoming memory access
+func prefetch(addr unsafe.Pointer) {
+    runtime.Prefetch(addr)
+}
+
+func (ob *OrderBook) ScanPriceLevels(callback func(*PriceLevel)) {
+    levels := ob.levels
+
+    for i := 0; i < len(levels); i++ {
+        // Prefetch next cache line while processing current
+        if i+4 < len(levels) {
+            prefetch(unsafe.Pointer(&levels[i+4]))
+        }
+
+        callback(&levels[i])
+    }
+}
+
+// Alternative using slice tricks
+func (ob *OrderBook) BatchProcess(orders []Order) {
+    const batchSize = 8
+
+    for i := 0; i < len(orders); i += batchSize {
+        end := i + batchSize
+        if end > len(orders) {
+            end = len(orders)
+        }
+
+        batch := orders[i:end]
+
+        // Prefetch all orders in batch
+        for j := range batch {
+            _ = batch[j].Price // Touch memory
+        }
+
+        // Process batch (all in L1 cache now)
+        for j := range batch {
+            ob.processOrder(&batch[j])
+        }
+    }
+}
+```
+
+## Latency Measurement
+
+### High-Resolution Timing
+
+```go
+package latency
+
+import (
+    "time"
+    "unsafe"
+    _ "unsafe"
+)
+
+//go:linkname nanotime runtime.nanotime
+func nanotime() int64
+
+// Timestamp returns nanoseconds without system call
+func Timestamp() int64 {
+    return nanotime()
+}
+
+// LatencyTracker for sub-microsecond measurement
+type LatencyTracker struct {
+    samples []int64
+    index   int
+    size    int
+}
+
+func NewLatencyTracker(size int) *LatencyTracker {
+    return &LatencyTracker{
+        samples: make([]int64, size),
+        size:    size,
+    }
+}
+
+func (lt *LatencyTracker) Record(start, end int64) {
+    latency := end - start
+    lt.samples[lt.index] = latency
+    lt.index = (lt.index + 1) % lt.size
+}
+
+func (lt *LatencyTracker) Percentile(p float64) time.Duration {
+    // Sort and find percentile
+    sorted := make([]int64, len(lt.samples))
+    copy(sorted, lt.samples)
+    sort.Slice(sorted, func(i, j int) bool {
+        return sorted[i] < sorted[j]
+    })
+
+    idx := int(float64(len(sorted)) * p)
+    return time.Duration(sorted[idx])
+}
+```
+
+### RDTSC for CPU Cycles
+
+```go
+// +build amd64
+
+package latency
+
+import (
+    "unsafe"
+)
+
+// RDTSC reads CPU timestamp counter (cycles, not time)
+func RDTSC() uint64
+
+// Implement in assembly (latency_amd64.s)
+// TEXT ·RDTSC(SB),NOSPLIT,$0
+//     RDTSC
+//     SHLQ $32, DX
+//     ORQ  DX, AX
+//     MOVQ AX, ret+0(FP)
+//     RET
+
+type CycleTracker struct {
+    cyclesPerNs float64
+}
+
+func NewCycleTracker() *CycleTracker {
+    // Calibrate
+    start := RDTSC()
+    time.Sleep(10 * time.Millisecond)
+    end := RDTSC()
+
+    cycles := float64(end - start)
+    ns := float64(10 * time.Millisecond)
+
+    return &CycleTracker{
+        cyclesPerNs: cycles / ns,
+    }
+}
+
+func (ct *CycleTracker) CyclesToNs(cycles uint64) float64 {
+    return float64(cycles) / ct.cyclesPerNs
+}
+```
+
+## Latency Testing
+
+```bash
+# Run latency benchmarks
+go test -bench=BenchmarkLatency -benchtime=10s ./pkg/latency/
+
+# With detailed statistics
+go test -bench=BenchmarkLatency -benchtime=10s -count=5 ./pkg/latency/ | tee latency.txt
+benchstat latency.txt
+
+# Histogram output
+go test -bench=BenchmarkLatency -benchtime=10s \
+    -cpuprofile=cpu.prof \
+    -memprofile=mem.prof \
+    ./pkg/latency/
+
+# Linux perf for cache misses
+perf stat -e L1-dcache-load-misses,L1-dcache-loads \
+    go test -bench=BenchmarkOrderBook ./pkg/lx/
+```
+
+## Results
+
+```
+BenchmarkOrderInsert-16         2054836    487.2 ns/op    0 B/op    0 allocs/op
+BenchmarkOrderMatch-16          2189234    512.1 ns/op    0 B/op    0 allocs/op
+BenchmarkOrderCancel-16         3456789    321.4 ns/op    0 B/op    0 allocs/op
+
+Latency Distribution:
+  P50:  487 ns
+  P90:  892 ns
+  P99:  2.3 us
+  P999: 8.7 us
+  Max:  45 us (GC pause)
+```

@@ -1,0 +1,475 @@
+---
+title: FIX Quick Start
+description: Connect to LX DEX via FIX protocol in 15 minutes
+---
+
+# FIX Quick Start
+
+Get connected to LX DEX via FIX protocol in 15 minutes.
+
+## Prerequisites
+
+- Institutional account with FIX access enabled
+- FIX credentials (SenderCompID, Password)
+- IP addresses whitelisted
+- FIX engine (QuickFIX/J, QuickFIX/n, or compatible)
+
+## Step 1: Obtain Credentials
+
+Contact institutional sales to receive your FIX credentials:
+
+```
+Email: fix-onboarding@lux.network
+Subject: FIX Credentials Request - [Company Name]
+
+Required Information:
+- Company legal name
+- Primary contact name and email
+- Expected message volume (orders/day)
+- Source IP addresses for whitelisting
+- Preferred FIX version (4.2, 4.4, or 5.0)
+```
+
+You will receive:
+
+| Credential | Description | Example |
+|------------|-------------|---------|
+| SenderCompID | Your unique identifier | `ACME_TRADING` |
+| TargetCompID | LX DEX identifier | `LXDEX` |
+| Password | Session authentication | `(provided securely)` |
+| Data Dictionary | Customized FIX schema | `LXDEX-FIX44.xml` |
+
+## Step 2: Download Data Dictionary
+
+Download the LX DEX FIX data dictionary:
+
+```bash
+# FIX 4.4 (Recommended)
+curl -O https://fix.lux.network/dictionaries/LXDEX-FIX44.xml
+
+# FIX 4.2
+curl -O https://fix.lux.network/dictionaries/LXDEX-FIX42.xml
+
+# FIX 5.0 SP2
+curl -O https://fix.lux.network/dictionaries/LXDEX-FIX50SP2.xml
+```
+
+## Step 3: Configure FIX Engine
+
+### QuickFIX/J Configuration
+
+Create `fix-config.cfg`:
+
+```ini
+[DEFAULT]
+ConnectionType=initiator
+ReconnectInterval=30
+HeartBtInt=30
+StartTime=00:00:00
+EndTime=23:59:59
+UseDataDictionary=Y
+ValidateUserDefinedFields=N
+ValidateFieldsOutOfOrder=N
+ValidateFieldsHaveValues=Y
+ValidateIncomingMessage=Y
+RefreshOnLogon=Y
+ResetOnLogon=Y
+ResetOnLogout=Y
+ResetOnDisconnect=Y
+SendRedundantResendRequests=Y
+PersistMessages=Y
+
+FileStorePath=./store
+FileLogPath=./logs
+
+[SESSION]
+BeginString=FIX.4.4
+SenderCompID=YOUR_SENDER_ID
+TargetCompID=LXDEX
+DataDictionary=./LXDEX-FIX44.xml
+
+# Sandbox (Testing)
+SocketConnectHost=fix-sandbox.lux.network
+SocketConnectPort=5001
+
+# Production (uncomment when ready)
+# SocketConnectHost=fix.lux.network
+# SocketConnectPort=5001
+
+# TLS Configuration
+SSLEnable=Y
+SSLProtocols=TLSv1.2,TLSv1.3
+SSLValidateCertificates=Y
+```
+
+### QuickFIX/n Configuration (.NET)
+
+Create `fix-config.cfg`:
+
+```ini
+[DEFAULT]
+ConnectionType=initiator
+ReconnectInterval=30
+HeartBtInt=30
+StartTime=00:00:00
+EndTime=23:59:59
+UseDataDictionary=Y
+DataDictionary=./LXDEX-FIX44.xml
+FileStorePath=store
+FileLogPath=logs
+
+[SESSION]
+BeginString=FIX.4.4
+SenderCompID=YOUR_SENDER_ID
+TargetCompID=LXDEX
+SocketConnectHost=fix-sandbox.lux.network
+SocketConnectPort=5001
+SSLEnable=Y
+SSLProtocols=Tls12,Tls13
+```
+
+## Step 4: Implement Application Handler
+
+### QuickFIX/J (Java)
+
+```java
+package com.example.fix;
+
+import quickfix.*;
+import quickfix.field.*;
+import quickfix.fix44.*;
+
+public class LXDEXApplication implements Application {
+
+    @Override
+    public void onCreate(SessionID sessionId) {
+        System.out.println("Session created: " + sessionId);
+    }
+
+    @Override
+    public void onLogon(SessionID sessionId) {
+        System.out.println("Logged on: " + sessionId);
+    }
+
+    @Override
+    public void onLogout(SessionID sessionId) {
+        System.out.println("Logged out: " + sessionId);
+    }
+
+    @Override
+    public void toAdmin(Message message, SessionID sessionId) {
+        // Add password to Logon message
+        if (message instanceof Logon) {
+            try {
+                message.setField(new Password("YOUR_PASSWORD"));
+                message.setField(new RawData("YOUR_API_KEY"));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public void fromAdmin(Message message, SessionID sessionId)
+            throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, RejectLogon {
+        // Handle admin messages (Heartbeat, TestRequest, etc.)
+    }
+
+    @Override
+    public void toApp(Message message, SessionID sessionId) throws DoNotSend {
+        // Called before sending application message
+        System.out.println("Sending: " + message);
+    }
+
+    @Override
+    public void fromApp(Message message, SessionID sessionId)
+            throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, UnsupportedMessageType {
+        // Handle incoming application messages
+        crack(message, sessionId);
+    }
+
+    // Message handlers
+    public void onMessage(ExecutionReport report, SessionID sessionId) throws FieldNotFound {
+        System.out.println("ExecutionReport received:");
+        System.out.println("  ClOrdID: " + report.getClOrdID().getValue());
+        System.out.println("  ExecType: " + report.getExecType().getValue());
+        System.out.println("  OrdStatus: " + report.getOrdStatus().getValue());
+
+        if (report.isSetLastPx()) {
+            System.out.println("  LastPx: " + report.getLastPx().getValue());
+        }
+        if (report.isSetLastQty()) {
+            System.out.println("  LastQty: " + report.getLastQty().getValue());
+        }
+    }
+
+    public void onMessage(OrderCancelReject reject, SessionID sessionId) throws FieldNotFound {
+        System.out.println("OrderCancelReject received:");
+        System.out.println("  ClOrdID: " + reject.getClOrdID().getValue());
+        System.out.println("  Reason: " + reject.getText().getValue());
+    }
+}
+```
+
+### QuickFIX/n (C#)
+
+```csharp
+using QuickFix;
+using QuickFix.Fields;
+using QuickFix.FIX44;
+
+public class LXDEXApplication : MessageCracker, IApplication
+{
+    public void OnCreate(SessionID sessionID)
+    {
+        Console.WriteLine($"Session created: {sessionID}");
+    }
+
+    public void OnLogon(SessionID sessionID)
+    {
+        Console.WriteLine($"Logged on: {sessionID}");
+    }
+
+    public void OnLogout(SessionID sessionID)
+    {
+        Console.WriteLine($"Logged out: {sessionID}");
+    }
+
+    public void ToAdmin(QuickFix.Message message, SessionID sessionID)
+    {
+        if (message is Logon logon)
+        {
+            logon.SetField(new Password("YOUR_PASSWORD"));
+            logon.SetField(new RawData("YOUR_API_KEY"));
+        }
+    }
+
+    public void FromAdmin(QuickFix.Message message, SessionID sessionID) { }
+
+    public void ToApp(QuickFix.Message message, SessionID sessionID) { }
+
+    public void FromApp(QuickFix.Message message, SessionID sessionID)
+    {
+        Crack(message, sessionID);
+    }
+
+    public void OnMessage(ExecutionReport report, SessionID sessionID)
+    {
+        Console.WriteLine($"ExecutionReport: ClOrdID={report.ClOrdID.getValue()}, " +
+                          $"ExecType={report.ExecType.getValue()}, " +
+                          $"OrdStatus={report.OrdStatus.getValue()}");
+    }
+}
+```
+
+## Step 5: Start FIX Session
+
+### QuickFIX/J
+
+```java
+public class FIXClient {
+    public static void main(String[] args) throws Exception {
+        SessionSettings settings = new SessionSettings("fix-config.cfg");
+        Application application = new LXDEXApplication();
+        MessageStoreFactory storeFactory = new FileStoreFactory(settings);
+        LogFactory logFactory = new FileLogFactory(settings);
+        MessageFactory messageFactory = new DefaultMessageFactory();
+
+        Initiator initiator = new SocketInitiator(
+            application,
+            storeFactory,
+            settings,
+            logFactory,
+            messageFactory
+        );
+
+        initiator.start();
+
+        // Wait for logon
+        Thread.sleep(5000);
+
+        // Get session
+        SessionID sessionID = initiator.getSessions().get(0);
+
+        // Send test order
+        sendTestOrder(sessionID);
+
+        // Keep running
+        System.out.println("Press Enter to exit...");
+        System.in.read();
+
+        initiator.stop();
+    }
+
+    private static void sendTestOrder(SessionID sessionID) {
+        NewOrderSingle order = new NewOrderSingle(
+            new ClOrdID("TEST-" + System.currentTimeMillis()),
+            new Side(Side.BUY),
+            new TransactTime(),
+            new OrdType(OrdType.LIMIT)
+        );
+
+        order.set(new Symbol("BTC-USD"));
+        order.set(new OrderQty(0.001));  // Small test quantity
+        order.set(new Price(10000.00)); // Price far from market (won't fill)
+        order.set(new TimeInForce(TimeInForce.DAY));
+        order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_ORDER_PRIVATE));
+
+        try {
+            Session.sendToTarget(order, sessionID);
+            System.out.println("Order sent: " + order.getClOrdID().getValue());
+        } catch (SessionNotFound e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### QuickFIX/n
+
+```csharp
+class Program
+{
+    static void Main(string[] args)
+    {
+        var settings = new SessionSettings("fix-config.cfg");
+        var application = new LXDEXApplication();
+        var storeFactory = new FileStoreFactory(settings);
+        var logFactory = new FileLogFactory(settings);
+        var messageFactory = new DefaultMessageFactory();
+
+        var initiator = new SocketInitiator(
+            application,
+            storeFactory,
+            settings,
+            logFactory,
+            messageFactory
+        );
+
+        initiator.Start();
+
+        Console.WriteLine("Press Enter to send test order...");
+        Console.ReadLine();
+
+        // Send test order
+        var sessionID = initiator.GetSessionIDs().First();
+        SendTestOrder(sessionID);
+
+        Console.WriteLine("Press Enter to exit...");
+        Console.ReadLine();
+
+        initiator.Stop();
+    }
+
+    static void SendTestOrder(SessionID sessionID)
+    {
+        var order = new NewOrderSingle(
+            new ClOrdID($"TEST-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"),
+            new Side(Side.BUY),
+            new TransactTime(DateTime.UtcNow),
+            new OrdType(OrdType.LIMIT)
+        );
+
+        order.Set(new Symbol("BTC-USD"));
+        order.Set(new OrderQty(0.001m));
+        order.Set(new Price(10000.00m));
+        order.Set(new TimeInForce(TimeInForce.DAY));
+
+        Session.SendToTarget(order, sessionID);
+        Console.WriteLine($"Order sent: {order.ClOrdID.getValue()}");
+    }
+}
+```
+
+## Step 6: Verify Connection
+
+### Expected Logon Sequence
+
+```
+# Outgoing Logon
+8=FIX.4.4|9=126|35=A|34=1|49=YOUR_SENDER_ID|52=20241211-12:00:00.000|
+56=LXDEX|98=0|108=30|554=YOUR_PASSWORD|95=16|96=YOUR_API_KEY|10=XXX|
+
+# Incoming Logon (Confirmation)
+8=FIX.4.4|9=85|35=A|34=1|49=LXDEX|52=20241211-12:00:00.001|
+56=YOUR_SENDER_ID|98=0|108=30|10=XXX|
+
+# Heartbeat Exchange
+8=FIX.4.4|9=60|35=0|34=2|49=YOUR_SENDER_ID|52=20241211-12:00:30.000|
+56=LXDEX|10=XXX|
+```
+
+### Verify with Test Order
+
+Expected response to NewOrderSingle:
+
+```
+# ExecutionReport - New (Order Acknowledged)
+8=FIX.4.4|9=200|35=8|34=2|49=LXDEX|52=20241211-12:00:01.000|
+56=YOUR_SENDER_ID|6=0|11=TEST-1234567890|14=0|17=EXE-001|31=0|32=0|
+37=ORD-ABC123|38=0.001|39=0|40=2|44=10000|54=1|55=BTC-USD|
+60=20241211-12:00:00.999|150=0|151=0.001|10=XXX|
+```
+
+## Common Issues
+
+### Issue: Logon Rejected
+
+```
+8=FIX.4.4|35=3|58=Invalid credentials|
+```
+
+**Solution**: Verify SenderCompID, Password, and API key are correct.
+
+### Issue: Sequence Gap
+
+```
+8=FIX.4.4|35=2|7=1|16=10|
+```
+
+**Solution**: Enable `ResetOnLogon=Y` in configuration or handle ResendRequest.
+
+### Issue: Message Validation Error
+
+```
+8=FIX.4.4|35=3|58=Required field missing (38)|
+```
+
+**Solution**: Ensure all required fields are set. Check data dictionary for requirements.
+
+### Issue: SSL/TLS Error
+
+**Solution**:
+1. Verify TLS version is 1.2 or 1.3
+2. Check SSL certificate chain
+3. Ensure SSLEnable=Y in configuration
+
+## Next Steps
+
+1. **[Sessions](/docs/fix/sessions)** - Learn session management
+2. **[Orders](/docs/fix/orders)** - Submit production orders
+3. **[Testing](/docs/fix/testing)** - Complete FIX certification
+4. **[Examples](/docs/fix/examples)** - More code examples
+
+## Sandbox Environment
+
+The sandbox environment mirrors production with:
+- Full message support
+- Simulated order matching
+- Test market data
+- No real funds at risk
+
+```
+Endpoint: fix-sandbox.lux.network:5001
+Reset: Daily at 00:00 UTC
+Rate Limits: Same as production
+```
+
+## Support
+
+| Issue | Contact |
+|-------|---------|
+| Credentials | fix-onboarding@lux.network |
+| Technical Issues | fix-support@lux.network |
+| Certification | fix-cert@lux.network |
+| 24/7 Hotline | +1-833-LUX-TRADE |

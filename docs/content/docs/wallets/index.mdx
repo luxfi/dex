@@ -1,0 +1,329 @@
+---
+title: Wallet Integration
+description: Complete guide to wallet integration for LX DEX - Web3, MPC, hardware, custodial, and smart contract wallets
+---
+
+# Wallet Integration
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | [LP-333 MPC Signers](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)
+
+## Overview
+
+LX DEX supports comprehensive wallet integration for all user types:
+
+| Wallet Type | Use Case | Security Model | Latency |
+|-------------|----------|----------------|---------|
+| [Web3](/docs/wallets/web3) | Retail users | User-controlled keys | ~2-5s |
+| [MPC](/docs/wallets/mpc) | Institutional | Threshold signatures | ~100ms |
+| [Hardware](/docs/wallets/hardware) | High security | Air-gapped signing | ~5-10s |
+| [Custodial](/docs/wallets/custodial) | Enterprise | Custodian-managed | ~50ms |
+| [Multisig](/docs/wallets/multisig) | Treasury | M-of-N approval | ~30s |
+| [Smart Wallets](/docs/wallets/smart-wallets) | Advanced users | Contract-based | ~2-5s |
+| [Mobile](/docs/wallets/mobile) | On-the-go | Native SDK | ~1-3s |
+
+## Architecture
+
+```
+                    LX DEX Wallet Architecture
+
++------------------+     +------------------+     +------------------+
+|   User Device    |     |   LX DEX API     |     |   Settlement     |
+|                  |     |                  |     |                  |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|  | Wallet SDK |  |---->|  | Auth Layer |  |---->|  | C-Chain    |  |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|        |         |     |        |         |     |        |         |
+|  +------------+  |     |  +------------+  |     |  +------------+  |
+|  | Signer     |  |     |  | Order      |  |     |  | Warp Msg   |  |
+|  +------------+  |     |  | Engine     |  |     |  +------------+  |
++------------------+     +------------------+     +------------------+
+```
+
+## Supported Wallets
+
+### Browser Wallets
+- MetaMask (EIP-1193, EIP-6963)
+- Coinbase Wallet
+- Rainbow
+- Trust Wallet
+- Rabby
+
+### WalletConnect
+- WalletConnect v2 (all compatible wallets)
+- Mobile deep linking
+- QR code pairing
+
+### Hardware Wallets
+- Ledger (Nano S/X/S Plus)
+- Trezor (Model T, Safe 3)
+- GridPlus Lattice1
+
+### MPC Providers
+- Fireblocks
+- BitGo
+- Copper
+- Anchorage
+
+### Smart Contract Wallets
+- Safe (formerly Gnosis Safe)
+- Argent
+- Sequence
+- ZeroDev
+
+## Quick Start
+
+### TypeScript SDK
+
+```typescript
+import { LXDexClient, WalletAdapter } from '@luxfi/dex-sdk';
+import { MetaMaskAdapter } from '@luxfi/dex-sdk/wallets';
+
+// Create client with wallet adapter
+const wallet = new MetaMaskAdapter();
+const client = new LXDexClient({
+  endpoint: 'https://dex.lux.network',
+  wallet: wallet
+});
+
+// Connect wallet
+await client.connect();
+
+// Sign and place order
+const order = await client.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000',
+  quantity: '1.0'
+});
+```
+
+### Python SDK
+
+```python
+from lx_dex import LXDexClient
+from lx_dex.wallets import Web3Wallet
+
+# Create client with wallet
+wallet = Web3Wallet(private_key=os.environ['PRIVATE_KEY'])
+client = LXDexClient(
+    endpoint='https://dex.lux.network',
+    wallet=wallet
+)
+
+# Place signed order
+order = client.place_order(
+    symbol='BTC-USD',
+    side='buy',
+    type='limit',
+    price='50000',
+    quantity='1.0'
+)
+```
+
+### Go SDK
+
+```go
+import (
+    "github.com/luxfi/dex/sdk"
+    "github.com/luxfi/dex/sdk/wallets"
+)
+
+// Create client with wallet
+wallet, _ := wallets.NewPrivateKeyWallet(privateKey)
+client := sdk.NewClient(&sdk.Config{
+    Endpoint: "https://dex.lux.network",
+    Wallet:   wallet,
+})
+
+// Place signed order
+order, err := client.PlaceOrder(&sdk.Order{
+    Symbol:   "BTC-USD",
+    Side:     sdk.Buy,
+    Type:     sdk.Limit,
+    Price:    "50000",
+    Quantity: "1.0",
+})
+```
+
+## Authentication Flow
+
+### 1. Connection
+
+```typescript
+// Request wallet connection
+const accounts = await wallet.connect();
+const address = accounts[0];
+
+// Verify chain ID
+const chainId = await wallet.getChainId();
+if (chainId !== LUX_CHAIN_ID) {
+  await wallet.switchChain(LUX_CHAIN_ID);
+}
+```
+
+### 2. Session Creation
+
+```typescript
+// Create authenticated session
+const session = await client.createSession({
+  address: address,
+  expiry: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+});
+
+// Sign session message
+const signature = await wallet.signMessage(session.message);
+
+// Verify and activate session
+const token = await client.verifySession(signature);
+```
+
+### 3. Order Signing
+
+```typescript
+// Orders require EIP-712 typed data signature
+const orderData = {
+  domain: {
+    name: 'LX DEX',
+    version: '1',
+    chainId: LUX_CHAIN_ID,
+    verifyingContract: DEX_CONTRACT_ADDRESS
+  },
+  types: {
+    Order: [
+      { name: 'symbol', type: 'string' },
+      { name: 'side', type: 'uint8' },
+      { name: 'price', type: 'uint256' },
+      { name: 'quantity', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'expiry', type: 'uint256' }
+    ]
+  },
+  message: order
+};
+
+const signature = await wallet.signTypedData(orderData);
+```
+
+## Wallet Interface
+
+All wallet adapters implement the standard interface:
+
+```typescript
+interface WalletAdapter {
+  // Connection
+  connect(): Promise<string[]>;
+  disconnect(): Promise<void>;
+  isConnected(): boolean;
+
+  // Account info
+  getAddress(): Promise<string>;
+  getChainId(): Promise<number>;
+  getBalance(): Promise<bigint>;
+
+  // Signing
+  signMessage(message: string): Promise<string>;
+  signTypedData(data: TypedData): Promise<string>;
+  signTransaction(tx: Transaction): Promise<string>;
+
+  // Events
+  on(event: WalletEvent, handler: EventHandler): void;
+  off(event: WalletEvent, handler: EventHandler): void;
+}
+
+type WalletEvent =
+  | 'connect'
+  | 'disconnect'
+  | 'accountsChanged'
+  | 'chainChanged'
+  | 'error';
+```
+
+## Chain Configuration
+
+### Lux Mainnet
+
+```typescript
+const LUX_MAINNET = {
+  chainId: 96369,
+  chainName: 'Lux Mainnet',
+  nativeCurrency: {
+    name: 'LUX',
+    symbol: 'LUX',
+    decimals: 18
+  },
+  rpcUrls: ['https://api.lux.network/ext/bc/C/rpc'],
+  blockExplorerUrls: ['https://explorer.lux.network']
+};
+```
+
+### Lux Testnet
+
+```typescript
+const LUX_TESTNET = {
+  chainId: 96370,
+  chainName: 'Lux Testnet',
+  nativeCurrency: {
+    name: 'LUX',
+    symbol: 'LUX',
+    decimals: 18
+  },
+  rpcUrls: ['https://api.testnet.lux.network/ext/bc/C/rpc'],
+  blockExplorerUrls: ['https://testnet.explorer.lux.network']
+};
+```
+
+## Error Handling
+
+```typescript
+import { WalletError, WalletErrorCode } from '@luxfi/dex-sdk/wallets';
+
+try {
+  await wallet.connect();
+} catch (error) {
+  if (error instanceof WalletError) {
+    switch (error.code) {
+      case WalletErrorCode.USER_REJECTED:
+        console.log('User rejected connection');
+        break;
+      case WalletErrorCode.CHAIN_NOT_SUPPORTED:
+        console.log('Please switch to Lux network');
+        break;
+      case WalletErrorCode.WALLET_NOT_FOUND:
+        console.log('Please install a wallet');
+        break;
+      case WalletErrorCode.ALREADY_CONNECTED:
+        console.log('Wallet already connected');
+        break;
+      default:
+        console.error('Wallet error:', error.message);
+    }
+  }
+}
+```
+
+## Security Considerations
+
+### Key Management
+- Never expose private keys in client code
+- Use environment variables for server-side keys
+- Implement proper key rotation policies
+
+### Session Management
+- Set appropriate session expiry times
+- Implement session revocation
+- Monitor for suspicious activity
+
+### Transaction Verification
+- Always verify transaction details before signing
+- Implement spending limits
+- Use allowlists for contract interactions
+
+See [Security Best Practices](/docs/wallets/security) for comprehensive guidelines.
+
+## Next Steps
+
+- [Web3 Wallets](/docs/wallets/web3) - MetaMask, WalletConnect integration
+- [MPC Wallets](/docs/wallets/mpc) - Threshold signature wallets
+- [Hardware Wallets](/docs/wallets/hardware) - Ledger, Trezor support
+- [Transaction Signing](/docs/wallets/signing) - EIP-712, message signing

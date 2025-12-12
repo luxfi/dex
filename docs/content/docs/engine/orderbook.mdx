@@ -1,0 +1,805 @@
+---
+title: Order Book Internals
+description: Deep dive into the high-performance order book data structures and algorithms
+---
+
+# Order Book Internals
+
+<Callout type="info">
+**LP Specification**: [LP-9000: High-Performance DEX Core Engine - Section 3: Order Book](https://github.com/luxfi/LPs/blob/main/LPs/LP-9000.md#3-order-book)
+</Callout>
+
+## Implementation Status
+
+| Component | Status | Source |
+|-----------|--------|--------|
+| OrderBook Core | Complete | [pkg/lx/orderbook.go](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go) |
+| OrderTree (Bid/Ask Sides) | Complete | [pkg/lx/orderbook.go#L155-L165](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L155-L165) |
+| OptimizedPriceLevel | Complete | [pkg/lx/orderbook.go#L167-L180](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L167-L180) |
+| IntBTree | Complete | [pkg/lx/orderbook.go#L207-L218](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L207-L218) |
+| OrderLinkedList | Complete | [pkg/lx/orderbook.go#L183-L194](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L183-L194) |
+| CircularTradeBuffer | Complete | [pkg/lx/orderbook.go#L196-L204](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go#L196-L204) |
+| GoOrderBook (Alternative) | Complete | [pkg/orderbook/orderbook.go](https://github.com/luxfi/dex/blob/main/pkg/orderbook/orderbook.go) |
+
+## Order Book Structure
+
+```
+                            ORDER BOOK DATA STRUCTURE
+
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │                              OrderBook                                    │
+    │  ┌─────────────────────────────────────────────────────────────────────┐ │
+    │  │ Symbol: "BTC/USD"                                                   │ │
+    │  │ LastTradeID: uint64 (atomic)                                        │ │
+    │  │ LastOrderID: uint64 (atomic)                                        │ │
+    │  │ LastUpdateID: uint64 (atomic)                                       │ │
+    │  └─────────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │  ┌────────────────────────┐    ┌────────────────────────┐               │
+    │  │      Bids (Buy)        │    │      Asks (Sell)       │               │
+    │  │    *OrderTree          │    │     *OrderTree         │               │
+    │  │                        │    │                        │               │
+    │  │  side: Buy             │    │  side: Sell            │               │
+    │  │  bestPrice: atomic     │    │  bestPrice: atomic     │               │
+    │  │  priceLevels: map      │    │  priceLevels: map      │               │
+    │  │  priceTree: IntBTree   │    │  priceTree: IntBTree   │               │
+    │  │  priceHeap: MaxHeap    │    │  priceHeap: MinHeap    │               │
+    │  └────────────────────────┘    └────────────────────────┘               │
+    │                                                                          │
+    │  ┌─────────────────────────────────────────────────────────────────────┐ │
+    │  │ Orders: map[uint64]*Order          (order ID lookup)                │ │
+    │  │ ordersMap: sync.Map                 (lock-free concurrent access)   │ │
+    │  │ UserOrders: map[string][]uint64    (user order tracking)            │ │
+    │  │ userOrdersMap: sync.Map             (lock-free user access)         │ │
+    │  └─────────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │  ┌─────────────────────────────────────────────────────────────────────┐ │
+    │  │ Trades: []Trade                     (compatibility slice)           │ │
+    │  │ tradesBuffer: *CircularTradeBuffer  (efficient ring buffer)         │ │
+    │  │ subscribers: []chan MarketDataUpdate (market data feeds)            │ │
+    │  └─────────────────────────────────────────────────────────────────────┘ │
+    └──────────────────────────────────────────────────────────────────────────┘
+```
+
+## Integer Price Representation
+
+All prices are converted to 64-bit integers for fast comparison and zero floating-point errors:
+
+```go
+// PriceInt represents price as integer (multiplied by 10^8 for 8 decimal precision)
+type PriceInt int64
+
+const PriceMultiplier = 100000000  // 10^8
+
+// MaxSafePrice is the maximum price that can be safely converted to PriceInt
+// without overflow (math.MaxInt64 / PriceMultiplier)
+const MaxSafePrice = float64(math.MaxInt64) / PriceMultiplier  // ~92,233,720,368
+
+// safePriceToInt converts a float64 price to PriceInt with overflow protection
+func safePriceToInt(price float64) (PriceInt, error) {
+    if price < 0 {
+        return 0, fmt.Errorf("negative price: %f", price)
+    }
+    if price > MaxSafePrice {
+        return 0, fmt.Errorf("price overflow: %f exceeds max safe price %f", price, MaxSafePrice)
+    }
+    return PriceInt(price * PriceMultiplier), nil
+}
+```
+
+**Example conversions:**
+| Float Price | PriceInt | Precision |
+|-------------|----------|-----------|
+| 50000.00 | 5000000000000 | Exact |
+| 0.00000001 | 1 | 1 satoshi |
+| 92233720368.54775807 | MaxInt64 | Maximum |
+
+## Order Tree Structure
+
+Each side of the book is an `OrderTree` with multiple data structures for different access patterns:
+
+```go
+type OrderTree struct {
+    side        Side                             // Buy or Sell
+    priceLevels map[PriceInt]*OptimizedPriceLevel // O(1) level lookup
+    priceTree   *IntBTree                         // O(log n) range ops
+    orders      map[uint64]*Order                 // Order tracking
+    bestPrice   atomic.Int64                      // Lock-free best
+    sequence    uint64                            // Modification counter
+    mu          sync.RWMutex                      // Concurrency control
+    priceHeap   PriceHeap                         // Heap for compatibility
+}
+```
+
+### Price Level Map
+
+O(1) access to any price level using integer prices as keys:
+
+```go
+// Get or create price level
+func (tree *OrderTree) addOrderOptimized(order *Order, priceInt PriceInt) {
+    level, exists := tree.priceLevels[priceInt]
+    if !exists {
+        level = &OptimizedPriceLevel{
+            Price:    order.Price,
+            PriceInt: priceInt,
+            Orders:   make([]*Order, 0),
+            OrderList: &OrderLinkedList{
+                index: make(map[uint64]*OrderNode),
+            },
+        }
+        tree.priceLevels[priceInt] = level
+        tree.priceTree.Insert(priceInt)
+        heap.Push(tree.priceHeap, order.Price)
+    }
+    // ... add order to level ...
+}
+```
+
+### Integer B-Tree
+
+B-tree for sorted price levels with O(log n) min/max operations:
+
+```go
+type IntBTree struct {
+    root      *IntBTreeNode
+    degree    int
+    isMaxHeap bool  // true for bids (descending), false for asks (ascending)
+}
+
+type IntBTreeNode struct {
+    keys     []PriceInt
+    children []*IntBTreeNode
+    isLeaf   bool
+    n        int
+}
+
+// NewIntBTree creates a new B-tree
+func NewIntBTree(degree int, isMaxHeap bool) *IntBTree {
+    return &IntBTree{
+        degree:    degree,   // 32 for production
+        isMaxHeap: isMaxHeap,
+    }
+}
+
+func (bt *IntBTree) Insert(key PriceInt) { /* ... */ }
+func (bt *IntBTree) Delete(key PriceInt) { /* ... */ }
+func (bt *IntBTree) Min() PriceInt { /* ... */ }
+func (bt *IntBTree) Max() PriceInt { /* ... */ }
+```
+
+### Price Heap
+
+Standard library heap for quick best price retrieval:
+
+```go
+type PriceHeap interface {
+    heap.Interface
+    Peek() float64
+}
+
+// MaxPriceHeap for bids (highest price = highest priority)
+type MaxPriceHeap []float64
+
+func (h MaxPriceHeap) Len() int           { return len(h) }
+func (h MaxPriceHeap) Less(i, j int) bool { return h[i] > h[j] }  // Max heap
+func (h MaxPriceHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h MaxPriceHeap) Peek() float64      { if len(h) > 0 { return h[0] }; return 0 }
+
+// MinPriceHeap for asks (lowest price = highest priority)
+type MinPriceHeap []float64
+
+func (h MinPriceHeap) Less(i, j int) bool { return h[i] < h[j] }  // Min heap
+```
+
+## Price Level Structure
+
+Each price level maintains orders in FIFO order:
+
+```go
+type OptimizedPriceLevel struct {
+    Price      float64              // Original price for API responses
+    PriceInt   PriceInt             // Integer price for fast operations
+    Orders     []*Order             // Slice for iteration (compatibility)
+    OrderList  *OrderLinkedList     // Linked list for O(1) operations
+    TotalSize  float64              // Aggregate size at this level
+    OrderCount int                  // Number of orders
+    mu         sync.RWMutex         // Level-specific lock
+
+    // Atomic counters for lock-free updates
+    atomicSize  atomic.Int64        // Size * PriceMultiplier
+    atomicCount atomic.Int32        // Order count
+}
+```
+
+### Doubly-Linked List for Orders
+
+O(1) insertion and removal within a price level:
+
+```go
+type OrderLinkedList struct {
+    head  *OrderNode
+    tail  *OrderNode
+    index map[uint64]*OrderNode  // O(1) lookup by order ID
+    mu    sync.RWMutex
+}
+
+type OrderNode struct {
+    Order *Order
+    Next  *OrderNode
+    Prev  *OrderNode
+}
+
+// Add order to tail (FIFO)
+func (ll *OrderLinkedList) AddOrder(order *Order) {
+    node := &OrderNode{Order: order}
+    if ll.head == nil {
+        ll.head = node
+        ll.tail = node
+    } else {
+        ll.tail.Next = node
+        node.Prev = ll.tail
+        ll.tail = node
+    }
+    ll.index[order.ID] = node
+}
+
+// Remove order by ID in O(1)
+func (ll *OrderLinkedList) RemoveOrder(orderID uint64) {
+    node, exists := ll.index[orderID]
+    if !exists {
+        return
+    }
+
+    if node.Prev != nil {
+        node.Prev.Next = node.Next
+    } else {
+        ll.head = node.Next  // Was head
+    }
+
+    if node.Next != nil {
+        node.Next.Prev = node.Prev
+    } else {
+        ll.tail = node.Prev  // Was tail
+    }
+
+    delete(ll.index, orderID)
+}
+```
+
+## Order Types
+
+```go
+type Order struct {
+    ID        uint64
+    Symbol    string
+    Type      OrderType
+    Side      Side
+    Price     float64
+    Size      float64
+    Filled    float64
+    Timestamp time.Time
+    UserID    string
+    User      string      // Alias for UserID
+    ClientID  string
+
+    // Advanced order fields
+    StopPrice   float64
+    LimitPrice  float64     // For stop-limit orders
+    DisplaySize float64     // For iceberg orders
+    PegOffset   float64
+    TakeProfit  float64
+    StopLoss    float64
+    TimeInForce string
+    PostOnly    bool
+    ReduceOnly  bool
+    Hidden      bool
+
+    // Internal fields
+    RemainingSize float64
+    Status        string
+    Flags         OrderFlags
+    ExecutedSize  float64
+}
+
+type OrderType int
+
+const (
+    Limit OrderType = iota
+    Market
+    Stop
+    StopLimit
+    Iceberg
+    Peg
+    Bracket
+    Hidden
+)
+
+type Side int
+
+const (
+    Buy Side = iota
+    Sell
+)
+```
+
+## Add Order Flow
+
+```
+                          ADD ORDER FLOW
+
+    ┌─────────────┐
+    │  AddOrder() │
+    └──────┬──────┘
+           │
+           v
+    ┌──────────────────┐
+    │ Auto-assign ID   │ ──> atomic.AddUint64(&ob.LastOrderID, 1)
+    │ Set Status=Open  │
+    │ Set Timestamp    │
+    └────────┬─────────┘
+             │
+             v
+    ┌──────────────────┐     No
+    │ validateOrder()  │ ─────────> Status=Rejected, return 0
+    │ - Price > 0      │
+    │ - Size > 0       │
+    │ - Price overflow │
+    └────────┬─────────┘
+             │ Yes
+             v
+    ┌──────────────────┐
+    │ Convert to       │ ──> priceInt := PriceInt(order.Price * PriceMultiplier)
+    │ PriceInt         │
+    └────────┬─────────┘
+             │
+             v
+    ┌──────────────────┐     Market
+    │ Check Order Type │ ─────────> processMarketOrderOptimized()
+    └────────┬─────────┘
+             │ Limit
+             v
+    ┌──────────────────┐
+    │ Acquire Lock     │ ──> ob.mu.Lock()
+    └────────┬─────────┘
+             │
+             v
+    ┌──────────────────┐     Yes
+    │ checkSelfTrade() │ ─────────> Status=Rejected, return 0
+    └────────┬─────────┘
+             │ No
+             v
+    ┌──────────────────┐     Yes (PostOnly)
+    │ wouldTakeLiquidity │ ─────────> Status=Rejected, return 0
+    └────────┬─────────┘
+             │ No
+             v
+    ┌──────────────────┐     IOC/FOK
+    │ Check TimeInForce │ ─────────> tryMatchImmediateLocked()
+    └────────┬─────────┘
+             │ GTC/DAY
+             v
+    ┌──────────────────────────┐
+    │ addToTreeOptimized()     │
+    │ - Get/create price level │
+    │ - Add to OrderLinkedList │
+    │ - Update atomic counters │
+    │ - Update best price      │
+    └────────┬─────────────────┘
+             │
+             v
+    ┌──────────────────┐
+    │ Track in Orders  │ ──> ob.Orders[order.ID] = order
+    │ and ordersMap    │     ob.ordersMap.Store(order.ID, order)
+    └────────┬─────────┘
+             │
+             v
+    ┌──────────────────┐
+    │ publishUpdate()  │ ──> Send to subscribers
+    └────────┬─────────┘
+             │
+             v
+    ┌──────────────────┐
+    │ Return order.ID  │
+    └──────────────────┘
+```
+
+## Add Order Implementation
+
+```go
+func (ob *OrderBook) AddOrder(order *Order) uint64 {
+    // Auto-assign ID if not set
+    if order.ID == 0 {
+        order.ID = atomic.AddUint64(&ob.LastOrderID, 1)
+        ob.LastOrderID = order.ID
+    }
+
+    if order.Status == "" {
+        order.Status = Open
+    }
+
+    if order.Timestamp.IsZero() {
+        order.Timestamp = time.Now()
+    }
+
+    // Validate order
+    if err := ob.validateOrder(order); err != nil {
+        order.Status = Rejected
+        return 0
+    }
+
+    // Convert price to integer for fast operations
+    priceInt := PriceInt(order.Price * PriceMultiplier)
+
+    // Handle market orders
+    if order.Type == Market {
+        return ob.processMarketOrderOptimized(order)
+    }
+
+    // Get write lock for modifications
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+
+    // Self-trade prevention
+    userIdentifier := order.User
+    if userIdentifier == "" {
+        userIdentifier = order.UserID
+    }
+    if userIdentifier != "" && ob.checkSelfTrade(order) {
+        order.Status = Rejected
+        return 0
+    }
+
+    // Post-only check
+    if order.PostOnly || order.Flags&OrderFlagPostOnly != 0 {
+        if ob.wouldTakeLiquidity(order) {
+            order.Status = Rejected
+            return 0
+        }
+    }
+
+    // Set remaining size
+    order.RemainingSize = order.Size
+
+    // Handle IOC/FOK
+    if order.TimeInForce == ImmediateOrCancel || order.TimeInForce == FillOrKill {
+        numTrades := ob.tryMatchImmediateLocked(order)
+
+        if order.TimeInForce == FillOrKill && order.RemainingSize > 0 {
+            order.Status = Rejected
+            return 0
+        }
+
+        if order.TimeInForce == ImmediateOrCancel && order.RemainingSize > 0 {
+            return order.ID
+        }
+    }
+
+    // Add remaining to book
+    if order.RemainingSize > 0 {
+        var tree *OrderTree
+        if order.Side == Buy {
+            tree = (*OrderTree)(atomic.LoadPointer(&ob.bids))
+        } else {
+            tree = (*OrderTree)(atomic.LoadPointer(&ob.asks))
+        }
+
+        ob.addToTreeOptimized(tree, order, priceInt)
+
+        // Track order
+        ob.Orders[order.ID] = order
+        ob.ordersMap.Store(order.ID, order)
+
+        if ob.UserOrders[order.User] == nil {
+            ob.UserOrders[order.User] = make([]uint64, 0)
+        }
+        ob.UserOrders[order.User] = append(ob.UserOrders[order.User], order.ID)
+
+        // Publish market data update
+        ob.publishUpdate(MarketDataUpdate{
+            Type:      OrderAdded,
+            Symbol:    ob.Symbol,
+            Timestamp: time.Now(),
+            Data: map[string]interface{}{
+                "order_id": order.ID,
+                "price":    order.Price,
+                "size":     order.Size,
+                "side":     order.Side,
+            },
+        })
+    }
+
+    return order.ID
+}
+```
+
+## Remove Order (O(1))
+
+```go
+func (tree *OrderTree) removeOrder(order *Order) {
+    tree.mu.Lock()
+    defer tree.mu.Unlock()
+
+    priceInt := PriceInt(order.Price * PriceMultiplier)
+    level, exists := tree.priceLevels[priceInt]
+    if !exists {
+        return
+    }
+
+    level.mu.Lock()
+
+    // Remove from linked list (O(1))
+    if level.OrderList != nil {
+        node, exists := level.OrderList.index[order.ID]
+        if exists {
+            if node.Prev != nil {
+                node.Prev.Next = node.Next
+            } else {
+                level.OrderList.head = node.Next
+            }
+
+            if node.Next != nil {
+                node.Next.Prev = node.Prev
+            } else {
+                level.OrderList.tail = node.Prev
+            }
+
+            delete(level.OrderList.index, order.ID)
+        }
+    }
+
+    // Remove from slice for compatibility
+    for i, o := range level.Orders {
+        if o.ID == order.ID {
+            level.Orders = append(level.Orders[:i], level.Orders[i+1:]...)
+            break
+        }
+    }
+
+    remainingSize := order.Size - order.Filled
+    if order.RemainingSize > 0 {
+        remainingSize = order.RemainingSize
+    }
+    level.TotalSize -= remainingSize
+    level.OrderCount--
+
+    // Remove level if empty
+    if level.OrderCount == 0 {
+        delete(tree.priceLevels, priceInt)
+        tree.priceTree.Delete(priceInt)
+
+        // Update best price if needed
+        if tree.side == Buy && tree.bestPrice.Load() == int64(priceInt) {
+            if next := tree.priceTree.Max(); next != 0 {
+                tree.bestPrice.Store(int64(next))
+            } else {
+                tree.bestPrice.Store(0)
+            }
+        } else if tree.side == Sell && tree.bestPrice.Load() == int64(priceInt) {
+            if next := tree.priceTree.Min(); next != 0 {
+                tree.bestPrice.Store(int64(next))
+            } else {
+                tree.bestPrice.Store(0)
+            }
+        }
+    }
+
+    level.mu.Unlock()
+
+    // Update atomic counters
+    level.atomicSize.Add(-int64(remainingSize * PriceMultiplier))
+    level.atomicCount.Add(-1)
+
+    delete(tree.orders, order.ID)
+}
+```
+
+## Get Best Order (O(1))
+
+```go
+func (tree *OrderTree) getBestOrder() *Order {
+    // Fast path: check atomic best price
+    bestPriceInt := PriceInt(tree.bestPrice.Load())
+    if bestPriceInt == 0 {
+        return tree.getBestOrderViaHeap()  // Fallback
+    }
+
+    tree.mu.RLock()
+    defer tree.mu.RUnlock()
+
+    level, exists := tree.priceLevels[bestPriceInt]
+    if !exists || level.OrderList == nil || level.OrderList.head == nil {
+        return tree.getBestOrderViaHeap()
+    }
+
+    level.mu.RLock()
+    defer level.mu.RUnlock()
+
+    if level.OrderList.head != nil {
+        return level.OrderList.head.Order
+    }
+
+    if len(level.Orders) > 0 {
+        return level.Orders[0]
+    }
+
+    return nil
+}
+```
+
+## Get Depth Levels
+
+```go
+func (tree *OrderTree) getLevels(depth int) []PriceLevel {
+    tree.mu.RLock()
+    defer tree.mu.RUnlock()
+
+    maxLevels := depth
+    if depth == 0 {
+        maxLevels = len(tree.priceLevels)  // All levels
+    }
+
+    levels := make([]PriceLevel, 0, maxLevels)
+    prices := make([]float64, 0, len(tree.priceLevels))
+
+    // Collect non-empty price levels
+    for _, level := range tree.priceLevels {
+        if level.OrderCount > 0 {
+            prices = append(prices, level.Price)
+        }
+    }
+
+    // Sort prices (descending for bids, ascending for asks)
+    if tree.side == Buy {
+        sort.Sort(sort.Reverse(sort.Float64Slice(prices)))
+    } else {
+        sort.Float64s(prices)
+    }
+
+    // Build levels
+    for i, price := range prices {
+        if depth > 0 && i >= depth {
+            break
+        }
+        priceInt := PriceInt(price * PriceMultiplier)
+        if level, exists := tree.priceLevels[priceInt]; exists {
+            levels = append(levels, PriceLevel{
+                Price: level.Price,
+                Size:  level.TotalSize,
+                Count: level.OrderCount,
+            })
+        }
+    }
+
+    return levels
+}
+```
+
+## Alternative Implementation: GoOrderBook
+
+A simpler pure-Go implementation for comparison:
+
+```go
+// pkg/orderbook/orderbook.go
+
+type GoOrderBook struct {
+    mu     sync.RWMutex
+    symbol string
+    orders map[uint64]*Order
+    nextID uint64
+    bids   []uint64  // Order IDs sorted by price (descending)
+    asks   []uint64  // Order IDs sorted by price (ascending)
+    volume uint64
+}
+
+func NewGoOrderBook(config Config) *GoOrderBook {
+    return &GoOrderBook{
+        symbol: config.Symbol,
+        orders: make(map[uint64]*Order),
+        nextID: 1,
+    }
+}
+
+// Simple O(n) insertion maintaining sorted order
+func (ob *GoOrderBook) insertBid(orderID uint64) {
+    order := ob.orders[orderID]
+    pos := 0
+    for pos < len(ob.bids) {
+        bidOrder := ob.orders[ob.bids[pos]]
+        if bidOrder.Price < order.Price {
+            break
+        }
+        pos++
+    }
+    ob.bids = append(ob.bids, 0)
+    copy(ob.bids[pos+1:], ob.bids[pos:])
+    ob.bids[pos] = orderID
+}
+```
+
+## Performance Comparison
+
+| Operation | GoOrderBook | OptimizedOrderBook | Improvement |
+|-----------|-------------|-------------------|-------------|
+| Add Order | O(n) | O(log n) | 10-100x |
+| Cancel Order | O(n) | O(1) | 100-1000x |
+| Get Best | O(1) | O(1) | Same |
+| Match | O(k*n) | O(k) | 10-100x |
+
+## Memory Layout
+
+```
+    ┌────────────────────────────────────────────────────────────────┐
+    │                    MEMORY LAYOUT                                │
+    ├────────────────────────────────────────────────────────────────┤
+    │                                                                │
+    │  OrderBook (hot path - cache line aligned)                     │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │ Symbol          [8 bytes]  (string header)               │  │
+    │  │ bids pointer    [8 bytes]  (unsafe.Pointer to OrderTree) │  │
+    │  │ asks pointer    [8 bytes]  (unsafe.Pointer to OrderTree) │  │
+    │  │ Bids            [8 bytes]  (*OrderTree for compatibility) │  │
+    │  │ Asks            [8 bytes]  (*OrderTree for compatibility) │  │
+    │  │ LastTradeID     [8 bytes]  (uint64 atomic)               │  │
+    │  │ LastOrderID     [8 bytes]  (uint64 atomic)               │  │
+    │  │ LastUpdateID    [8 bytes]  (uint64 atomic)               │  │
+    │  │ _padding        [64 bytes] (prevent false sharing)       │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                                                                │
+    │  OrderTree (per side)                                          │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │ priceLevels     map[PriceInt]*OptimizedPriceLevel        │  │
+    │  │   (hash table, average O(1) lookup)                      │  │
+    │  │                                                          │  │
+    │  │ priceTree       *IntBTree                                │  │
+    │  │   (B-tree degree 32, O(log n) operations)                │  │
+    │  │                                                          │  │
+    │  │ bestPrice       atomic.Int64                             │  │
+    │  │   (lock-free read, ~2ns latency)                         │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                                                                │
+    │  OptimizedPriceLevel                                           │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │ OrderLinkedList (FIFO queue)                             │  │
+    │  │   head -> [Order1] <-> [Order2] <-> [Order3] <- tail     │  │
+    │  │   index: map[orderID]*OrderNode (O(1) lookup)            │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                                                                │
+    └────────────────────────────────────────────────────────────────┘
+```
+
+## Thread Safety
+
+The order book uses multiple levels of synchronization:
+
+1. **OrderBook.mu (RWMutex)**: Coarse-grained lock for structural changes
+2. **OrderTree.mu (RWMutex)**: Per-side locking for tree operations
+3. **OptimizedPriceLevel.mu (RWMutex)**: Per-level locking for order operations
+4. **sync.Map**: Lock-free order lookup via `ordersMap`
+5. **atomic.Int64**: Lock-free best price reads
+
+```go
+// Read path (no lock contention)
+func (ob *OrderBook) GetBestBid() float64 {
+    bids := ob.GetBids()
+    if bids == nil {
+        return 0
+    }
+    bestPriceInt := bids.bestPrice.Load()  // Atomic read
+    return float64(bestPriceInt) / PriceMultiplier
+}
+
+// Write path (lock acquisition)
+func (ob *OrderBook) AddOrder(order *Order) uint64 {
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+    // ... operations ...
+}
+```
+
+## Related Documentation
+
+- [Engine Overview](/docs/engine) - High-level engine architecture
+- [Matching Engine](/docs/engine/matching) - Order matching algorithms
+- [State Management](/docs/engine/state) - Persistence and snapshots
+- [Event System](/docs/engine/events) - Market data events
