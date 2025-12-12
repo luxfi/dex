@@ -303,8 +303,8 @@ Market makers have access to real-time performance metrics:
 │  └─────────────┘  └─────────────┘  └─────────────┘             │
 │                                                                  │
 │  Markets Quoted: 35/30 required                                 │
-│  RFQ Response: 45ms avg (Target: <50ms)                        │
-│  Quote Updates: 85ms avg (Target: <100ms)                      │
+│  RFQ Response: 45ms avg (Target: &lt;50ms)                        │
+│  Quote Updates: 85ms avg (Target: &lt;100ms)                      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -314,7 +314,7 @@ Market makers have access to real-time performance metrics:
 | Alert Type | Trigger | Notification |
 |------------|---------|--------------|
 | Spread Violation | >150% of max spread | Immediate |
-| Depth Below Min | <80% of required | Immediate |
+| Depth Below Min | &lt;80% of required | Immediate |
 | Uptime Warning | 3% below target | Every 15 mins |
 | Stale Quotes | >2x max age | Immediate |
 | RFQ Timeout | >2x max response | Immediate |

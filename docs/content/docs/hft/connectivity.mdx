@@ -502,7 +502,7 @@ func (m *ConnectionMonitor) Start() {
             if err != nil || latency > 1*time.Millisecond {
                 missedHeartbeats++
 
-                if missedHeartbeats >= m.failoverThreshold {
+                if missedHeartbeats &gt;= m.failoverThreshold {
                     // Failover to backup
                     m.active.Store(m.backup)
                     log.Warn("Failover to backup connection")

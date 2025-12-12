@@ -494,7 +494,7 @@ func main() {
     orders := make([]*client.Order, 0, 20)
 
     // Buy orders below market
-    for i := 1; i <= 10; i++ {
+    for i := 1; i &lt;= 10; i++ {
         orders = append(orders, &client.Order{
             Symbol:      "BTC-USD",
             Type:        client.OrderTypeLimit,
@@ -508,7 +508,7 @@ func main() {
     }
 
     // Sell orders above market
-    for i := 1; i <= 10; i++ {
+    for i := 1; i &lt;= 10; i++ {
         orders = append(orders, &client.Order{
             Symbol:      "BTC-USD",
             Type:        client.OrderTypeLimit,
@@ -610,7 +610,7 @@ func main() {
 
     // Place buy order at best bid - $10 (deeper in book)
     buyPrice := orderBook.BestBid() - 10
-    if buyPrice <= 0 {
+    if buyPrice &lt;= 0 {
         log.Fatal("Invalid buy price")
     }
 
@@ -716,11 +716,11 @@ func placeOrderWithRetry(c *client.Client, order *client.Order, maxRetries int) 
 }
 
 func contains(s, substr string) bool {
-    return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
+    return len(s) &gt;= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
 }
 
 func containsImpl(s, substr string) bool {
-    for i := 0; i <= len(s)-len(substr); i++ {
+    for i := 0; i &lt;= len(s)-len(substr); i++ {
         if s[i:i+len(substr)] == substr {
             return true
         }

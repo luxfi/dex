@@ -471,7 +471,7 @@ func (m *SignerSetManager) RegisterValidator(
     })
 
     // Freeze at max signers
-    if len(m.signerSet.Signers) >= m.maxSigners {
+    if len(m.signerSet.Signers) &gt;= m.maxSigners {
         m.signerSet.SetFrozen = true
     }
 
@@ -646,7 +646,7 @@ func (d *AnomalyDetector) MonitorSigningSession(session *SigningSession) {
     // Monitor failures
     session.OnFailure(func(err error) {
         d.metrics.FailedAttempts++
-        if d.metrics.FailedAttempts >= d.threshold.MaxFailedAttempts {
+        if d.metrics.FailedAttempts &gt;= d.threshold.MaxFailedAttempts {
             d.alerter.Alert(AlertRepeatedFailures, map[string]interface{}{
                 "failures": d.metrics.FailedAttempts,
                 "error": err.Error(),

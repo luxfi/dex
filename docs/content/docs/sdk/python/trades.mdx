@@ -371,7 +371,7 @@ async def stream_trades():
                   f"{trade.size:.4f} @ {trade.price:.2f}")
 
             # Stop after 100 trades
-            if trade_count >= 100:
+            if trade_count &gt;= 100:
                 print(f"\nTotal volume: {total_volume:.4f}")
                 break
 
@@ -551,8 +551,8 @@ print("=== Trade Tape Analysis ===")
 print(by_class)
 
 # Large trade detection
-large_trades = df[df["size"] >= 1.0]
-print(f"\nLarge trades (>=1.0): {len(large_trades)}")
+large_trades = df[df["size"] &gt;= 1.0]
+print(f"\nLarge trades (&gt;=1.0): {len(large_trades)}")
 print(f"Large trade volume: {large_trades['size'].sum():.4f}")
 
 # Calculate trade arrival rate
