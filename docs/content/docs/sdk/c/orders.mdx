@@ -1,0 +1,617 @@
+---
+title: Orders
+description: Order placement, cancellation, and management with the C SDK
+---
+
+# Orders
+
+This guide covers order operations using the LX DEX C SDK, including placing, canceling, and querying orders.
+
+## Order Structure
+
+```c
+struct lxdex_order {
+    const char *symbol;               // Trading pair (e.g., "BTC-USD")
+    enum lxdex_side side;             // LXDEX_SIDE_BUY or LXDEX_SIDE_SELL
+    enum lxdex_order_type type;       // Order type
+    double price;                     // Price (0 for market orders)
+    double size;                      // Quantity
+    enum lxdex_tif time_in_force;     // Time in force
+    const char *client_id;            // Optional client order ID
+    double stop_price;                // Stop price (for stop orders)
+    int post_only;                    // Post-only flag (maker only)
+    int reduce_only;                  // Reduce-only flag
+};
+```
+
+## Order Types
+
+```c
+enum lxdex_order_type {
+    LXDEX_ORDER_LIMIT = 0,       // Limit order at specific price
+    LXDEX_ORDER_MARKET = 1,      // Market order at best price
+    LXDEX_ORDER_STOP = 2,        // Stop (trigger) order
+    LXDEX_ORDER_STOP_LIMIT = 3   // Stop-limit order
+};
+```
+
+## Placing Orders
+
+### Limit Order
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+
+int place_limit_order(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 50000.0,
+        .size = 0.1,
+        .time_in_force = LXDEX_TIF_GTC
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Order placed successfully\n");
+        printf("  Order ID: %llu\n", result.order_id);
+        printf("  Status: %s\n", lxdex_status_str(result.status));
+        printf("  Filled: %.8f\n", result.filled_size);
+        return 0;
+    } else {
+        fprintf(stderr, "Order failed: %s\n", lxdex_strerror(err));
+        return err;
+    }
+}
+```
+
+### Market Order
+
+```c
+int place_market_order(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_SELL,
+        .type = LXDEX_ORDER_MARKET,
+        .price = 0.0,  // Ignored for market orders
+        .size = 0.05,
+        .time_in_force = LXDEX_TIF_IOC  // Immediate or cancel
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Market order executed\n");
+        printf("  Filled: %.8f @ avg %.2f\n",
+               result.filled_size, result.avg_price);
+    }
+
+    return err;
+}
+```
+
+### Stop Order
+
+```c
+int place_stop_order(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_SELL,
+        .type = LXDEX_ORDER_STOP,
+        .stop_price = 48000.0,  // Trigger price
+        .size = 0.1,
+        .time_in_force = LXDEX_TIF_GTC
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Stop order placed: ID %llu\n", result.order_id);
+        printf("  Triggers at: %.2f\n", order.stop_price);
+    }
+
+    return err;
+}
+```
+
+### Stop-Limit Order
+
+```c
+int place_stop_limit_order(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_SELL,
+        .type = LXDEX_ORDER_STOP_LIMIT,
+        .stop_price = 48000.0,   // Trigger price
+        .price = 47900.0,        // Limit price after trigger
+        .size = 0.1,
+        .time_in_force = LXDEX_TIF_GTC
+    };
+
+    struct lxdex_order_result result;
+    return lxdex_place_order(client, &order, &result);
+}
+```
+
+### Post-Only Order
+
+```c
+int place_post_only_order(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 49000.0,
+        .size = 0.1,
+        .time_in_force = LXDEX_TIF_GTC,
+        .post_only = 1  // Reject if would execute immediately
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_ERR_POST_ONLY) {
+        printf("Order would cross the spread, rejected\n");
+    }
+
+    return err;
+}
+```
+
+### Order with Client ID
+
+```c
+int place_order_with_client_id(struct lxdex_client *client) {
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 50000.0,
+        .size = 0.1,
+        .client_id = "my-unique-order-123"
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    // Can later query by client_id
+    return err;
+}
+```
+
+## Time In Force
+
+```c
+enum lxdex_tif {
+    LXDEX_TIF_GTC = 0,   // Good Till Cancelled
+    LXDEX_TIF_IOC = 1,   // Immediate Or Cancel (fill what you can)
+    LXDEX_TIF_FOK = 2,   // Fill Or Kill (all or nothing)
+    LXDEX_TIF_DAY = 3    // Day Order (expires at end of day)
+};
+```
+
+### IOC Example (Partial Fill OK)
+
+```c
+struct lxdex_order order = {
+    .symbol = "BTC-USD",
+    .side = LXDEX_SIDE_BUY,
+    .type = LXDEX_ORDER_LIMIT,
+    .price = 50100.0,  // Aggressive price
+    .size = 1.0,
+    .time_in_force = LXDEX_TIF_IOC
+};
+
+struct lxdex_order_result result;
+lxdex_place_order(client, &order, &result);
+
+if (result.filled_size > 0) {
+    printf("Partially filled: %.8f @ %.2f\n",
+           result.filled_size, result.avg_price);
+}
+// Unfilled portion is cancelled automatically
+```
+
+### FOK Example (All or Nothing)
+
+```c
+struct lxdex_order order = {
+    .symbol = "BTC-USD",
+    .side = LXDEX_SIDE_BUY,
+    .type = LXDEX_ORDER_LIMIT,
+    .price = 50000.0,
+    .size = 1.0,
+    .time_in_force = LXDEX_TIF_FOK
+};
+
+struct lxdex_order_result result;
+int err = lxdex_place_order(client, &order, &result);
+
+if (result.status == LXDEX_STATUS_FILLED) {
+    printf("Completely filled\n");
+} else if (result.status == LXDEX_STATUS_CANCELLED) {
+    printf("Could not fill completely, order cancelled\n");
+}
+```
+
+## Order Results
+
+```c
+struct lxdex_order_result {
+    uint64_t order_id;            // Exchange-assigned order ID
+    enum lxdex_status status;     // Current status
+    double filled_size;           // Amount filled
+    double remaining_size;        // Amount remaining
+    double avg_price;             // Average fill price
+    uint64_t timestamp;           // Timestamp (milliseconds)
+    const char *reject_reason;    // Rejection reason (if rejected)
+};
+
+// Order status values
+enum lxdex_status {
+    LXDEX_STATUS_NEW = 0,         // Order received
+    LXDEX_STATUS_OPEN = 1,        // Order on book
+    LXDEX_STATUS_PARTIAL = 2,     // Partially filled
+    LXDEX_STATUS_FILLED = 3,      // Completely filled
+    LXDEX_STATUS_CANCELLED = 4,   // Cancelled
+    LXDEX_STATUS_REJECTED = 5     // Rejected
+};
+```
+
+## Canceling Orders
+
+### Cancel by Order ID
+
+```c
+int cancel_order(struct lxdex_client *client, uint64_t order_id) {
+    struct lxdex_cancel_result result;
+    int err = lxdex_cancel_order(client, order_id, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Order %llu cancelled\n", order_id);
+        printf("  Remaining: %.8f\n", result.remaining_size);
+    } else if (err == LXDEX_ERR_ORDER_NOT_FOUND) {
+        printf("Order %llu not found (may already be filled)\n", order_id);
+    } else {
+        fprintf(stderr, "Cancel failed: %s\n", lxdex_strerror(err));
+    }
+
+    return err;
+}
+```
+
+### Cancel by Client ID
+
+```c
+int cancel_by_client_id(struct lxdex_client *client, const char *client_id) {
+    struct lxdex_cancel_result result;
+    int err = lxdex_cancel_order_by_client_id(client, client_id, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Order '%s' cancelled\n", client_id);
+    }
+
+    return err;
+}
+```
+
+### Cancel All Orders
+
+```c
+int cancel_all_orders(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_cancel_all_result result;
+
+    // Cancel all orders for a symbol
+    int err = lxdex_cancel_all(client, symbol, &result);
+
+    // Or cancel all orders (pass NULL for symbol)
+    // int err = lxdex_cancel_all(client, NULL, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Cancelled %d orders\n", result.cancelled_count);
+        for (int i = 0; i < result.cancelled_count; i++) {
+            printf("  Order %llu cancelled\n", result.cancelled_ids[i]);
+        }
+    }
+
+    return err;
+}
+```
+
+## Querying Orders
+
+### Get Order by ID
+
+```c
+int get_order(struct lxdex_client *client, uint64_t order_id) {
+    struct lxdex_order_info info;
+    int err = lxdex_get_order(client, order_id, &info);
+
+    if (err == LXDEX_OK) {
+        printf("Order %llu\n", info.order_id);
+        printf("  Symbol: %s\n", info.symbol);
+        printf("  Side: %s\n", info.side == LXDEX_SIDE_BUY ? "BUY" : "SELL");
+        printf("  Type: %d\n", info.type);
+        printf("  Price: %.2f\n", info.price);
+        printf("  Size: %.8f\n", info.size);
+        printf("  Filled: %.8f\n", info.filled_size);
+        printf("  Status: %s\n", lxdex_status_str(info.status));
+    }
+
+    return err;
+}
+```
+
+### Get Open Orders
+
+```c
+#define MAX_ORDERS 100
+
+int get_open_orders(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_order_info orders[MAX_ORDERS];
+    size_t count = MAX_ORDERS;
+
+    int err = lxdex_get_open_orders(client, symbol, orders, &count);
+
+    if (err == LXDEX_OK) {
+        printf("Found %zu open orders\n", count);
+        for (size_t i = 0; i < count; i++) {
+            printf("  %llu: %s %s %.8f @ %.2f\n",
+                   orders[i].order_id,
+                   orders[i].side == LXDEX_SIDE_BUY ? "BUY" : "SELL",
+                   orders[i].symbol,
+                   orders[i].remaining_size,
+                   orders[i].price);
+        }
+    }
+
+    return err;
+}
+```
+
+### Get Order History
+
+```c
+int get_order_history(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_order_history_params params = {
+        .symbol = symbol,
+        .status = LXDEX_STATUS_FILLED,  // Only filled orders
+        .limit = 50,
+        .start_time = time(NULL) - 86400,  // Last 24 hours
+        .end_time = 0  // Now
+    };
+
+    struct lxdex_order_info orders[50];
+    size_t count = 50;
+
+    int err = lxdex_get_order_history(client, &params, orders, &count);
+
+    if (err == LXDEX_OK) {
+        printf("Order history (%zu orders):\n", count);
+        for (size_t i = 0; i < count; i++) {
+            printf("  %llu: %s @ %.2f (filled %.8f)\n",
+                   orders[i].order_id,
+                   orders[i].symbol,
+                   orders[i].avg_price,
+                   orders[i].filled_size);
+        }
+    }
+
+    return err;
+}
+```
+
+## Order Updates (Streaming)
+
+### Subscribe to Order Updates
+
+```c
+void on_order_update(const struct lxdex_order_info *order, void *user_data) {
+    printf("Order Update: %llu %s -> %s\n",
+           order->order_id,
+           order->symbol,
+           lxdex_status_str(order->status));
+
+    if (order->status == LXDEX_STATUS_FILLED) {
+        printf("  Filled at %.2f\n", order->avg_price);
+    } else if (order->status == LXDEX_STATUS_PARTIAL) {
+        printf("  Partial fill: %.8f filled, %.8f remaining\n",
+               order->filled_size, order->remaining_size);
+    }
+}
+
+int subscribe_to_orders(struct lxdex_client *client) {
+    struct lxdex_subscription *sub = lxdex_subscribe_orders(
+        client,
+        on_order_update,
+        NULL  // user_data
+    );
+
+    if (!sub) {
+        fprintf(stderr, "Failed to subscribe to order updates\n");
+        return -1;
+    }
+
+    // Poll to receive updates
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+## Error Handling
+
+### Common Order Errors
+
+```c
+int handle_order_error(int err, const struct lxdex_order_result *result) {
+    switch (err) {
+    case LXDEX_OK:
+        return 0;
+
+    case LXDEX_ERR_INSUFFICIENT_BALANCE:
+        fprintf(stderr, "Insufficient balance\n");
+        return err;
+
+    case LXDEX_ERR_INVALID_ARG:
+        fprintf(stderr, "Invalid order parameters\n");
+        return err;
+
+    case LXDEX_ERR_RATE_LIMIT:
+        fprintf(stderr, "Rate limited, retry later\n");
+        return err;
+
+    case LXDEX_ERR_POST_ONLY:
+        fprintf(stderr, "Post-only order would cross spread\n");
+        return err;
+
+    default:
+        if (result && result->reject_reason) {
+            fprintf(stderr, "Order rejected: %s\n", result->reject_reason);
+        } else {
+            fprintf(stderr, "Order failed: %s\n", lxdex_strerror(err));
+        }
+        return err;
+    }
+}
+```
+
+### Retry Logic
+
+```c
+int place_order_with_retry(struct lxdex_client *client,
+                           const struct lxdex_order *order,
+                           struct lxdex_order_result *result,
+                           int max_retries) {
+    int err;
+    int delay_ms = 100;
+
+    for (int attempt = 0; attempt < max_retries; attempt++) {
+        err = lxdex_place_order(client, order, result);
+
+        if (err == LXDEX_OK) {
+            return LXDEX_OK;
+        }
+
+        // Only retry on transient errors
+        if (err != LXDEX_ERR_RATE_LIMIT &&
+            err != LXDEX_ERR_TIMEOUT &&
+            err != LXDEX_ERR_CONNECTION) {
+            return err;  // Don't retry
+        }
+
+        // Exponential backoff
+        usleep(delay_ms * 1000);
+        delay_ms = (delay_ms * 2 > 5000) ? 5000 : delay_ms * 2;
+    }
+
+    return err;
+}
+```
+
+## Complete Example
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+
+static volatile int running = 1;
+
+void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+}
+
+void on_order_update(const struct lxdex_order_info *order, void *user_data) {
+    (void)user_data;
+    printf("[ORDER] %llu: %s -> %s (filled %.8f)\n",
+           order->order_id, order->symbol,
+           lxdex_status_str(order->status),
+           order->filled_size);
+}
+
+int main(void) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    if (lxdex_init() != LXDEX_OK) {
+        return 1;
+    }
+
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws",
+        .api_key = getenv("LX_API_KEY"),
+        .api_secret = getenv("LX_API_SECRET")
+    };
+
+    struct lxdex_client *client = lxdex_client_new(&config);
+    if (!client || lxdex_client_connect(client) != LXDEX_OK) {
+        fprintf(stderr, "Connection failed\n");
+        lxdex_shutdown();
+        return 1;
+    }
+
+    // Subscribe to order updates
+    struct lxdex_subscription *sub = lxdex_subscribe_orders(
+        client, on_order_update, NULL);
+
+    // Place a limit order
+    struct lxdex_order order = {
+        .symbol = "BTC-USD",
+        .side = LXDEX_SIDE_BUY,
+        .type = LXDEX_ORDER_LIMIT,
+        .price = 50000.0,
+        .size = 0.01,
+        .time_in_force = LXDEX_TIF_GTC
+    };
+
+    struct lxdex_order_result result;
+    int err = lxdex_place_order(client, &order, &result);
+
+    if (err == LXDEX_OK) {
+        printf("Order placed: ID %llu\n", result.order_id);
+
+        // Poll for updates
+        while (running && result.status != LXDEX_STATUS_FILLED) {
+            lxdex_client_poll(client, 1000);
+
+            // Check status periodically
+            struct lxdex_order_info info;
+            lxdex_get_order(client, result.order_id, &info);
+            result.status = info.status;
+        }
+
+        // Cancel if not filled
+        if (result.status != LXDEX_STATUS_FILLED) {
+            printf("Cancelling order...\n");
+            struct lxdex_cancel_result cancel;
+            lxdex_cancel_order(client, result.order_id, &cancel);
+        }
+    }
+
+    // Cleanup
+    if (sub) lxdex_unsubscribe(sub);
+    lxdex_client_disconnect(client);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+## Next Steps
+
+- [Order Book](/docs/sdk/c/orderbook) - Market data access
+- [Client](/docs/sdk/c/client) - Connection management
+- [FFI](/docs/sdk/c/ffi) - Language bindings

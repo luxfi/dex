@@ -1,0 +1,750 @@
+---
+title: Order Book
+description: Market data access and real-time order book updates with the C SDK
+---
+
+# Order Book
+
+This guide covers accessing order book data and subscribing to real-time market updates using the LX DEX C SDK.
+
+## Data Structures
+
+### Order Book Level
+
+```c
+struct lxdex_level {
+    double price;          // Price level
+    double size;           // Total size at this level
+    int order_count;       // Number of orders at this level
+};
+```
+
+### Order Book
+
+```c
+struct lxdex_orderbook {
+    const char *symbol;           // Trading pair
+    struct lxdex_level *bids;     // Bid levels (highest first)
+    size_t bid_count;             // Number of bid levels
+    struct lxdex_level *asks;     // Ask levels (lowest first)
+    size_t ask_count;             // Number of ask levels
+    uint64_t sequence;            // Sequence number
+    uint64_t timestamp;           // Timestamp (milliseconds)
+};
+```
+
+## Getting Order Book Snapshot
+
+### Basic Snapshot
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+
+int get_orderbook(struct lxdex_client *client) {
+    struct lxdex_orderbook book;
+
+    int err = lxdex_get_orderbook(client, "BTC-USD", 10, &book);
+
+    if (err != LXDEX_OK) {
+        fprintf(stderr, "Failed to get order book: %s\n", lxdex_strerror(err));
+        return err;
+    }
+
+    printf("Order Book: %s\n", book.symbol);
+    printf("Sequence: %llu\n", book.sequence);
+
+    printf("\nAsks (lowest first):\n");
+    for (size_t i = 0; i < book.ask_count; i++) {
+        printf("  %.2f: %.8f (%d orders)\n",
+               book.asks[i].price,
+               book.asks[i].size,
+               book.asks[i].order_count);
+    }
+
+    printf("\nBids (highest first):\n");
+    for (size_t i = 0; i < book.bid_count; i++) {
+        printf("  %.2f: %.8f (%d orders)\n",
+               book.bids[i].price,
+               book.bids[i].size,
+               book.bids[i].order_count);
+    }
+
+    // Free memory allocated by the library
+    lxdex_orderbook_free(&book);
+
+    return LXDEX_OK;
+}
+```
+
+### Full Depth
+
+```c
+int get_full_depth(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_orderbook book;
+
+    // Pass 0 for full depth
+    int err = lxdex_get_orderbook(client, symbol, 0, &book);
+
+    if (err == LXDEX_OK) {
+        printf("Full depth: %zu bids, %zu asks\n",
+               book.bid_count, book.ask_count);
+        lxdex_orderbook_free(&book);
+    }
+
+    return err;
+}
+```
+
+### Best Bid/Ask
+
+```c
+int get_bbo(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_orderbook book;
+
+    // Request depth of 1 for just BBO
+    int err = lxdex_get_orderbook(client, symbol, 1, &book);
+
+    if (err == LXDEX_OK && book.bid_count > 0 && book.ask_count > 0) {
+        double best_bid = book.bids[0].price;
+        double best_ask = book.asks[0].price;
+        double spread = best_ask - best_bid;
+        double mid = (best_bid + best_ask) / 2.0;
+
+        printf("BBO for %s:\n", symbol);
+        printf("  Best Bid: %.2f (%.8f)\n", best_bid, book.bids[0].size);
+        printf("  Best Ask: %.2f (%.8f)\n", best_ask, book.asks[0].size);
+        printf("  Spread: %.2f (%.4f%%)\n", spread, (spread / mid) * 100);
+
+        lxdex_orderbook_free(&book);
+    }
+
+    return err;
+}
+```
+
+## Subscribing to Updates
+
+### Real-Time Order Book
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <signal.h>
+
+static volatile int running = 1;
+
+void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+}
+
+void on_orderbook_update(const struct lxdex_orderbook *book, void *user_data) {
+    (void)user_data;
+
+    if (book->bid_count > 0 && book->ask_count > 0) {
+        double spread = book->asks[0].price - book->bids[0].price;
+        printf("[%llu] %s: %.2f / %.2f (spread: %.2f)\n",
+               book->sequence,
+               book->symbol,
+               book->bids[0].price,
+               book->asks[0].price,
+               spread);
+    }
+}
+
+int subscribe_orderbook(struct lxdex_client *client) {
+    signal(SIGINT, signal_handler);
+
+    struct lxdex_subscription *sub = lxdex_subscribe_orderbook(
+        client,
+        "BTC-USD",
+        10,                    // depth
+        on_orderbook_update,
+        NULL                   // user_data
+    );
+
+    if (!sub) {
+        fprintf(stderr, "Subscription failed\n");
+        return -1;
+    }
+
+    printf("Subscribed to BTC-USD order book\n");
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+### Multiple Symbols
+
+```c
+struct symbol_data {
+    const char *symbol;
+    double last_bid;
+    double last_ask;
+};
+
+void on_multi_symbol_update(const struct lxdex_orderbook *book, void *user_data) {
+    struct symbol_data *data = user_data;
+
+    if (book->bid_count > 0) {
+        data->last_bid = book->bids[0].price;
+    }
+    if (book->ask_count > 0) {
+        data->last_ask = book->asks[0].price;
+    }
+
+    printf("[%s] %.2f / %.2f\n", data->symbol, data->last_bid, data->last_ask);
+}
+
+int subscribe_multiple_symbols(struct lxdex_client *client) {
+    const char *symbols[] = {"BTC-USD", "ETH-USD", "SOL-USD"};
+    const int num_symbols = 3;
+
+    struct symbol_data data[3];
+    struct lxdex_subscription *subs[3];
+
+    for (int i = 0; i < num_symbols; i++) {
+        data[i].symbol = symbols[i];
+        data[i].last_bid = 0;
+        data[i].last_ask = 0;
+
+        subs[i] = lxdex_subscribe_orderbook(
+            client,
+            symbols[i],
+            5,
+            on_multi_symbol_update,
+            &data[i]
+        );
+
+        if (!subs[i]) {
+            fprintf(stderr, "Failed to subscribe to %s\n", symbols[i]);
+        }
+    }
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    for (int i = 0; i < num_symbols; i++) {
+        if (subs[i]) {
+            lxdex_unsubscribe(subs[i]);
+        }
+    }
+
+    return 0;
+}
+```
+
+## Trade Stream
+
+### Trade Structure
+
+```c
+struct lxdex_trade {
+    uint64_t trade_id;        // Unique trade ID
+    const char *symbol;       // Trading pair
+    double price;             // Trade price
+    double size;              // Trade size
+    enum lxdex_side side;     // Aggressor side
+    uint64_t timestamp;       // Timestamp (milliseconds)
+};
+```
+
+### Subscribe to Trades
+
+```c
+void on_trade(const struct lxdex_trade *trade, void *user_data) {
+    (void)user_data;
+
+    const char *side = trade->side == LXDEX_SIDE_BUY ? "BUY" : "SELL";
+    printf("[TRADE] %s %s %.8f @ %.2f\n",
+           side, trade->symbol, trade->size, trade->price);
+}
+
+int subscribe_trades(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_subscription *sub = lxdex_subscribe_trades(
+        client,
+        symbol,
+        on_trade,
+        NULL
+    );
+
+    if (!sub) {
+        return -1;
+    }
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+## Ticker Data
+
+### Ticker Structure
+
+```c
+struct lxdex_ticker {
+    const char *symbol;
+    double last_price;
+    double bid_price;
+    double ask_price;
+    double high_24h;
+    double low_24h;
+    double volume_24h;
+    double price_change_24h;
+    double price_change_pct_24h;
+    uint64_t timestamp;
+};
+```
+
+### Get Ticker
+
+```c
+int get_ticker(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_ticker ticker;
+
+    int err = lxdex_get_ticker(client, symbol, &ticker);
+
+    if (err == LXDEX_OK) {
+        printf("Ticker: %s\n", ticker.symbol);
+        printf("  Last: %.2f\n", ticker.last_price);
+        printf("  Bid/Ask: %.2f / %.2f\n", ticker.bid_price, ticker.ask_price);
+        printf("  24h High/Low: %.2f / %.2f\n", ticker.high_24h, ticker.low_24h);
+        printf("  24h Volume: %.2f\n", ticker.volume_24h);
+        printf("  24h Change: %.2f (%.2f%%)\n",
+               ticker.price_change_24h, ticker.price_change_pct_24h);
+    }
+
+    return err;
+}
+```
+
+### Subscribe to Ticker
+
+```c
+void on_ticker(const struct lxdex_ticker *ticker, void *user_data) {
+    (void)user_data;
+    printf("[TICKER] %s: %.2f (%.2f%%)\n",
+           ticker->symbol, ticker->last_price, ticker->price_change_pct_24h);
+}
+
+int subscribe_ticker(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_subscription *sub = lxdex_subscribe_ticker(
+        client,
+        symbol,
+        on_ticker,
+        NULL
+    );
+
+    if (!sub) {
+        return -1;
+    }
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+## Incremental Updates
+
+### Order Book Delta Callback
+
+```c
+enum lxdex_delta_type {
+    LXDEX_DELTA_ADD = 0,     // New level
+    LXDEX_DELTA_UPDATE = 1,  // Level changed
+    LXDEX_DELTA_DELETE = 2   // Level removed
+};
+
+struct lxdex_orderbook_delta {
+    enum lxdex_delta_type type;
+    enum lxdex_side side;
+    double price;
+    double size;
+    uint64_t sequence;
+};
+
+void on_orderbook_delta(const struct lxdex_orderbook_delta *delta, void *user_data) {
+    const char *type_str;
+    switch (delta->type) {
+        case LXDEX_DELTA_ADD:    type_str = "ADD"; break;
+        case LXDEX_DELTA_UPDATE: type_str = "UPD"; break;
+        case LXDEX_DELTA_DELETE: type_str = "DEL"; break;
+        default: type_str = "???"; break;
+    }
+
+    const char *side_str = delta->side == LXDEX_SIDE_BUY ? "BID" : "ASK";
+
+    printf("[%s] %s %.2f: %.8f\n", type_str, side_str, delta->price, delta->size);
+}
+```
+
+### Subscribe to Deltas
+
+```c
+int subscribe_orderbook_deltas(struct lxdex_client *client, const char *symbol) {
+    struct lxdex_subscription *sub = lxdex_subscribe_orderbook_deltas(
+        client,
+        symbol,
+        on_orderbook_delta,
+        NULL
+    );
+
+    if (!sub) {
+        return -1;
+    }
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+## Maintaining Local Order Book
+
+### Local Book Structure
+
+```c
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_LEVELS 1000
+
+struct local_orderbook {
+    char symbol[32];
+    struct lxdex_level bids[MAX_LEVELS];
+    size_t bid_count;
+    struct lxdex_level asks[MAX_LEVELS];
+    size_t ask_count;
+    uint64_t sequence;
+};
+
+void local_book_init(struct local_orderbook *book, const char *symbol) {
+    memset(book, 0, sizeof(*book));
+    strncpy(book->symbol, symbol, sizeof(book->symbol) - 1);
+}
+
+void local_book_apply_snapshot(struct local_orderbook *book,
+                                const struct lxdex_orderbook *snapshot) {
+    book->bid_count = snapshot->bid_count < MAX_LEVELS ?
+                      snapshot->bid_count : MAX_LEVELS;
+    book->ask_count = snapshot->ask_count < MAX_LEVELS ?
+                      snapshot->ask_count : MAX_LEVELS;
+
+    memcpy(book->bids, snapshot->bids,
+           book->bid_count * sizeof(struct lxdex_level));
+    memcpy(book->asks, snapshot->asks,
+           book->ask_count * sizeof(struct lxdex_level));
+
+    book->sequence = snapshot->sequence;
+}
+```
+
+### Apply Delta Updates
+
+```c
+static int find_level(struct lxdex_level *levels, size_t count,
+                      double price, int is_bid) {
+    for (size_t i = 0; i < count; i++) {
+        if (levels[i].price == price) {
+            return (int)i;
+        }
+        // For bids, prices are descending; for asks, ascending
+        if (is_bid && levels[i].price < price) return -(int)(i + 1);
+        if (!is_bid && levels[i].price > price) return -(int)(i + 1);
+    }
+    return -(int)(count + 1);
+}
+
+static void insert_level(struct lxdex_level *levels, size_t *count,
+                         int pos, const struct lxdex_level *level) {
+    if (*count >= MAX_LEVELS) return;
+
+    // Shift levels down
+    memmove(&levels[pos + 1], &levels[pos],
+            (*count - pos) * sizeof(struct lxdex_level));
+
+    levels[pos] = *level;
+    (*count)++;
+}
+
+static void remove_level(struct lxdex_level *levels, size_t *count, int pos) {
+    if (pos >= (int)*count) return;
+
+    memmove(&levels[pos], &levels[pos + 1],
+            (*count - pos - 1) * sizeof(struct lxdex_level));
+    (*count)--;
+}
+
+void local_book_apply_delta(struct local_orderbook *book,
+                            const struct lxdex_orderbook_delta *delta) {
+    // Skip old updates
+    if (delta->sequence <= book->sequence) {
+        return;
+    }
+
+    struct lxdex_level *levels;
+    size_t *count;
+    int is_bid = delta->side == LXDEX_SIDE_BUY;
+
+    if (is_bid) {
+        levels = book->bids;
+        count = &book->bid_count;
+    } else {
+        levels = book->asks;
+        count = &book->ask_count;
+    }
+
+    int idx = find_level(levels, *count, delta->price, is_bid);
+
+    switch (delta->type) {
+    case LXDEX_DELTA_ADD:
+        if (idx < 0) {
+            struct lxdex_level level = {
+                .price = delta->price,
+                .size = delta->size,
+                .order_count = 1
+            };
+            insert_level(levels, count, -idx - 1, &level);
+        }
+        break;
+
+    case LXDEX_DELTA_UPDATE:
+        if (idx >= 0) {
+            levels[idx].size = delta->size;
+        }
+        break;
+
+    case LXDEX_DELTA_DELETE:
+        if (idx >= 0) {
+            remove_level(levels, count, idx);
+        }
+        break;
+    }
+
+    book->sequence = delta->sequence;
+}
+```
+
+### Using Local Book
+
+```c
+struct local_orderbook g_book;
+
+void on_snapshot(const struct lxdex_orderbook *snapshot, void *user_data) {
+    struct local_orderbook *book = user_data;
+    local_book_apply_snapshot(book, snapshot);
+    printf("Snapshot applied (seq %llu)\n", book->sequence);
+}
+
+void on_delta(const struct lxdex_orderbook_delta *delta, void *user_data) {
+    struct local_orderbook *book = user_data;
+    local_book_apply_delta(book, delta);
+}
+
+int maintain_local_book(struct lxdex_client *client, const char *symbol) {
+    local_book_init(&g_book, symbol);
+
+    // Get initial snapshot
+    struct lxdex_orderbook snapshot;
+    if (lxdex_get_orderbook(client, symbol, 0, &snapshot) == LXDEX_OK) {
+        local_book_apply_snapshot(&g_book, &snapshot);
+        lxdex_orderbook_free(&snapshot);
+    }
+
+    // Subscribe to deltas
+    struct lxdex_subscription *sub = lxdex_subscribe_orderbook_deltas(
+        client, symbol, on_delta, &g_book);
+
+    while (running) {
+        lxdex_client_poll(client, 100);
+
+        // Use local book
+        if (g_book.bid_count > 0 && g_book.ask_count > 0) {
+            printf("Local BBO: %.2f / %.2f\n",
+                   g_book.bids[0].price, g_book.asks[0].price);
+        }
+    }
+
+    lxdex_unsubscribe(sub);
+    return 0;
+}
+```
+
+## Performance Considerations
+
+### Pre-allocated Buffers
+
+```c
+// Pre-allocate buffer for order book data
+#define BOOK_BUFFER_SIZE (sizeof(struct lxdex_level) * 2000)
+static char book_buffer[BOOK_BUFFER_SIZE];
+
+int get_orderbook_preallocated(struct lxdex_client *client,
+                                const char *symbol,
+                                struct lxdex_orderbook *book) {
+    // Use pre-allocated buffer
+    return lxdex_get_orderbook_with_buffer(
+        client, symbol, 100, book,
+        book_buffer, BOOK_BUFFER_SIZE
+    );
+    // No need to call lxdex_orderbook_free()
+}
+```
+
+### Callback Performance
+
+```c
+// Keep callbacks fast - move processing to separate thread
+#include <pthread.h>
+
+struct ring_buffer {
+    struct lxdex_orderbook_delta deltas[10000];
+    size_t head;
+    size_t tail;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+};
+
+void fast_callback(const struct lxdex_orderbook_delta *delta, void *user_data) {
+    struct ring_buffer *rb = user_data;
+
+    // Quick copy to ring buffer
+    pthread_mutex_lock(&rb->mutex);
+    rb->deltas[rb->head] = *delta;
+    rb->head = (rb->head + 1) % 10000;
+    pthread_cond_signal(&rb->cond);
+    pthread_mutex_unlock(&rb->mutex);
+}
+
+void *processing_thread(void *arg) {
+    struct ring_buffer *rb = arg;
+
+    while (running) {
+        pthread_mutex_lock(&rb->mutex);
+        while (rb->head == rb->tail && running) {
+            pthread_cond_wait(&rb->cond, &rb->mutex);
+        }
+
+        if (rb->head != rb->tail) {
+            struct lxdex_orderbook_delta delta = rb->deltas[rb->tail];
+            rb->tail = (rb->tail + 1) % 10000;
+            pthread_mutex_unlock(&rb->mutex);
+
+            // Process delta (can take time)
+            process_delta(&delta);
+        } else {
+            pthread_mutex_unlock(&rb->mutex);
+        }
+    }
+
+    return NULL;
+}
+```
+
+## Complete Example
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+
+static volatile int running = 1;
+
+void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+}
+
+void on_book(const struct lxdex_orderbook *book, void *user_data) {
+    (void)user_data;
+    if (book->bid_count > 0 && book->ask_count > 0) {
+        double spread = book->asks[0].price - book->bids[0].price;
+        double mid = (book->bids[0].price + book->asks[0].price) / 2.0;
+        printf("%s: %.2f / %.2f (spread: %.4f%%)\n",
+               book->symbol,
+               book->bids[0].price,
+               book->asks[0].price,
+               (spread / mid) * 100);
+    }
+}
+
+void on_trade(const struct lxdex_trade *trade, void *user_data) {
+    (void)user_data;
+    printf("[TRADE] %s %.8f @ %.2f\n",
+           trade->side == LXDEX_SIDE_BUY ? "BUY" : "SELL",
+           trade->size, trade->price);
+}
+
+int main(int argc, char *argv[]) {
+    const char *symbol = argc > 1 ? argv[1] : "BTC-USD";
+
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    if (lxdex_init() != LXDEX_OK) {
+        return 1;
+    }
+
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws"
+    };
+
+    struct lxdex_client *client = lxdex_client_new(&config);
+    if (!client || lxdex_client_connect(client) != LXDEX_OK) {
+        fprintf(stderr, "Connection failed\n");
+        lxdex_shutdown();
+        return 1;
+    }
+
+    printf("Connected. Streaming %s...\n", symbol);
+
+    // Subscribe to order book and trades
+    struct lxdex_subscription *book_sub = lxdex_subscribe_orderbook(
+        client, symbol, 5, on_book, NULL);
+    struct lxdex_subscription *trade_sub = lxdex_subscribe_trades(
+        client, symbol, on_trade, NULL);
+
+    if (!book_sub || !trade_sub) {
+        fprintf(stderr, "Subscription failed\n");
+    } else {
+        while (running) {
+            lxdex_client_poll(client, 100);
+        }
+    }
+
+    printf("\nShutting down...\n");
+
+    if (book_sub) lxdex_unsubscribe(book_sub);
+    if (trade_sub) lxdex_unsubscribe(trade_sub);
+    lxdex_client_disconnect(client);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+## Next Steps
+
+- [Orders](/docs/sdk/c/orders) - Place and manage orders
+- [Client](/docs/sdk/c/client) - Connection management
+- [FFI](/docs/sdk/c/ffi) - Language bindings
