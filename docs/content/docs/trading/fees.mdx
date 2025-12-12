@@ -1,0 +1,254 @@
+---
+title: Trading Fees
+description: Complete fee schedule for spot, margin, and perpetual trading on LX DEX
+---
+
+# Trading Fees
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+
+LX DEX uses a maker-taker fee model with volume-based discounts. Makers add liquidity (limit orders resting in the book), takers remove liquidity (market orders or crossing limit orders).
+
+## Fee Structure
+
+### Spot Trading Fees
+
+| Volume Tier (30d) | Maker | Taker | Discount |
+|------------------|-------|-------|----------|
+| < $100K | 0.10% | 0.20% | Base |
+| $100K - $1M | 0.08% | 0.18% | 10% |
+| $1M - $10M | 0.06% | 0.15% | 25% |
+| $10M - $100M | 0.04% | 0.12% | 40% |
+| $100M - $500M | 0.02% | 0.10% | 50% |
+| > $500M | 0.00% | 0.08% | 60% |
+
+### Perpetual Trading Fees
+
+| Volume Tier (30d) | Maker | Taker | Liquidation |
+|------------------|-------|-------|-------------|
+| < $100K | 0.02% | 0.06% | 0.10% |
+| $100K - $1M | 0.01% | 0.05% | 0.10% |
+| $1M - $10M | 0.00% | 0.04% | 0.10% |
+| $10M - $100M | -0.01% | 0.03% | 0.10% |
+| > $100M | -0.02% | 0.02% | 0.10% |
+
+**Note**: Negative maker fees indicate rebates (you earn fees for providing liquidity).
+
+### Margin Trading Fees
+
+| Fee Type | Rate | Description |
+|----------|------|-------------|
+| Open Position | 0.10% | Fee on position size when opening |
+| Close Position | 0.10% | Fee on position size when closing |
+| Collateral Swap | 0.30% | Converting between collateral types |
+| Stablecoin Swap | 0.04% | Swapping between stablecoins |
+| Liquidation | 5.00% | Fee paid to liquidator from collateral |
+
+## Fee Calculation
+
+### Spot Fee Example
+
+```
+Trade: Buy 1 BTC at $50,000 (Market Order)
+
+Base Tier Fees:
+- Taker Fee: $50,000 × 0.20% = $100
+- Total Cost: $50,000 + $100 = $50,100
+
+VIP Tier (>$100M volume):
+- Taker Fee: $50,000 × 0.08% = $40
+- Total Cost: $50,000 + $40 = $50,040
+```
+
+### Perpetual Fee Example
+
+```
+Trade: Open 10x Long BTC-USD ($100,000 position)
+
+Maker Order (limit that rests):
+- Opening Fee: $100,000 × 0.02% = $20
+
+Taker Order (market or crossing):
+- Opening Fee: $100,000 × 0.06% = $60
+```
+
+### Margin Fee Example
+
+```
+Position: Open $50,000 BTC Long with 5x leverage
+
+Collateral Required: $10,000
+Position Fee: $50,000 × 0.10% = $50
+
+If liquidated:
+- Remaining Collateral: $500
+- Liquidation Fee: $500 × 5% = $25 (to liquidator)
+- Insurance Fund: $475
+```
+
+## Fee Discounts
+
+### LUX Token Discount
+
+Pay fees with LUX tokens for additional savings:
+
+| Payment Method | Discount |
+|---------------|----------|
+| Pay in LUX | 25% off all fees |
+| Stake LUX | Additional 5-20% off |
+
+### Referral Program
+
+| Tier | Your Kickback | Referee Discount |
+|------|--------------|------------------|
+| Standard | 10% | 5% |
+| Partner | 20% | 10% |
+| Ambassador | 30% | 15% |
+
+### Market Maker Program
+
+Qualified market makers receive enhanced fee structures:
+
+| Requirement | Maker Fee | Taker Fee |
+|------------|-----------|-----------|
+| 2-sided quotes, 95% uptime | 0.00% | 0.04% |
+| Tight spreads (under 0.05%) | -0.01% | 0.03% |
+| High volume (over $1B/mo) | -0.02% | 0.02% |
+
+See [Market Maker Program](/docs/market-makers/program) for details.
+
+## Fee API
+
+### Get Fee Schedule
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Get your current fee tier
+const fees = await dex.getFees()
+
+console.log(`30-day Volume: $${fees.volume30d}`)
+console.log(`Current Tier: ${fees.tier}`)
+console.log(`Maker Fee: ${fees.makerFee}%`)
+console.log(`Taker Fee: ${fees.takerFee}%`)
+console.log(`LUX Discount Applied: ${fees.luxDiscount}`)
+```
+
+### Calculate Trade Fee
+
+```typescript
+// Pre-calculate fee for a trade
+const estimate = await dex.estimateFee({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'market',
+  quantity: '1.0'
+})
+
+console.log(`Estimated Fee: $${estimate.fee}`)
+console.log(`Fee Rate: ${estimate.rate}%`)
+console.log(`Is Maker: ${estimate.isMaker}`)
+```
+
+### Fee History
+
+```typescript
+// Get fee history for account
+const history = await dex.getFeeHistory({
+  startTime: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30 days
+  endTime: Date.now()
+})
+
+console.log(`Total Fees Paid: $${history.totalFees}`)
+console.log(`Maker Fees: $${history.makerFees}`)
+console.log(`Taker Fees: $${history.takerFees}`)
+console.log(`Rebates Earned: $${history.rebates}`)
+```
+
+## Funding Rates
+
+Perpetual positions are subject to funding rates that transfer between longs and shorts:
+
+| Parameter | Value |
+|-----------|-------|
+| Funding Interval | 8 hours |
+| Max Rate | ±0.75% per interval |
+| Typical Rate | ±0.01% per interval |
+
+```
+Funding Payment = Position Size × Funding Rate
+
+Example:
+- Long Position: $100,000
+- Funding Rate: 0.01% (longs pay shorts)
+- Payment: $100,000 × 0.01% = $10
+
+If funding rate is negative, shorts pay longs.
+```
+
+### Track Funding Rates
+
+```typescript
+// Get current funding rate
+const funding = await dex.getFundingRate('BTC-USD')
+
+console.log(`Current Rate: ${funding.rate}%`)
+console.log(`Predicted Next: ${funding.predictedRate}%`)
+console.log(`Time Until Settlement: ${funding.nextSettlement}`)
+```
+
+## Withdrawal Fees
+
+| Asset | Network Fee | Min Withdrawal |
+|-------|-------------|----------------|
+| BTC | 0.0001 BTC | 0.001 BTC |
+| ETH | Dynamic (gas) | 0.01 ETH |
+| USDT | 1 USDT | 10 USDT |
+| USDC | 1 USDC | 10 USDC |
+| LUX | 0.01 LUX | 1 LUX |
+
+**Note**: Network fees are passed through at cost. LX DEX does not add markup to withdrawal fees.
+
+## Fee Distribution
+
+Trading fees are distributed as follows:
+
+| Allocation | Percentage | Purpose |
+|------------|------------|---------|
+| Liquidity Providers | 60% | LP rewards |
+| Protocol Treasury | 25% | Development and operations |
+| Insurance Fund | 10% | Cover liquidation shortfalls |
+| Stakers | 5% | LUX staking rewards |
+
+## Best Practices
+
+### Minimize Fees
+
+1. **Use limit orders** - Maker fees are lower than taker fees
+2. **Accumulate volume** - Higher tiers have better rates
+3. **Pay in LUX** - Get 25% discount on all fees
+4. **Use post-only** - Guarantee maker fee execution
+5. **Join referral program** - Earn back a portion of fees
+
+### Fee-Efficient Trading
+
+```typescript
+// Post-only order ensures maker fee
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '49900.00',  // Below market
+  quantity: '1.0',
+  postOnly: true      // Reject if would be taker
+})
+```
+
+## Related Documentation
+
+- [Trading Overview](/docs/trading) - General trading guide
+- [Order Types](/docs/trading/order-types) - All supported order types
+- [Market Makers](/docs/market-makers) - Market maker program
+- [Limits](/docs/trading/limits) - Position and rate limits

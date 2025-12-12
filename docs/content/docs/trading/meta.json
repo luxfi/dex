@@ -2,8 +2,12 @@
   "title": "Trading",
   "pages": [
     "index",
-    "order-types",
     "spot",
-    "arbitrage"
+    "perpetuals",
+    "margin",
+    "order-types",
+    "arbitrage",
+    "fees",
+    "limits"
   ]
 }
