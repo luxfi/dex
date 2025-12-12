@@ -120,3 +120,6 @@ export {
   calculateReturns,
   calculateLogReturns,
 } from './math.js';
+
+// Arbitrage
+export * as arbitrage from './arbitrage/index.js';
