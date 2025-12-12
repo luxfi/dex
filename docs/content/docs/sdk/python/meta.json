@@ -1,0 +1,10 @@
+{
+  "title": "Python SDK",
+  "pages": [
+    "index",
+    "client",
+    "orders",
+    "orderbook",
+    "trades"
+  ]
+}

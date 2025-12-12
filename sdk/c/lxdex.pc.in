@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: lxdex
+Description: LX DEX C SDK
+Version: @PROJECT_VERSION@
+Requires: libwebsockets
+Libs: -L${libdir} -llxdex
+Cflags: -I${includedir}
