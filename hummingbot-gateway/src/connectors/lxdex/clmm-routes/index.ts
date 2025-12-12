@@ -1,5 +1,5 @@
 /**
- * LX DEX CLMM Schema Routes
+ * LX CLMM Schema Routes
  *
  * Implements the CLMM (Concentrated Liquidity Market Maker) schema endpoints.
  * - GET /pool-info: Get concentrated liquidity pool information

@@ -1,4 +1,4 @@
-// LX DEX C++ SDK - Client
+// LX C++ SDK - Client
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 
@@ -81,7 +81,7 @@ using OrderBookCallback = std::function<void(const OrderBook&)>;
 using MessageCallback = std::function<void(const Message&)>;
 using ConnectionCallback = std::function<void(ConnectionState)>;
 
-/// LX DEX WebSocket Client
+/// LX WebSocket Client
 /// Thread-safe, RAII-compliant client for trading operations
 class Client {
 public:

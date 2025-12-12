@@ -37,7 +37,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	fmt.Println("╔══════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║           LX DEX Ultra-Low Latency Benchmark Suite                  ║")
+	fmt.Println("║           LX Ultra-Low Latency Benchmark Suite                  ║")
 	fmt.Println("║              Mac Studio M2 Ultra vs NYSE vs AWS F2                  ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
@@ -405,7 +405,7 @@ func compareWithIndustry() {
 	metrics.mu.Lock()
 	if len(metrics.OrderMatching) > 0 {
 		ourP99 := percentile(metrics.OrderMatching, 99)
-		fmt.Printf("LX DEX on M2 Ultra: %s (P99)\n", formatLatency(ourP99))
+		fmt.Printf("LX on M2 Ultra: %s (P99)\n", formatLatency(ourP99))
 
 		// Compare
 		if ourP99 < 10*time.Microsecond {

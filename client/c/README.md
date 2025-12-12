@@ -1,10 +1,10 @@
-# LX DEX C CLI Trading Client
+# LX C CLI Trading Client
 
-Ultra-fast command-line trading client for LX DEX, designed for HFT traders and embedded systems.
+Ultra-fast command-line trading client for LX, designed for HFT traders and embedded systems.
 
 ## Features
 
-- Direct WebSocket connection to LX DEX API
+- Direct WebSocket connection to LX API
 - Sub-millisecond latency (limited only by network)
 - Interactive REPL mode for manual trading
 - Single-command mode for scripting/automation
@@ -50,7 +50,7 @@ make static   # Static binary for portability
 Starts a REPL where you can enter commands interactively:
 
 ```
-LX DEX CLI v1.0.0 - Type 'help' for commands
+LX CLI v1.0.0 - Type 'help' for commands
 > auth mykey mysecret
 Authenticated successfully
 > place_order BTC-USD buy limit 50000 0.1
@@ -227,7 +227,7 @@ CC=arm-linux-gnueabihf-gcc make
 
 ## Protocol
 
-The client communicates with LX DEX using WebSocket JSON messages.
+The client communicates with LX using WebSocket JSON messages.
 
 ### Request Format
 
@@ -265,6 +265,6 @@ Copyright (c) 2025 Lux Partners Limited
 
 ## See Also
 
-- [LX DEX SDK (C)](/sdk/c/) - Library for embedding
-- [LX DEX CLI (Go)](/client/go/) - Go CLI client
+- [LX SDK (C)](/sdk/c/) - Library for embedding
+- [LX CLI (Go)](/client/go/) - Go CLI client
 - [WebSocket API Documentation](/docs/api/websocket.md)

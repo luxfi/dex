@@ -1,16 +1,16 @@
 ---
 title: Glossary
-description: Complete glossary of LX DEX terminology - 100+ terms covering trading, blockchain, and system concepts
+description: Complete glossary of LX terminology - 100+ terms covering trading, blockchain, and system concepts
 ---
 
 # Glossary
 
-Complete glossary of terms used in LX DEX documentation and APIs.
+Complete glossary of terms used in LX documentation and APIs.
 
 ## A
 
 ### Aggregate Signature
-A cryptographic signature that combines multiple signatures into one, reducing verification overhead. LX DEX uses BLS aggregate signatures for validator consensus.
+A cryptographic signature that combines multiple signatures into one, reducing verification overhead. LX uses BLS aggregate signatures for validator consensus.
 
 ### All-or-None (AON)
 An order condition requiring the entire order quantity to be filled in a single transaction or not at all. See also: [Fill or Kill](#fill-or-kill-fok).
@@ -22,7 +22,7 @@ In consensus, the confidence threshold (typically 0.8 or 80%) required for block
 A unique identifier used to authenticate API requests. API keys should be kept secret and never exposed in client-side code.
 
 ### Arbitrage
-The practice of exploiting price differences between markets. LX DEX provides low-latency infrastructure enabling cross-market arbitrage.
+The practice of exploiting price differences between markets. LX provides low-latency infrastructure enabling cross-market arbitrage.
 
 ### Ask
 An order to sell an asset at a specified price. The lowest ask price is the best ask. See also: [Bid](#bid).
@@ -33,7 +33,7 @@ A settlement method ensuring all parts of a trade complete together or not at al
 ## B
 
 ### Backend
-The execution engine handling order matching. LX DEX supports multiple backends: Pure Go, C++, GPU/MLX, and FPGA.
+The execution engine handling order matching. LX supports multiple backends: Pure Go, C++, GPU/MLX, and FPGA.
 
 ### Base Asset
 The first asset in a trading pair. In BTC-USDT, BTC is the base asset. Also called the base currency.
@@ -45,19 +45,19 @@ The highest bid price and lowest ask price currently available in the order book
 An order to buy an asset at a specified price. The highest bid price is the best bid. See also: [Ask](#ask).
 
 ### Block
-A unit of data containing transactions that has been validated and added to the blockchain. LX DEX achieves 1ms block finality.
+A unit of data containing transactions that has been validated and added to the blockchain. LX achieves 1ms block finality.
 
 ### Block Height
 The sequential number of a block in the chain, starting from 0 (genesis block).
 
 ### BLS Signature
-Boneh-Lynn-Shacham signature scheme enabling efficient signature aggregation. Used for validator consensus in LX DEX.
+Boneh-Lynn-Shacham signature scheme enabling efficient signature aggregation. Used for validator consensus in LX.
 
 ### B-Tree
 A self-balancing tree data structure used for price level storage. Provides O(log n) insert, delete, and search operations.
 
 ### Byzantine Fault Tolerance (BFT)
-The ability of a distributed system to reach consensus despite malicious actors. LX DEX uses K=3 validators for BFT.
+The ability of a distributed system to reach consensus despite malicious actors. LX uses K=3 validators for BFT.
 
 ## C
 
@@ -68,27 +68,27 @@ To remove a pending order from the order book before execution.
 A unique identifier for a blockchain network. Used to prevent transaction replay across networks. See [Networks](/docs/reference/networks).
 
 ### Circular Buffer
-A fixed-size data structure that overwrites oldest data when full. Used for zero-copy trade recording in LX DEX.
+A fixed-size data structure that overwrites oldest data when full. Used for zero-copy trade recording in LX.
 
 ### Clearing
 The process of validating and recording trades after execution. Precedes settlement.
 
 ### Clearinghouse
-The entity or system responsible for trade clearing. In LX DEX, an automated smart contract system.
+The entity or system responsible for trade clearing. In LX, an automated smart contract system.
 
 ### Client Order ID
 A unique identifier assigned by the client to track orders. Must be unique per user session.
 
 ### Consensus
-The process by which distributed nodes agree on the state of the ledger. LX DEX uses DAG-based consensus with FPC.
+The process by which distributed nodes agree on the state of the ledger. LX uses DAG-based consensus with FPC.
 
 ### Cross-Chain
-Operations spanning multiple blockchain networks. LX DEX supports cross-chain asset transfers via bridges.
+Operations spanning multiple blockchain networks. LX supports cross-chain asset transfers via bridges.
 
 ## D
 
 ### DAG (Directed Acyclic Graph)
-A data structure where blocks can have multiple parents, enabling parallel processing. Core to LX DEX consensus.
+A data structure where blocks can have multiple parents, enabling parallel processing. Core to LX consensus.
 
 ### Day Order
 An order that expires at the end of the trading session if not filled. See [Time in Force](#time-in-force-tif).
@@ -100,7 +100,7 @@ The number of price levels shown in an order book snapshot. Maximum depth is typ
 A property ensuring identical inputs always produce identical outputs. Critical for blockchain state consistency.
 
 ### Dilithium
-A post-quantum cryptographic signature algorithm based on lattice problems. Part of LX DEX quantum-resistant security.
+A post-quantum cryptographic signature algorithm based on lattice problems. Part of LX quantum-resistant security.
 
 ## E
 
@@ -128,7 +128,7 @@ A trade that satisfies part or all of an order. Multiple fills may complete one 
 An order type requiring immediate complete execution or cancellation. No partial fills allowed.
 
 ### Finality
-The point at which a transaction is irreversible. LX DEX achieves 1ms finality for trades.
+The point at which a transaction is irreversible. LX achieves 1ms finality for trades.
 
 ### FIX Protocol
 Financial Information eXchange protocol. An industry-standard for electronic trading. Supported for institutional clients.
@@ -137,12 +137,12 @@ Financial Information eXchange protocol. An industry-standard for electronic tra
 Field-Programmable Gate Array. Hardware accelerator achieving 100M+ orders/sec throughput.
 
 ### Front-Running
-The practice of placing orders ahead of known pending orders. LX DEX implements MEV protection.
+The practice of placing orders ahead of known pending orders. LX implements MEV protection.
 
 ## G
 
 ### Gas
-The fee unit for computational work on EVM-compatible chains. Not directly applicable to LX DEX native chain.
+The fee unit for computational work on EVM-compatible chains. Not directly applicable to LX native chain.
 
 ### Gateway
 The entry point for client connections. Handles authentication, rate limiting, and request routing.
@@ -154,7 +154,7 @@ The first block in a blockchain (height 0). Contains initial state and configura
 An order that remains active until filled or explicitly cancelled. Default time-in-force.
 
 ### gRPC
-Google Remote Procedure Call. High-performance binary protocol used for LX DEX API access.
+Google Remote Procedure Call. High-performance binary protocol used for LX API access.
 
 ## H
 
@@ -187,7 +187,7 @@ A reserve fund covering losses from liquidations that exceed collateral.
 ## J
 
 ### JSON-RPC
-A stateless, lightweight remote procedure call protocol using JSON. Primary API protocol for LX DEX.
+A stateless, lightweight remote procedure call protocol using JSON. Primary API protocol for LX.
 
 ### JWT
 JSON Web Token. Used for session authentication after initial API key verification.
@@ -203,7 +203,7 @@ A post-quantum key encapsulation mechanism. Used for secure key exchange in QZMQ
 ## L
 
 ### Latency
-The time delay between request and response. LX DEX targets sub-microsecond matching latency.
+The time delay between request and response. LX targets sub-microsecond matching latency.
 
 ### Leverage
 Trading with borrowed funds. Leverage amplifies both gains and losses.
@@ -247,7 +247,7 @@ An order to execute immediately at the best available price.
 The core component that pairs buy and sell orders. Heart of the DEX.
 
 ### MEV
-Miner/Maximal Extractable Value. Profit from reordering transactions. LX DEX implements protection.
+Miner/Maximal Extractable Value. Profit from reordering transactions. LX implements protection.
 
 ### Mempool
 The pool of pending transactions awaiting inclusion in a block.
@@ -272,10 +272,10 @@ Non-Uniform Memory Access. Memory architecture consideration for high-performanc
 A cache of pre-allocated objects for reuse. Reduces garbage collection overhead.
 
 ### Off-Chain
-Operations occurring outside the main blockchain. Order matching in LX DEX is off-chain.
+Operations occurring outside the main blockchain. Order matching in LX is off-chain.
 
 ### On-Chain
-Operations recorded directly on the blockchain. Final settlement in LX DEX is on-chain.
+Operations recorded directly on the blockchain. Final settlement in LX is on-chain.
 
 ### Open Interest
 The total number of outstanding derivative contracts.
@@ -307,7 +307,7 @@ The net holding in an asset. Can be long (positive) or short (negative).
 A flag ensuring an order only adds liquidity. Rejected if it would immediately match.
 
 ### Post-Quantum
-Cryptographic algorithms resistant to quantum computer attacks. LX DEX supports Dilithium and Kyber.
+Cryptographic algorithms resistant to quantum computer attacks. LX supports Dilithium and Kyber.
 
 ### Price Level
 All orders at a specific price point. Organized as FIFO queue.
@@ -353,7 +353,7 @@ The unfilled portion of a partially filled order.
 Attempt to reuse a valid transaction on a different network. Prevented by chain ID.
 
 ### REST API
-Representational State Transfer API. HTTP-based interface for LX DEX.
+Representational State Transfer API. HTTP-based interface for LX.
 
 ### Risk Engine
 The component performing pre-trade and post-trade risk checks.
@@ -408,7 +408,7 @@ A trader who removes liquidity by matching existing orders.
 The fee charged to the taker side of a trade. Usually higher than maker fee.
 
 ### Throughput
-The number of operations processed per unit time. LX DEX achieves 434M+ orders/sec.
+The number of operations processed per unit time. LX achieves 434M+ orders/sec.
 
 ### Tick Size
 The minimum price increment for orders. Varies by trading pair.

@@ -1,5 +1,5 @@
 /*
- * LX DEX C SDK - WebSocket Client
+ * LX C SDK - WebSocket Client
  * High-performance WebSocket client using libwebsockets.
  */
 

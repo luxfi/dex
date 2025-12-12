@@ -1,8 +1,8 @@
-// LX DEX C++ CLI Trading Client
+// LX C++ CLI Trading Client
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 //
-// Command-line trading interface for LX DEX WebSocket API.
+// Command-line trading interface for LX WebSocket API.
 // Connect to ws://localhost:8081 for real-time trading.
 
 #include <websocketpp/config/asio_no_tls_client.hpp>
@@ -114,7 +114,7 @@ public:
         auto resp = wait_response("", std::chrono::seconds(5));
         if (resp && resp->contains("type") && (*resp)["type"] == "connected") {
             if (config_.verbose) {
-                std::cout << "Connected to LX DEX\n";
+                std::cout << "Connected to LX\n";
             }
         }
 
@@ -423,7 +423,7 @@ private:
 
 void print_help() {
     std::cout << R"(
-LX DEX CLI Commands:
+LX CLI Commands:
 
   place_order <symbol> <side> <type> <price> <size>
     Example: place_order BTC-USD buy limit 50000 0.1
@@ -483,7 +483,7 @@ std::string trim(const std::string& s) {
 }
 
 void run_interactive(Client& client) {
-    std::cout << "LX DEX CLI - Type 'help' for commands\n> ";
+    std::cout << "LX CLI - Type 'help' for commands\n> ";
 
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -702,7 +702,7 @@ void run_command(Client& client, const std::vector<std::string>& args) {
 }
 
 void print_usage(const char* prog) {
-    std::cout << "LX DEX C++ CLI Trading Client\n\n"
+    std::cout << "LX C++ CLI Trading Client\n\n"
               << "Usage: " << prog << " [options] [command] [args...]\n\n"
               << "Options:\n"
               << "  -u, --url <url>      WebSocket server URL (default: ws://localhost:8081)\n"

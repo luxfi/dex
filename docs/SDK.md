@@ -1,8 +1,8 @@
-# LX DEX SDK Documentation
+# LX SDK Documentation
 
 ## Overview
 
-LX DEX provides multiple SDKs and APIs for integration:
+LX provides multiple SDKs and APIs for integration:
 - **JSON-RPC 2.0** - Standard HTTP API for web and mobile clients
 - **gRPC** - High-performance binary protocol for internal Lux Network IPC
 - **QZMQ** - Quantum-secure ZeroMQ for node-to-node communication
@@ -325,7 +325,7 @@ go test ./...      # Go
 ├─────────────────────────────────────────────┤
 │     JSON-RPC │ gRPC │ WebSocket │ QZMQ     │
 ├─────────────────────────────────────────────┤
-│              LX DEX Core Engine              │
+│              LX Core Engine              │
 │  • Order Matching (Go/C++/GPU)              │
 │  • Risk Management                          │
 │  • State Management (BadgerDB)              │

@@ -99,7 +99,7 @@ persistence:
   accessMode: ReadWriteOnce
   size: 1Ti
 
-# LX DEX specific configuration
+# LX specific configuration
 lxdex:
   consensus:
     enabled: true

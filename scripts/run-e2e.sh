@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# LX DEX E2E Test Runner
+# LX E2E Test Runner
 # This script runs the full DEX server and performs end-to-end tests
 
 set -e
@@ -24,7 +24,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-echo "🚀 LX DEX End-to-End Test Suite"
+echo "🚀 LX End-to-End Test Suite"
 echo "================================"
 echo ""
 

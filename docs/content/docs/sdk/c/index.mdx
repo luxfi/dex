@@ -1,13 +1,13 @@
 ---
 title: C SDK
-description: Pure C SDK for LX DEX - FFI bindings, embedded systems, and cross-platform integration
+description: Pure C SDK for LX - FFI bindings, embedded systems, and cross-platform integration
 ---
 
 # C SDK
 
 > **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | **Source**: [luxfi/dex/sdk/c](https://github.com/luxfi/dex/tree/main/sdk/c)
 
-The LX DEX C SDK provides a pure C11 interface for building trading applications. Designed for embedded systems, FFI bindings to other languages, and environments where C++ is unavailable.
+The LX C SDK provides a pure C11 interface for building trading applications. Designed for embedded systems, FFI bindings to other languages, and environments where C++ is unavailable.
 
 ## Features
 
@@ -160,7 +160,7 @@ int main(void) {
         return 1;
     }
 
-    printf("Connected to LX DEX\n");
+    printf("Connected to LX\n");
 
     // Cleanup
     lxdex_client_disconnect(client);
@@ -628,7 +628,7 @@ module LxDex
 end
 
 LxDex.lxdex_init
-puts "LX DEX SDK version: #{LxDex.lxdex_version}"
+puts "LX SDK version: #{LxDex.lxdex_version}"
 LxDex.lxdex_shutdown
 ```
 

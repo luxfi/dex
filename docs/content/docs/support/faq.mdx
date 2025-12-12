@@ -1,30 +1,30 @@
 ---
 title: FAQ
-description: Frequently asked questions about LX DEX trading, APIs, and integration
+description: Frequently asked questions about LX trading, APIs, and integration
 ---
 
 # Frequently Asked Questions
 
 ## General
 
-### What is LX DEX?
+### What is LX?
 
-LX DEX is a high-performance decentralized exchange built on the Lux blockchain. It features:
+LX is a high-performance decentralized exchange built on the Lux blockchain. It features:
 - Sub-microsecond order matching
 - On-chain order book with 1ms finality
 - Multi-backend support (Go, C++, GPU acceleration)
 - Professional-grade APIs (WebSocket, gRPC, FIX)
 
-### How is LX DEX different from other DEXs?
+### How is LX different from other DEXs?
 
-| Feature | LX DEX | AMM DEXs | Other Order Book DEXs |
+| Feature | LX | AMM DEXs | Other Order Book DEXs |
 |---------|--------|----------|----------------------|
 | Latency | ~1μs | ~seconds | ~100ms |
 | Order Book | Full on-chain | None | Hybrid/off-chain |
 | Finality | 1ms | Block time | Varies |
 | MEV Protection | Built-in | Limited | Varies |
 
-### Is LX DEX audited?
+### Is LX audited?
 
 Yes. See our [Security](/docs/security) page for audit reports and bug bounty program.
 
@@ -179,7 +179,7 @@ CCXT integration is planned. For now, use our native SDKs.
 
 ## Technical
 
-### What consensus does LX DEX use?
+### What consensus does LX use?
 
 DAG-based consensus with:
 - 1ms finality
@@ -201,7 +201,7 @@ Yes. Every order, cancel, and trade is recorded on-chain with full transparency.
 
 ### What about MEV?
 
-LX DEX has built-in MEV protection:
+LX has built-in MEV protection:
 - Encrypted order flow until execution
 - Fair ordering guarantees
 - No front-running possible due to consensus design
@@ -210,7 +210,7 @@ LX DEX has built-in MEV protection:
 
 ### How do I create an account?
 
-LX DEX uses wallet-based authentication. Connect your wallet to start trading:
+LX uses wallet-based authentication. Connect your wallet to start trading:
 1. Connect wallet (MetaMask, WalletConnect, etc.)
 2. Sign authentication message
 3. Start trading

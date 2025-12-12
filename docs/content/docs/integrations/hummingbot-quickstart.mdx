@@ -1,11 +1,11 @@
 ---
 title: Hummingbot Quick Start
-description: Get started with Hummingbot and LX DEX in 5 minutes
+description: Get started with Hummingbot and LX in 5 minutes
 ---
 
 # Hummingbot Quick Start
 
-Get your first trading bot running on LX DEX in under 5 minutes.
+Get your first trading bot running on LX in under 5 minutes.
 
 ## Prerequisites
 
@@ -20,15 +20,15 @@ git clone https://github.com/hummingbot/hummingbot.git
 cd hummingbot
 ```
 
-## Step 2: Install LX DEX Connector
+## Step 2: Install LX Connector
 
 ```bash
-# Install the LX DEX Gateway connector
+# Install the LX Gateway connector
 cd gateway
 npm install @lxdex/hummingbot-gateway-connector
 ```
 
-## Step 3: Configure LX DEX
+## Step 3: Configure LX
 
 Create the configuration file:
 
@@ -84,7 +84,7 @@ docker-compose up -d hummingbot
 docker attach hummingbot
 ```
 
-## Step 6: Connect to LX DEX
+## Step 6: Connect to LX
 
 In the Hummingbot client:
 
@@ -135,7 +135,7 @@ Watch your bot create orders! You can monitor with:
 
 | Command | Description |
 |---------|-------------|
-| `connect lxdex` | Connect to LX DEX |
+| `connect lxdex` | Connect to LX |
 | `balance` | Check wallet balances |
 | `ticker LUX-USDC` | Get current price |
 | `create` | Create new strategy |

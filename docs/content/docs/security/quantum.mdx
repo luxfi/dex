@@ -1,11 +1,11 @@
 ---
 title: Post-Quantum Cryptography
-description: Quantum-resistant cryptography implementation with Dilithium, Kyber, and Ringtail for LX DEX
+description: Quantum-resistant cryptography implementation with Dilithium, Kyber, and Ringtail for LX
 ---
 
 # Post-Quantum Cryptography
 
-LX DEX implements NIST-approved post-quantum cryptographic algorithms to protect against future quantum computer attacks. Our hybrid approach provides security against both classical and quantum adversaries.
+LX implements NIST-approved post-quantum cryptographic algorithms to protect against future quantum computer attacks. Our hybrid approach provides security against both classical and quantum adversaries.
 
 ## Quantum Threat Model
 
@@ -50,7 +50,7 @@ LX DEX implements NIST-approved post-quantum cryptographic algorithms to protect
 │  │  ML-KEM (Kyber)              Primary standard           │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  LX DEX Extensions                                              │
+│  LX Extensions                                              │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  Ringtail                    Threshold lattice sigs     │   │
 │  │  Hybrid BLS+RT               Warp message signing       │   │
@@ -66,7 +66,7 @@ LX DEX implements NIST-approved post-quantum cryptographic algorithms to protect
 | Parameter Set | NIST Level | Signature Size | Public Key | Use Case |
 |--------------|------------|----------------|------------|----------|
 | ML-DSA-44 | Level 2 | 2,420 bytes | 1,312 bytes | General use |
-| ML-DSA-65 | Level 3 | 3,309 bytes | 1,952 bytes | **LX DEX default** |
+| ML-DSA-65 | Level 3 | 3,309 bytes | 1,952 bytes | **LX default** |
 | ML-DSA-87 | Level 5 | 4,627 bytes | 2,592 bytes | High security |
 
 ### Implementation
@@ -369,7 +369,7 @@ func (h *HybridKeyExchange) Decapsulate(enc *HybridEncapsulation) ([]byte, error
 
 ## Ringtail Threshold Signatures
 
-Ringtail is LX DEX's custom lattice-based threshold signature scheme, enabling MPC signing with quantum resistance.
+Ringtail is LX's custom lattice-based threshold signature scheme, enabling MPC signing with quantum resistance.
 
 ### Security Parameters
 
@@ -484,7 +484,7 @@ func Verify(publicKey, message, signature []byte) bool {
 
 ## Hybrid BLS+Ringtail Warp Signatures
 
-For Warp cross-chain messaging, LX DEX uses hybrid BLS+Ringtail signatures:
+For Warp cross-chain messaging, LX uses hybrid BLS+Ringtail signatures:
 
 ```go
 package warp

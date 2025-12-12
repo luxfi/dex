@@ -1,6 +1,6 @@
-# LX DEX Trading Client
+# LX Trading Client
 
-Multi-protocol programmatic trading client for LX DEX. Supports WebSocket and gRPC protocols with a unified interface.
+Multi-protocol programmatic trading client for LX. Supports WebSocket and gRPC protocols with a unified interface.
 
 ## Features
 

@@ -5,7 +5,7 @@ description: Direct connections, dedicated lines, and network options for ultra-
 
 # Connectivity Options
 
-LX DEX provides multiple connectivity tiers optimized for different latency and throughput requirements.
+LX provides multiple connectivity tiers optimized for different latency and throughput requirements.
 
 ## Connectivity Tiers
 
@@ -52,7 +52,7 @@ LX DEX provides multiple connectivity tiers optimized for different latency and 
 
 ### Direct Fiber Connection
 
-The lowest latency option - direct single-mode fiber from your rack to the LX DEX matching engine.
+The lowest latency option - direct single-mode fiber from your rack to the LX matching engine.
 
 **Specifications**:
 
@@ -69,7 +69,7 @@ The lowest latency option - direct single-mode fiber from your rack to the LX DE
 Remote Direct Memory Access bypasses the kernel for minimum latency.
 
 ```cpp
-// RDMA connection setup for LX DEX
+// RDMA connection setup for LX
 #include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
 
@@ -155,7 +155,7 @@ private:
 Data Plane Development Kit for kernel bypass on standard NICs.
 
 ```cpp
-// DPDK initialization for LX DEX
+// DPDK initialization for LX
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
@@ -248,7 +248,7 @@ For firms in the same metropolitan area but not colocated.
 │                                                              │
 │         Manhattan                    Secaucus (NY5)         │
 │         ┌───────┐                    ┌───────┐              │
-│         │ 111   │◄───── 15km ───────►│ LX DEX│              │
+│         │ 111   │◄───── 15km ───────►│ LX│              │
 │         │ 8th   │      Dark Fiber    │ Engine│              │
 │         └───────┘      < 100us       └───────┘              │
 │              │                            ▲                  │
@@ -286,7 +286,7 @@ Direct BGP peering at major internet exchanges.
 ```
 # BGP peering configuration example
 router bgp 65002  # Your ASN
-  neighbor 10.0.0.1 remote-as 65001  # LX DEX ASN
+  neighbor 10.0.0.1 remote-as 65001  # LX ASN
   neighbor 10.0.0.1 description LX-DEX-Peering
 
   address-family ipv4 unicast
@@ -328,7 +328,7 @@ For global firms requiring guaranteed performance.
 Software-defined WAN with intelligent routing.
 
 ```yaml
-# SD-WAN configuration for LX DEX
+# SD-WAN configuration for LX
 network:
   name: "Trading-Network"
   provider: "lx-sdwan"
@@ -445,7 +445,7 @@ setInterval(() => {
 │               ACTIVE-ACTIVE CONNECTIVITY                     │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Your Infrastructure                LX DEX Infrastructure   │
+│  Your Infrastructure                LX Infrastructure   │
 │                                                              │
 │  ┌──────────────┐                   ┌──────────────────┐    │
 │  │ Primary      │───── 100G A ─────►│ Gateway A        │    │

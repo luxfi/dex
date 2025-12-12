@@ -44,7 +44,7 @@ var dashboardHTML = `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>LX DEX Monitor</title>
+    <title>LX Monitor</title>
     <meta charset="utf-8">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -134,7 +134,7 @@ var dashboardHTML = `
 </head>
 <body>
     <div class="container">
-        <h1>🚀 LX DEX Real-Time Monitor</h1>
+        <h1>🚀 LX Real-Time Monitor</h1>
         
         <div class="grid">
             <div class="card">
@@ -295,7 +295,7 @@ func main() {
 	http.HandleFunc("/ws", monitor.handleWebSocket)
 	http.HandleFunc("/api/stats", monitor.handleAPI)
 
-	fmt.Println("📊 LX DEX Monitor")
+	fmt.Println("📊 LX Monitor")
 	fmt.Println("=================")
 	fmt.Println("Dashboard: http://localhost:8080")
 	fmt.Println("WebSocket: ws://localhost:8080/ws")

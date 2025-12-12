@@ -38,7 +38,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// LX DEX gRPC Service for internal Lux Network IPC
+// LX gRPC Service for internal Lux Network IPC
 type LXDEXServiceClient interface {
 	// Order Management
 	PlaceOrder(ctx context.Context, in *PlaceOrderRequest, opts ...grpc.CallOption) (*PlaceOrderResponse, error)
@@ -219,7 +219,7 @@ func (c *lXDEXServiceClient) Ping(ctx context.Context, in *PingRequest, opts ...
 // All implementations must embed UnimplementedLXDEXServiceServer
 // for forward compatibility.
 //
-// LX DEX gRPC Service for internal Lux Network IPC
+// LX gRPC Service for internal Lux Network IPC
 type LXDEXServiceServer interface {
 	// Order Management
 	PlaceOrder(context.Context, *PlaceOrderRequest) (*PlaceOrderResponse, error)

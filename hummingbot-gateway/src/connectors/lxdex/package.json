@@ -1,7 +1,7 @@
 {
   "name": "@lxdex/hummingbot-gateway-connector",
   "version": "1.0.0",
-  "description": "LX DEX connector for Hummingbot Gateway - Ultra-low latency DEX with CLOB, AMM, and CLMM support",
+  "description": "LX connector for Hummingbot Gateway - Ultra-low latency DEX with CLOB, AMM, and CLMM support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

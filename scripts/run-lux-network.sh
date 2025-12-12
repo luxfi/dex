@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run LX DEX on Lux Network using netrunner
+# Run LX on Lux Network using netrunner
 # This script starts a local Lux network with X-Chain and deploys the DEX
 
 set -e
@@ -242,7 +242,7 @@ trap cleanup INT TERM
 
 # Main execution
 main() {
-    echo -e "${BLUE}=== LX DEX on Lux Network ===${NC}"
+    echo -e "${BLUE}=== LX on Lux Network ===${NC}"
     
     check_prerequisites
     start_netrunner_server
