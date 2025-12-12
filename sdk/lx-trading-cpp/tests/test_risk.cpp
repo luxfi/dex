@@ -1,10 +1,11 @@
 // LX Trading SDK - Risk Manager Tests
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/catch_approx.hpp>
 #include <lx/trading/risk.hpp>
 
 using namespace lx::trading;
+using Catch::Approx;
 
 TEST_CASE("RiskManager basic validation", "[risk]") {
     RiskConfig config;
@@ -40,7 +41,7 @@ TEST_CASE("RiskManager position limits", "[risk]") {
 
     SECTION("Within global limit") {
         rm.update_position("BTC", Decimal::from_double(30.0), Side::Buy);
-        REQUIRE(rm.position("BTC").to_double() == Catch::Approx(30.0));
+        REQUIRE(rm.position("BTC").to_double() == Approx(30.0));
 
         OrderRequest req = OrderRequest::market("BTC-USDC", Side::Buy,
             Decimal::from_double(10.0));
@@ -75,7 +76,7 @@ TEST_CASE("RiskManager PnL tracking", "[risk]") {
     SECTION("Track PnL") {
         rm.update_pnl(Decimal::from_double(100.0));
         rm.update_pnl(Decimal::from_double(-50.0));
-        REQUIRE(rm.daily_pnl().to_double() == Catch::Approx(50.0));
+        REQUIRE(rm.daily_pnl().to_double() == Approx(50.0));
     }
 
     SECTION("Daily loss limit triggers rejection") {
