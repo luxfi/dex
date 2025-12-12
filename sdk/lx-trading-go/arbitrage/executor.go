@@ -292,8 +292,12 @@ func (e *Executor) executeWithFlashLoan(ctx context.Context, exec *Execution) er
 		return fmt.Errorf("gas price too high: %s > %s", gasPrice.String(), e.config.MaxGasPrice.String())
 	}
 
-	// Build final transaction
-	tx.GasLimit = gasLimit + 50000 // Buffer
+	// Build final transaction with overflow protection
+	const gasBuffer uint64 = 50000
+	if gasLimit > ^uint64(0)-gasBuffer {
+		return fmt.Errorf("gas limit overflow: %d", gasLimit)
+	}
+	tx.GasLimit = gasLimit + gasBuffer
 	tx.GasPrice = gasPrice.BigInt()
 
 	// Send transaction (with MEV protection if enabled)
