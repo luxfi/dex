@@ -5,7 +5,20 @@ description: DAG-based consensus with 1ms finality and quantum-resistant signatu
 
 # Consensus Layer
 
+> **Specification**: [LP-0111 Photon Consensus](https://github.com/luxfi/LPs/blob/main/LPs/lp-0111-photon-consensus-selection.md) | [LP-0112 Flare DAG](https://github.com/luxfi/LPs/blob/main/LPs/lp-0112-flare-dag-finalization-protocol.md) | [LP-4099 Quasar](https://github.com/luxfi/LPs/blob/main/LPs/lp-4099-q-chain-quantum-secure-consensus-protocol-family-quasar.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+>
+> **Implementation**: [`github.com/luxfi/consensus`](https://github.com/luxfi/consensus)
+
 LX DEX uses a custom DAG-based consensus protocol designed for ultra-low latency trading.
+
+## Implementation Status
+
+| Component | Source | Status |
+|-----------|--------|--------|
+| DAG Consensus | [`consensus/engine/dag/`](https://github.com/luxfi/consensus/tree/main/engine/dag) | Complete |
+| FPC Protocol | [`consensus/protocol/photon/`](https://github.com/luxfi/consensus/tree/main/protocol/photon) | Complete |
+| Flare Finalization | [`consensus/protocol/flare/`](https://github.com/luxfi/consensus/tree/main/protocol/flare) | Complete |
+| Quasar (PQ) | [`consensus/protocol/quasar/`](https://github.com/luxfi/consensus/tree/main/protocol/quasar) | Complete |
 
 ## Overview
 

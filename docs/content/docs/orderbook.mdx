@@ -5,7 +5,20 @@ description: High-performance order matching engine - 434M+ orders/sec with sub-
 
 # Orderbook Engine
 
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md) | [LP-9003 High-Performance DEX](https://github.com/luxfi/LPs/blob/main/LPs/lp-9003-high-performance-dex-protocol.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+
 The LX DEX orderbook engine is designed for ultra-high performance trading with multiple backend options.
+
+## Implementation Status
+
+| Component | Source | Status |
+|-----------|--------|--------|
+| Order Book | [`pkg/lx/orderbook.go`](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook.go) | Complete |
+| Advanced Orderbook | [`pkg/lx/orderbook_advanced.go`](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook_advanced.go) | Complete |
+| Matching Engine | [`pkg/lx/orderbook_extended.go`](https://github.com/luxfi/dex/blob/main/pkg/lx/orderbook_extended.go) | Complete |
+| C++ Engine | [`pkg/orderbook/cpp_orderbook.go`](https://github.com/luxfi/dex/blob/main/pkg/orderbook/cpp_orderbook.go) | Complete |
+| GPU (MLX) | [`pkg/mlx/mlx.go`](https://github.com/luxfi/dex/blob/main/pkg/mlx/mlx.go) | Complete |
+| FPGA | [`pkg/fpga/fpga_engine.go`](https://github.com/luxfi/dex/blob/main/pkg/fpga/fpga_engine.go) | Complete |
 
 ## Overview
 
