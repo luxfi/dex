@@ -76,9 +76,9 @@ LX supports multiple transport mechanisms for cross-chain arbitrage:
 
 | Transport | Latency | Use Case | Cost |
 |-----------|---------|----------|------|
-| **Warp** | <500ms | Between Lux subnets | ~$0.001 |
+| **Warp** | Sub-500ms | Between Lux subnets | ~$0.001 |
 | **Teleport** | ~30s | EVM chains (ETH, BSC, etc.) | ~$1-5 |
-| **CEX API** | <100ms | Centralized exchanges | Free |
+| **CEX API** | Sub-100ms | Centralized exchanges | Free |
 | **Direct** | 0ms | Same chain trades | Gas only |
 
 ### When to Use Each Transport
@@ -1340,8 +1340,8 @@ void execute_arbitrage(LxDex* dex, const LxFirstOpportunity& opp) {
 | `minDivergenceBps` | Decimal | 10 | Min divergence to trigger (basis points) |
 | `minProfit` | Decimal | 5 | Min expected profit (USD) |
 | `maxPositionSize` | Decimal | 1000 | Max position per trade (USD) |
-| `symbols` | string[] | [...] | Trading pairs to monitor |
-| `venueLatencies` | map | {...} | Expected latency per venue (ms) |
+| `symbols` | list | - | Trading pairs to monitor |
+| `venueLatencies` | map | - | Expected latency per venue (ms) |
 
 ### ScannerConfig
 
@@ -1365,7 +1365,7 @@ void execute_arbitrage(LxDex* dex, const LxFirstOpportunity& opp) {
 | `teleportEnabled` | bool | true | Enable Teleport bridge |
 | `teleportEndpoint` | string | null | Teleport service endpoint |
 | `teleportTimeoutMs` | int | 60000 | Teleport timeout (ms) |
-| `chains` | map | {...} | Chain configurations |
+| `chains` | map | - | Chain configurations |
 
 ## Risk Management
 
