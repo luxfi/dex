@@ -1,0 +1,9 @@
+{
+  "title": "Performance",
+  "pages": [
+    "index",
+    "throughput",
+    "latency",
+    "memory"
+  ]
+}
