@@ -1,0 +1,74 @@
+[package]
+name = "lx-trading-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lux Partners <dev@lux.partners>"]
+description = "High-frequency trading SDK with unified liquidity aggregation"
+license = "MIT"
+repository = "https://github.com/luxfi/dex"
+keywords = ["trading", "hft", "defi", "ccxt", "hummingbot"]
+
+[lib]
+name = "lx_trading"
+crate-type = ["cdylib", "rlib", "staticlib"]
+
+[features]
+default = ["ccxt", "hummingbot", "native"]
+ccxt = []
+hummingbot = []
+native = []
+python = ["pyo3"]
+ffi = []
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Networking
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+url = "2.5"
+
+# Crypto
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.21"
+
+# Data structures
+rust_decimal = { version = "1.33", features = ["serde"] }
+dashmap = "5.5"
+crossbeam = "0.8"
+parking_lot = "0.12"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# UUID for order IDs
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Python bindings (optional)
+pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
+
+# C FFI
+libc = "0.2"
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"
+mockall = "0.12"

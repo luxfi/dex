@@ -1,0 +1,74 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "lx-trading"
+version = "0.1.0"
+description = "High-frequency trading SDK with unified liquidity aggregation"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Lux Partners", email = "dev@lux.partners" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["trading", "hft", "defi", "ccxt", "hummingbot", "dex", "amm"]
+requires-python = ">=3.10"
+dependencies = [
+    "ccxt>=4.0.0",
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+]
+hummingbot = [
+    "hummingbot>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://dex.lux.network"
+Documentation = "https://dex.lux.network/docs/sdk/python"
+Repository = "https://github.com/luxfi/dex"
+Changelog = "https://github.com/luxfi/dex/releases"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "lx_trading._core"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true

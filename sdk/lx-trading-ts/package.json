@@ -1,0 +1,57 @@
+{
+  "name": "@luxfi/trading",
+  "version": "1.0.0",
+  "description": "High-frequency trading SDK with unified liquidity aggregation",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "node --test --experimental-test-coverage dist/**/*.test.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "trading",
+    "dex",
+    "amm",
+    "ccxt",
+    "orderbook",
+    "hft",
+    "lux",
+    "blockchain"
+  ],
+  "author": "Lux Partners Limited",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luxfi/dex.git",
+    "directory": "sdk/lx-trading-ts"
+  },
+  "homepage": "https://dex.lux.network",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ccxt": "^4.2.0",
+    "decimal.js": "^10.4.3",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
