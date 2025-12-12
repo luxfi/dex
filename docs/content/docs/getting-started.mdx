@@ -1,0 +1,334 @@
+---
+title: Getting Started
+description: Quick start guide for LX DEX - installation, setup, and your first trade
+---
+
+# Getting Started with LX DEX
+
+Get up and running with LX DEX in minutes.
+
+## Prerequisites
+
+- Go 1.21+ (for building from source)
+- Git
+- Docker (optional, for containerized deployment)
+
+## Installation
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/luxfi/dex.git
+cd dex
+
+# Build the project
+make build
+
+# Verify installation
+./bin/luxd --version
+```
+
+### From Release
+
+```bash
+# Download latest release
+curl -L https://github.com/luxfi/dex/releases/latest/download/lx-dex-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m) -o lx-dex
+
+# Make executable
+chmod +x lx-dex
+
+# Run
+./lx-dex
+```
+
+### With Docker
+
+```bash
+# Pull the image
+docker pull luxfi/dex:latest
+
+# Run the container
+docker run -p 8080:8080 -p 8081:8081 -p 50051:50051 luxfi/dex:latest
+```
+
+## Start the Node
+
+### Single Node (Development)
+
+```bash
+# Start with default configuration
+./bin/luxd
+
+# Or with custom config
+./bin/luxd --config config.yaml
+```
+
+### Multi-Node Cluster
+
+```bash
+# Start a 3-node cluster
+make run-cluster
+```
+
+### Docker Compose
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+## Verify Installation
+
+### Check Node Health
+
+```bash
+curl http://localhost:8080/health
+```
+
+Expected response:
+```json
+{"status": "healthy", "version": "1.0.0"}
+```
+
+### Test JSON-RPC
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "lx_ping", "params": {}, "id": 1}'
+```
+
+Expected response:
+```json
+{"jsonrpc": "2.0", "result": {"pong": true}, "id": 1}
+```
+
+## Your First Trade
+
+### Using curl
+
+```bash
+# Place a buy order
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_placeOrder",
+    "params": {
+      "symbol": "BTC-USD",
+      "type": 0,
+      "side": 0,
+      "price": 50000,
+      "size": 1.0,
+      "userID": "trader1"
+    },
+    "id": 1
+  }'
+```
+
+### Using TypeScript SDK
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+});
+
+// Place a buy order
+const order = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: 'limit',
+    side: 'buy',
+    price: 50000,
+    size: 1.0
+});
+
+console.log('Order ID:', order.orderId);
+```
+
+### Using Python SDK
+
+```python
+from luxfi_dex import LXDexClient
+
+client = LXDexClient(
+    json_rpc_url='http://localhost:8080/rpc'
+)
+
+# Place a buy order
+order = client.place_order(
+    symbol='BTC-USD',
+    order_type='limit',
+    side='buy',
+    price=50000,
+    size=1.0
+)
+
+print(f'Order ID: {order.order_id}')
+```
+
+### Using Go SDK
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    client := lxdex.NewClient(
+        lxdex.WithJSONRPC("http://localhost:8080/rpc"),
+    )
+
+    order, _ := client.PlaceOrder(context.Background(), &lxdex.Order{
+        Symbol: "BTC-USD",
+        Type:   lxdex.OrderTypeLimit,
+        Side:   lxdex.Buy,
+        Price:  50000,
+        Size:   1.0,
+    })
+
+    fmt.Printf("Order ID: %s\n", order.OrderID)
+}
+```
+
+## View Order Book
+
+### Using curl
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_getOrderBook",
+    "params": {"depth": 10},
+    "id": 1
+  }'
+```
+
+### Using WebSocket
+
+```javascript
+const ws = new WebSocket('ws://localhost:8081');
+
+ws.onopen = () => {
+    ws.send(JSON.stringify({
+        type: 'subscribe',
+        channel: 'orderbook',
+        symbol: 'BTC-USD',
+        depth: 10
+    }));
+};
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Order book:', data);
+};
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LX_RPC_PORT` | JSON-RPC port | 8080 |
+| `LX_WS_PORT` | WebSocket port | 8081 |
+| `LX_GRPC_PORT` | gRPC port | 50051 |
+| `LX_P2P_PORT` | P2P networking port | 5000 |
+| `LX_LOG_LEVEL` | Log level (debug, info, warn, error) | info |
+| `LX_DATA_DIR` | Data directory | ./data |
+
+### Configuration File
+
+```yaml
+# config.yaml
+server:
+  rpc_port: 8080
+  ws_port: 8081
+  grpc_port: 50051
+
+consensus:
+  validators: 3
+  block_time: 1ms
+
+storage:
+  path: ./data
+  engine: badger
+
+logging:
+  level: info
+  format: json
+```
+
+## Default Ports
+
+| Service | Port | Protocol |
+|---------|------|----------|
+| JSON-RPC | 8080 | HTTP |
+| WebSocket | 8081 | WS |
+| gRPC | 50051 | HTTP/2 |
+| P2P | 5000 | TCP |
+| Metrics | 9090 | HTTP |
+
+## Next Steps
+
+- [API Reference](/docs/api) - Complete API documentation
+- [Architecture](/docs/architecture) - System design overview
+- [SDK Guide](/docs/sdk) - Client library integration
+- [Development](/docs/development) - Build and contribute
+
+## Troubleshooting
+
+### Port Already in Use
+
+```bash
+# Find process using port
+lsof -i :8080
+
+# Kill process
+kill -9 <PID>
+```
+
+### Connection Refused
+
+Check if the node is running:
+```bash
+ps aux | grep luxd
+```
+
+Check firewall rules:
+```bash
+# macOS
+sudo pfctl -s rules
+
+# Linux
+sudo iptables -L
+```
+
+### Permission Denied
+
+```bash
+# Fix binary permissions
+chmod +x ./bin/luxd
+
+# Fix data directory permissions
+chmod 755 ./data
+```
+
+## Support
+
+- Documentation: https://dex.lux.network
+- GitHub Issues: https://github.com/luxfi/dex/issues
+- Discord: https://discord.gg/luxfi
+- Email: devs@lux.network
