@@ -5,7 +5,7 @@ description: High-performance Python client for LX with sync and async support, 
 
 # Python SDK
 
-> **Package**: [`luxfi-dex`](https://pypi.org/project/luxfi-dex/) | **Source**: [GitHub](https://github.com/luxfi/dex/tree/main/sdk/python) | **Specification**: [LP-9002](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
+> **Package**: [`lux-dex`](https://pypi.org/project/lux-dex/) | **Source**: [GitHub](https://github.com/luxfi/dex/tree/main/sdk/python) | **Specification**: [LP-9002](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md)
 
 The Python SDK provides a complete interface to LX with support for synchronous and asynchronous operations, pandas DataFrame integration, and comprehensive type annotations.
 
@@ -26,19 +26,19 @@ The Python SDK provides a complete interface to LX with support for synchronous 
 ## Installation
 
 ```bash
-pip install luxfi-dex
+pip install lux-dex
 ```
 
 Or with all optional dependencies:
 
 ```bash
-pip install "luxfi-dex[all]"
+pip install "lux-dex[all]"
 ```
 
 For development:
 
 ```bash
-pip install "luxfi-dex[dev]"
+pip install "lux-dex[dev]"
 ```
 
 ## Quick Start
@@ -46,7 +46,7 @@ pip install "luxfi-dex[dev]"
 ### Basic Usage
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 # Initialize client
 client = Client(
@@ -69,7 +69,7 @@ print(f"Spread: {book.spread}")
 ### Place an Order
 
 ```python
-from luxfi_dex import Client, OrderType, Side
+from lux_dex import Client, OrderType, Side
 
 client = Client("http://localhost:8080/rpc")
 
@@ -92,7 +92,7 @@ print(f"Filled: {order.filled_size}/{order.size}")
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient, OrderType, Side
+from lux_dex import AsyncClient, OrderType, Side
 
 async def main() -> None:
     async with AsyncClient("http://localhost:8080/rpc") as client:
@@ -120,8 +120,8 @@ asyncio.run(main())
 ### Client Options
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.config import ClientConfig, RetryConfig
+from lux_dex import Client
+from lux_dex.config import ClientConfig, RetryConfig
 
 config = ClientConfig(
     json_rpc_url="https://api.lux.network/rpc",
@@ -149,7 +149,7 @@ export LX_DEX_API_SECRET="your-api-secret"
 ```
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 # Automatically reads from environment
 client = Client.from_env()
@@ -160,7 +160,7 @@ client = Client.from_env()
 ### Order Types
 
 ```python
-from luxfi_dex.types import (
+from lux_dex.types import (
     Order,
     OrderType,
     Side,
@@ -190,7 +190,7 @@ TimeInForce.DAY  # Day order
 ### Market Data Types
 
 ```python
-from luxfi_dex.types import (
+from lux_dex.types import (
     OrderBook,
     OrderBookLevel,
     Trade,
@@ -207,8 +207,8 @@ type Timestamp = int  # Unix milliseconds
 ## Exception Handling
 
 ```python
-from luxfi_dex import Client
-from luxfi_dex.exceptions import (
+from lux_dex import Client
+from lux_dex.exceptions import (
     LXDexError,
     ConnectionError,
     AuthenticationError,
@@ -247,7 +247,7 @@ except LXDexError as e:
 import nest_asyncio
 nest_asyncio.apply()
 
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 import pandas as pd
 
 async def analyze_order_book():

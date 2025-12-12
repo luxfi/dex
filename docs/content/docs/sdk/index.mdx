@@ -17,12 +17,13 @@ LX provides multiple SDKs and APIs for integration:
 
 ## Implementation Status
 
-| SDK | Package | Repository | Status |
-|-----|---------|------------|--------|
-| TypeScript | [`@luxfi/trading`](https://npmjs.com/package/@luxfi/trading) | [`sdk/lx-trading-ts`](https://github.com/luxfi/dex/tree/main/sdk/lx-trading-ts) | Complete |
-| Python | [`luxfi-dex`](https://pypi.org/project/luxfi-dex/) | [`sdk/python`](https://github.com/luxfi/dex/tree/main/sdk/python) | Complete |
-| Go | `github.com/luxfi/dex/sdk/go` | [`sdk/go`](https://github.com/luxfi/dex/tree/main/sdk/go) | Complete |
-| Rust | [`lux-dex`](https://crates.io/crates/lux-dex) | [`sdk/rust`](https://github.com/luxfi/dex/tree/main/sdk/rust) | Complete |
+| SDK | Package | Description | Status |
+|-----|---------|-------------|--------|
+| TypeScript (base) | [`@luxfi/dex`](https://npmjs.com/package/@luxfi/dex) | Core SDK - Client, types, low-level API | Complete |
+| TypeScript (trading) | [`@luxfi/trading`](https://npmjs.com/package/@luxfi/trading) | Trading bots - DEX(), AMM(), CCXT integration | Complete |
+| Python | [`lux-dex`](https://pypi.org/project/lux-dex/) | Full-featured Python SDK | Complete |
+| Go | `github.com/luxfi/dex/sdk/go` | High-performance Go SDK | Complete |
+| Rust | [`lux-dex`](https://crates.io/crates/lux-dex) | Systems programming SDK | Complete |
 
 ## Quick Start
 
@@ -44,22 +45,27 @@ This starts:
 
 ## TypeScript SDK
 
+LX provides two TypeScript packages:
+
+- **`@luxfi/dex`** - Core SDK for building on the DEX (Client class, types, low-level API)
+- **`@luxfi/trading`** - High-level trading SDK with convenience helpers (DEX(), AMM(), CCXT)
+
 ### Installation
 
 ```bash
+# Core SDK (for building applications)
+npm install @luxfi/dex
+
+# Trading SDK (for bots and trading strategies)
 npm install @luxfi/trading
-# or
-pnpm add @luxfi/trading
-# or
-yarn add @luxfi/trading
 ```
 
-### Basic Usage
+### Quick Start with @luxfi/trading
 
 ```typescript
 import { DEX } from '@luxfi/trading'
 
-// Simple initialization
+// Simple initialization with factory function
 const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
 // Place an order
@@ -68,10 +74,35 @@ const order = await dex.limitBuy('BTC-USD', '1.0', '50000')
 console.log('Order placed:', order.orderId)
 ```
 
+### Building with @luxfi/dex
+
+```typescript
+import { Client, ClientConfig, OrderType, OrderSide } from '@luxfi/dex'
+
+// Full control with the base Client
+const config: ClientConfig = {
+    rpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081',
+    apiKey: 'your-api-key'
+}
+
+const client = new Client(config)
+await client.connect()
+
+// Place order with full type safety
+const order = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: OrderType.LIMIT,
+    side: OrderSide.BUY,
+    price: 50000,
+    size: 1.0
+})
+```
+
 ### WebSocket Subscriptions
 
 ```typescript
-// Subscribe to order book
+// Works with either package
 dex.subscribeOrderBook('BTC-USD', (book) => {
     console.log('Best bid:', book.bids[0])
     console.log('Best ask:', book.asks[0])
@@ -88,13 +119,15 @@ dex.subscribeUserOrders((order) => {
 })
 ```
 
-### Advanced Configuration
+### Multi-Venue Trading with @luxfi/trading
 
 ```typescript
 import { Client, Config, NativeVenueConfig } from '@luxfi/trading'
 
+// Aggregate liquidity across venues
 const config = new Config()
     .withNative('lx-dex', NativeVenueConfig.lxDex('https://api.lux.network/rpc'))
+    .withCCXT('binance', { apiKey: '...', secret: '...' })
     .withApiKey('your-api-key')
     .withTimeout(30000)
 
@@ -107,13 +140,13 @@ await client.connect()
 ### Installation
 
 ```bash
-pip install luxfi-dex
+pip install lux-dex
 ```
 
 ### Basic Usage
 
 ```python
-from luxfi_dex import Client
+from lux_dex import Client
 
 client = Client(
     json_rpc_url='http://localhost:8080/rpc',
@@ -150,7 +183,7 @@ for trade in trades:
 
 ```python
 import asyncio
-from luxfi_dex import AsyncClient
+from lux_dex import AsyncClient
 
 async def main():
     client = AsyncClient(
@@ -309,7 +342,7 @@ try {
 ### Python
 
 ```python
-from luxfi_dex.exceptions import InsufficientBalanceError, RateLimitError
+from lux_dex.exceptions import InsufficientBalanceError, RateLimitError
 
 try:
     order = client.place_order(...)

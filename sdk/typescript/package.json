@@ -1,5 +1,5 @@
 {
-  "name": "@luxfi/dex-sdk",
+  "name": "@luxfi/dex",
   "version": "1.0.0",
   "description": "TypeScript SDK for LX",
   "main": "dist/index.js",
