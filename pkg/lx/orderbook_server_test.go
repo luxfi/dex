@@ -53,12 +53,17 @@ func TestOrderBookServerStart(t *testing.T) {
 		t.Fatalf("Start returned error: %v", err)
 	}
 
-	// Give block processor time to run at least once
-	time.Sleep(150 * time.Millisecond)
-
-	server.mu.RLock()
-	blockNum := server.blockNumber
-	server.mu.RUnlock()
+	// Give block processor time to run at least once (ticker is 100ms, wait up to 500ms)
+	var blockNum uint64
+	for i := 0; i < 10; i++ {
+		time.Sleep(50 * time.Millisecond)
+		server.mu.RLock()
+		blockNum = server.blockNumber
+		server.mu.RUnlock()
+		if blockNum > 0 {
+			break
+		}
+	}
 
 	if blockNum == 0 {
 		t.Error("blockProcessor should have incremented blockNumber")
