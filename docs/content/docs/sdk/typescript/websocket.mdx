@@ -12,11 +12,11 @@ The TypeScript SDK provides WebSocket support for real-time market data, order u
 ### Establishing Connection
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 async function connectWebSocket(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -31,9 +31,9 @@ async function connectWebSocket(): Promise<void> {
 ### Disconnecting
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-function disconnectWebSocket(client: LXDexClient): void {
+function disconnectWebSocket(client: Client): void {
   client.disconnect();
   console.log('WebSocket disconnected');
 }
@@ -44,11 +44,11 @@ function disconnectWebSocket(client: LXDexClient): void {
 ### Subscribe to Channels
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 async function subscribeToChannels(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -73,11 +73,11 @@ async function subscribeToChannels(): Promise<void> {
 ### Unsubscribe from Channels
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 async function unsubscribeExample(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -114,17 +114,17 @@ async function unsubscribeExample(): Promise<void> {
 ### Manual Reconnection
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 class ReconnectingClient {
-  private client: LXDexClient;
+  private client: Client;
   private connected: boolean = false;
   private reconnecting: boolean = false;
   private maxRetries: number = 5;
   private retryDelay: number = 1000;
 
-  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
-    this.client = new LXDexClient(config);
+  constructor(config: { rpcUrl: string; wsUrl: string }) {
+    this.client = new Client(config);
   }
 
   async connect(): Promise<void> {
@@ -171,7 +171,7 @@ class ReconnectingClient {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  getClient(): LXDexClient {
+  getClient(): Client {
     return this.client;
   }
 }
@@ -180,7 +180,7 @@ class ReconnectingClient {
 ### Automatic Reconnection with Event Handling
 
 ```typescript
-import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+import { Client, OrderBook, Trade } from '@luxfi/trading';
 
 interface Subscription {
   channel: string;
@@ -188,15 +188,15 @@ interface Subscription {
 }
 
 class AutoReconnectClient {
-  private client: LXDexClient;
-  private config: { jsonRpcUrl: string; wsUrl: string };
+  private client: Client;
+  private config: { rpcUrl: string; wsUrl: string };
   private subscriptions: Subscription[] = [];
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isConnected: boolean = false;
 
-  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
+  constructor(config: { rpcUrl: string; wsUrl: string }) {
     this.config = config;
-    this.client = new LXDexClient(config);
+    this.client = new Client(config);
   }
 
   async connect(): Promise<void> {
@@ -217,7 +217,7 @@ class AutoReconnectClient {
       this.reconnectTimer = null;
 
       try {
-        this.client = new LXDexClient(this.config);
+        this.client = new Client(this.config);
         await this.connect();
       } catch {
         this.scheduleReconnect();
@@ -271,10 +271,10 @@ class AutoReconnectClient {
 ### Ping-Pong Heartbeat
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 class HeartbeatClient {
-  private client: LXDexClient;
+  private client: Client;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private missedHeartbeats: number = 0;
   private maxMissedHeartbeats: number = 3;
@@ -282,10 +282,10 @@ class HeartbeatClient {
   private onDisconnect?: () => void;
 
   constructor(
-    config: { jsonRpcUrl: string; wsUrl: string },
+    config: { rpcUrl: string; wsUrl: string },
     onDisconnect?: () => void
   ) {
-    this.client = new LXDexClient(config);
+    this.client = new Client(config);
     this.onDisconnect = onDisconnect;
   }
 
@@ -324,7 +324,7 @@ class HeartbeatClient {
     this.client.disconnect();
   }
 
-  getClient(): LXDexClient {
+  getClient(): Client {
     return this.client;
   }
 }
@@ -333,7 +333,7 @@ class HeartbeatClient {
 async function useHeartbeatClient(): Promise<void> {
   const client = new HeartbeatClient(
     {
-      jsonRpcUrl: 'http://localhost:8080/rpc',
+      rpcUrl: 'http://localhost:8080/rpc',
       wsUrl: 'ws://localhost:8081'
     },
     () => {
@@ -351,7 +351,7 @@ async function useHeartbeatClient(): Promise<void> {
 ### Custom Message Handler
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 interface WebSocketMessage {
   channel: string;
@@ -404,14 +404,14 @@ class MessageHandler {
 ### Browser WebSocket Client
 
 ```typescript
-import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+import { Client, OrderBook, Trade } from '@luxfi/trading';
 
 class BrowserDexClient {
-  private client: LXDexClient;
+  private client: Client;
   private visibilityHandler: (() => void) | null = null;
 
-  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
-    this.client = new LXDexClient(config);
+  constructor(config: { rpcUrl: string; wsUrl: string }) {
+    this.client = new Client(config);
     this.setupVisibilityHandling();
   }
 
@@ -468,7 +468,7 @@ class BrowserDexClient {
 
 ```tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LXDexClient, LXDexConfig } from '@luxfi/dex-sdk';
+import { Client, ClientConfig } from '@luxfi/trading';
 
 interface UseWebSocketOptions {
   autoConnect?: boolean;
@@ -483,11 +483,11 @@ interface UseWebSocketResult {
   error: Error | null;
   connect: () => Promise<void>;
   disconnect: () => void;
-  client: LXDexClient | null;
+  client: Client | null;
 }
 
 export function useWebSocket(
-  config: LXDexConfig,
+  config: ClientConfig,
   options: UseWebSocketOptions = {}
 ): UseWebSocketResult {
   const {
@@ -500,7 +500,7 @@ export function useWebSocket(
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const clientRef = useRef<LXDexClient | null>(null);
+  const clientRef = useRef<Client | null>(null);
   const reconnectAttempts = useRef(0);
 
   const connect = useCallback(async () => {
@@ -511,7 +511,7 @@ export function useWebSocket(
 
     try {
       if (!clientRef.current) {
-        clientRef.current = new LXDexClient(config);
+        clientRef.current = new Client(config);
       }
 
       await clientRef.current.connect();
@@ -563,11 +563,11 @@ export function useWebSocket(
 ```tsx
 import React from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
-import { OrderBook } from '@luxfi/dex-sdk';
+import { OrderBook } from '@luxfi/trading';
 
 function TradingApp(): JSX.Element {
   const { connected, connecting, error, client } = useWebSocket({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -616,11 +616,11 @@ function TradingApp(): JSX.Element {
 ### Server-Side WebSocket Client
 
 ```typescript
-import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+import { Client, OrderBook, Trade } from '@luxfi/trading';
 
 async function runNodeClient(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -664,7 +664,7 @@ runNodeClient();
 ### Connection Status Monitor
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 interface ConnectionStatus {
   connected: boolean;
@@ -674,7 +674,7 @@ interface ConnectionStatus {
 }
 
 class ConnectionMonitor {
-  private client: LXDexClient;
+  private client: Client;
   private status: ConnectionStatus = {
     connected: false,
     lastPing: null,
@@ -684,7 +684,7 @@ class ConnectionMonitor {
   private pingInterval: NodeJS.Timeout | null = null;
   private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
 
-  constructor(client: LXDexClient) {
+  constructor(client: Client) {
     this.client = client;
   }
 

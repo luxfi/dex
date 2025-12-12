@@ -134,14 +134,14 @@ ws.send(JSON.stringify({
 ### TypeScript/JavaScript SDK
 
 ```bash
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 ```
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
 });
 
@@ -168,9 +168,9 @@ pip install luxfi-dex
 ```
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(
+client = Client(
     json_rpc_url='http://localhost:8080/rpc',
     ws_url='ws://localhost:8081'
 )

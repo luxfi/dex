@@ -29,28 +29,18 @@ enum OrderType {
 A limit order executes at a specific price or better:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+import { DEX, OrderType, OrderSide, TimeInForce } from '@luxfi/trading'
 
 async function placeLimitOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.LIMIT,
-      side: OrderSide.BUY,
-      price: 50000,
-      size: 0.5,
-      userID: 'trader-001',
-      timeInForce: TimeInForce.GTC
-    });
-
-    console.log('Order ID:', result.orderId);
-    console.log('Status:', result.status);
+    // Using convenience method
+    const order = await dex.limitBuy('BTC-USD', '0.5', '50000')
+    console.log('Order ID:', order.orderId)
+    console.log('Status:', order.status)
   } catch (error) {
-    console.error('Order placement failed:', error);
+    console.error('Order placement failed:', error)
   }
 }
 ```
@@ -60,25 +50,17 @@ async function placeLimitOrder(): Promise<void> {
 A market order executes immediately at the best available price:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 async function placeMarketOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.MARKET,
-      side: OrderSide.SELL,
-      size: 1.0,
-      userID: 'trader-001'
-    });
-
-    console.log('Market order executed:', result.orderId);
+    // Market buy
+    const order = await dex.buy('BTC-USD', '1.0')
+    console.log('Market order executed:', order.orderId)
   } catch (error) {
-    console.error('Market order failed:', error);
+    console.error('Market order failed:', error)
   }
 }
 ```
@@ -88,27 +70,17 @@ async function placeMarketOrder(): Promise<void> {
 A stop order triggers when the market price reaches the stop price:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 async function placeStopOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
     // Stop-loss order: Sell when price drops to 48000
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.STOP,
-      side: OrderSide.SELL,
-      price: 48000,  // Stop price
-      size: 0.5,
-      userID: 'trader-001'
-    });
-
-    console.log('Stop order placed:', result.orderId);
+    const order = await dex.stopLoss('BTC-USD', '0.5', '48000')
+    console.log('Stop order placed:', order.orderId)
   } catch (error) {
-    console.error('Stop order failed:', error);
+    console.error('Stop order failed:', error)
   }
 }
 ```
@@ -118,42 +90,38 @@ async function placeStopOrder(): Promise<void> {
 A stop-limit order becomes a limit order when triggered:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX, OrderSide } from '@luxfi/trading'
 
 interface StopLimitParams {
-  symbol: string;
-  side: OrderSide;
-  stopPrice: number;
-  limitPrice: number;
-  size: number;
+  symbol: string
+  side: OrderSide
+  stopPrice: string
+  limitPrice: string
+  size: string
 }
 
-async function placeStopLimitOrder(params: StopLimitParams): Promise<number> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+async function placeStopLimitOrder(params: StopLimitParams): Promise<string> {
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
-  const result = await client.placeOrder({
-    symbol: params.symbol,
-    type: OrderType.STOP_LIMIT,
-    side: params.side,
-    price: params.limitPrice,
-    size: params.size,
-    userID: 'trader-001'
-    // Note: Stop price configuration may vary by implementation
-  });
+  const order = await dex.stopLimit(
+    params.symbol,
+    params.side,
+    params.size,
+    params.stopPrice,
+    params.limitPrice
+  )
 
-  return result.orderId;
+  return order.orderId
 }
 
 // Example: Buy BTC when price rises above 51000, but limit to 51500
 placeStopLimitOrder({
   symbol: 'BTC-USD',
   side: OrderSide.BUY,
-  stopPrice: 51000,
-  limitPrice: 51500,
-  size: 0.25
-});
+  stopPrice: '51000',
+  limitPrice: '51500',
+  size: '0.25'
+})
 ```
 
 ### Iceberg Order
@@ -161,27 +129,19 @@ placeStopLimitOrder({
 An iceberg order hides the full order quantity:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX, OrderSide } from '@luxfi/trading'
 
 async function placeIcebergOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.ICEBERG,
-      side: OrderSide.BUY,
-      price: 50000,
-      size: 10.0,      // Total size (hidden)
-      userID: 'trader-001'
-      // Display size is typically 10% of total
-    });
+    const order = await dex.iceberg('BTC-USD', OrderSide.BUY, '10.0', '50000', {
+      displaySize: '1.0' // Show only 1 BTC at a time
+    })
 
-    console.log('Iceberg order placed:', result.orderId);
+    console.log('Iceberg order placed:', order.orderId)
   } catch (error) {
-    console.error('Iceberg order failed:', error);
+    console.error('Iceberg order failed:', error)
   }
 }
 ```
@@ -202,25 +162,17 @@ enum TimeInForce {
 ### IOC Order Example
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+import { DEX, TimeInForce } from '@luxfi/trading'
 
 async function placeIOCOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   // IOC: Execute immediately, cancel unfilled portion
-  const result = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: OrderType.LIMIT,
-    side: OrderSide.BUY,
-    price: 50000,
-    size: 1.0,
-    userID: 'trader-001',
+  const order = await dex.limitBuy('BTC-USD', '1.0', '50000', {
     timeInForce: TimeInForce.IOC
-  });
+  })
 
-  console.log('IOC order result:', result);
+  console.log('IOC order result:', order)
   // Check if fully filled or partially filled
 }
 ```
@@ -228,28 +180,20 @@ async function placeIOCOrder(): Promise<void> {
 ### FOK Order Example
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+import { DEX, TimeInForce } from '@luxfi/trading'
 
 async function placeFOKOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   // FOK: Must fill entirely or reject
-  const result = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: OrderType.LIMIT,
-    side: OrderSide.BUY,
-    price: 50000,
-    size: 1.0,
-    userID: 'trader-001',
+  const order = await dex.limitBuy('BTC-USD', '1.0', '50000', {
     timeInForce: TimeInForce.FOK
-  });
+  })
 
-  if (result.status === 'filled') {
-    console.log('Order fully filled');
+  if (order.status === 'filled') {
+    console.log('Order fully filled')
   } else {
-    console.log('Order rejected - could not fill entirely');
+    console.log('Order rejected - could not fill entirely')
   }
 }
 ```
@@ -261,24 +205,16 @@ async function placeFOKOrder(): Promise<void> {
 Post-only orders only add liquidity (maker orders):
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 async function placePostOnlyOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
-  const result = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: OrderType.LIMIT,
-    side: OrderSide.BUY,
-    price: 49900,  // Below best ask to ensure it's a maker order
-    size: 0.5,
-    userID: 'trader-001',
+  const order = await dex.limitBuy('BTC-USD', '0.5', '49900', {
     postOnly: true  // Reject if would take liquidity
-  });
+  })
 
-  console.log('Post-only order:', result.orderId);
+  console.log('Post-only order:', order.orderId)
 }
 ```
 
@@ -287,25 +223,17 @@ async function placePostOnlyOrder(): Promise<void> {
 Reduce-only orders can only reduce an existing position:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 async function placeReduceOnlyOrder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   // Close or reduce long position
-  const result = await client.placeOrder({
-    symbol: 'BTC-USD',
-    type: OrderType.LIMIT,
-    side: OrderSide.SELL,
-    price: 51000,
-    size: 0.5,
-    userID: 'trader-001',
+  const order = await dex.limitSell('BTC-USD', '0.5', '51000', {
     reduceOnly: true  // Cannot increase position
-  });
+  })
 
-  console.log('Reduce-only order:', result.orderId);
+  console.log('Reduce-only order:', order.orderId)
 }
 ```
 
@@ -314,55 +242,51 @@ async function placeReduceOnlyOrder(): Promise<void> {
 ### Cancel Single Order
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
-async function cancelOrder(orderId: number): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+async function cancelOrder(orderId: string): Promise<void> {
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
-    const result = await client.cancelOrder(orderId);
+    const result = await dex.cancelOrder(orderId)
 
     if (result.success) {
-      console.log('Order cancelled successfully');
+      console.log('Order cancelled successfully')
     } else {
-      console.log('Cancel failed:', result.message);
+      console.log('Cancel failed:', result.message)
     }
   } catch (error) {
-    console.error('Cancel error:', error);
+    console.error('Cancel error:', error)
   }
 }
 
 // Usage
-cancelOrder(12345);
+cancelOrder('12345')
 ```
 
 ### Cancel Multiple Orders
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
-async function cancelMultipleOrders(orderIds: number[]): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+async function cancelMultipleOrders(orderIds: string[]): Promise<void> {
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   const results = await Promise.allSettled(
-    orderIds.map(id => client.cancelOrder(id))
-  );
+    orderIds.map(id => dex.cancelOrder(id))
+  )
 
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
-      console.log(`Order ${orderIds[index]}: cancelled`);
+      console.log(`Order ${orderIds[index]}: cancelled`)
     } else {
-      console.log(`Order ${orderIds[index]}: failed - ${result.reason}`);
+      console.log(`Order ${orderIds[index]}: failed - ${result.reason}`)
     }
-  });
+  })
 }
 
 // Usage
-cancelMultipleOrders([12345, 12346, 12347]);
+cancelMultipleOrders(['12345', '12346', '12347'])
 ```
 
 ## Querying Orders
@@ -370,28 +294,26 @@ cancelMultipleOrders([12345, 12346, 12347]);
 ### Get Single Order
 
 ```typescript
-import { LXDexClient, Order } from '@luxfi/dex-sdk';
+import { DEX, Order } from '@luxfi/trading'
 
-async function getOrderDetails(orderId: number): Promise<Order> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+async function getOrderDetails(orderId: string): Promise<Order> {
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
-  const order = await client.getOrder(orderId);
+  const order = await dex.getOrder(orderId)
 
-  console.log('Order Details:');
-  console.log('  ID:', order.orderId);
-  console.log('  Symbol:', order.symbol);
-  console.log('  Type:', order.type);
-  console.log('  Side:', order.side === 0 ? 'BUY' : 'SELL');
-  console.log('  Price:', order.price);
-  console.log('  Size:', order.size);
-  console.log('  Filled:', order.filled);
-  console.log('  Remaining:', order.remaining);
-  console.log('  Status:', order.status);
-  console.log('  Timestamp:', new Date(order.timestamp!));
+  console.log('Order Details:')
+  console.log('  ID:', order.orderId)
+  console.log('  Symbol:', order.symbol)
+  console.log('  Type:', order.type)
+  console.log('  Side:', order.side === 0 ? 'BUY' : 'SELL')
+  console.log('  Price:', order.price)
+  console.log('  Size:', order.size)
+  console.log('  Filled:', order.filled)
+  console.log('  Remaining:', order.remaining)
+  console.log('  Status:', order.status)
+  console.log('  Timestamp:', new Date(order.timestamp!))
 
-  return order;
+  return order
 }
 ```
 
@@ -400,109 +322,100 @@ async function getOrderDetails(orderId: number): Promise<Order> {
 For complex order creation, use a builder pattern:
 
 ```typescript
-import { LXDexClient, Order, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+import { Client, Order, OrderType, OrderSide, TimeInForce } from '@luxfi/trading'
 
 class OrderBuilder {
-  private order: Partial<Order> = {};
+  private order: Partial<Order> = {}
 
   symbol(symbol: string): OrderBuilder {
-    this.order.symbol = symbol;
-    return this;
+    this.order.symbol = symbol
+    return this
   }
 
   limit(): OrderBuilder {
-    this.order.type = OrderType.LIMIT;
-    return this;
+    this.order.type = OrderType.LIMIT
+    return this
   }
 
   market(): OrderBuilder {
-    this.order.type = OrderType.MARKET;
-    return this;
+    this.order.type = OrderType.MARKET
+    return this
   }
 
   buy(): OrderBuilder {
-    this.order.side = OrderSide.BUY;
-    return this;
+    this.order.side = OrderSide.BUY
+    return this
   }
 
   sell(): OrderBuilder {
-    this.order.side = OrderSide.SELL;
-    return this;
+    this.order.side = OrderSide.SELL
+    return this
   }
 
-  price(price: number): OrderBuilder {
-    this.order.price = price;
-    return this;
+  price(price: string): OrderBuilder {
+    this.order.price = price
+    return this
   }
 
-  size(size: number): OrderBuilder {
-    this.order.size = size;
-    return this;
-  }
-
-  user(userID: string): OrderBuilder {
-    this.order.userID = userID;
-    return this;
+  size(size: string): OrderBuilder {
+    this.order.size = size
+    return this
   }
 
   gtc(): OrderBuilder {
-    this.order.timeInForce = TimeInForce.GTC;
-    return this;
+    this.order.timeInForce = TimeInForce.GTC
+    return this
   }
 
   ioc(): OrderBuilder {
-    this.order.timeInForce = TimeInForce.IOC;
-    return this;
+    this.order.timeInForce = TimeInForce.IOC
+    return this
   }
 
   fok(): OrderBuilder {
-    this.order.timeInForce = TimeInForce.FOK;
-    return this;
+    this.order.timeInForce = TimeInForce.FOK
+    return this
   }
 
   postOnly(): OrderBuilder {
-    this.order.postOnly = true;
-    return this;
+    this.order.postOnly = true
+    return this
   }
 
   reduceOnly(): OrderBuilder {
-    this.order.reduceOnly = true;
-    return this;
+    this.order.reduceOnly = true
+    return this
   }
 
   build(): Partial<Order> {
-    // Validate required fields
-    if (!this.order.symbol) throw new Error('Symbol is required');
-    if (this.order.type === undefined) throw new Error('Type is required');
-    if (this.order.side === undefined) throw new Error('Side is required');
-    if (!this.order.size) throw new Error('Size is required');
+    if (!this.order.symbol) throw new Error('Symbol is required')
+    if (this.order.type === undefined) throw new Error('Type is required')
+    if (this.order.side === undefined) throw new Error('Side is required')
+    if (!this.order.size) throw new Error('Size is required')
     if (this.order.type === OrderType.LIMIT && !this.order.price) {
-      throw new Error('Price is required for limit orders');
+      throw new Error('Price is required for limit orders')
     }
 
-    return this.order;
+    return this.order
   }
 }
 
 // Usage
 async function placeOrderWithBuilder(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const client = new Client({ rpcUrl: 'http://localhost:8080/rpc' })
 
   const order = new OrderBuilder()
     .symbol('BTC-USD')
     .limit()
     .buy()
-    .price(50000)
-    .size(0.5)
-    .user('trader-001')
+    .price('50000')
+    .size('0.5')
     .gtc()
     .postOnly()
-    .build();
+    .build()
 
-  const result = await client.placeOrder(order);
-  console.log('Order placed:', result.orderId);
+  const result = await client.placeOrder(order)
+  console.log('Order placed:', result.orderId)
 }
 ```
 
@@ -511,48 +424,35 @@ async function placeOrderWithBuilder(): Promise<void> {
 Handle order-related errors appropriately:
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading'
 
 interface OrderError extends Error {
-  code?: string;
-  details?: Record<string, unknown>;
+  code?: string
+  details?: Record<string, unknown>
 }
 
 async function placeOrderWithErrorHandling(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' })
 
   try {
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.LIMIT,
-      side: OrderSide.BUY,
-      price: 50000,
-      size: 1.0,
-      userID: 'trader-001'
-    });
+    const order = await dex.limitBuy('BTC-USD', '1.0', '50000')
 
-    console.log('Order successful:', result.orderId);
+    console.log('Order successful:', order.orderId)
 
   } catch (error) {
-    const orderError = error as OrderError;
+    const orderError = error as OrderError
 
     // Handle specific error cases
     if (orderError.message.includes('insufficient')) {
-      console.error('Insufficient balance to place order');
-      // Suggest reducing order size or adding funds
+      console.error('Insufficient balance to place order')
     } else if (orderError.message.includes('rate limit')) {
-      console.error('Rate limit exceeded - waiting before retry');
-      // Implement exponential backoff
+      console.error('Rate limit exceeded - waiting before retry')
     } else if (orderError.message.includes('invalid symbol')) {
-      console.error('Invalid trading pair');
-      // Validate symbol exists
+      console.error('Invalid trading pair')
     } else if (orderError.message.includes('market closed')) {
-      console.error('Market is currently closed');
-      // Show market hours or queue order
+      console.error('Market is currently closed')
     } else {
-      console.error('Order failed:', orderError.message);
+      console.error('Order failed:', orderError.message)
     }
   }
 }
@@ -563,47 +463,45 @@ async function placeOrderWithErrorHandling(): Promise<void> {
 Place multiple orders efficiently:
 
 ```typescript
-import { LXDexClient, Order, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { Client, Order, OrderType, OrderSide } from '@luxfi/trading'
 
 interface BatchOrderResult {
-  successful: Array<{ orderId: number; index: number }>;
-  failed: Array<{ error: Error; index: number }>;
+  successful: Array<{ orderId: string; index: number }>
+  failed: Array<{ error: Error; index: number }>
 }
 
 async function placeBatchOrders(orders: Partial<Order>[]): Promise<BatchOrderResult> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
-  });
+  const client = new Client({ rpcUrl: 'http://localhost:8080/rpc' })
 
   const results = await Promise.allSettled(
     orders.map(order => client.placeOrder(order))
-  );
+  )
 
-  const successful: Array<{ orderId: number; index: number }> = [];
-  const failed: Array<{ error: Error; index: number }> = [];
+  const successful: Array<{ orderId: string; index: number }> = []
+  const failed: Array<{ error: Error; index: number }> = []
 
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
-      successful.push({ orderId: result.value.orderId, index });
+      successful.push({ orderId: result.value.orderId, index })
     } else {
-      failed.push({ error: result.reason, index });
+      failed.push({ error: result.reason, index })
     }
-  });
+  })
 
-  console.log(`Batch result: ${successful.length} successful, ${failed.length} failed`);
+  console.log(`Batch result: ${successful.length} successful, ${failed.length} failed`)
 
-  return { successful, failed };
+  return { successful, failed }
 }
 
 // Usage: Place grid orders
 async function placeGridOrders(): Promise<void> {
-  const basePrice = 50000;
-  const gridSize = 5;
-  const gridSpacing = 100;
-  const orderSize = 0.1;
+  const basePrice = 50000
+  const gridSize = 5
+  const gridSpacing = 100
+  const orderSize = '0.1'
 
-  const buyOrders: Partial<Order>[] = [];
-  const sellOrders: Partial<Order>[] = [];
+  const buyOrders: Partial<Order>[] = []
+  const sellOrders: Partial<Order>[] = []
 
   for (let i = 1; i <= gridSize; i++) {
     // Buy orders below current price
@@ -611,26 +509,24 @@ async function placeGridOrders(): Promise<void> {
       symbol: 'BTC-USD',
       type: OrderType.LIMIT,
       side: OrderSide.BUY,
-      price: basePrice - (i * gridSpacing),
-      size: orderSize,
-      userID: 'grid-bot'
-    });
+      price: String(basePrice - (i * gridSpacing)),
+      size: orderSize
+    })
 
     // Sell orders above current price
     sellOrders.push({
       symbol: 'BTC-USD',
       type: OrderType.LIMIT,
       side: OrderSide.SELL,
-      price: basePrice + (i * gridSpacing),
-      size: orderSize,
-      userID: 'grid-bot'
-    });
+      price: String(basePrice + (i * gridSpacing)),
+      size: orderSize
+    })
   }
 
-  const allOrders = [...buyOrders, ...sellOrders];
-  const result = await placeBatchOrders(allOrders);
+  const allOrders = [...buyOrders, ...sellOrders]
+  const result = await placeBatchOrders(allOrders)
 
-  console.log('Grid orders placed:', result.successful.length);
+  console.log('Grid orders placed:', result.successful.length)
 }
 ```
 
