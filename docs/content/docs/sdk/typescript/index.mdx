@@ -5,25 +5,25 @@ description: Complete TypeScript SDK for LX - installation, configuration, and q
 
 # TypeScript SDK
 
-The `@luxfi/dex-sdk` package provides a complete TypeScript client for interacting with LX. It supports both browser and Node.js environments with full type safety.
+The `@luxfi/trading` package provides a complete TypeScript client for interacting with LX. It supports both browser and Node.js environments with full type safety, CCXT compatibility, and Hummingbot integration.
 
 ## Installation
 
 ```bash
-npm install @luxfi/dex-sdk
+npm install @luxfi/trading
 ```
 
 Or with other package managers:
 
 ```bash
 # pnpm
-pnpm add @luxfi/dex-sdk
+pnpm add @luxfi/trading
 
 # yarn
-yarn add @luxfi/dex-sdk
+yarn add @luxfi/trading
 
 # bun
-bun add @luxfi/dex-sdk
+bun add @luxfi/trading
 ```
 
 ## Requirements
@@ -33,87 +33,112 @@ bun add @luxfi/dex-sdk
 
 ## Quick Start
 
-### Basic Setup
+### Simple DEX Client
 
 ```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading';
 
-// Create client with default configuration
-const client = new LXDexClient({
-  jsonRpcUrl: 'http://localhost:8080/rpc',
+// Create DEX client (CLOB orderbook exchange)
+const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' });
+
+// Place a limit buy order
+const order = await dex.limitBuy('BTC-USDC', '0.1', '50000');
+console.log('Order placed:', order.orderId);
+
+// Get orderbook
+const book = await dex.orderbook('BTC-USDC');
+console.log('Best bid:', book.bestBid());
+```
+
+### Simple AMM Client
+
+```typescript
+import { AMM } from '@luxfi/trading';
+
+// Create AMM client (C-chain automated market maker)
+const amm = await AMM({ rpcUrl: 'http://localhost:8080/rpc' });
+
+// Get swap quote
+const quote = await amm.quote('BTC', 'USDC', '0.1', true, 'lx-amm');
+console.log('Output:', quote.outputAmount.toString());
+
+// Execute swap
+const trade = await amm.swap('BTC', 'USDC', '0.1', true, '0.01', 'lx-amm');
+console.log('Swap executed:', trade.tradeId);
+```
+
+### Unified Multi-Venue Client
+
+For advanced use cases connecting to multiple venues:
+
+```typescript
+import { Client, Config } from '@luxfi/trading';
+
+const config = Config.fromObject({
+  native: {
+    'lx-dex': { venueType: 'clob', apiUrl: 'http://localhost:8080/rpc' },
+    'lx-amm': { venueType: 'amm', apiUrl: 'http://localhost:8080/rpc' }
+  },
+  ccxt: {
+    'binance': { exchange: 'binance', apiKey: '...', secret: '...' }
+  },
+  hummingbot: {},
+  general: {
+    venuePriority: ['lx-dex', 'binance'],
+    smartRouting: true
+  }
+});
+
+const client = new Client(config);
+await client.connect();
+
+// Smart order routing across venues
+const order = await client.buy('BTC-USDC', '0.1');
+
+// Get aggregated orderbook from all venues
+const aggBook = await client.aggregatedOrderbook('BTC-USDC');
+```
+
+### Place Orders
+
+```typescript
+import { DEX, Side, OrderType, TimeInForce } from '@luxfi/trading';
+
+const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' });
+
+// Market buy
+const marketOrder = await dex.buy('BTC-USDC', '0.1');
+
+// Limit buy
+const limitOrder = await dex.limitBuy('BTC-USDC', '0.1', '50000');
+
+// Limit sell
+const sellOrder = await dex.limitSell('BTC-USDC', '0.1', '55000');
+
+// Cancel order
+await dex.cancelOrder(limitOrder.orderId, 'BTC-USDC', 'lx-dex');
+```
+
+### Real-Time Data
+
+```typescript
+import { DEX } from '@luxfi/trading';
+
+const dex = await DEX({
+  rpcUrl: 'http://localhost:8080/rpc',
   wsUrl: 'ws://localhost:8081'
 });
 
-// Test connectivity
-const pong = await client.ping();
-console.log('Connected:', pong);
-```
+// Get orderbook
+const book = await dex.orderbook('BTC-USDC');
+console.log('Best Bid:', book.bestBid()?.price);
+console.log('Best Ask:', book.bestAsk()?.price);
+console.log('Spread:', book.spread());
 
-### Place Your First Order
-
-```typescript
-import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
-
-async function main(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
-    wsUrl: 'ws://localhost:8081'
-  });
-
-  try {
-    // Place a limit buy order
-    const result = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: OrderType.LIMIT,
-      side: OrderSide.BUY,
-      price: 50000,
-      size: 0.1,
-      userID: 'trader-001'
-    });
-
-    console.log('Order placed:', result.orderId);
-    console.log('Status:', result.status);
-
-    // Get order details
-    const order = await client.getOrder(result.orderId);
-    console.log('Order details:', order);
-
-  } catch (error) {
-    console.error('Failed to place order:', error);
-  }
-}
-
-main();
-```
-
-### Subscribe to Real-Time Data
-
-```typescript
-import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
-
-async function subscribeToMarket(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
-    wsUrl: 'ws://localhost:8081'
-  });
-
-  // Connect WebSocket
-  await client.connect();
-
-  // Subscribe to order book updates
-  client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
-    console.log('Best Bid:', book.bids[0]?.price, '@', book.bids[0]?.size);
-    console.log('Best Ask:', book.asks[0]?.price, '@', book.asks[0]?.size);
-  });
-
-  // Subscribe to trades
-  client.subscribeTrades('BTC-USD', (trade: Trade) => {
-    const side = trade.side === 0 ? 'BUY' : 'SELL';
-    console.log(`Trade: ${side} ${trade.size} @ ${trade.price}`);
-  });
-}
-
-subscribeToMarket();
+// Get ticker
+const ticker = await dex.ticker('BTC-USDC');
+console.log('Last:', ticker.last?.toString());
+console.log('24h Volume:', ticker.volume24h?.toString());
 ```
 
 ## Environment Configuration
@@ -121,8 +146,8 @@ subscribeToMarket();
 ### Development (Local Node)
 
 ```typescript
-const client = new LXDexClient({
-  jsonRpcUrl: 'http://localhost:8080/rpc',
+const dex = await DEX({
+  rpcUrl: 'http://localhost:8080/rpc',
   wsUrl: 'ws://localhost:8081'
 });
 ```
@@ -130,8 +155,8 @@ const client = new LXDexClient({
 ### Testnet
 
 ```typescript
-const client = new LXDexClient({
-  jsonRpcUrl: 'http://localhost:18080/rpc',
+const dex = await DEX({
+  rpcUrl: 'http://localhost:18080/rpc',
   wsUrl: 'ws://localhost:18081'
 });
 ```
@@ -139,8 +164,8 @@ const client = new LXDexClient({
 ### Production
 
 ```typescript
-const client = new LXDexClient({
-  jsonRpcUrl: 'https://api.lux.network/rpc',
+const dex = await DEX({
+  rpcUrl: 'https://api.lux.network/rpc',
   wsUrl: 'wss://api.lux.network/ws',
   apiKey: process.env.LX_API_KEY
 });
@@ -152,35 +177,53 @@ The SDK exports the following modules:
 
 | Export | Description |
 |--------|-------------|
-| `LXDexClient` | Main client class for all operations |
+| `DEX` | Factory for LX DEX CLOB client |
+| `AMM` | Factory for LX AMM client |
+| `Client` | Unified multi-venue client |
+| `Config` | Configuration builder |
 | `OrderType` | Enum for order types (LIMIT, MARKET, etc.) |
-| `OrderSide` | Enum for order sides (BUY, SELL) |
+| `OrderSide` / `Side` | Enum for order sides (BUY, SELL) |
 | `OrderStatus` | Enum for order statuses |
 | `TimeInForce` | Enum for time-in-force options |
-| `MarketDataClient` | Sub-client for market data operations |
-| `LiquidationMonitor` | Sub-client for liquidation monitoring |
+| `Orderbook` | Orderbook data structure |
+| `AggregatedOrderbook` | Multi-venue aggregated orderbook |
+| `RiskManager` | Risk management utilities |
+| `arbitrage.*` | Arbitrage tools and strategies |
+
+### Execution Algorithms
+
+```typescript
+import { TwapExecutor, VwapExecutor, IcebergExecutor, SniperExecutor } from '@luxfi/trading';
+```
+
+### Financial Math
+
+```typescript
+import {
+  blackScholes,
+  impliedVolatility,
+  greeks,
+  volatility,
+  sharpeRatio,
+  valueAtRisk,
+  conditionalVaR
+} from '@luxfi/trading';
+```
 
 ## Error Handling
 
 All SDK methods throw typed errors that can be caught and handled:
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { DEX } from '@luxfi/trading';
 
 async function safeOperation(): Promise<void> {
-  const client = new LXDexClient();
+  const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' });
 
   try {
-    const order = await client.placeOrder({
-      symbol: 'BTC-USD',
-      type: 0,
-      side: 0,
-      price: 50000,
-      size: 1.0
-    });
+    const order = await dex.limitBuy('BTC-USDC', '1.0', '50000');
   } catch (error) {
     if (error instanceof Error) {
-      // Handle specific error types
       if (error.message.includes('insufficient')) {
         console.error('Insufficient balance');
       } else if (error.message.includes('rate limit')) {

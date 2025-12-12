@@ -196,9 +196,9 @@ Maximum total open interest across all users:
 ### API Methods
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Get account limits
 const limits = await dex.getAccountLimits()
