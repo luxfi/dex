@@ -1,0 +1,684 @@
+---
+title: Trade History
+description: Query executed trades, subscribe to trade streams, and analyze trading data
+---
+
+# Trade History
+
+Access historical trades and subscribe to real-time trade feeds using the TypeScript SDK.
+
+## Trade Structure
+
+```typescript
+interface Trade {
+  tradeId: number;      // Unique trade identifier
+  symbol: string;       // Trading pair (e.g., "BTC-USD")
+  price: number;        // Execution price
+  size: number;         // Trade size
+  side: OrderSide;      // 0 = BUY, 1 = SELL (taker side)
+  buyOrderId: number;   // Buy order ID
+  sellOrderId: number;  // Sell order ID
+  buyerId: string;      // Buyer user ID
+  sellerId: string;     // Seller user ID
+  timestamp: number;    // Unix timestamp in milliseconds
+}
+```
+
+## Getting Recent Trades
+
+### Basic Query
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+async function getRecentTrades(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const trades = await client.getTrades('BTC-USD', 100);
+
+  console.log(`Found ${trades.length} recent trades:`);
+  trades.forEach(trade => {
+    const side = trade.side === 0 ? 'BUY' : 'SELL';
+    console.log(`  ${trade.tradeId}: ${side} ${trade.size} @ ${trade.price}`);
+  });
+}
+```
+
+### With Pagination
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+interface TradeQueryParams {
+  symbol: string;
+  limit: number;
+  beforeId?: number;
+  afterId?: number;
+}
+
+async function getTradesWithPagination(
+  params: TradeQueryParams
+): Promise<Trade[]> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // Note: Pagination support depends on API implementation
+  const trades = await client.getTrades(params.symbol, params.limit);
+
+  return trades;
+}
+
+// Fetch trades in batches
+async function fetchAllRecentTrades(
+  symbol: string,
+  totalCount: number
+): Promise<Trade[]> {
+  const allTrades: Trade[] = [];
+  const batchSize = 100;
+  let lastTradeId: number | undefined;
+
+  while (allTrades.length < totalCount) {
+    const trades = await getTradesWithPagination({
+      symbol,
+      limit: batchSize,
+      beforeId: lastTradeId
+    });
+
+    if (trades.length === 0) break;
+
+    allTrades.push(...trades);
+    lastTradeId = trades[trades.length - 1].tradeId;
+
+    // Rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  return allTrades.slice(0, totalCount);
+}
+```
+
+## Real-Time Trade Subscriptions
+
+### Subscribe to Trades
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+async function subscribeToTrades(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  client.subscribeTrades('BTC-USD', (trade: Trade) => {
+    const side = trade.side === 0 ? 'BUY' : 'SELL';
+    const time = new Date(trade.timestamp).toLocaleTimeString();
+
+    console.log(`[${time}] ${side} ${trade.size} BTC @ $${trade.price}`);
+  });
+
+  console.log('Subscribed to BTC-USD trades');
+}
+```
+
+### Multiple Symbol Subscription
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+async function subscribeToMultipleSymbols(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+
+  symbols.forEach(symbol => {
+    client.subscribeTrades(symbol, (trade: Trade) => {
+      console.log(`${symbol}: ${trade.size} @ ${trade.price}`);
+    });
+  });
+
+  console.log(`Subscribed to: ${symbols.join(', ')}`);
+}
+```
+
+### Unsubscribe from Trades
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+async function manageTradeSubscription(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  const handleTrade = (trade: Trade): void => {
+    console.log('Trade received:', trade.tradeId);
+  };
+
+  // Subscribe
+  client.subscribeTrades('BTC-USD', handleTrade);
+
+  // Unsubscribe after 1 minute
+  setTimeout(() => {
+    client.unsubscribe('trades:BTC-USD', handleTrade);
+    console.log('Unsubscribed from trades');
+  }, 60000);
+}
+```
+
+## Trade Analysis
+
+### Volume Analysis
+
+```typescript
+import { LXDexClient, Trade, OrderSide } from '@luxfi/dex-sdk';
+
+interface VolumeAnalysis {
+  totalVolume: number;
+  buyVolume: number;
+  sellVolume: number;
+  vwap: number;
+  tradeCount: number;
+  buyCount: number;
+  sellCount: number;
+}
+
+function analyzeVolume(trades: Trade[]): VolumeAnalysis {
+  let totalVolume = 0;
+  let buyVolume = 0;
+  let sellVolume = 0;
+  let volumePrice = 0;
+  let buyCount = 0;
+  let sellCount = 0;
+
+  for (const trade of trades) {
+    totalVolume += trade.size;
+    volumePrice += trade.size * trade.price;
+
+    if (trade.side === OrderSide.BUY) {
+      buyVolume += trade.size;
+      buyCount++;
+    } else {
+      sellVolume += trade.size;
+      sellCount++;
+    }
+  }
+
+  return {
+    totalVolume,
+    buyVolume,
+    sellVolume,
+    vwap: totalVolume > 0 ? volumePrice / totalVolume : 0,
+    tradeCount: trades.length,
+    buyCount,
+    sellCount
+  };
+}
+
+async function getVolumeAnalysis(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const trades = await client.getTrades('BTC-USD', 1000);
+  const analysis = analyzeVolume(trades);
+
+  console.log('Volume Analysis (last 1000 trades):');
+  console.log(`  Total Volume: ${analysis.totalVolume.toFixed(4)} BTC`);
+  console.log(`  Buy Volume: ${analysis.buyVolume.toFixed(4)} BTC (${analysis.buyCount} trades)`);
+  console.log(`  Sell Volume: ${analysis.sellVolume.toFixed(4)} BTC (${analysis.sellCount} trades)`);
+  console.log(`  VWAP: $${analysis.vwap.toFixed(2)}`);
+  console.log(`  Buy/Sell Ratio: ${(analysis.buyVolume / analysis.sellVolume).toFixed(2)}`);
+}
+```
+
+### Trade Aggregation by Time
+
+```typescript
+import { Trade } from '@luxfi/dex-sdk';
+
+interface CandleData {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: number;
+}
+
+function aggregateTradesToCandles(
+  trades: Trade[],
+  intervalMs: number
+): CandleData[] {
+  if (trades.length === 0) return [];
+
+  // Sort trades by timestamp
+  const sorted = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+  const candles: CandleData[] = [];
+  let currentCandle: CandleData | null = null;
+  let currentInterval = 0;
+
+  for (const trade of sorted) {
+    const tradeInterval = Math.floor(trade.timestamp / intervalMs) * intervalMs;
+
+    if (currentCandle === null || tradeInterval !== currentInterval) {
+      // Start new candle
+      if (currentCandle) {
+        candles.push(currentCandle);
+      }
+
+      currentInterval = tradeInterval;
+      currentCandle = {
+        open: trade.price,
+        high: trade.price,
+        low: trade.price,
+        close: trade.price,
+        volume: trade.size,
+        timestamp: tradeInterval
+      };
+    } else {
+      // Update current candle
+      currentCandle.high = Math.max(currentCandle.high, trade.price);
+      currentCandle.low = Math.min(currentCandle.low, trade.price);
+      currentCandle.close = trade.price;
+      currentCandle.volume += trade.size;
+    }
+  }
+
+  if (currentCandle) {
+    candles.push(currentCandle);
+  }
+
+  return candles;
+}
+
+// Usage: 1-minute candles
+async function getMinuteCandles(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const trades = await client.getTrades('BTC-USD', 1000);
+  const candles = aggregateTradesToCandles(trades, 60000); // 1 minute
+
+  console.log('1-Minute Candles:');
+  candles.slice(-10).forEach(c => {
+    const time = new Date(c.timestamp).toLocaleTimeString();
+    console.log(`  ${time}: O:${c.open} H:${c.high} L:${c.low} C:${c.close} V:${c.volume.toFixed(4)}`);
+  });
+}
+```
+
+### Large Trade Detection
+
+```typescript
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+interface LargeTrade extends Trade {
+  volumeUSD: number;
+  percentOfAverage: number;
+}
+
+async function detectLargeTrades(
+  symbol: string,
+  threshold: number = 2.0
+): Promise<LargeTrade[]> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const trades = await client.getTrades(symbol, 1000);
+
+  // Calculate average trade size
+  const avgSize = trades.reduce((sum, t) => sum + t.size, 0) / trades.length;
+
+  // Find trades larger than threshold * average
+  const largeTrades: LargeTrade[] = trades
+    .filter(t => t.size > avgSize * threshold)
+    .map(t => ({
+      ...t,
+      volumeUSD: t.size * t.price,
+      percentOfAverage: (t.size / avgSize) * 100
+    }));
+
+  return largeTrades;
+}
+
+async function monitorLargeTrades(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  // Track recent trades to calculate running average
+  const recentTrades: Trade[] = [];
+  const maxTrades = 100;
+
+  client.subscribeTrades('BTC-USD', (trade: Trade) => {
+    // Add to recent trades
+    recentTrades.push(trade);
+    if (recentTrades.length > maxTrades) {
+      recentTrades.shift();
+    }
+
+    // Calculate average
+    const avgSize = recentTrades.reduce((sum, t) => sum + t.size, 0) / recentTrades.length;
+
+    // Alert on large trades (> 3x average)
+    if (trade.size > avgSize * 3) {
+      const side = trade.side === 0 ? 'BUY' : 'SELL';
+      console.log(`LARGE TRADE ALERT: ${side} ${trade.size} @ ${trade.price}`);
+      console.log(`  (${(trade.size / avgSize * 100).toFixed(0)}% of average)`);
+    }
+  });
+}
+```
+
+## React Hooks
+
+### useTrades Hook
+
+```tsx
+import { useState, useEffect, useCallback } from 'react';
+import { LXDexClient, Trade } from '@luxfi/dex-sdk';
+
+interface UseTradesOptions {
+  limit?: number;
+  realtime?: boolean;
+}
+
+interface UseTradesResult {
+  trades: Trade[];
+  loading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+
+export function useTrades(
+  client: LXDexClient | null,
+  symbol: string,
+  options: UseTradesOptions = {}
+): UseTradesResult {
+  const { limit = 50, realtime = true } = options;
+
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchTrades = useCallback(async () => {
+    if (!client) return;
+
+    try {
+      const data = await client.getTrades(symbol, limit);
+      setTrades(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch trades'));
+    } finally {
+      setLoading(false);
+    }
+  }, [client, symbol, limit]);
+
+  useEffect(() => {
+    if (!client) return;
+
+    fetchTrades();
+
+    if (realtime) {
+      client.subscribeTrades(symbol, (trade: Trade) => {
+        setTrades(prev => {
+          const updated = [trade, ...prev];
+          return updated.slice(0, limit);
+        });
+      });
+
+      return () => {
+        client.unsubscribe(`trades:${symbol}`);
+      };
+    }
+  }, [client, symbol, limit, realtime, fetchTrades]);
+
+  return {
+    trades,
+    loading,
+    error,
+    refresh: fetchTrades
+  };
+}
+```
+
+### Usage in Component
+
+```tsx
+import React from 'react';
+import { useTrades } from './hooks/useTrades';
+import { useDexClient } from './DexProvider';
+import { Trade, OrderSide } from '@luxfi/dex-sdk';
+
+function TradeHistory(): JSX.Element {
+  const { client } = useDexClient();
+  const { trades, loading, error } = useTrades(client, 'BTC-USD', {
+    limit: 25,
+    realtime: true
+  });
+
+  if (loading) {
+    return <div>Loading trades...</div>;
+  }
+
+  if (error) {
+    return <div>Error: {error.message}</div>;
+  }
+
+  return (
+    <div className="trade-history">
+      <h3>Recent Trades</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Side</th>
+            <th>Price</th>
+            <th>Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trades.map((trade: Trade) => (
+            <tr
+              key={trade.tradeId}
+              className={trade.side === OrderSide.BUY ? 'buy' : 'sell'}
+            >
+              <td>{new Date(trade.timestamp).toLocaleTimeString()}</td>
+              <td>{trade.side === OrderSide.BUY ? 'Buy' : 'Sell'}</td>
+              <td>${trade.price.toFixed(2)}</td>
+              <td>{trade.size.toFixed(4)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+```
+
+### useTradeStats Hook
+
+```tsx
+import { useState, useEffect } from 'react';
+import { LXDexClient, Trade, OrderSide } from '@luxfi/dex-sdk';
+
+interface TradeStats {
+  totalVolume: number;
+  buyVolume: number;
+  sellVolume: number;
+  tradeCount: number;
+  lastPrice: number | null;
+  priceChange: number | null;
+  high: number | null;
+  low: number | null;
+}
+
+export function useTradeStats(
+  client: LXDexClient | null,
+  symbol: string
+): TradeStats {
+  const [stats, setStats] = useState<TradeStats>({
+    totalVolume: 0,
+    buyVolume: 0,
+    sellVolume: 0,
+    tradeCount: 0,
+    lastPrice: null,
+    priceChange: null,
+    high: null,
+    low: null
+  });
+
+  useEffect(() => {
+    if (!client) return;
+
+    let firstPrice: number | null = null;
+    let high: number | null = null;
+    let low: number | null = null;
+    let totalVolume = 0;
+    let buyVolume = 0;
+    let sellVolume = 0;
+    let tradeCount = 0;
+
+    client.subscribeTrades(symbol, (trade: Trade) => {
+      if (firstPrice === null) {
+        firstPrice = trade.price;
+      }
+
+      high = high === null ? trade.price : Math.max(high, trade.price);
+      low = low === null ? trade.price : Math.min(low, trade.price);
+
+      totalVolume += trade.size;
+      if (trade.side === OrderSide.BUY) {
+        buyVolume += trade.size;
+      } else {
+        sellVolume += trade.size;
+      }
+      tradeCount++;
+
+      setStats({
+        totalVolume,
+        buyVolume,
+        sellVolume,
+        tradeCount,
+        lastPrice: trade.price,
+        priceChange: trade.price - firstPrice,
+        high,
+        low
+      });
+    });
+
+    return () => {
+      client.unsubscribe(`trades:${symbol}`);
+    };
+  }, [client, symbol]);
+
+  return stats;
+}
+```
+
+## Trade Data Export
+
+### Export to CSV
+
+```typescript
+import { Trade, OrderSide } from '@luxfi/dex-sdk';
+
+function tradesToCSV(trades: Trade[]): string {
+  const headers = [
+    'Trade ID',
+    'Timestamp',
+    'Symbol',
+    'Side',
+    'Price',
+    'Size',
+    'Buy Order ID',
+    'Sell Order ID',
+    'Buyer ID',
+    'Seller ID'
+  ].join(',');
+
+  const rows = trades.map(t => [
+    t.tradeId,
+    new Date(t.timestamp).toISOString(),
+    t.symbol,
+    t.side === OrderSide.BUY ? 'BUY' : 'SELL',
+    t.price,
+    t.size,
+    t.buyOrderId,
+    t.sellOrderId,
+    t.buyerId,
+    t.sellerId
+  ].join(','));
+
+  return [headers, ...rows].join('\n');
+}
+
+// Browser download
+function downloadTradesCSV(trades: Trade[], filename: string): void {
+  const csv = tradesToCSV(trades);
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+```
+
+### Export to JSON
+
+```typescript
+import { Trade } from '@luxfi/dex-sdk';
+
+function tradesToJSON(trades: Trade[]): string {
+  return JSON.stringify(trades, null, 2);
+}
+
+// Node.js file write
+import { writeFileSync } from 'fs';
+
+async function exportTradesToFile(
+  symbol: string,
+  filename: string
+): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const trades = await client.getTrades(symbol, 10000);
+  const json = tradesToJSON(trades);
+
+  writeFileSync(filename, json);
+  console.log(`Exported ${trades.length} trades to ${filename}`);
+}
+```
+
+## Next Steps
+
+- [Account Management](/docs/sdk/typescript/account) - Balances and positions
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time connections
+- [Type Reference](/docs/sdk/typescript/types) - Complete type definitions

@@ -1,0 +1,571 @@
+---
+title: B-Chain (BridgeVM)
+description: BridgeVM architecture, state machine, block structure, and LP-333 signer management
+---
+
+# B-Chain (BridgeVM)
+
+> **Specification**: [LP-6000 B-Chain Bridge](https://github.com/luxfi/LPs/blob/main/LPs/lp-6000-b-chain-bridge-specification.md) | [LP-333 Dynamic Signer Rotation](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)
+>
+> **Source**: [`github.com/luxfi/node/vms/bridgevm`](https://github.com/luxfi/node/tree/main/vms/bridgevm)
+
+The B-Chain (Bridge Chain) is a dedicated blockchain for cross-chain operations, implementing MPC-based custody with LP-333 opt-in signer management.
+
+## Implementation Status
+
+| Component | File | Status |
+|-----------|------|--------|
+| BridgeVM Core | [`vm.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/vm.go) | Complete |
+| LP-333 RPC | [`rpc.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/rpc.go) | Complete |
+| Block Structure | [`block.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/block.go) | Complete |
+| Codec | [`codec.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/codec.go) | Complete |
+| Factory | [`factory.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/factory.go) | Complete |
+| Signer Tests | [`signer_test.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/signer_test.go) | Complete |
+
+## VM Architecture
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// VM implements the Bridge VM for cross-chain interoperability
+type VM struct {
+    ctx      *consensusctx.Context
+    db       database.Database
+    config   BridgeConfig
+    toEngine chan<- common.Message
+    log      log.Logger
+
+    // MPC components using threshold CMP protocol
+    mpcConfig   *config.Config // CMP config for this party (after keygen)
+    mpcPartyID  party.ID       // This party's ID in MPC protocol
+    mpcPartyIDs []party.ID     // All party IDs in the MPC group
+    mpcPool     *pool.Pool     // Worker pool for MPC operations
+
+    // LP-333: Signer Set Management (opt-in model)
+    signerSet *SignerSet // Active signer set with opt-in management
+
+    // Bridge state
+    pendingBridges map[ids.ID]*BridgeRequest
+    bridgeRegistry *BridgeRegistry
+
+    // Chain connectivity
+    chainClients map[string]ChainClient
+
+    // Block management
+    preferred      ids.ID
+    lastAcceptedID ids.ID
+    pendingBlocks  map[ids.ID]*Block
+
+    mu sync.RWMutex
+}
+```
+
+## Configuration
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// BridgeConfig contains VM configuration
+type BridgeConfig struct {
+    // MPC configuration for secure cross-chain operations
+    MPCThreshold    int `json:"mpcThreshold"`    // t: Threshold (t+1 parties needed)
+    MPCTotalParties int `json:"mpcTotalParties"` // n: Total number of MPC nodes
+
+    // Bridge parameters
+    MinConfirmations uint32 `json:"minConfirmations"` // Confirmations required before bridging
+    BridgeFee        uint64 `json:"bridgeFee"`        // Fee in LUX for bridge operations
+
+    // Supported chains
+    SupportedChains []string `json:"supportedChains"` // Chain IDs that can be bridged
+
+    // Security settings
+    MaxBridgeAmount      uint64 `json:"maxBridgeAmount"`      // Maximum amount per bridge tx
+    DailyBridgeLimit     uint64 `json:"dailyBridgeLimit"`     // Daily limit for bridge ops
+    RequireValidatorBond uint64 `json:"requireValidatorBond"` // 100M LUX bond (slashable)
+
+    // LP-333: Opt-in Signer Set Management
+    MaxSigners     int     `json:"maxSigners"`     // Maximum signers (default: 100)
+    ThresholdRatio float64 `json:"thresholdRatio"` // Threshold ratio (default: 0.67)
+}
+```
+
+### Default Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MaxSigners` | 100 | First 100 validators opt-in, then set freezes |
+| `ThresholdRatio` | 0.67 | 2/3 threshold for BFT safety |
+| `RequireValidatorBond` | 100M LUX | Slashable bond (NOT stake) |
+| `MinConfirmations` | 12 | Source chain confirmations |
+
+## LP-333 Signer Set Management
+
+The signer set follows the LP-333 opt-in model:
+
+### Key Principles
+
+1. **Opt-in Registration**: First 100 validators accepted without reshare
+2. **Set Freezes at 100**: No new signers until slot opens
+3. **Reshare Only on Removal**: Epoch increments only when signer replaced
+4. **Slashable Bond**: 100M LUX bond can be partially/fully slashed
+
+### SignerSet Structure
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// SignerSet tracks the current MPC signer set (LP-333)
+type SignerSet struct {
+    Signers      []*SignerInfo `json:"signers"`      // Active signers (max 100)
+    Waitlist     []ids.NodeID  `json:"waitlist"`     // Validators waiting for slot
+    CurrentEpoch uint64        `json:"currentEpoch"` // Increments ONLY on reshare
+    SetFrozen    bool          `json:"setFrozen"`    // True when signers >= MaxSigners
+    ThresholdT   int           `json:"thresholdT"`   // Current t value (T+1 to sign)
+    PublicKey    []byte        `json:"publicKey"`    // Combined threshold public key
+}
+
+// SignerInfo contains information about a signer
+type SignerInfo struct {
+    NodeID     ids.NodeID `json:"nodeId"`
+    PartyID    party.ID   `json:"partyId"`
+    BondAmount uint64     `json:"bondAmount"` // 100M LUX bond (slashable)
+    MPCPubKey  []byte     `json:"mpcPubKey"`
+    Active     bool       `json:"active"`
+    JoinedAt   time.Time  `json:"joinedAt"`
+    SlotIndex  int        `json:"slotIndex"`
+    Slashed    bool       `json:"slashed"`
+    SlashCount int        `json:"slashCount"`
+}
+```
+
+### Registration Flow
+
+```
+Validator                    B-Chain                           Outcome
++----------+                +---------+                    +----------------+
+|          | Register       |         |                    |                |
+| NodeID   | -------------> | Signers |                    |                |
+| + Bond   |                | < 100?  |                    |                |
+|          |                |         |                    |                |
+|          |                +----+----+                    |                |
+|          |                     |                         |                |
+|          |               Yes   |   No                    |                |
+|          |              +------+------+                  |                |
+|          |              |             |                  |                |
+|          |              v             v                  |                |
+|          |         Add to Set    Add to Waitlist        |                |
+|          |         NO RESHARE    Wait for slot          |                |
+|          |              |             |                  |                |
+|          | <------------+-------------+                  |                |
+|          |    Result                                     |                |
++----------+                                               +----------------+
+```
+
+### Validator Registration
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// RegisterValidator registers a new validator as a bridge signer
+func (vm *VM) RegisterValidator(input *RegisterValidatorInput) (*RegisterValidatorResult, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    nodeID, err := ids.NodeIDFromString(input.NodeID)
+    if err != nil {
+        return nil, fmt.Errorf("invalid node ID: %w", err)
+    }
+
+    // Check if already a signer
+    for _, signer := range vm.signerSet.Signers {
+        if signer.NodeID == nodeID {
+            return &RegisterValidatorResult{
+                Success: false,
+                Message: "already registered as signer",
+            }, nil
+        }
+    }
+
+    // If set is NOT frozen, add directly - NO RESHARE
+    if !vm.signerSet.SetFrozen && len(vm.signerSet.Signers) < vm.config.MaxSigners {
+        signerInfo := &SignerInfo{
+            NodeID:     nodeID,
+            PartyID:    party.ID(nodeID.String()),
+            BondAmount: bondAmount,
+            Active:     true,
+            JoinedAt:   time.Now(),
+            SlotIndex:  len(vm.signerSet.Signers),
+        }
+
+        vm.signerSet.Signers = append(vm.signerSet.Signers, signerInfo)
+
+        // Update threshold: t = floor(n * 0.67)
+        vm.signerSet.ThresholdT = int(float64(len(vm.signerSet.Signers)) * vm.config.ThresholdRatio)
+
+        // Check if set should freeze
+        if len(vm.signerSet.Signers) >= vm.config.MaxSigners {
+            vm.signerSet.SetFrozen = true
+        }
+
+        return &RegisterValidatorResult{
+            Success:       true,
+            Registered:    true,
+            ReshareNeeded: false, // LP-333: NO reshare on join
+        }, nil
+    }
+
+    // Set is frozen - add to waitlist
+    vm.signerSet.Waitlist = append(vm.signerSet.Waitlist, nodeID)
+    return &RegisterValidatorResult{
+        Success:    true,
+        Waitlisted: true,
+    }, nil
+}
+```
+
+### Signer Removal (Triggers Reshare)
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// RemoveSigner removes a failed/stopped signer and triggers replacement
+// LP-333: This is the ONLY operation that triggers a reshare
+func (vm *VM) RemoveSigner(nodeID ids.NodeID, replacementNodeID *ids.NodeID) (*SignerReplacementResult, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    // Find and remove the signer
+    found := false
+    var removedSigner *SignerInfo
+    for i, signer := range vm.signerSet.Signers {
+        if signer.NodeID == nodeID {
+            removedSigner = signer
+            vm.signerSet.Signers = append(
+                vm.signerSet.Signers[:i],
+                vm.signerSet.Signers[i+1:]...,
+            )
+            found = true
+            break
+        }
+    }
+
+    if !found {
+        return &SignerReplacementResult{
+            Success: false,
+            Message: "signer not found",
+        }, nil
+    }
+
+    // Determine replacement
+    var replacement ids.NodeID
+    if replacementNodeID != nil {
+        replacement = *replacementNodeID
+    } else if len(vm.signerSet.Waitlist) > 0 {
+        replacement = vm.signerSet.Waitlist[0]
+        vm.signerSet.Waitlist = vm.signerSet.Waitlist[1:]
+    }
+
+    // Add replacement if available
+    if replacement != ids.EmptyNodeID {
+        newSigner := &SignerInfo{
+            NodeID:    replacement,
+            SlotIndex: removedSigner.SlotIndex,
+            Active:    true,
+            JoinedAt:  time.Now(),
+        }
+        vm.signerSet.Signers = append(vm.signerSet.Signers, newSigner)
+    }
+
+    // INCREMENT EPOCH - ONLY reshare trigger (LP-333)
+    vm.signerSet.CurrentEpoch++
+
+    return &SignerReplacementResult{
+        Success:   true,
+        NewEpoch:  vm.signerSet.CurrentEpoch,
+        Message:   "reshare initiated",
+    }, nil
+}
+```
+
+## Slashing
+
+Signers post a 100M LUX bond that can be slashed for misbehavior:
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// SlashSigner slashes a misbehaving bridge signer's bond
+func (vm *VM) SlashSigner(input *SlashSignerInput) (*SlashSignerResult, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    // Validate slash percentage (1-100%)
+    if input.SlashPercent < 1 || input.SlashPercent > 100 {
+        return nil, errors.New("slash percent must be between 1 and 100")
+    }
+
+    // Find the signer
+    var signer *SignerInfo
+    var signerIndex int
+    for i, s := range vm.signerSet.Signers {
+        if s.NodeID == input.NodeID {
+            signer = s
+            signerIndex = i
+            break
+        }
+    }
+
+    if signer == nil {
+        return &SlashSignerResult{Success: false, Message: "signer not found"}, nil
+    }
+
+    // Calculate slash amount
+    slashAmount := (signer.BondAmount * uint64(input.SlashPercent)) / 100
+    remainingBond := signer.BondAmount - slashAmount
+
+    // Update signer state
+    signer.BondAmount = remainingBond
+    signer.Slashed = true
+    signer.SlashCount++
+
+    result := &SlashSignerResult{
+        Success:       true,
+        SlashedAmount: slashAmount,
+        RemainingBond: remainingBond,
+    }
+
+    // If bond drops below 100M LUX minimum, remove signer
+    minBond := uint64(100_000_000 * 1e9)
+    if remainingBond < minBond {
+        vm.signerSet.Signers = append(
+            vm.signerSet.Signers[:signerIndex],
+            vm.signerSet.Signers[signerIndex+1:]...,
+        )
+        vm.signerSet.CurrentEpoch++ // Removal triggers reshare
+        result.RemovedFromSet = true
+    }
+
+    return result, nil
+}
+```
+
+## Bridge Request Structure
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// BridgeRequest represents a cross-chain bridge request
+type BridgeRequest struct {
+    ID            ids.ID    `json:"id"`
+    SourceChain   string    `json:"sourceChain"`
+    DestChain     string    `json:"destChain"`
+    Asset         ids.ID    `json:"asset"`
+    Amount        uint64    `json:"amount"`
+    Recipient     []byte    `json:"recipient"`
+    SourceTxID    ids.ID    `json:"sourceTxId"`
+    Confirmations uint32    `json:"confirmations"`
+    Status        string    `json:"status"` // pending, signing, completed, failed
+    MPCSignatures [][]byte  `json:"mpcSignatures"`
+    CreatedAt     time.Time `json:"createdAt"`
+}
+```
+
+## Block Building
+
+```go
+// Source: vms/bridgevm/vm.go
+
+// BuildBlock implements the block.ChainVM interface
+func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
+    vm.mu.Lock()
+    defer vm.mu.Unlock()
+
+    if len(vm.pendingBridges) == 0 {
+        return nil, errors.New("no pending bridge requests")
+    }
+
+    parentID := vm.preferred
+    if parentID == ids.Empty {
+        parentID = vm.lastAcceptedID
+    }
+
+    parent, err := vm.getBlock(parentID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to get parent: %w", err)
+    }
+
+    // Collect ready bridge requests
+    var requests []*BridgeRequest
+    for _, req := range vm.pendingBridges {
+        if req.Confirmations >= vm.config.MinConfirmations {
+            requests = append(requests, req)
+        }
+        if len(requests) >= 100 {
+            break
+        }
+    }
+
+    if len(requests) == 0 {
+        return nil, errors.New("no ready requests")
+    }
+
+    blk := &Block{
+        ParentID_:      parentID,
+        BlockHeight:    parent.Height() + 1,
+        BlockTimestamp: time.Now().Unix(),
+        BridgeRequests: requests,
+        vm:             vm,
+    }
+
+    blk.ID_ = blk.computeID()
+    vm.pendingBlocks[blk.ID()] = blk
+
+    return blk, nil
+}
+```
+
+## JSON-RPC API
+
+The B-Chain exposes LP-333 compliant endpoints:
+
+### bridge_registerValidator
+
+Register as a bridge signer:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "bridge_registerValidator",
+        "params": {
+            "nodeId": "NodeID-ABC123...",
+            "bondAmount": "100000000000000000"
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/B/rpc
+```
+
+Response:
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "success": true,
+        "registered": true,
+        "signerIndex": 42,
+        "totalSigners": 43,
+        "threshold": 28,
+        "reshareNeeded": false,
+        "currentEpoch": 0,
+        "setFrozen": false,
+        "remainingSlots": 57
+    },
+    "id": 1
+}
+```
+
+### bridge_getSignerSetInfo
+
+Get current signer set state:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "bridge_getSignerSetInfo",
+        "params": {},
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/B/rpc
+```
+
+Response:
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "totalSigners": 67,
+        "threshold": 44,
+        "maxSigners": 100,
+        "currentEpoch": 3,
+        "setFrozen": false,
+        "remainingSlots": 33,
+        "waitlistSize": 12,
+        "publicKey": "0x04a1b2c3..."
+    },
+    "id": 1
+}
+```
+
+### bridge_replaceSigner
+
+Remove failed signer (triggers reshare):
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "bridge_replaceSigner",
+        "params": {
+            "nodeId": "NodeID-FAILED...",
+            "replacementNodeId": ""
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/B/rpc
+```
+
+### bridge_slashSigner
+
+Slash misbehaving signer:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+    --data '{
+        "jsonrpc": "2.0",
+        "method": "bridge_slashSigner",
+        "params": {
+            "nodeId": "NodeID-BAD...",
+            "reason": "double_signing",
+            "slashPercent": 50,
+            "evidence": "0x..."
+        },
+        "id": 1
+    }' \
+    http://localhost:9650/ext/bc/B/rpc
+```
+
+## Tests
+
+The BridgeVM includes comprehensive LP-333 tests:
+
+```go
+// Source: vms/bridgevm/signer_test.go
+
+func TestSignerSetOptInRegistration(t *testing.T)        // Opt-in without reshare
+func TestSignerSetFreezeAt100(t *testing.T)              // Set freezes at max
+func TestRemoveSignerTriggersReshare(t *testing.T)       // Only removal reshares
+func TestRemoveSignerWithWaitlistReplacement(t *testing.T) // Auto-replacement
+func TestHasSigner(t *testing.T)                         // Signer check
+func TestGetSignerSetInfo(t *testing.T)                  // Info retrieval
+func TestDuplicateRegistration(t *testing.T)             // Reject duplicates
+func TestThresholdCalculation(t *testing.T)              // 2/3 threshold
+func TestSlashSignerPartial(t *testing.T)                // Partial slash
+func TestSlashSignerRemoval(t *testing.T)                // Slash below minimum
+func TestSlashSignerNotFound(t *testing.T)               // Non-existent signer
+func TestSlashSignerInvalidPercent(t *testing.T)         // Invalid percentages
+```
+
+Run tests:
+```bash
+cd /Users/z/work/lux/node
+go test -v ./vms/bridgevm/...
+```
+
+## Related Documentation
+
+- [MPC Custody](/docs/bridge/mpc) - CGGMP21 protocol details
+- [ThresholdVM](/docs/bridge/threshold) - T-Chain MPC operations
+- [Security](/docs/bridge/security) - Bond and slashing model
+- [LP-333 Specification](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)

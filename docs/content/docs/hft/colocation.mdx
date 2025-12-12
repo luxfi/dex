@@ -1,0 +1,331 @@
+---
+title: Colocation
+description: Global data center presence with sub-microsecond access to LX DEX matching engines
+---
+
+# Colocation Services
+
+LX DEX offers **institutional-grade colocation** at premier financial data centers worldwide.
+
+## Data Center Locations
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               GLOBAL COLOCATION NETWORK                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│                    ┌─────┐                                  │
+│                    │ LD4 │ London                           │
+│                    └──┬──┘                                  │
+│                       │                                      │
+│      ┌─────┐         │          ┌─────┐                     │
+│      │ NY5 │─────────┼──────────│ FR2 │ Frankfurt          │
+│      └──┬──┘         │          └─────┘                     │
+│         │            │                                       │
+│  New York            │                                       │
+│         │            │                                       │
+│      ┌──┴──┐         │          ┌─────┐                     │
+│      │ CH1 │         │          │ TY3 │ Tokyo              │
+│      └─────┘         │          └──┬──┘                     │
+│   Chicago            │             │                         │
+│                      │          ┌──┴──┐                     │
+│                      └──────────│ SG1 │ Singapore          │
+│                                 └─────┘                     │
+│                                                              │
+│  Backbone: 100Gbps dark fiber, < 1ms inter-DC latency      │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Primary Locations
+
+### Equinix NY5 (Primary - Americas)
+
+**Location**: Secaucus, New Jersey, USA
+
+| Specification | Value |
+|--------------|-------|
+| **RTT to Engine** | < 50 nanoseconds |
+| **Cross-Connect** | 10G/100G available |
+| **Power** | 2N+1 redundancy |
+| **Cooling** | N+1 with 72-hour backup |
+| **Network** | DPDK/RDMA enabled |
+| **Cage Options** | 1/4, 1/2, full cage |
+
+**Rack Specifications**:
+- Standard: 42U, 10kW power
+- High-density: 42U, 20kW power
+- Custom: Up to 50kW per rack
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    NY5 NETWORK TOPOLOGY                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Your Rack                          LX DEX Rack             │
+│  ┌──────────────┐                   ┌──────────────┐        │
+│  │ Your Server  │                   │ Gateway      │        │
+│  │              │                   │ (FPGA)       │        │
+│  └──────┬───────┘                   └──────┬───────┘        │
+│         │                                  │                │
+│         │ 100G Cross-Connect               │                │
+│         │ (< 1 meter fiber)                │                │
+│         ▼                                  ▼                │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              Meet-Me Room (MMR)                      │   │
+│  │              Patch Panel Location: NY5-MMR-A-12     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│  Cross-Connect Latency: < 10 nanoseconds                   │
+│  Gateway Processing: < 40 nanoseconds                      │
+│  Total Wire-to-Engine: < 50 nanoseconds                    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Equinix LD4 (Primary - EMEA)
+
+**Location**: Slough, United Kingdom
+
+| Specification | Value |
+|--------------|-------|
+| **RTT to Engine** | < 50 nanoseconds |
+| **Cross-Connect** | 10G/100G available |
+| **Power** | 2N redundancy |
+| **Compliance** | FCA, MiFID II ready |
+| **Network** | Low-latency switching |
+
+### Equinix TY3 (Primary - APAC)
+
+**Location**: Tokyo, Japan
+
+| Specification | Value |
+|--------------|-------|
+| **RTT to Engine** | < 50 nanoseconds |
+| **Cross-Connect** | 10G/100G available |
+| **Power** | Earthquake-resistant |
+| **Compliance** | FSA Japan compliant |
+| **Network** | Direct JPX connectivity |
+
+### Equinix SG1 (Secondary - APAC)
+
+**Location**: Singapore
+
+| Specification | Value |
+|--------------|-------|
+| **RTT to Engine** | < 100 nanoseconds |
+| **Cross-Connect** | 10G/100G available |
+| **Power** | Tropical cooling optimized |
+| **Compliance** | MAS compliant |
+
+## Network Architecture
+
+### Intra-DC Connectivity
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              COLOCATION NETWORK STACK                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Layer 4+: Application Protocol                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Binary Protocol | FIX 5.0 | Custom                  │   │
+│  │  Message Size: 32-128 bytes                          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│  Layer 3/4: Transport                                       │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  UDP (primary) | TCP (backup)                        │   │
+│  │  Kernel Bypass: DPDK / RDMA                          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│  Layer 2: Data Link                                         │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Direct Cross-Connect | No switch hops               │   │
+│  │  Jumbo Frames: 9000 MTU                              │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│  Layer 1: Physical                                          │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Single-mode fiber | 100G QSFP28                     │   │
+│  │  Distance: < 5 meters                                │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Inter-DC Backbone
+
+| Route | Distance | Latency | Bandwidth |
+|-------|----------|---------|-----------|
+| NY5 - LD4 | 5,570 km | 28ms | 100 Gbps |
+| NY5 - TY3 | 10,850 km | 75ms | 100 Gbps |
+| LD4 - TY3 | 9,560 km | 120ms | 100 Gbps |
+| LD4 - SG1 | 10,850 km | 85ms | 100 Gbps |
+| TY3 - SG1 | 5,310 km | 35ms | 100 Gbps |
+
+**Backbone Features**:
+- Dedicated dark fiber (not shared)
+- Automatic failover (< 50ms)
+- DDoS mitigation at edge
+- 24/7 NOC monitoring
+
+## Hardware Requirements
+
+### Recommended Server Specifications
+
+**Tier 1: Ultra-Low-Latency**
+
+```yaml
+# For market makers, HFT firms
+CPU: Intel Xeon W-3375 (32 cores, 2.5GHz base)
+     OR AMD EPYC 7763 (64 cores)
+RAM: 512GB DDR5-4800 ECC (8 channels)
+NIC: Mellanox ConnectX-7 (100GbE, RDMA)
+     OR Solarflare X2522 (kernel bypass)
+Storage: Intel Optane P5800X 800GB (< 6us latency)
+OS: Ubuntu 22.04 LTS (PREEMPT_RT kernel)
+```
+
+**Tier 2: High-Performance**
+
+```yaml
+# For quantitative trading, arbitrage
+CPU: Intel Xeon Gold 6348 (28 cores)
+RAM: 256GB DDR4-3200 ECC
+NIC: Mellanox ConnectX-6 (100GbE)
+Storage: Samsung PM1733 NVMe 1.92TB
+OS: Ubuntu 22.04 LTS
+```
+
+### Network Interface Configuration
+
+```bash
+#!/bin/bash
+# Optimal NIC configuration for LX DEX colocation
+
+# Disable interrupt coalescing
+ethtool -C eth0 rx-usecs 0 tx-usecs 0
+
+# Enable busy polling
+echo 50 > /proc/sys/net/core/busy_read
+echo 50 > /proc/sys/net/core/busy_poll
+
+# Pin IRQs to dedicated cores
+echo 2 > /proc/irq/$(cat /proc/interrupts | grep eth0 | awk '{print $1}' | tr -d ':')/smp_affinity_list
+
+# Enable jumbo frames
+ip link set eth0 mtu 9000
+
+# Disable TCP timestamps (reduces overhead)
+sysctl -w net.ipv4.tcp_timestamps=0
+
+# Increase socket buffers
+sysctl -w net.core.rmem_max=134217728
+sysctl -w net.core.wmem_max=134217728
+```
+
+## Pricing
+
+### Colocation Fees
+
+| Item | NY5 | LD4 | TY3 | SG1 |
+|------|-----|-----|-----|-----|
+| 1/4 Cage (monthly) | $8,000 | $7,500 | $9,000 | $6,500 |
+| 1/2 Cage (monthly) | $15,000 | $14,000 | $17,000 | $12,000 |
+| Full Cage (monthly) | $28,000 | $26,000 | $32,000 | $22,000 |
+| Power (per kW) | $150 | $140 | $180 | $120 |
+| 10G Cross-Connect | $500 | $450 | $600 | $400 |
+| 100G Cross-Connect | $2,000 | $1,800 | $2,400 | $1,600 |
+
+### Additional Services
+
+| Service | Monthly Fee |
+|---------|------------|
+| Dedicated Gateway Instance | $5,000 |
+| 24/7 Remote Hands (4 hrs included) | $1,000 |
+| Additional Remote Hands (per hour) | $150 |
+| Hardware Monitoring | $500 |
+| Custom Network Configuration | $2,500 |
+
+## SLA Guarantees
+
+### Uptime SLA
+
+| Tier | Uptime | Credit |
+|------|--------|--------|
+| Standard | 99.99% | 10% per 0.01% breach |
+| Premium | 99.999% | 25% per 0.001% breach |
+
+### Latency SLA
+
+| Metric | Guarantee | Measurement |
+|--------|-----------|-------------|
+| Cross-connect RTT | < 100ns | 99.9th percentile |
+| Gateway processing | < 50ns | 99.9th percentile |
+| Market data delivery | < 1us | 99.9th percentile |
+
+### Support SLA
+
+| Priority | Response | Resolution |
+|----------|----------|------------|
+| P1 (Critical) | 5 minutes | 1 hour |
+| P2 (High) | 15 minutes | 4 hours |
+| P3 (Medium) | 1 hour | 24 hours |
+| P4 (Low) | 4 hours | 72 hours |
+
+## Onboarding Process
+
+### Timeline
+
+```
+Week 1: Agreement & Planning
+├── Sign colocation agreement
+├── Technical requirements review
+├── Network design finalization
+└── Hardware procurement guidance
+
+Week 2-3: Infrastructure Setup
+├── Rack installation
+├── Cross-connect provisioning
+├── Network configuration
+└── Gateway deployment
+
+Week 4: Testing & Go-Live
+├── Connectivity testing
+├── Latency verification
+├── UAT with production-like load
+└── Production cutover
+```
+
+### Required Documentation
+
+1. **Company verification**
+   - Certificate of incorporation
+   - Proof of regulatory status
+   - Authorized signatory documentation
+
+2. **Technical specifications**
+   - Server hardware list
+   - Network topology diagram
+   - IP addressing requirements
+   - Bandwidth requirements
+
+3. **Operational contacts**
+   - 24/7 NOC contact
+   - Escalation matrix
+   - Remote hands authorization
+
+## Contact
+
+**Colocation Sales**
+- Email: colocation@lux.network
+- Phone: +1 (212) 555-0101
+
+**Technical Pre-Sales**
+- Email: presales@lux.network
+- Telegram: @LuxColocation
+
+**Existing Customer Support**
+- Portal: colo.lux.network
+- Emergency: +1 (212) 555-0199 (24/7)

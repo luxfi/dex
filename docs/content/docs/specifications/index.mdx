@@ -1,0 +1,192 @@
+---
+title: LP Specifications
+description: Lux Proposals (LPs) - Technical specifications for the Lux ecosystem
+---
+
+# Lux Proposals (LPs)
+
+Lux Proposals (LPs) are the formal specification mechanism for all technical standards, protocols, and features in the Lux ecosystem. Each LP goes through a rigorous review process before implementation.
+
+## LP Repository
+
+<Cards>
+  <Card title="LP Repository" href="https://github.com/luxfi/LPs" />
+  <Card title="Discussions" href="https://github.com/luxfi/LPs/discussions" />
+  <Card title="Submit LP" href="https://github.com/luxfi/LPs/issues/new?template=lp-proposal.md" />
+</Cards>
+
+## LP Categories
+
+| Category | Range | Description | Count |
+|----------|-------|-------------|-------|
+| [Network](/docs/specifications/network) | LP-0001 - LP-0099 | Core network protocols, testing, dev tools | 6 |
+| [Consensus](/docs/specifications/consensus) | LP-0100 - LP-0199 | Consensus mechanisms, DAG, finality | 4 |
+| [Bridge](/docs/specifications/bridge) | LP-0300 - LP-0399, LP-6000s | Cross-chain, MPC, teleport | 8 |
+| [Crypto](/docs/specifications/crypto) | LP-4000 - LP-4999 | Post-quantum, signatures, key management | 5 |
+| [Warp](/docs/specifications/warp) | LP-5000 - LP-5999 | Cross-chain messaging, signatures | 4 |
+| [DeFi](/docs/specifications/defi) | LP-8000 - LP-8999 | Lending, margin, protocols | 6 |
+| [DEX](/docs/specifications/dex) | LP-9000 - LP-9099 | Exchange core, orderbook, matching | 8 |
+| [Governance](/docs/specifications/governance) | LP-G-xxx | Proposal process, voting | 3 |
+
+## LP Lifecycle
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│    Draft    │────>│   Review    │────>│  Accepted   │────>│    Final    │
+│             │     │             │     │             │     │             │
+│  Author     │     │  Community  │     │  Core Team  │     │  Immutable  │
+│  writes LP  │     │  feedback   │     │  approval   │     │  Reference  │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+       │                   │                   │
+       v                   v                   v
+   Withdrawn          Rejected           Superseded
+```
+
+### Status Definitions
+
+| Status | Description |
+|--------|-------------|
+| **Draft** | LP is under active development by author |
+| **Review** | LP is open for community review and feedback |
+| **Accepted** | LP has been accepted by core team |
+| **Final** | LP is finalized and implementation-ready |
+| **Implemented** | LP has been fully implemented in production |
+| **Superseded** | LP has been replaced by a newer LP |
+| **Withdrawn** | LP has been withdrawn by author |
+| **Rejected** | LP was rejected during review |
+
+## How to Propose an LP
+
+### 1. Start a Discussion
+
+Before writing a formal LP, start a discussion:
+
+```bash
+# Go to GitHub Discussions
+https://github.com/luxfi/LPs/discussions/new?category=ideas
+```
+
+### 2. Write the LP
+
+Use the LP template:
+
+```markdown
+---
+lp: <number>
+title: <LP title>
+author: <name> (@github-handle)
+status: Draft
+created: <YYYY-MM-DD>
+requires: <LP numbers (optional)>
+---
+
+## Abstract
+One paragraph summary.
+
+## Motivation
+Why is this LP needed?
+
+## Specification
+Technical specification (MUST be precise).
+
+## Rationale
+Design decisions and alternatives considered.
+
+## Backwards Compatibility
+Any breaking changes.
+
+## Test Cases
+Required test scenarios.
+
+## Reference Implementation
+Link to implementation (required for Final).
+
+## Security Considerations
+Security implications.
+
+## Copyright
+CC0 1.0 Universal
+```
+
+### 3. Submit Pull Request
+
+```bash
+# Fork and clone
+git clone https://github.com/YOUR_USERNAME/LPs
+cd LPs
+
+# Create LP file
+cp template.md LPs/lp-XXXX-your-title.md
+# Edit your LP
+
+# Submit PR
+git add .
+git commit -m "LP-XXXX: Your Title"
+git push origin main
+# Open PR on GitHub
+```
+
+### 4. Review Process
+
+1. **Editor Review** (1-2 days): Format and completeness check
+2. **Community Review** (2 weeks): Open discussion period
+3. **Core Team Review** (1 week): Technical review
+4. **Final Call** (1 week): Last chance for objections
+5. **Merge**: LP becomes Final
+
+## Implementation Status Overview
+
+### Fully Implemented
+
+| LP | Title | Repository | Version |
+|----|-------|------------|---------|
+| LP-9000 | DEX Core | [luxfi/dex](https://github.com/luxfi/dex) | v1.0.0 |
+| LP-9001 | Trading Engine | [luxfi/dex](https://github.com/luxfi/dex) | v1.0.0 |
+| LP-9002 | DEX API | [luxfi/dex](https://github.com/luxfi/dex) | v1.0.0 |
+| LP-0111 | Photon Consensus | [luxfi/consensus](https://github.com/luxfi/consensus) | v1.22.0 |
+| LP-4099 | Quasar PQ | [luxfi/crypto](https://github.com/luxfi/crypto) | v0.5.0 |
+
+### In Development
+
+| LP | Title | Repository | Progress |
+|----|-------|------------|----------|
+| LP-333 | Signer Rotation | [luxfi/node](https://github.com/luxfi/node) | 80% |
+| LP-6000 | B-Chain | [luxfi/node](https://github.com/luxfi/node) | 70% |
+| LP-9050 | Margin Trading | [luxfi/dex](https://github.com/luxfi/dex) | 60% |
+
+### Planned
+
+| LP | Title | Target |
+|----|-------|--------|
+| LP-9100 | Options Trading | Q2 2025 |
+| LP-9110 | Perpetuals v2 | Q3 2025 |
+| LP-6020 | Teleport v2 | Q2 2025 |
+
+## Quick Links by Topic
+
+### For Traders
+- [LP-9000: DEX Core](/docs/specifications/dex#lp-9000) - Order types, matching
+- [LP-9002: DEX API](/docs/specifications/dex#lp-9002) - API reference
+- [LP-9050: Margin](/docs/specifications/defi#lp-9050) - Margin trading
+
+### For Developers
+- [LP-9002: API Spec](/docs/specifications/dex#lp-9002) - Integration guide
+- [LP-0006: Testing](/docs/specifications/network#lp-0006) - Test networks
+- [LP-5001: Warp SDK](/docs/specifications/warp#lp-5001) - Cross-chain SDK
+
+### For Validators
+- [LP-0111: Photon](/docs/specifications/consensus#lp-0111) - Consensus
+- [LP-333: Signers](/docs/specifications/bridge#lp-333) - Bridge signing
+- [LP-4099: Quantum](/docs/specifications/crypto#lp-4099) - PQ security
+
+### For Researchers
+- [LP-4099: Quasar](/docs/specifications/crypto#lp-4099) - Post-quantum
+- [LP-0112: Flare](/docs/specifications/consensus#lp-0112) - DAG consensus
+- [LP-6015: MPC](/docs/specifications/bridge#lp-6015) - Threshold crypto
+
+## Related Resources
+
+- [Architecture](/docs/architecture) - System design overview
+- [API Reference](/docs/api) - Complete API documentation
+- [SDK Guide](/docs/sdk) - Client libraries
+- [Changelog](/docs/specifications/changelog) - Version history

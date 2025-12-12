@@ -1,0 +1,396 @@
+---
+title: Testnet Faucet
+description: Get free test tokens for development on LX DEX Testnet
+---
+
+# Testnet Faucet
+
+The LX DEX Testnet Faucet provides free test tokens for development and testing. Tokens have no monetary value and are intended solely for integration testing.
+
+## Faucet URL
+
+```
+https://faucet.testnet.lux.network
+```
+
+## Available Tokens
+
+| Token | Symbol | Amount Per Request | Daily Limit |
+|-------|--------|-------------------|-------------|
+| Test LUX | tLUX | 1,000 | 10,000 |
+| Test USDC | tUSDC | 100,000 | 1,000,000 |
+| Test Bitcoin | tBTC | 1 | 10 |
+| Test Ethereum | tETH | 10 | 100 |
+| Test Wrapped BTC | tWBTC | 1 | 10 |
+| Test DAI | tDAI | 100,000 | 1,000,000 |
+| Test USDT | tUSDT | 100,000 | 1,000,000 |
+
+## Request Methods
+
+### Web Interface
+
+Visit [faucet.testnet.lux.network](https://faucet.testnet.lux.network) to request tokens through the browser interface.
+
+1. Enter your wallet address
+2. Select tokens to receive
+3. Complete CAPTCHA (optional, higher limits)
+4. Click "Request Tokens"
+
+### API Request
+
+```bash
+curl -X POST https://faucet.testnet.lux.network/api/request \
+  -H "Content-Type: application/json" \
+  -d '{
+    "address": "0x1234567890abcdef1234567890abcdef12345678",
+    "tokens": ["tLUX", "tUSDC", "tBTC"]
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "requestId": "req_abc123",
+  "amounts": {
+    "tLUX": 1000,
+    "tUSDC": 100000,
+    "tBTC": 1
+  },
+  "txHashes": {
+    "tLUX": "0xabc123...",
+    "tUSDC": "0xdef456...",
+    "tBTC": "0x789ghi..."
+  },
+  "nextAvailable": "2024-12-11T12:00:00Z"
+}
+```
+
+### SDK Request
+
+<Tabs items={['TypeScript', 'Python', 'Go']}>
+  <Tab value="TypeScript">
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({ network: 'testnet' });
+
+// Request all available tokens
+const result = await client.faucet.request({
+  address: 'your_wallet_address',
+  tokens: ['tLUX', 'tUSDC', 'tBTC', 'tETH'],
+});
+
+console.log('Received:', result.amounts);
+
+// Check remaining daily allowance
+const allowance = await client.faucet.getAllowance({
+  address: 'your_wallet_address',
+});
+console.log('Remaining today:', allowance);
+```
+  </Tab>
+  <Tab value="Python">
+```python
+from luxfi_dex import LXDexClient
+
+client = LXDexClient(network='testnet')
+
+# Request all available tokens
+result = client.faucet.request(
+    address='your_wallet_address',
+    tokens=['tLUX', 'tUSDC', 'tBTC', 'tETH']
+)
+
+print(f"Received: {result.amounts}")
+
+# Check remaining daily allowance
+allowance = client.faucet.get_allowance(address='your_wallet_address')
+print(f"Remaining today: {allowance}")
+```
+  </Tab>
+  <Tab value="Go">
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    client := lxdex.NewClient(lxdex.WithNetwork("testnet"))
+
+    // Request all available tokens
+    result, _ := client.Faucet.Request(context.Background(), &lxdex.FaucetRequest{
+        Address: "your_wallet_address",
+        Tokens:  []string{"tLUX", "tUSDC", "tBTC", "tETH"},
+    })
+
+    fmt.Printf("Received: %+v\n", result.Amounts)
+
+    // Check remaining daily allowance
+    allowance, _ := client.Faucet.GetAllowance(context.Background(), "your_wallet_address")
+    fmt.Printf("Remaining today: %+v\n", allowance)
+}
+```
+  </Tab>
+</Tabs>
+
+## Rate Limits
+
+### Standard Limits (No Authentication)
+
+| Limit Type | Value |
+|------------|-------|
+| Requests per hour | 10 |
+| Requests per day | 50 |
+| Tokens per request | All types |
+| Cooldown between requests | 5 minutes |
+
+### Developer Limits (With API Key)
+
+Register for a developer API key to get increased limits:
+
+| Limit Type | Value |
+|------------|-------|
+| Requests per hour | 100 |
+| Requests per day | 500 |
+| Tokens per request | All types |
+| Cooldown between requests | None |
+
+**Request a developer key:**
+
+```bash
+curl -X POST https://faucet.testnet.lux.network/api/developer/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "developer@example.com",
+    "project": "My Trading Bot",
+    "github": "https://github.com/myproject"
+  }'
+```
+
+**Use developer key:**
+
+```bash
+curl -X POST https://faucet.testnet.lux.network/api/request \
+  -H "Content-Type: application/json" \
+  -H "X-Developer-Key: dev_abc123xyz" \
+  -d '{
+    "address": "0x1234...",
+    "tokens": ["tLUX", "tUSDC"]
+  }'
+```
+
+## Bulk Requests (CI/CD)
+
+For automated testing environments, use bulk request endpoint:
+
+```bash
+curl -X POST https://faucet.testnet.lux.network/api/bulk-request \
+  -H "Content-Type: application/json" \
+  -H "X-Developer-Key: dev_abc123xyz" \
+  -d '{
+    "addresses": [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222",
+      "0x3333333333333333333333333333333333333333"
+    ],
+    "tokens": ["tLUX", "tUSDC"],
+    "amountPerAddress": {
+      "tLUX": 100,
+      "tUSDC": 10000
+    }
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "batchId": "batch_xyz789",
+  "results": [
+    {"address": "0x111...", "success": true, "txHash": "0xabc..."},
+    {"address": "0x222...", "success": true, "txHash": "0xdef..."},
+    {"address": "0x333...", "success": true, "txHash": "0x123..."}
+  ]
+}
+```
+
+## Check Faucet Status
+
+### Allowance Check
+
+```bash
+curl https://faucet.testnet.lux.network/api/allowance/0x1234567890abcdef...
+```
+
+**Response:**
+
+```json
+{
+  "address": "0x1234567890abcdef...",
+  "remainingToday": {
+    "tLUX": 9000,
+    "tUSDC": 900000,
+    "tBTC": 9
+  },
+  "nextReset": "2024-12-12T00:00:00Z",
+  "totalRequested": {
+    "tLUX": 1000,
+    "tUSDC": 100000,
+    "tBTC": 1
+  }
+}
+```
+
+### Faucet Health
+
+```bash
+curl https://faucet.testnet.lux.network/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "balance": {
+    "tLUX": 1000000000,
+    "tUSDC": 10000000000,
+    "tBTC": 100000
+  },
+  "requestsToday": 1234,
+  "uptime": "99.9%"
+}
+```
+
+## Token Contract Addresses
+
+For direct contract interaction or adding tokens to your wallet:
+
+| Token | Contract Address |
+|-------|-----------------|
+| tLUX | `0x0000000000000000000000000000000000000001` (native) |
+| tUSDC | `0xFAUCET0000000000000000000000000000USDC` |
+| tBTC | `0xFAUCET00000000000000000000000000000BTC` |
+| tETH | `0xFAUCET00000000000000000000000000000ETH` |
+| tWBTC | `0xFAUCET0000000000000000000000000000WBTC` |
+| tDAI | `0xFAUCET00000000000000000000000000000DAI` |
+| tUSDT | `0xFAUCET0000000000000000000000000000USDT` |
+
+## Adding Tokens to Wallet
+
+### MetaMask
+
+1. Open MetaMask and connect to Lux Testnet
+2. Click "Import tokens"
+3. Enter the token contract address from above
+4. Token symbol and decimals will auto-populate
+5. Click "Add Custom Token"
+
+### Programmatically
+
+```typescript
+// Add tUSDC to MetaMask
+await window.ethereum.request({
+  method: 'wallet_watchAsset',
+  params: {
+    type: 'ERC20',
+    options: {
+      address: '0xFAUCET0000000000000000000000000000USDC',
+      symbol: 'tUSDC',
+      decimals: 6,
+      image: 'https://assets.lux.network/tokens/tusdc.png',
+    },
+  },
+});
+```
+
+## Error Handling
+
+### Common Errors
+
+| Error Code | Message | Solution |
+|------------|---------|----------|
+| `RATE_LIMITED` | Too many requests | Wait for cooldown period |
+| `DAILY_LIMIT_EXCEEDED` | Daily limit reached | Wait until UTC midnight |
+| `INVALID_ADDRESS` | Invalid wallet address | Check address format |
+| `FAUCET_EMPTY` | Faucet balance low | Contact support |
+| `TOKEN_NOT_FOUND` | Unknown token symbol | Use valid testnet token symbol |
+
+### Error Response Format
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Rate limit exceeded. Please wait 5 minutes.",
+    "retryAfter": 300,
+    "details": {
+      "requestsThisHour": 10,
+      "limit": 10
+    }
+  }
+}
+```
+
+## Best Practices
+
+### For Development
+
+1. **Request tokens once per session**: Don't request on every test run
+2. **Use consistent test addresses**: Easier to track balances
+3. **Cache faucet responses**: Avoid unnecessary requests
+4. **Handle rate limits gracefully**: Implement exponential backoff
+
+### For CI/CD
+
+1. **Use developer API keys**: Higher limits for automation
+2. **Use bulk requests**: More efficient than individual calls
+3. **Pre-fund addresses**: Request tokens before test suite runs
+4. **Clean up after tests**: Return unused tokens (optional)
+
+### Example CI Setup
+
+```yaml
+# .github/workflows/test.yml
+name: Integration Tests
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fund test addresses
+        run: |
+          curl -X POST https://faucet.testnet.lux.network/api/bulk-request \
+            -H "X-Developer-Key: ${{ secrets.FAUCET_DEV_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "addresses": ["${{ secrets.TEST_ADDRESS_1 }}", "${{ secrets.TEST_ADDRESS_2 }}"],
+              "tokens": ["tLUX", "tUSDC"]
+            }'
+
+      - name: Wait for funding
+        run: sleep 10
+
+      - name: Run tests
+        env:
+          LX_DEX_NETWORK: testnet
+        run: npm run test:integration
+```
+
+## Support
+
+- **Faucet Issues**: [GitHub Issues](https://github.com/luxfi/dex/issues?q=label:faucet)
+- **Discord**: [#faucet-support](https://discord.gg/luxfi)
+- **Status**: [status.testnet.lux.network](https://status.testnet.lux.network)

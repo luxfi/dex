@@ -1,0 +1,390 @@
+---
+title: Architecture Overview
+description: High-level architecture of the LX DEX - a planet-scale decentralized exchange
+---
+
+# Architecture Overview
+
+The LX DEX is a high-performance decentralized exchange built for planet-scale throughput with sub-microsecond latency. This document provides a comprehensive overview of the system architecture, design principles, and component interactions.
+
+## Design Principles
+
+### First Principles
+
+1. **Separation of Concerns**: Trading engine runs as a standalone sidecar (`lxd`), separate from blockchain consensus
+2. **Deterministic Execution**: All state transitions are reproducible and verifiable
+3. **Lock-Free Where Possible**: Minimize contention with atomic operations and lock-free data structures
+4. **Zero-Copy Paths**: Eliminate memory copies in hot paths
+5. **Fail Fast**: Surface errors immediately with precise messages
+
+### Performance Targets
+
+| Metric | Target | Achieved |
+|--------|--------|----------|
+| Order Latency | <100ns | 75.9ns |
+| Throughput | 10M orders/sec | 13M+ orders/sec |
+| Consensus Finality | <100ms | 50ms |
+| Memory per Order | <256 bytes | ~200 bytes |
+
+## System Architecture
+
+```
++==============================================================================+
+|                           LX DEX ARCHITECTURE                                 |
++==============================================================================+
+|                                                                               |
+|   EXTERNAL CLIENTS                                                            |
+|   +-----------+  +-----------+  +-----------+  +-----------+                  |
+|   |  Web UI   |  |  Mobile   |  |   Bots    |  |   SDK     |                  |
+|   +-----------+  +-----------+  +-----------+  +-----------+                  |
+|         |              |              |              |                        |
+|         +------+-------+------+-------+------+------+                        |
+|                |              |              |                                |
+|                v              v              v                                |
+|   +================================================================+         |
+|   |                    GATEWAY LAYER                               |         |
+|   |  +------------+  +------------+  +------------+  +----------+  |         |
+|   |  |    gRPC    |  | WebSocket  |  |    REST    |  |   FIX    |  |         |
+|   |  |  (Protobuf)|  | (Binary)   |  |   (JSON)   |  | Protocol |  |         |
+|   |  +------------+  +------------+  +------------+  +----------+  |         |
+|   |                                                                |         |
+|   |  +----------------------------------------------------------+  |         |
+|   |  |  Rate Limiter | Auth (JWT/API Key) | Load Balancer       |  |         |
+|   |  +----------------------------------------------------------+  |         |
+|   +================================================================+         |
+|                               |                                              |
+|                               v                                              |
+|   +================================================================+         |
+|   |                    lxd SIDECAR DAEMON                          |         |
+|   |  +----------------------------------------------------------+  |         |
+|   |  |                  TRADING ENGINE                          |  |         |
+|   |  |  +----------------------+  +-------------------------+   |  |         |
+|   |  |  |   ORDERBOOK CORE     |  |    MATCHING ENGINE      |   |  |         |
+|   |  |  |  +----------------+  |  |  +-------------------+  |   |  |         |
+|   |  |  |  | B-Tree Index   |  |  |  | Price-Time FIFO   |  |   |  |         |
+|   |  |  |  | Lock-Free Pool |  |  |  | Pro-Rata Mode     |  |   |  |         |
+|   |  |  |  | Integer Prices |  |  |  | TWAP/VWAP         |  |   |  |         |
+|   |  |  |  +----------------+  |  |  +-------------------+  |   |  |         |
+|   |  |  +----------------------+  +-------------------------+   |  |         |
+|   |  |                                                          |  |         |
+|   |  |  +----------------------+  +-------------------------+   |  |         |
+|   |  |  |    RISK ENGINE       |  |   CLEARING & SETTLEMENT |   |  |         |
+|   |  |  |  Pre-trade checks    |  |   Atomic settlement     |   |  |         |
+|   |  |  |  Position limits     |  |   Balance updates       |   |  |         |
+|   |  |  |  Margin validation   |  |   Trade recording       |   |  |         |
+|   |  |  +----------------------+  +-------------------------+   |  |         |
+|   |  +----------------------------------------------------------+  |         |
+|   |                                                                |         |
+|   |  +----------------------------------------------------------+  |         |
+|   |  |                  DAG CONSENSUS                           |  |         |
+|   |  |  +------------+  +------------+  +------------------+    |  |         |
+|   |  |  | Vertex DAG |  | Lux FPC    |  | Quantum Certs    |    |  |         |
+|   |  |  | Parallel   |  | Adaptive   |  | BLS + Ringtail   |    |  |         |
+|   |  |  | Processing |  | Threshold  |  | Post-Quantum     |    |  |         |
+|   |  |  +------------+  +------------+  +------------------+    |  |         |
+|   |  +----------------------------------------------------------+  |         |
+|   +================================================================+         |
+|                               |                                              |
+|                         Warp Messages                                        |
+|                               |                                              |
+|                               v                                              |
+|   +================================================================+         |
+|   |                    LUX BLOCKCHAIN NODE                         |         |
+|   |  +------------+  +------------+  +------------+  +----------+  |         |
+|   |  |  D-Chain   |  |  C-Chain   |  |  B-Chain   |  |  T-Chain |  |         |
+|   |  | Platform   |  |   EVM      |  |  Bridge    |  | Threshold|  |         |
+|   |  +------------+  +------------+  +------------+  +----------+  |         |
+|   |  +------------+  +------------+                                |         |
+|   |  |  X-Chain   |  |  Q-Chain   |                                |         |
+|   |  |  Exchange  |  | Quantum    |                                |         |
+|   |  +------------+  +------------+                                |         |
+|   +================================================================+         |
+|                                                                               |
++===============================================================================+
+```
+
+## Core Components
+
+### 1. Gateway Layer
+
+The gateway layer handles all external communication:
+
+```go
+// Gateway interface for protocol-agnostic message handling
+type Gateway interface {
+    // HandleOrder processes incoming orders from any protocol
+    HandleOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error)
+
+    // Subscribe creates a market data subscription
+    Subscribe(ctx context.Context, symbols []string) (<-chan MarketUpdate, error)
+
+    // GetOrderBook returns current order book state
+    GetOrderBook(ctx context.Context, symbol string, depth int) (*OrderBookSnapshot, error)
+}
+```
+
+**Supported Protocols:**
+- **gRPC**: Primary protocol for low-latency programmatic access
+- **WebSocket**: Real-time market data streaming
+- **REST/JSON**: Standard HTTP API for compatibility
+- **FIX**: Financial Information eXchange for institutional clients
+
+### 2. Trading Engine (lxd Sidecar)
+
+The trading engine is the heart of the DEX, running as a standalone daemon:
+
+```go
+// TradingEngine orchestrates all trading operations
+type TradingEngine struct {
+    OrderBooks   map[string]*OrderBook  // Per-symbol order books
+    PerpManager  *PerpetualManager      // Perpetual futures
+    VaultManager *VaultManager          // Yield vaults
+    LendingPool  *LendingPool           // Lending markets
+    Events       chan Event             // System events
+    mu           sync.RWMutex
+}
+
+// OrderBook implements high-performance order book
+type OrderBook struct {
+    Symbol       string
+    bids         unsafe.Pointer  // *OrderTree - atomic access
+    asks         unsafe.Pointer  // *OrderTree - atomic access
+    tradesBuffer *CircularTradeBuffer
+    ordersMap    sync.Map        // Lock-free order lookup
+    _padding     [64]byte        // Prevent false sharing
+}
+```
+
+**Key Design Decisions:**
+- **Integer Prices**: All prices stored as `int64` with 8 decimal precision (10^8 multiplier)
+- **Lock-Free Pools**: Order objects pre-allocated and reused via `sync.Pool`
+- **Atomic Pointers**: Order trees accessed via `atomic.LoadPointer` for lock-free reads
+- **Cache Line Padding**: 64-byte padding prevents false sharing in concurrent access
+
+### 3. Matching Engine
+
+The matching engine implements price-time priority with multiple backends:
+
+```go
+// Backend represents acceleration backends
+type Backend int
+
+const (
+    BackendGo   Backend = iota  // Pure Go - 13M+ orders/sec
+    BackendCGO                  // C++ SIMD - 30M+ orders/sec
+    BackendMLX                  // Apple Metal - 100M+ orders/sec
+    BackendCUDA                 // NVIDIA CUDA - 100M+ orders/sec
+)
+
+// OrderTree implements the order book side with B-tree indexing
+type OrderTree struct {
+    side        Side
+    priceLevels map[PriceInt]*OptimizedPriceLevel
+    priceTree   *IntBTree              // B-tree for O(log n) price lookup
+    bestPrice   atomic.Int64           // O(1) best price access
+    orders      map[uint64]*Order
+    mu          sync.RWMutex
+}
+```
+
+### 4. DAG Consensus
+
+Orders are sequenced using a Directed Acyclic Graph with Lux consensus:
+
+```go
+// LuxDAGOrderBook extends DAG with quantum-resistant finality
+type LuxDAGOrderBook struct {
+    *DAGOrderBook
+    luxConfig     LuxConsensusConfig
+    blsKey        *SecretKey
+    ringtail      *RingtailEngine       // Post-quantum signatures
+    quasar        *Quasar               // Quantum certificate aggregation
+    votes         map[ID]*VoteState
+    certificates  map[ID]*QuantumCertificate
+    voteThreshold float64
+}
+
+// LuxConsensusConfig configures the FPC protocol
+type LuxConsensusConfig struct {
+    Enable            bool
+    ThetaMin          float64       // 0.55 - minimum vote threshold
+    ThetaMax          float64       // 0.65 - maximum vote threshold
+    VoteLimitPerBlock int           // 256
+    RoundDuration     time.Duration // 50ms
+}
+```
+
+### 5. Blockchain Integration
+
+The DEX integrates with the Lux 6-chain architecture via Warp messaging:
+
+| Chain | Role | Integration |
+|-------|------|-------------|
+| **D-Chain** | Platform/Staking | Validator set, staking rewards |
+| **C-Chain** | EVM Contracts | Token contracts, DeFi protocols |
+| **X-Chain** | Asset Exchange | UTXO transfers |
+| **Q-Chain** | Quantum Security | Post-quantum signatures |
+| **B-Chain** | Bridge | Cross-chain asset transfers |
+| **T-Chain** | Threshold MPC | Multi-party computation |
+
+## Data Flow
+
+### Order Lifecycle
+
+```
+1. ORDER SUBMISSION
+   Client -> Gateway -> Validation -> Risk Check
+
+2. ORDER PROCESSING
+   Risk Engine -> Matching Engine -> Order Book Update
+
+3. TRADE EXECUTION
+   Match Found -> Trade Created -> Clearinghouse
+
+4. SETTLEMENT
+   Balance Update -> State Commit -> DAG Consensus
+
+5. FINALITY
+   Vertex Creation -> Vote Collection -> Certificate Generation
+
+6. CONFIRMATION
+   Warp Message -> Blockchain -> Client Notification
+```
+
+### Latency Breakdown
+
+| Stage | Latency | Cumulative |
+|-------|---------|------------|
+| Network Ingress | 5us | 5us |
+| Validation | 10us | 15us |
+| Risk Check | 15us | 30us |
+| Order Book Update | 50ns | 30.05us |
+| Matching | 75ns | 30.125us |
+| Trade Recording | 100ns | 30.225us |
+| Response | 5us | 35.225us |
+
+## Scalability
+
+### Horizontal Scaling
+
+```
+                    +------------------+
+                    |  Load Balancer   |
+                    +--------+---------+
+                             |
+         +-------------------+-------------------+
+         |                   |                   |
+    +----v----+         +----v----+         +----v----+
+    |  Shard  |         |  Shard  |         |  Shard  |
+    | BTC/USD |         | ETH/USD |         | LUX/USD |
+    +---------+         +---------+         +---------+
+```
+
+**Sharding Strategies:**
+- **By Symbol**: Each shard handles specific trading pairs
+- **By User**: Users distributed via consistent hashing
+- **By Region**: Geographic distribution for latency optimization
+
+### Vertical Scaling
+
+- **CPU Pinning**: Critical threads pinned to dedicated cores
+- **NUMA Awareness**: Memory allocated on local NUMA nodes
+- **Kernel Bypass**: DPDK for network I/O when available
+
+## Security Architecture
+
+### Cryptographic Primitives
+
+| Primitive | Algorithm | Use Case |
+|-----------|-----------|----------|
+| Signatures | Ed25519 | Order signing |
+| Aggregation | BLS12-381 | Validator consensus |
+| Post-Quantum | Ringtail (ML-DSA-65) | Quantum resistance |
+| Key Exchange | X25519 | TLS connections |
+
+### Access Control
+
+```go
+// Authentication flow
+type AuthContext struct {
+    UserID     string
+    APIKeyHash []byte
+    Permissions []Permission
+    RateLimits  RateLimitConfig
+}
+
+// Order authorization
+func (ob *OrderBook) CancelOrderWithAuth(orderID uint64, userID string) error {
+    order, exists := ob.Orders[orderID]
+    if !exists {
+        return ErrOrderNotFound
+    }
+    if order.UserID != userID {
+        return ErrUnauthorized
+    }
+    return ob.cancelOrderInternal(order)
+}
+```
+
+## Monitoring and Observability
+
+### Key Metrics
+
+```go
+var (
+    ordersProcessed = prometheus.NewCounter(
+        prometheus.CounterOpts{
+            Name: "lx_orders_processed_total",
+            Help: "Total orders processed",
+        },
+    )
+
+    orderLatency = prometheus.NewHistogram(
+        prometheus.HistogramOpts{
+            Name:    "lx_order_latency_seconds",
+            Help:    "Order processing latency",
+            Buckets: prometheus.ExponentialBuckets(0.0000001, 2, 20),
+        },
+    )
+
+    orderBookDepth = prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Name: "lx_orderbook_depth",
+            Help: "Order book depth by side",
+        },
+        []string{"symbol", "side"},
+    )
+)
+```
+
+### Tracing
+
+OpenTelemetry integration for distributed tracing:
+
+```go
+func (ob *OrderBook) AddOrder(ctx context.Context, order *Order) uint64 {
+    ctx, span := tracer.Start(ctx, "OrderBook.AddOrder")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.String("symbol", ob.Symbol),
+        attribute.Int64("order_id", int64(order.ID)),
+        attribute.String("side", order.Side.String()),
+    )
+    // ...
+}
+```
+
+## Next Steps
+
+Explore detailed documentation for each component:
+
+- [Sidecar Architecture](/docs/architecture/sidecar) - lxd daemon design
+- [6-Chain Architecture](/docs/architecture/chains) - Blockchain integration
+- [DAG Consensus](/docs/architecture/dag) - Parallel block processing
+- [State Management](/docs/architecture/state) - MerkleDB and snapshots
+- [Networking](/docs/architecture/networking) - P2P gossip protocol
+- [Storage](/docs/architecture/storage) - BadgerDB and indexing
+- [Virtual Machines](/docs/architecture/vm) - VM interface design
+- [Transaction Lifecycle](/docs/architecture/transactions) - Order processing
+- [Architecture Decisions](/docs/architecture/decisions) - ADRs

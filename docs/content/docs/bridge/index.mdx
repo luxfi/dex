@@ -1,0 +1,234 @@
+---
+title: Cross-Chain Bridge
+description: B-Chain architecture, MPC custody, and quantum-safe cross-chain transfers
+---
+
+# Cross-Chain Bridge
+
+> **Specifications**: [LP-6000 B-Chain Bridge](https://github.com/luxfi/LPs/blob/main/LPs/lp-6000-b-chain-bridge-specification.md) | [LP-6015 MPC Bridge Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md) | [LP-6016 Teleport Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6016-teleport-cross-chain-protocol.md) | [LP-333 Dynamic Signer Rotation](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)
+>
+> **Implementation**: [`github.com/luxfi/node/vms/bridgevm`](https://github.com/luxfi/node/tree/main/vms/bridgevm) | [`github.com/luxfi/node/vms/thresholdvm`](https://github.com/luxfi/node/tree/main/vms/thresholdvm) | [`github.com/luxfi/threshold`](https://github.com/luxfi/threshold)
+
+The LX DEX bridge enables secure, quantum-safe cross-chain asset transfers through a dedicated B-Chain (Bridge Chain) using MPC threshold signatures.
+
+## Implementation Status
+
+| Component | Source | Specification | Status |
+|-----------|--------|---------------|--------|
+| BridgeVM (B-Chain) | [`vms/bridgevm/`](https://github.com/luxfi/node/tree/main/vms/bridgevm) | LP-6000 | Complete |
+| ThresholdVM (T-Chain) | [`vms/thresholdvm/`](https://github.com/luxfi/node/tree/main/vms/thresholdvm) | LP-6015 | Complete |
+| LP-333 Signer Management | [`vms/bridgevm/rpc.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/rpc.go) | LP-333 | Complete |
+| Threshold Crypto | [`github.com/luxfi/threshold`](https://github.com/luxfi/threshold) | LP-6015 | Complete |
+| Ringtail Signatures | [`vms/platformvm/warp/signature.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/signature.go) | Warp 1.5 | Complete |
+| Teleport Protocol | [`vms/platformvm/warp/teleport.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/teleport.go) | LP-6016 | Complete |
+| Bridge Contracts | [`github.com/luxfi/standard`](https://github.com/luxfi/standard) | LP-6000 | Complete |
+
+## Architecture Overview
+
+The bridge operates through a dedicated B-Chain VM that coordinates with the T-Chain (ThresholdVM) for MPC operations:
+
+```
+                    Lux Network
++------------------------------------------------------------------+
+|                                                                  |
+|  +-------------+     +-------------+     +-------------+         |
+|  |  B-Chain    |<--->|  T-Chain    |<--->|  Warp 1.5   |         |
+|  |  BridgeVM   |     |  ThresholdVM|     |  Messaging  |         |
+|  |             |     |             |     |             |         |
+|  | - Signer    |     | - DKG       |     | - Ringtail  |         |
+|  |   Set Mgmt  |     | - Reshare   |     | - ML-KEM    |         |
+|  | - Bridge    |     | - Sign      |     | - Teleport  |         |
+|  |   Requests  |     | - Refresh   |     |             |         |
+|  +------+------+     +------+------+     +------+------+         |
+|         |                   |                   |                |
+|         +-------------------+-------------------+                |
+|                             |                                    |
+|                    CrossChainAppRequest                          |
++------------------------------------------------------------------+
+                              |
+        +---------------------+---------------------+
+        |                     |                     |
+   +----+----+           +----+----+           +----+----+
+   | Ethereum|           | Bitcoin |           |  Cosmos |
+   | Bridge  |           | Bridge  |           |   IBC   |
+   | Contract|           | (MPC)   |           | Channel |
+   +----+----+           +----+----+           +----+----+
+```
+
+## Core Concepts
+
+### B-Chain (Bridge Chain)
+
+The B-Chain is a purpose-built VM for cross-chain operations:
+
+- **Signer Set Management**: LP-333 opt-in model with 100 validator limit
+- **Bridge Orchestration**: Coordinates lock/mint/burn operations
+- **Slashing**: 100M LUX bond requirement with partial/full slashing
+
+### T-Chain (Threshold Chain)
+
+The T-Chain provides MPC-as-a-service:
+
+- **Distributed Key Generation (DKG)**: CGGMP21/LSS protocols
+- **Threshold Signing**: t-of-n signatures without key reconstruction
+- **Key Resharing**: Add/remove signers without changing public key
+
+### Warp 1.5 (Quantum-Safe Messaging)
+
+Cross-chain messages use Warp 1.5 with quantum-safe primitives:
+
+- **Ringtail Signatures**: LWE-based threshold signatures (post-quantum)
+- **ML-KEM Encryption**: FIPS 203 key encapsulation for private transfers
+- **Teleport Protocol**: High-level abstraction for bridge operations
+
+## Bridge Flow
+
+```
+Source Chain                B-Chain                  T-Chain              Destination
++----------+              +---------+              +---------+            +----------+
+|          |  1. Lock     |         |  2. Sign    |         |            |          |
+| Lock TX  | -----------> | Bridge  | ----------> | MPC     |            |          |
+|          |              | Request |  Request    | Keygen/ |            |          |
++----------+              |         |             | Sign    |            |          |
+                          |         | <---------- |         |            |          |
+                          |         |  3. Sig     +---------+            |          |
+                          |         |                                    |          |
+                          |         |  4. Warp Message (Ringtail)        |          |
+                          |         | ---------------------------------> | Mint TX  |
+                          +---------+                                    +----------+
+```
+
+### Step-by-Step Process
+
+1. **Lock**: User locks assets on source chain via bridge contract
+2. **Verify**: B-Chain validators verify lock transaction
+3. **Sign**: T-Chain signers produce threshold signature
+4. **Relay**: Warp message with Ringtail signature sent to destination
+5. **Mint**: Destination chain verifies signature and mints wrapped assets
+
+## Supported Chains
+
+| Chain | Protocol | Status | Assets |
+|-------|----------|--------|--------|
+| Lux Network | Native | Live | LUX, all DEX assets |
+| Ethereum | Lock/Mint | Live | ETH, ERC-20 |
+| Arbitrum | Lock/Mint | Live | ARB, ERC-20 |
+| Optimism | Lock/Mint | Live | OP, ERC-20 |
+| Polygon | Lock/Mint | Live | MATIC, ERC-20 |
+| BNB Chain | Lock/Mint | Live | BNB, BEP-20 |
+| Bitcoin | MPC Custody | Live | BTC |
+| Cosmos | IBC/Teleport | Beta | ATOM, IBC tokens |
+| Solana | MPC Custody | Beta | SOL, SPL tokens |
+
+## Quick Start
+
+### Bridge to Lux
+
+```go
+import "github.com/luxfi/bridge/client"
+
+// Create bridge client
+bridge, err := client.NewBridgeClient(client.Config{
+    Network:  "mainnet",
+    Endpoint: "https://bridge.lux.network",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Bridge ETH from Ethereum to Lux
+transfer, err := bridge.TransferToLux(ctx, &client.TransferParams{
+    SourceChain: "ethereum",
+    Asset:       "ETH",
+    Amount:      "1.5",
+    Recipient:   "lux1qp2xqwh8j3...",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Transfer ID: %s\n", transfer.ID)
+fmt.Printf("Estimated time: %s\n", transfer.EstimatedTime)
+```
+
+### Bridge from Lux
+
+```go
+// Bridge wrapped ETH from Lux back to Ethereum
+transfer, err := bridge.TransferFromLux(ctx, &client.TransferParams{
+    DestChain:  "ethereum",
+    Asset:      "wETH",
+    Amount:     "1.5",
+    Recipient:  "0x742d35Cc...",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Wait for completion
+result, err := transfer.Wait(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Destination TX: %s\n", result.DestTxHash)
+```
+
+## Security Model
+
+### Validator Requirements (LP-333)
+
+- **100M LUX Bond**: Slashable deposit (NOT staked rewards)
+- **Opt-in Registration**: First 100 validators accepted, then waitlist
+- **Reshare on Removal Only**: Epoch increments only when signer replaced
+
+### Threshold Security
+
+- **2/3 Threshold**: 67% of signers required for valid signature
+- **No Single Point of Failure**: Key never exists in one place
+- **Quantum-Safe**: Ringtail signatures resist quantum attacks
+
+### Slashing Conditions
+
+| Violation | Slash Amount |
+|-----------|--------------|
+| Signing invalid message | 50-100% |
+| Double signing | 100% |
+| Offline during signing | 10-20% |
+| Censoring valid requests | 25-50% |
+
+## Documentation Sections
+
+| Section | Description |
+|---------|-------------|
+| [B-Chain](/docs/bridge/bchain) | BridgeVM architecture, state machine, block structure |
+| [MPC Custody](/docs/bridge/mpc) | CGGMP21 protocol, threshold signatures, key management |
+| [ThresholdVM](/docs/bridge/threshold) | T-Chain VM, DKG, resharing, cross-chain requests |
+| [Ringtail](/docs/bridge/ringtail) | Quantum-safe signatures, Warp 1.5, ML-KEM encryption |
+| [Teleport](/docs/bridge/teleport) | Teleport protocol, IBC integration, message types |
+| [Contracts](/docs/bridge/contracts) | Bridge smart contracts, lock/mint/burn mechanics |
+| [Security](/docs/bridge/security) | Security model, bonds, slashing, threat analysis |
+| [Fees](/docs/bridge/fees) | Fee structure, gas sponsorship, fee estimation |
+| [Integration](/docs/bridge/integration) | DEX integration, API reference, SDK usage |
+
+## RPC Endpoints
+
+The B-Chain exposes LP-333 compliant JSON-RPC endpoints:
+
+| Method | Description |
+|--------|-------------|
+| `bridge_registerValidator` | Register as bridge signer (opt-in) |
+| `bridge_getSignerSetInfo` | Get current signer set state |
+| `bridge_replaceSigner` | Remove failed signer (triggers reshare) |
+| `bridge_hasSigner` | Check if node is active signer |
+| `bridge_getWaitlist` | Get validators waiting for slots |
+| `bridge_getCurrentEpoch` | Get epoch (increments on reshare) |
+| `bridge_slashSigner` | Slash misbehaving signer's bond |
+
+## Related Specifications
+
+- **LP-6000**: B-Chain Bridge Specification
+- **LP-6015**: MPC Bridge Protocol (CGGMP21 + LSS)
+- **LP-6016**: Teleport Cross-Chain Protocol
+- **LP-333**: Dynamic Signer Rotation with LSS Protocol
+- **Warp 1.5**: Quantum-Safe Cross-Chain Messaging

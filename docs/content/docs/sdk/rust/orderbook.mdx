@@ -1,0 +1,604 @@
+---
+title: Order Book
+description: Order book subscriptions with zero-copy parsing, efficient updates, and memory-optimized data structures
+---
+
+# Order Book
+
+The Rust SDK provides high-performance order book access with zero-copy parsing, incremental updates, and memory-efficient data structures.
+
+## Get Order Book Snapshot
+
+### Basic Query
+
+```rust
+use lux_dex_sdk::{Client, Result};
+
+async fn get_orderbook(client: &Client) -> Result<()> {
+    // Get top 10 levels
+    let book = client.get_order_book("BTC-USD", 10).await?;
+
+    println!("Best bid: {} @ {}",
+        book.bids[0].size,
+        book.bids[0].price
+    );
+
+    println!("Best ask: {} @ {}",
+        book.asks[0].size,
+        book.asks[0].price
+    );
+
+    println!("Spread: {:.2}",
+        book.asks[0].price - book.bids[0].price
+    );
+
+    Ok(())
+}
+```
+
+### Full Depth
+
+```rust
+// Get full order book (all price levels)
+let book = client.get_order_book_full("BTC-USD").await?;
+
+println!("Total bid levels: {}", book.bids.len());
+println!("Total ask levels: {}", book.asks.len());
+println!("Total bid volume: {:.4}",
+    book.bids.iter().map(|l| l.size).sum::<f64>()
+);
+```
+
+## Order Book Types
+
+```rust
+/// Order book snapshot
+#[derive(Debug, Clone)]
+pub struct OrderBook {
+    pub symbol: String,
+    pub bids: Vec<PriceLevel>,
+    pub asks: Vec<PriceLevel>,
+    pub timestamp: DateTime<Utc>,
+    pub sequence: u64,
+}
+
+/// Single price level
+#[derive(Debug, Clone, Copy)]
+pub struct PriceLevel {
+    pub price: f64,
+    pub size: f64,
+    pub order_count: u32,
+}
+
+impl OrderBook {
+    /// Best bid price
+    pub fn best_bid(&self) -> Option<f64> {
+        self.bids.first().map(|l| l.price)
+    }
+
+    /// Best ask price
+    pub fn best_ask(&self) -> Option<f64> {
+        self.asks.first().map(|l| l.price)
+    }
+
+    /// Bid-ask spread
+    pub fn spread(&self) -> Option<f64> {
+        match (self.best_bid(), self.best_ask()) {
+            (Some(bid), Some(ask)) => Some(ask - bid),
+            _ => None,
+        }
+    }
+
+    /// Mid price
+    pub fn mid_price(&self) -> Option<f64> {
+        match (self.best_bid(), self.best_ask()) {
+            (Some(bid), Some(ask)) => Some((bid + ask) / 2.0),
+            _ => None,
+        }
+    }
+
+    /// Volume-weighted mid price
+    pub fn vwap_mid(&self) -> Option<f64> {
+        let bid = self.bids.first()?;
+        let ask = self.asks.first()?;
+        let total = bid.size + ask.size;
+        Some((bid.price * ask.size + ask.price * bid.size) / total)
+    }
+}
+```
+
+## WebSocket Streaming
+
+### Subscribe to Updates
+
+```rust
+use lux_dex_sdk::{Client, OrderBookUpdate};
+use tokio_stream::StreamExt;
+
+async fn stream_orderbook(client: &Client) -> Result<()> {
+    let mut stream = client.subscribe_order_book("BTC-USD", 10).await?;
+
+    while let Some(update) = stream.next().await {
+        let update = update?;
+
+        match update {
+            OrderBookUpdate::Snapshot(book) => {
+                println!("Snapshot: {} bids, {} asks",
+                    book.bids.len(),
+                    book.asks.len()
+                );
+            }
+            OrderBookUpdate::Delta(delta) => {
+                println!("Delta: {} bid changes, {} ask changes",
+                    delta.bid_changes.len(),
+                    delta.ask_changes.len()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Delta Updates
+
+```rust
+/// Order book delta update
+#[derive(Debug, Clone)]
+pub struct OrderBookDelta {
+    pub symbol: String,
+    pub bid_changes: Vec<PriceLevelChange>,
+    pub ask_changes: Vec<PriceLevelChange>,
+    pub timestamp: DateTime<Utc>,
+    pub sequence: u64,
+}
+
+/// Change to a price level
+#[derive(Debug, Clone, Copy)]
+pub struct PriceLevelChange {
+    pub price: f64,
+    pub size: f64,      // New size (0 = remove level)
+    pub order_count: u32,
+}
+```
+
+### Local Order Book Maintenance
+
+```rust
+use lux_dex_sdk::{LocalOrderBook, OrderBookUpdate};
+use std::collections::BTreeMap;
+
+/// Maintains local order book state from stream updates
+pub struct LocalOrderBook {
+    symbol: String,
+    bids: BTreeMap<OrderedFloat<f64>, PriceLevel>,  // Descending
+    asks: BTreeMap<OrderedFloat<f64>, PriceLevel>,  // Ascending
+    sequence: u64,
+}
+
+impl LocalOrderBook {
+    pub fn new(symbol: &str) -> Self {
+        Self {
+            symbol: symbol.to_string(),
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            sequence: 0,
+        }
+    }
+
+    /// Apply update to local book
+    pub fn apply(&mut self, update: OrderBookUpdate) -> Result<()> {
+        match update {
+            OrderBookUpdate::Snapshot(book) => {
+                self.bids.clear();
+                self.asks.clear();
+
+                for level in book.bids {
+                    self.bids.insert(OrderedFloat(-level.price), level);
+                }
+                for level in book.asks {
+                    self.asks.insert(OrderedFloat(level.price), level);
+                }
+
+                self.sequence = book.sequence;
+            }
+            OrderBookUpdate::Delta(delta) => {
+                // Verify sequence continuity
+                if delta.sequence != self.sequence + 1 {
+                    return Err(Error::SequenceGap {
+                        expected: self.sequence + 1,
+                        received: delta.sequence,
+                    });
+                }
+
+                // Apply bid changes
+                for change in delta.bid_changes {
+                    let key = OrderedFloat(-change.price);
+                    if change.size == 0.0 {
+                        self.bids.remove(&key);
+                    } else {
+                        self.bids.insert(key, PriceLevel {
+                            price: change.price,
+                            size: change.size,
+                            order_count: change.order_count,
+                        });
+                    }
+                }
+
+                // Apply ask changes
+                for change in delta.ask_changes {
+                    let key = OrderedFloat(change.price);
+                    if change.size == 0.0 {
+                        self.asks.remove(&key);
+                    } else {
+                        self.asks.insert(key, PriceLevel {
+                            price: change.price,
+                            size: change.size,
+                            order_count: change.order_count,
+                        });
+                    }
+                }
+
+                self.sequence = delta.sequence;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get current snapshot
+    pub fn snapshot(&self, depth: usize) -> OrderBook {
+        OrderBook {
+            symbol: self.symbol.clone(),
+            bids: self.bids.values().take(depth).cloned().collect(),
+            asks: self.asks.values().take(depth).cloned().collect(),
+            timestamp: Utc::now(),
+            sequence: self.sequence,
+        }
+    }
+}
+```
+
+## Zero-Copy Parsing
+
+### Zero-Copy Deserialization
+
+```rust
+use lux_dex_sdk::zerocopy::{OrderBookRef, PriceLevelRef};
+use bytes::Bytes;
+
+/// Zero-copy order book reference (borrows from buffer)
+pub struct OrderBookRef<'a> {
+    pub symbol: &'a str,
+    pub bids: &'a [PriceLevelRef],
+    pub asks: &'a [PriceLevelRef],
+    pub timestamp: i64,
+    pub sequence: u64,
+}
+
+/// Zero-copy price level
+#[repr(C)]
+pub struct PriceLevelRef {
+    pub price: f64,
+    pub size: f64,
+    pub order_count: u32,
+    _padding: u32,
+}
+
+impl<'a> OrderBookRef<'a> {
+    /// Parse from raw bytes without allocation
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self> {
+        // Binary protocol parsing
+        // ...
+    }
+
+    /// Convert to owned type (allocates)
+    pub fn to_owned(&self) -> OrderBook {
+        OrderBook {
+            symbol: self.symbol.to_string(),
+            bids: self.bids.iter().map(|l| l.to_owned()).collect(),
+            asks: self.asks.iter().map(|l| l.to_owned()).collect(),
+            timestamp: DateTime::from_timestamp(self.timestamp, 0).unwrap(),
+            sequence: self.sequence,
+        }
+    }
+}
+```
+
+### Using Zero-Copy in Streams
+
+```rust
+use lux_dex_sdk::zerocopy::OrderBookStream;
+
+async fn zero_copy_stream(client: &Client) -> Result<()> {
+    // Stream with zero-copy parsing
+    let mut stream = client.subscribe_order_book_zerocopy("BTC-USD").await?;
+
+    while let Some(result) = stream.next().await {
+        // `book` borrows from internal buffer
+        let book: OrderBookRef = result?;
+
+        // Fast access without allocation
+        if let (Some(bid), Some(ask)) = (book.bids.first(), book.asks.first()) {
+            let spread = ask.price - bid.price;
+            if spread < 0.01 {
+                // Only allocate when needed
+                process_tight_spread(book.to_owned()).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Memory-Efficient Structures
+
+### Arena-Allocated Order Book
+
+```rust
+use bumpalo::Bump;
+
+/// Order book using arena allocation
+pub struct ArenaOrderBook<'a> {
+    arena: &'a Bump,
+    symbol: &'a str,
+    bids: &'a mut [PriceLevel],
+    asks: &'a mut [PriceLevel],
+}
+
+impl<'a> ArenaOrderBook<'a> {
+    pub fn new(arena: &'a Bump, symbol: &str, depth: usize) -> Self {
+        let symbol = arena.alloc_str(symbol);
+        let bids = arena.alloc_slice_fill_default(depth);
+        let asks = arena.alloc_slice_fill_default(depth);
+
+        Self { arena, symbol, bids, asks }
+    }
+
+    /// Update from network data (no allocation)
+    pub fn update(&mut self, data: &[u8]) -> Result<()> {
+        // Parse directly into pre-allocated slices
+        // ...
+        Ok(())
+    }
+}
+
+// Usage with arena reset
+fn process_updates() {
+    let arena = Bump::with_capacity(64 * 1024); // 64KB
+
+    loop {
+        let book = ArenaOrderBook::new(&arena, "BTC-USD", 100);
+        // Process updates...
+
+        // Reset arena for next iteration (no deallocation overhead)
+        arena.reset();
+    }
+}
+```
+
+### Compact Order Book
+
+```rust
+/// Memory-compact order book using fixed-point prices
+pub struct CompactOrderBook {
+    symbol: ArrayString<16>,  // Inline string
+    bids: ArrayVec<CompactLevel, 100>,
+    asks: ArrayVec<CompactLevel, 100>,
+    timestamp: i64,
+    sequence: u64,
+}
+
+/// Compact price level (16 bytes vs 24 bytes)
+#[repr(C)]
+pub struct CompactLevel {
+    price_cents: i64,     // Price in cents (fixed-point)
+    size_satoshis: i64,   // Size in satoshis (fixed-point)
+}
+
+impl CompactLevel {
+    pub fn price(&self) -> f64 {
+        self.price_cents as f64 / 100.0
+    }
+
+    pub fn size(&self) -> f64 {
+        self.size_satoshis as f64 / 100_000_000.0
+    }
+}
+```
+
+## Aggregated Order Book
+
+### By Price Bucket
+
+```rust
+use std::collections::HashMap;
+
+/// Aggregate order book by price buckets
+pub fn aggregate_by_bucket(book: &OrderBook, bucket_size: f64) -> AggregatedBook {
+    let mut bid_buckets: HashMap<i64, f64> = HashMap::new();
+    let mut ask_buckets: HashMap<i64, f64> = HashMap::new();
+
+    for level in &book.bids {
+        let bucket = (level.price / bucket_size).floor() as i64;
+        *bid_buckets.entry(bucket).or_default() += level.size;
+    }
+
+    for level in &book.asks {
+        let bucket = (level.price / bucket_size).ceil() as i64;
+        *ask_buckets.entry(bucket).or_default() += level.size;
+    }
+
+    AggregatedBook {
+        bucket_size,
+        bids: bid_buckets.into_iter()
+            .map(|(k, v)| (k as f64 * bucket_size, v))
+            .collect(),
+        asks: ask_buckets.into_iter()
+            .map(|(k, v)| (k as f64 * bucket_size, v))
+            .collect(),
+    }
+}
+```
+
+## Order Book Analytics
+
+### Depth Analysis
+
+```rust
+impl OrderBook {
+    /// Calculate total liquidity at price levels
+    pub fn liquidity_at_depth(&self, depth_percent: f64) -> (f64, f64) {
+        let mid = self.mid_price().unwrap_or(0.0);
+        let threshold = mid * depth_percent / 100.0;
+
+        let bid_liquidity: f64 = self.bids.iter()
+            .take_while(|l| mid - l.price <= threshold)
+            .map(|l| l.size * l.price)
+            .sum();
+
+        let ask_liquidity: f64 = self.asks.iter()
+            .take_while(|l| l.price - mid <= threshold)
+            .map(|l| l.size * l.price)
+            .sum();
+
+        (bid_liquidity, ask_liquidity)
+    }
+
+    /// Estimate slippage for market order
+    pub fn estimate_slippage(&self, side: Side, size: f64) -> Option<f64> {
+        let levels = match side {
+            Side::Buy => &self.asks,
+            Side::Sell => &self.bids,
+        };
+
+        let mut remaining = size;
+        let mut total_cost = 0.0;
+
+        for level in levels {
+            let fill = remaining.min(level.size);
+            total_cost += fill * level.price;
+            remaining -= fill;
+
+            if remaining <= 0.0 {
+                break;
+            }
+        }
+
+        if remaining > 0.0 {
+            return None; // Insufficient liquidity
+        }
+
+        let avg_price = total_cost / size;
+        let best_price = levels.first()?.price;
+
+        Some((avg_price - best_price).abs() / best_price * 100.0)
+    }
+
+    /// Order book imbalance (-1 to 1)
+    pub fn imbalance(&self, depth: usize) -> f64 {
+        let bid_vol: f64 = self.bids.iter().take(depth).map(|l| l.size).sum();
+        let ask_vol: f64 = self.asks.iter().take(depth).map(|l| l.size).sum();
+        let total = bid_vol + ask_vol;
+
+        if total == 0.0 {
+            0.0
+        } else {
+            (bid_vol - ask_vol) / total
+        }
+    }
+}
+```
+
+## Benchmark: Order Book Operations
+
+```rust
+use criterion::{criterion_group, criterion_main, Criterion};
+
+fn orderbook_benchmarks(c: &mut Criterion) {
+    let book = create_test_orderbook(1000);
+
+    c.bench_function("best_bid", |b| {
+        b.iter(|| book.best_bid())
+    });
+
+    c.bench_function("spread", |b| {
+        b.iter(|| book.spread())
+    });
+
+    c.bench_function("imbalance_10", |b| {
+        b.iter(|| book.imbalance(10))
+    });
+
+    c.bench_function("slippage_1btc", |b| {
+        b.iter(|| book.estimate_slippage(Side::Buy, 1.0))
+    });
+
+    c.bench_function("zerocopy_parse", |b| {
+        let data = serialize_orderbook(&book);
+        b.iter(|| OrderBookRef::from_bytes(&data))
+    });
+}
+
+criterion_group!(benches, orderbook_benchmarks);
+criterion_main!(benches);
+```
+
+Expected results:
+
+```
+best_bid                time:   [1.2 ns 1.3 ns 1.4 ns]
+spread                  time:   [2.8 ns 2.9 ns 3.0 ns]
+imbalance_10            time:   [45 ns 46 ns 47 ns]
+slippage_1btc           time:   [234 ns 241 ns 248 ns]
+zerocopy_parse          time:   [89 ns 92 ns 95 ns]
+```
+
+## Complete Example
+
+```rust
+use lux_dex_sdk::{Client, LocalOrderBook, OrderBookUpdate, Result};
+use tokio_stream::StreamExt;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Client::builder()
+        .websocket_url("ws://localhost:8081")
+        .build()
+        .await?;
+
+    let mut local_book = LocalOrderBook::new("BTC-USD");
+    let mut stream = client.subscribe_order_book("BTC-USD", 100).await?;
+
+    while let Some(update) = stream.next().await {
+        let update = update?;
+
+        // Update local state
+        if let Err(e) = local_book.apply(update) {
+            eprintln!("Sequence error: {}, resubscribing...", e);
+            stream = client.subscribe_order_book("BTC-USD", 100).await?;
+            continue;
+        }
+
+        // Get current snapshot
+        let book = local_book.snapshot(10);
+
+        // Analytics
+        println!(
+            "Mid: {:.2} | Spread: {:.2} | Imbalance: {:.2}",
+            book.mid_price().unwrap_or(0.0),
+            book.spread().unwrap_or(0.0),
+            book.imbalance(10)
+        );
+
+        // Check for trading opportunity
+        if book.imbalance(5) > 0.3 {
+            println!("Strong bid pressure detected");
+        }
+    }
+
+    Ok(())
+}
+```

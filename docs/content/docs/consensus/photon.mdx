@@ -1,0 +1,577 @@
+---
+title: Photon FPC Protocol
+description: Fast Probabilistic Consensus with validator sampling and confidence thresholds
+---
+
+# Photon FPC Protocol
+
+> **Specification**: [LP-0111 Photon Consensus Selection](https://github.com/luxfi/LPs/blob/main/LPs/lp-0111-photon-consensus-selection.md)
+>
+> **Implementation**: [`github.com/luxfi/consensus/protocol/photon`](https://github.com/luxfi/consensus/tree/main/protocol/photon)
+
+Photon implements Fast Probabilistic Consensus (FPC) for validator selection and voting in the LX DEX consensus layer.
+
+## Overview
+
+Photon provides the voting layer that determines block acceptance through stake-weighted validator sampling. It achieves sub-millisecond consensus rounds by:
+
+1. **Probabilistic Sampling** - Select K validators per round instead of all validators
+2. **Confidence Accumulation** - Track consecutive rounds of agreement
+3. **Stake-Weighted Voting** - Weight votes by validator stake
+
+```
++------------------------------------------------------------------+
+|                       Photon FPC Protocol                         |
++------------------------------------------------------------------+
+|                                                                   |
+|    Round 1           Round 2           Round 3           Final    |
+|    +-------+         +-------+         +-------+         +-----+  |
+|    |Sample |  ---->  |Sample |  ---->  |Sample |  ---->  |Done |  |
+|    | K=11  |         | K=11  |         | K=11  |         |     |  |
+|    +-------+         +-------+         +-------+         +-----+  |
+|        |                 |                 |                 |    |
+|        v                 v                 v                 v    |
+|    Alpha=8/11        Alpha=9/11        Alpha=10/11       Commit   |
+|    (73%)             (82%)             (91%)                      |
+|                                                                   |
++------------------------------------------------------------------+
+```
+
+## Protocol Parameters
+
+### Core Parameters
+
+```go
+// PhotonParams defines FPC parameters
+type PhotonParams struct {
+    // K is the number of validators to sample per round
+    K int
+
+    // Alpha is the fraction needed for confidence (0.69 = 69%)
+    Alpha float64
+
+    // AlphaPreference is K * Alpha for preference threshold
+    AlphaPreference int
+
+    // AlphaConfidence is K * Alpha for confidence threshold
+    AlphaConfidence int
+
+    // BetaVirtuous is consecutive rounds needed for virtuous blocks
+    BetaVirtuous int
+
+    // BetaRogue is consecutive rounds needed for conflicting blocks
+    BetaRogue int
+}
+
+// DEXParams returns parameters optimized for DEX trading
+func DEXParams() PhotonParams {
+    return PhotonParams{
+        K:               11,     // Sample 11 validators
+        Alpha:           0.69,   // 69% threshold
+        AlphaPreference: 8,      // 8/11 = 73% (rounded up from 69%)
+        AlphaConfidence: 8,      // Same as preference
+        BetaVirtuous:    8,      // 8 rounds for non-conflicting
+        BetaRogue:       11,     // 11 rounds for conflicting
+    }
+}
+```
+
+### Parameter Selection Rationale
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| K=11 | 11 validators | Balance between speed and security |
+| Alpha=0.69 | 69% | BFT threshold (>2/3) |
+| BetaVirtuous=8 | 8 rounds | Fast finality for normal cases |
+| BetaRogue=11 | 11 rounds | Extra security for conflicts |
+
+## Validator Sampling
+
+### Stake-Weighted Selection
+
+```go
+// SampleValidators performs stake-weighted random sampling
+func (p *Photon) SampleValidators(
+    validators []Validator,
+    k int,
+    seed []byte,
+) []ValidatorID {
+    // Compute total stake
+    totalStake := uint64(0)
+    for _, v := range validators {
+        totalStake += v.Stake
+    }
+
+    // Create deterministic RNG from seed
+    rng := newDeterministicRNG(seed)
+
+    // Sample K validators with stake weighting
+    sampled := make([]ValidatorID, 0, k)
+    used := make(map[ValidatorID]bool)
+
+    for len(sampled) < k {
+        // Random point in stake space
+        point := rng.Uint64() % totalStake
+
+        // Find validator at that point
+        cumulative := uint64(0)
+        for _, v := range validators {
+            cumulative += v.Stake
+            if cumulative > point && !used[v.ID] {
+                sampled = append(sampled, v.ID)
+                used[v.ID] = true
+                break
+            }
+        }
+    }
+
+    return sampled
+}
+```
+
+### Seed Computation
+
+The sampling seed is computed deterministically to ensure all validators agree on the sample:
+
+```go
+// ComputeEpochSeed generates the seed for validator sampling
+func (p *Photon) ComputeEpochSeed(
+    height uint64,
+    parentHash [32]byte,
+    epoch uint64,
+) []byte {
+    h := sha256.New()
+
+    // Include block height
+    binary.Write(h, binary.BigEndian, height)
+
+    // Include parent block hash
+    h.Write(parentHash[:])
+
+    // Include epoch for additional entropy
+    binary.Write(h, binary.BigEndian, epoch)
+
+    return h.Sum(nil)
+}
+```
+
+## Voting Mechanism
+
+### Vote Structure
+
+```go
+// Vote represents a validator's vote on a block
+type Vote struct {
+    // BlockID is the block being voted on
+    BlockID [32]byte
+
+    // VoteType indicates preference or confidence
+    VoteType VoteType
+
+    // Voter is the validator ID
+    Voter ValidatorID
+
+    // Round is the consensus round
+    Round uint64
+
+    // Signature is the BLS signature
+    Signature []byte
+}
+
+const (
+    VotePreference VoteType = iota
+    VoteConfidence
+    VoteReject
+)
+```
+
+### Voting Protocol
+
+```go
+// ProcessRound executes one FPC round
+func (p *Photon) ProcessRound(
+    ctx context.Context,
+    block *Block,
+    round uint64,
+) (Decision, error) {
+    // Sample validators for this round
+    seed := p.ComputeEpochSeed(block.Height, block.Parents[0], round)
+    validators := p.SampleValidators(p.validatorSet, p.params.K, seed)
+
+    // Request votes from sampled validators
+    votes := make([]*Vote, 0, len(validators))
+    for _, v := range validators {
+        vote, err := p.requestVote(ctx, v, block, round)
+        if err != nil {
+            continue // Validator unavailable
+        }
+        votes = append(votes, vote)
+    }
+
+    // Count weighted votes
+    support := p.countSupport(votes, block.ID)
+
+    // Check thresholds
+    if support >= p.params.AlphaConfidence {
+        return DecideAccept, nil
+    }
+    if len(votes)-support >= p.params.AlphaConfidence {
+        return DecideReject, nil
+    }
+
+    return DecideUndecided, nil
+}
+```
+
+### Confidence Accumulation
+
+```go
+// ConsensusState tracks voting progress
+type ConsensusState struct {
+    Block          *Block
+    Preference     bool       // Current preference
+    Confidence     int        // Consecutive agreeing rounds
+    LastDecision   Decision   // Most recent round decision
+    FinalDecision  Decision   // Final consensus decision
+}
+
+// UpdateConfidence updates confidence based on round result
+func (s *ConsensusState) UpdateConfidence(
+    decision Decision,
+    params PhotonParams,
+) {
+    if decision == DecideUndecided {
+        // Undecided round resets confidence
+        s.Confidence = 0
+        return
+    }
+
+    // Check if decision matches preference
+    matchesPreference := (decision == DecideAccept) == s.Preference
+
+    if matchesPreference {
+        s.Confidence++
+    } else {
+        // Flip preference and reset confidence
+        s.Preference = !s.Preference
+        s.Confidence = 1
+    }
+
+    s.LastDecision = decision
+
+    // Check finalization thresholds
+    threshold := params.BetaVirtuous
+    if s.Block.HasConflicts {
+        threshold = params.BetaRogue
+    }
+
+    if s.Confidence >= threshold {
+        if s.Preference {
+            s.FinalDecision = DecideAccept
+        } else {
+            s.FinalDecision = DecideReject
+        }
+    }
+}
+```
+
+## BLS Signature Aggregation
+
+### Individual Signatures
+
+```go
+// SignVote creates a BLS signature for a vote
+func (p *Photon) SignVote(vote *Vote, secretKey *bls.SecretKey) error {
+    // Create message to sign
+    msg := vote.SigningMessage()
+
+    // Sign with BLS
+    sig, err := bls.Sign(secretKey, msg)
+    if err != nil {
+        return err
+    }
+
+    vote.Signature = sig.Serialize()
+    return nil
+}
+```
+
+### Aggregate Verification
+
+```go
+// AggregateSignatures combines multiple BLS signatures
+func (p *Photon) AggregateSignatures(votes []*Vote) (*AggregateSignature, error) {
+    signatures := make([]*bls.Signature, 0, len(votes))
+    publicKeys := make([]*bls.PublicKey, 0, len(votes))
+    messages := make([][]byte, 0, len(votes))
+
+    for _, vote := range votes {
+        sig, err := bls.DeserializeSignature(vote.Signature)
+        if err != nil {
+            continue
+        }
+        signatures = append(signatures, sig)
+
+        pk := p.validatorSet.GetPublicKey(vote.Voter)
+        publicKeys = append(publicKeys, pk)
+
+        messages = append(messages, vote.SigningMessage())
+    }
+
+    // Aggregate all signatures
+    aggSig, err := bls.AggregateSignatures(signatures)
+    if err != nil {
+        return nil, err
+    }
+
+    return &AggregateSignature{
+        Signature:  aggSig.Serialize(),
+        Signers:    encodeBitSet(votes),
+        PublicKeys: publicKeys,
+    }, nil
+}
+
+// VerifyAggregate verifies an aggregate signature
+func (p *Photon) VerifyAggregate(
+    agg *AggregateSignature,
+    block *Block,
+) bool {
+    sig, err := bls.DeserializeSignature(agg.Signature)
+    if err != nil {
+        return false
+    }
+
+    // Verify aggregate against all messages
+    return bls.AggregateVerify(
+        agg.PublicKeys,
+        [][]byte{block.SigningMessage()},
+        sig,
+    )
+}
+```
+
+## Conflict Resolution
+
+### Detecting Conflicts
+
+```go
+// DetectConflicts identifies conflicting blocks
+func (p *Photon) DetectConflicts(blocks []*Block) [][]*Block {
+    conflicts := make([][]*Block, 0)
+
+    // Group blocks by what they conflict over
+    for i := 0; i < len(blocks); i++ {
+        for j := i + 1; j < len(blocks); j++ {
+            if p.blocksConflict(blocks[i], blocks[j]) {
+                conflicts = append(conflicts, []*Block{blocks[i], blocks[j]})
+            }
+        }
+    }
+
+    return conflicts
+}
+
+// blocksConflict checks if two blocks have conflicting state transitions
+func (p *Photon) blocksConflict(a, b *Block) bool {
+    // Blocks conflict if they:
+    // 1. Have the same height but different state roots
+    // 2. Contain conflicting transactions (double spends)
+    // 3. Have incompatible parent references
+
+    if a.Height == b.Height && a.StateRoot != b.StateRoot {
+        return true
+    }
+
+    return hasConflictingTx(a.Transactions, b.Transactions)
+}
+```
+
+### Conflict Resolution Protocol
+
+```go
+// ResolveConflict runs extended FPC for conflicting blocks
+func (p *Photon) ResolveConflict(
+    ctx context.Context,
+    blocks []*Block,
+) (*Block, error) {
+    // Use BetaRogue (higher threshold) for conflicts
+    states := make(map[[32]byte]*ConsensusState)
+
+    for _, block := range blocks {
+        states[block.ID] = &ConsensusState{
+            Block:      block,
+            Preference: true,
+            Confidence: 0,
+        }
+    }
+
+    // Run FPC until one block reaches BetaRogue confidence
+    round := uint64(0)
+    for {
+        round++
+
+        for id, state := range states {
+            if state.FinalDecision != DecideUndecided {
+                continue
+            }
+
+            decision, err := p.ProcessRound(ctx, state.Block, round)
+            if err != nil {
+                return nil, err
+            }
+
+            // Use rogue threshold for conflicts
+            state.Block.HasConflicts = true
+            state.UpdateConfidence(decision, p.params)
+
+            if state.FinalDecision == DecideAccept {
+                return state.Block, nil
+            }
+        }
+
+        // Check for timeout
+        if round > uint64(p.params.BetaRogue*2) {
+            return nil, ErrConsensusTimeout
+        }
+    }
+}
+```
+
+## Performance Metrics
+
+### Round Timing
+
+```go
+// RoundMetrics tracks FPC round performance
+type RoundMetrics struct {
+    RoundNumber     uint64
+    SamplingTime    time.Duration  // Time to sample validators
+    VotingTime      time.Duration  // Time to collect votes
+    AggregationTime time.Duration  // Time to aggregate signatures
+    TotalTime       time.Duration  // Total round time
+    VotesReceived   int            // Number of votes received
+    VotesMissing    int            // Number of missing votes
+}
+
+// Typical DEX performance
+// SamplingTime:    0.01ms
+// VotingTime:      0.20ms (parallel requests)
+// AggregationTime: 0.05ms
+// TotalTime:       0.26ms per round
+```
+
+### Metrics Collection
+
+```go
+// CollectMetrics gathers FPC performance data
+func (p *Photon) CollectMetrics() *PhotonMetrics {
+    return &PhotonMetrics{
+        TotalRounds:      p.totalRounds,
+        AverageRoundTime: p.avgRoundTime,
+        ConfidenceHits:   p.confidenceHits,
+        PreferenceSwitches: p.preferenceSwitches,
+        ConflictsResolved: p.conflictsResolved,
+        ValidatorUptime:   p.validatorUptime,
+    }
+}
+```
+
+## DEX Integration
+
+### Order Vote Weighting
+
+For DEX operations, votes can be weighted by additional factors:
+
+```go
+// DEXVoteWeight computes vote weight for DEX consensus
+func (p *Photon) DEXVoteWeight(
+    validator ValidatorID,
+    orderType OrderType,
+) uint64 {
+    baseWeight := p.validatorSet.GetStake(validator)
+
+    // Market makers get slight weight bonus for liquidity provision
+    if p.isMarketMaker(validator) {
+        baseWeight = baseWeight * 105 / 100 // 5% bonus
+    }
+
+    return baseWeight
+}
+```
+
+### Trade Finalization Hook
+
+```go
+// OnTradeFinalized is called when consensus is reached
+func (p *Photon) OnTradeFinalized(block *Block) {
+    for _, tx := range block.Transactions {
+        if trade, ok := tx.(*Trade); ok {
+            // Emit trade finalization event
+            p.emitEvent(TradeFinalized{
+                TradeID:    trade.ID,
+                Price:      trade.Price,
+                Quantity:   trade.Quantity,
+                FinalityMs: p.lastRoundTime.Milliseconds(),
+                Block:      block.Height,
+            })
+        }
+    }
+}
+```
+
+## Security Considerations
+
+### Sampling Bias Attack
+
+**Attack**: Adversary tries to influence sampling to exclude honest validators.
+
+**Mitigation**: Deterministic seed derived from block data ensures all validators compute identical samples.
+
+```go
+// VerifySampling confirms sampling was done correctly
+func (p *Photon) VerifySampling(
+    claimed []ValidatorID,
+    block *Block,
+    round uint64,
+) bool {
+    seed := p.ComputeEpochSeed(block.Height, block.Parents[0], round)
+    expected := p.SampleValidators(p.validatorSet, p.params.K, seed)
+
+    return equalSlices(claimed, expected)
+}
+```
+
+### Vote Withholding Attack
+
+**Attack**: Sampled validators withhold votes to prevent consensus.
+
+**Mitigation**: Timeout mechanism and view change protocol.
+
+```go
+// RequestVoteWithTimeout requests vote with deadline
+func (p *Photon) RequestVoteWithTimeout(
+    ctx context.Context,
+    validator ValidatorID,
+    block *Block,
+    timeout time.Duration,
+) (*Vote, error) {
+    ctx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+
+    vote, err := p.requestVote(ctx, validator, block)
+    if err != nil {
+        // Record validator as non-responsive
+        p.recordNonResponse(validator)
+        return nil, err
+    }
+
+    return vote, nil
+}
+```
+
+## Related Documentation
+
+- [Consensus Overview](/docs/consensus) - System architecture
+- [Flare DAG Finalization](/docs/consensus/flare) - Certificate logic
+- [Validator Network](/docs/consensus/validators) - Validator management
+- [DEX Integration](/docs/consensus/integration) - Order execution

@@ -1,0 +1,445 @@
+---
+title: Client Configuration
+description: Rust SDK client initialization, TLS configuration, connection pooling, and retry strategies
+---
+
+# Client Configuration
+
+The `Client` struct is the main entry point for interacting with LX DEX. It manages HTTP connections, WebSocket streams, and optional gRPC channels.
+
+## Basic Initialization
+
+```rust
+use lux_dex_sdk::{Client, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Client::builder()
+        .json_rpc_url("http://localhost:8080/rpc")
+        .build()
+        .await?;
+
+    // Test connectivity
+    let info = client.get_info().await?;
+    println!("Connected to node: {}", info.version);
+
+    Ok(())
+}
+```
+
+## Builder Pattern
+
+The client uses a builder pattern for flexible configuration:
+
+```rust
+use lux_dex_sdk::{Client, ClientBuilder};
+use std::time::Duration;
+
+let client = Client::builder()
+    // Endpoints
+    .json_rpc_url("https://api.lux.network/rpc")
+    .websocket_url("wss://api.lux.network/ws")
+    .grpc_url("api.lux.network:50051")
+
+    // Authentication
+    .api_key("your-api-key")
+    .api_secret("your-api-secret")
+
+    // Timeouts
+    .connect_timeout(Duration::from_secs(10))
+    .request_timeout(Duration::from_secs(30))
+
+    // Connection pooling
+    .max_connections(100)
+    .idle_timeout(Duration::from_secs(90))
+
+    // Retry configuration
+    .max_retries(3)
+    .retry_backoff(Duration::from_millis(100))
+
+    .build()
+    .await?;
+```
+
+## TLS Configuration
+
+### Default TLS (rustls with native certs)
+
+```rust
+let client = Client::builder()
+    .json_rpc_url("https://api.lux.network/rpc")
+    .build()
+    .await?;
+```
+
+### Custom TLS Configuration
+
+```rust
+use lux_dex_sdk::{Client, TlsConfig};
+use std::path::Path;
+
+// Load custom CA certificate
+let tls = TlsConfig::builder()
+    .ca_cert_path(Path::new("/path/to/ca.pem"))
+    .client_cert_path(Path::new("/path/to/client.pem"))
+    .client_key_path(Path::new("/path/to/client-key.pem"))
+    .build()?;
+
+let client = Client::builder()
+    .json_rpc_url("https://api.lux.network/rpc")
+    .tls_config(tls)
+    .build()
+    .await?;
+```
+
+### TLS from PEM Strings
+
+```rust
+use lux_dex_sdk::TlsConfig;
+
+let ca_cert = include_str!("../certs/ca.pem");
+let client_cert = include_str!("../certs/client.pem");
+let client_key = include_str!("../certs/client-key.pem");
+
+let tls = TlsConfig::builder()
+    .ca_cert_pem(ca_cert)
+    .client_cert_pem(client_cert)
+    .client_key_pem(client_key)
+    .build()?;
+```
+
+### Disable TLS Verification (Development Only)
+
+```rust
+#[cfg(debug_assertions)]
+let tls = TlsConfig::builder()
+    .danger_accept_invalid_certs(true)
+    .build()?;
+```
+
+## Connection Pooling
+
+The client maintains a connection pool for HTTP requests:
+
+```rust
+use lux_dex_sdk::{Client, PoolConfig};
+use std::time::Duration;
+
+let pool = PoolConfig {
+    max_connections: 100,           // Total connections
+    max_connections_per_host: 20,   // Per-host limit
+    idle_timeout: Duration::from_secs(90),
+    max_idle_per_host: 10,
+};
+
+let client = Client::builder()
+    .pool_config(pool)
+    .build()
+    .await?;
+```
+
+### Connection Pool Metrics
+
+```rust
+let metrics = client.pool_metrics();
+println!("Active connections: {}", metrics.active);
+println!("Idle connections: {}", metrics.idle);
+println!("Total requests: {}", metrics.total_requests);
+```
+
+## Retry Strategy
+
+Configure automatic retry for transient failures:
+
+```rust
+use lux_dex_sdk::{Client, RetryConfig, RetryStrategy};
+use std::time::Duration;
+
+let retry = RetryConfig {
+    max_retries: 3,
+    strategy: RetryStrategy::ExponentialBackoff {
+        initial: Duration::from_millis(100),
+        max: Duration::from_secs(10),
+        multiplier: 2.0,
+    },
+    // Retry on these error types
+    retry_on: vec![
+        "connection_reset",
+        "timeout",
+        "rate_limit",
+    ],
+};
+
+let client = Client::builder()
+    .retry_config(retry)
+    .build()
+    .await?;
+```
+
+### Custom Retry Logic
+
+```rust
+use lux_dex_sdk::{Client, Error};
+
+impl Client {
+    pub async fn place_order_with_retry<F>(
+        &self,
+        order: Order,
+        should_retry: F,
+    ) -> Result<OrderResponse>
+    where
+        F: Fn(&Error) -> bool,
+    {
+        let mut attempts = 0;
+        let max_attempts = 3;
+
+        loop {
+            match self.place_order(order.clone()).await {
+                Ok(response) => return Ok(response),
+                Err(e) if attempts < max_attempts && should_retry(&e) => {
+                    attempts += 1;
+                    let backoff = Duration::from_millis(100 * 2_u64.pow(attempts));
+                    tokio::time::sleep(backoff).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+}
+```
+
+## Authentication
+
+### API Key Authentication
+
+```rust
+let client = Client::builder()
+    .api_key("your-api-key")
+    .api_secret("your-api-secret")
+    .build()
+    .await?;
+```
+
+### JWT Token
+
+```rust
+let client = Client::builder()
+    .jwt_token("eyJhbGciOiJIUzI1NiIs...")
+    .build()
+    .await?;
+```
+
+### Custom Authentication Header
+
+```rust
+use lux_dex_sdk::AuthProvider;
+
+struct CustomAuth {
+    token: String,
+}
+
+impl AuthProvider for CustomAuth {
+    fn auth_header(&self) -> Option<(String, String)> {
+        Some(("X-Custom-Auth".to_string(), self.token.clone()))
+    }
+}
+
+let client = Client::builder()
+    .auth_provider(Box::new(CustomAuth { token: "secret".into() }))
+    .build()
+    .await?;
+```
+
+## Request Interceptors
+
+Add custom logic to all requests:
+
+```rust
+use lux_dex_sdk::{Client, Interceptor, Request, Response};
+use std::time::Instant;
+
+struct TimingInterceptor;
+
+impl Interceptor for TimingInterceptor {
+    async fn intercept(&self, req: Request, next: Next) -> Result<Response> {
+        let start = Instant::now();
+        let method = req.method().to_string();
+
+        let response = next.run(req).await?;
+
+        println!("{} completed in {:?}", method, start.elapsed());
+        Ok(response)
+    }
+}
+
+let client = Client::builder()
+    .interceptor(TimingInterceptor)
+    .build()
+    .await?;
+```
+
+## Multiple Environments
+
+```rust
+use lux_dex_sdk::{Client, Environment};
+
+// Production
+let prod = Client::builder()
+    .environment(Environment::Production)
+    .build()
+    .await?;
+
+// Testnet
+let testnet = Client::builder()
+    .environment(Environment::Testnet)
+    .build()
+    .await?;
+
+// Custom endpoints
+let custom = Client::builder()
+    .environment(Environment::Custom {
+        json_rpc: "http://localhost:8080/rpc".into(),
+        websocket: "ws://localhost:8081".into(),
+        grpc: "localhost:50051".into(),
+    })
+    .build()
+    .await?;
+```
+
+## Health Checks
+
+```rust
+use lux_dex_sdk::Client;
+
+impl Client {
+    /// Check if the client can reach the server
+    pub async fn health_check(&self) -> Result<HealthStatus> {
+        let start = Instant::now();
+        let info = self.get_info().await?;
+
+        Ok(HealthStatus {
+            connected: true,
+            latency: start.elapsed(),
+            server_version: info.version,
+            block_height: info.block_height,
+        })
+    }
+}
+
+// Usage
+let status = client.health_check().await?;
+if status.latency > Duration::from_secs(1) {
+    eprintln!("Warning: high latency detected");
+}
+```
+
+## Graceful Shutdown
+
+```rust
+use tokio::signal;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Client::builder().build().await?;
+
+    // Start background tasks
+    let ws_handle = tokio::spawn({
+        let client = client.clone();
+        async move {
+            client.stream_trades("BTC-USD").await
+        }
+    });
+
+    // Wait for shutdown signal
+    signal::ctrl_c().await?;
+
+    // Graceful shutdown
+    println!("Shutting down...");
+    client.shutdown().await?;
+    ws_handle.abort();
+
+    Ok(())
+}
+```
+
+## Client Cloning
+
+The client is cheaply cloneable (uses `Arc` internally):
+
+```rust
+let client = Client::builder().build().await?;
+
+// Clone shares the same connection pool
+let client2 = client.clone();
+
+tokio::spawn(async move {
+    client2.place_order(order).await
+});
+```
+
+## Debug Logging
+
+Enable request/response logging:
+
+```rust
+use tracing_subscriber;
+
+// Initialize tracing
+tracing_subscriber::fmt()
+    .with_env_filter("lux_dex_sdk=debug")
+    .init();
+
+let client = Client::builder()
+    .enable_request_logging(true)
+    .build()
+    .await?;
+```
+
+## Complete Example
+
+```rust
+use lux_dex_sdk::{Client, TlsConfig, RetryConfig, RetryStrategy};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging
+    tracing_subscriber::fmt::init();
+
+    // TLS configuration
+    let tls = TlsConfig::builder()
+        .ca_cert_path("/etc/ssl/certs/ca.pem")
+        .build()?;
+
+    // Retry configuration
+    let retry = RetryConfig {
+        max_retries: 3,
+        strategy: RetryStrategy::ExponentialBackoff {
+            initial: Duration::from_millis(100),
+            max: Duration::from_secs(10),
+            multiplier: 2.0,
+        },
+        retry_on: vec!["timeout", "rate_limit"],
+    };
+
+    // Build client
+    let client = Client::builder()
+        .json_rpc_url("https://api.lux.network/rpc")
+        .websocket_url("wss://api.lux.network/ws")
+        .api_key(std::env::var("LUX_API_KEY")?)
+        .api_secret(std::env::var("LUX_API_SECRET")?)
+        .tls_config(tls)
+        .retry_config(retry)
+        .connect_timeout(Duration::from_secs(10))
+        .request_timeout(Duration::from_secs(30))
+        .max_connections(100)
+        .build()
+        .await?;
+
+    // Verify connection
+    let status = client.health_check().await?;
+    println!("Connected: latency={:?}", status.latency);
+
+    Ok(())
+}
+```

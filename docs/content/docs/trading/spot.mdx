@@ -1,0 +1,447 @@
+---
+title: Spot Trading
+description: Direct asset exchange with instant settlement - buy and sell crypto assets at current market prices
+---
+
+# Spot Trading
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
+
+Spot trading is the most straightforward trading mode - direct exchange of assets at current market prices with immediate settlement.
+
+## Overview
+
+| Aspect | Spot Trading |
+|--------|--------------|
+| Leverage | 1x (no leverage) |
+| Settlement | Instant |
+| Ownership | Full asset ownership |
+| Funding | None |
+| Expiration | None |
+
+## How Spot Trading Works
+
+```
+Buyer                                    Seller
+  |                                         |
+  |  Submits: Buy 1 BTC @ $50,000          |
+  |---------------------------------------->|
+  |                                         |
+  |         Matching Engine                 |
+  |           (Price-Time)                  |
+  |                                         |
+  |<----------------------------------------|
+  |  Submits: Sell 1 BTC @ $50,000          |
+  |                                         |
+  v                                         v
++-------------------+       +-------------------+
+| Buyer Receives    |       | Seller Receives   |
+| 1 BTC             |       | 50,000 USDT       |
+| Pays: 50,000 USDT |       | Pays: 1 BTC       |
++-------------------+       +-------------------+
+         |                           |
+         v                           v
+    [Instant Settlement - Assets in Wallet]
+```
+
+## Trading Pairs
+
+### Major Pairs (Highest Liquidity)
+
+| Pair | Base | Quote | Min Size | Tick Size |
+|------|------|-------|----------|-----------|
+| BTC-USD | BTC | USD | 0.0001 | $0.01 |
+| ETH-USD | ETH | USD | 0.001 | $0.01 |
+| LUX-USD | LUX | USD | 0.1 | $0.0001 |
+| BTC-USDT | BTC | USDT | 0.0001 | $0.01 |
+| ETH-USDT | ETH | USDT | 0.001 | $0.01 |
+
+### Cross Pairs
+
+| Pair | Base | Quote | Min Size | Tick Size |
+|------|------|-------|----------|-----------|
+| ETH-BTC | ETH | BTC | 0.001 | 0.000001 |
+| LUX-BTC | LUX | BTC | 0.1 | 0.00000001 |
+| LUX-ETH | LUX | ETH | 0.1 | 0.0000001 |
+
+### Stablecoin Pairs
+
+| Pair | Base | Quote | Min Size | Tick Size |
+|------|------|-------|----------|-----------|
+| USDC-USDT | USDC | USDT | 1 | $0.0001 |
+| DAI-USDT | DAI | USDT | 1 | $0.0001 |
+
+## Placing a Spot Order
+
+### Buy Order (Acquire Asset)
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Market buy - immediate execution
+const marketBuy = await dex.spot.buy({
+  symbol: 'BTC-USD',
+  type: 'market',
+  quantity: '0.5'  // Buy 0.5 BTC
+})
+
+console.log(`Bought ${marketBuy.filledQuantity} BTC`)
+console.log(`Average price: $${marketBuy.avgPrice}`)
+console.log(`Total cost: $${marketBuy.totalCost}`)
+
+// Limit buy - wait for price
+const limitBuy = await dex.spot.buy({
+  symbol: 'BTC-USD',
+  type: 'limit',
+  price: '48000.00',
+  quantity: '1.0',
+  timeInForce: 'GTC'
+})
+
+console.log(`Order ID: ${limitBuy.orderId}`)
+console.log(`Status: ${limitBuy.status}`)  // 'open' if resting
+```
+
+### Sell Order (Dispose Asset)
+
+```typescript
+// Market sell - immediate execution
+const marketSell = await dex.spot.sell({
+  symbol: 'BTC-USD',
+  type: 'market',
+  quantity: '0.5'
+})
+
+// Limit sell - set your price
+const limitSell = await dex.spot.sell({
+  symbol: 'BTC-USD',
+  type: 'limit',
+  price: '52000.00',
+  quantity: '1.0',
+  timeInForce: 'GTC'
+})
+```
+
+## Order Book Mechanics
+
+### Reading the Order Book
+
+```typescript
+const orderBook = await dex.getOrderBook('BTC-USD', { depth: 10 })
+
+console.log('=== BTC-USD Order Book ===')
+console.log('ASKS (Sellers)')
+orderBook.asks.reverse().forEach(([price, size]) => {
+  console.log(`  $${price} | ${size} BTC`)
+})
+console.log('--- SPREAD ---')
+console.log('BIDS (Buyers)')
+orderBook.bids.forEach(([price, size]) => {
+  console.log(`  $${price} | ${size} BTC`)
+})
+```
+
+**Example Output:**
+```
+=== BTC-USD Order Book ===
+ASKS (Sellers)
+  $50,150 | 2.5 BTC
+  $50,125 | 1.2 BTC
+  $50,100 | 0.8 BTC   <- Best Ask
+--- SPREAD ($50) ---
+  $50,050 | 1.5 BTC   <- Best Bid
+  $50,025 | 3.0 BTC
+  $50,000 | 5.2 BTC
+BIDS (Buyers)
+```
+
+### Understanding Spread
+
+```
+Spread = Best Ask - Best Bid
+       = $50,100 - $50,050
+       = $50 (0.10%)
+
+Tighter spread = More liquid market
+Wider spread = Less liquid market
+```
+
+## Settlement
+
+Spot trades settle instantly on LX DEX.
+
+### Settlement Flow
+
+```
+Trade Execution (T+0)
+         |
+         v
++------------------+
+| Balance Update   |
+|                  |
+| Buyer:           |
+|   -50,000 USDT   |
+|   +1 BTC         |
+|                  |
+| Seller:          |
+|   +50,000 USDT   |
+|   -1 BTC         |
++------------------+
+         |
+         v
+  Assets Available
+  for Withdrawal
+```
+
+### Checking Balances
+
+```typescript
+const balances = await dex.getBalances()
+
+console.log('Available Balances:')
+balances.forEach(b => {
+  console.log(`${b.asset}: ${b.available} (locked: ${b.locked})`)
+})
+
+// Output:
+// BTC: 2.5 (locked: 0.5)    <- 0.5 in open orders
+// USDT: 125,000 (locked: 0)
+// ETH: 10.0 (locked: 0)
+```
+
+## Trading Strategies
+
+### Dollar-Cost Averaging (DCA)
+
+Buy fixed dollar amounts at regular intervals:
+
+```typescript
+async function dcaBuy(symbol: string, amount: number) {
+  const order = await dex.spot.buy({
+    symbol,
+    type: 'market',
+    quoteQuantity: amount.toString()  // Buy $amount worth
+  })
+  return order
+}
+
+// Weekly DCA: Buy $500 BTC every week
+const schedule = setInterval(async () => {
+  const order = await dcaBuy('BTC-USD', 500)
+  console.log(`DCA: Bought ${order.filledQuantity} BTC @ $${order.avgPrice}`)
+}, 7 * 24 * 60 * 60 * 1000)
+```
+
+### Grid Trading
+
+Place buy and sell orders at regular intervals:
+
+```typescript
+async function setupGrid(
+  symbol: string,
+  centerPrice: number,
+  gridSize: number,
+  levels: number,
+  amountPerLevel: number
+) {
+  const orders = []
+
+  for (let i = 1; i <= levels; i++) {
+    // Buy orders below center
+    const buyPrice = centerPrice - (gridSize * i)
+    orders.push(dex.spot.buy({
+      symbol,
+      type: 'limit',
+      price: buyPrice.toString(),
+      quantity: amountPerLevel.toString()
+    }))
+
+    // Sell orders above center
+    const sellPrice = centerPrice + (gridSize * i)
+    orders.push(dex.spot.sell({
+      symbol,
+      type: 'limit',
+      price: sellPrice.toString(),
+      quantity: amountPerLevel.toString()
+    }))
+  }
+
+  return Promise.all(orders)
+}
+
+// 5-level grid around $50,000 with $500 spacing
+await setupGrid('BTC-USD', 50000, 500, 5, 0.1)
+```
+
+### Limit Order Book Scalping
+
+Capture the spread by posting on both sides:
+
+```typescript
+async function marketMake(symbol: string, size: number, spreadBps: number) {
+  const ticker = await dex.getTicker(symbol)
+  const mid = (parseFloat(ticker.bid) + parseFloat(ticker.ask)) / 2
+  const offset = mid * (spreadBps / 10000)
+
+  const [bid, ask] = await Promise.all([
+    dex.spot.buy({
+      symbol,
+      type: 'limit',
+      price: (mid - offset).toFixed(2),
+      quantity: size.toString(),
+      postOnly: true
+    }),
+    dex.spot.sell({
+      symbol,
+      type: 'limit',
+      price: (mid + offset).toFixed(2),
+      quantity: size.toString(),
+      postOnly: true
+    })
+  ])
+
+  return { bid, ask }
+}
+```
+
+## Fees
+
+### Spot Trading Fees
+
+| Volume Tier (30d) | Maker | Taker |
+|------------------|-------|-------|
+| < $100K | 0.10% | 0.20% |
+| $100K - $1M | 0.08% | 0.18% |
+| $1M - $10M | 0.06% | 0.15% |
+| $10M - $100M | 0.04% | 0.12% |
+| > $100M | 0.02% | 0.10% |
+
+### Fee Calculation
+
+```
+Trade: Buy 1 BTC @ $50,000
+
+Maker (limit order fills resting):
+  Fee = $50,000 * 0.10% = $50
+
+Taker (market order crosses spread):
+  Fee = $50,000 * 0.20% = $100
+```
+
+### Fee Discounts
+
+| Method | Discount |
+|--------|----------|
+| Pay fees in LUX | 25% |
+| VIP tier upgrade | Up to 80% |
+| Referral program | 10% kickback |
+
+## Risk Management
+
+### Setting Stop-Loss
+
+```typescript
+// Position: Long 1 BTC @ $50,000
+// Risk: 5% ($2,500)
+
+const stopLoss = await dex.spot.sell({
+  symbol: 'BTC-USD',
+  type: 'stop',
+  stopPrice: '47500.00',  // 5% below entry
+  quantity: '1.0'
+})
+```
+
+### Take-Profit
+
+```typescript
+// Target: 10% profit
+
+const takeProfit = await dex.spot.sell({
+  symbol: 'BTC-USD',
+  type: 'limit',
+  price: '55000.00',  // 10% above entry
+  quantity: '1.0'
+})
+```
+
+### Bracket Order (Entry + SL + TP)
+
+```typescript
+const bracket = await dex.spot.bracketOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000.00',
+  quantity: '1.0',
+  takeProfit: '55000.00',  // +10%
+  stopLoss: '47500.00'     // -5%
+})
+```
+
+## Best Practices
+
+### For Beginners
+
+1. **Start with limit orders** - Avoid slippage
+2. **Use small position sizes** - Learn before scaling
+3. **Set stop-losses** - Protect capital
+4. **Check liquidity** - Look at order book depth
+
+### For Advanced Traders
+
+1. **Monitor spread dynamics** - Tighter = better execution
+2. **Use post-only orders** - Ensure maker fees
+3. **Batch orders** - Reduce API calls
+4. **Watch for liquidations** - Opportunities in volatile markets
+
+## API Reference
+
+### Place Order
+
+```typescript
+dex.spot.placeOrder({
+  symbol: string,      // Trading pair
+  side: 'buy' | 'sell',
+  type: 'limit' | 'market' | 'stop' | 'stopLimit',
+  price?: string,      // Required for limit
+  stopPrice?: string,  // Required for stop orders
+  quantity: string,    // Base asset quantity
+  quoteQuantity?: string, // Quote asset quantity (market only)
+  timeInForce?: 'GTC' | 'IOC' | 'FOK' | 'GTD',
+  postOnly?: boolean,
+  reduceOnly?: boolean
+})
+```
+
+### Cancel Order
+
+```typescript
+await dex.spot.cancelOrder(orderId)
+await dex.spot.cancelAll(symbol)  // Cancel all for symbol
+```
+
+### Get Order
+
+```typescript
+const order = await dex.spot.getOrder(orderId)
+const openOrders = await dex.spot.getOpenOrders(symbol)
+const history = await dex.spot.getOrderHistory({ symbol, limit: 100 })
+```
+
+### Get Trades
+
+```typescript
+const trades = await dex.spot.getTrades({ symbol, limit: 50 })
+```
+
+## Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `INSUFFICIENT_BALANCE` | Not enough quote asset | Deposit more funds |
+| `MIN_NOTIONAL` | Order value too small | Increase order size |
+| `PRICE_BOUNDS` | Price too far from market | Adjust price |
+| `POST_ONLY_REJECTED` | Would cross spread | Lower buy / raise sell |

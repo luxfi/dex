@@ -1,0 +1,484 @@
+---
+title: Quickstart
+description: Get trading on LX DEX Testnet in 5 minutes
+---
+
+# Testnet Quickstart
+
+Get from zero to your first trade on LX DEX Testnet in under 5 minutes.
+
+## Prerequisites
+
+- Node.js 18+ or Python 3.10+ or Go 1.21+
+- A terminal/command line
+- Internet connection
+
+## Step 1: Install SDK (1 minute)
+
+Choose your preferred language:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```bash
+npm install @luxfi/dex-sdk
+# or
+pnpm add @luxfi/dex-sdk
+# or
+yarn add @luxfi/dex-sdk
+```
+  </Tab>
+  <Tab value="Python">
+```bash
+pip install luxfi-dex
+# or
+uv pip install luxfi-dex
+```
+  </Tab>
+  <Tab value="Go">
+```bash
+go get github.com/luxfi/dex/sdk/go/lxdex@latest
+```
+  </Tab>
+  <Tab value="curl">
+No installation needed - curl comes pre-installed on most systems.
+  </Tab>
+</Tabs>
+
+## Step 2: Get Test Tokens (1 minute)
+
+Request free test tokens from the faucet:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+const client = new LXDexClient({ network: 'testnet' });
+
+// Request test tokens
+const result = await client.faucet.request({
+  address: 'your_wallet_address',
+  tokens: ['tLUX', 'tUSDC', 'tBTC'],
+});
+
+console.log('Tokens received:', result.amounts);
+// { tLUX: 1000, tUSDC: 100000, tBTC: 1 }
+```
+  </Tab>
+  <Tab value="Python">
+```python
+from luxfi_dex import LXDexClient
+
+client = LXDexClient(network='testnet')
+
+# Request test tokens
+result = client.faucet.request(
+    address='your_wallet_address',
+    tokens=['tLUX', 'tUSDC', 'tBTC']
+)
+
+print(f"Tokens received: {result.amounts}")
+# {'tLUX': 1000, 'tUSDC': 100000, 'tBTC': 1}
+```
+  </Tab>
+  <Tab value="Go">
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/luxfi/dex/sdk/go/lxdex"
+)
+
+func main() {
+    client := lxdex.NewClient(lxdex.WithNetwork("testnet"))
+
+    result, _ := client.Faucet.Request(context.Background(), &lxdex.FaucetRequest{
+        Address: "your_wallet_address",
+        Tokens:  []string{"tLUX", "tUSDC", "tBTC"},
+    })
+
+    fmt.Printf("Tokens received: %+v\n", result.Amounts)
+}
+```
+  </Tab>
+  <Tab value="curl">
+```bash
+curl -X POST https://faucet.testnet.lux.network/api/request \
+  -H "Content-Type: application/json" \
+  -d '{
+    "address": "your_wallet_address",
+    "tokens": ["tLUX", "tUSDC", "tBTC"]
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "amounts": {
+    "tLUX": 1000,
+    "tUSDC": 100000,
+    "tBTC": 1
+  },
+  "txHash": "0x123..."
+}
+```
+  </Tab>
+</Tabs>
+
+## Step 3: Check Your Balance (30 seconds)
+
+Verify tokens were received:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```typescript
+const balances = await client.getBalances();
+console.log('Balances:', balances);
+// {
+//   tLUX: 1000,
+//   tUSDC: 100000,
+//   tBTC: 1
+// }
+```
+  </Tab>
+  <Tab value="Python">
+```python
+balances = client.get_balances()
+print(f"Balances: {balances}")
+# {'tLUX': 1000, 'tUSDC': 100000, 'tBTC': 1}
+```
+  </Tab>
+  <Tab value="Go">
+```go
+balances, _ := client.GetBalances(context.Background())
+fmt.Printf("Balances: %+v\n", balances)
+```
+  </Tab>
+  <Tab value="curl">
+```bash
+curl -X POST https://testnet-api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_getBalances",
+    "params": {"address": "your_wallet_address"},
+    "id": 1
+  }'
+```
+  </Tab>
+</Tabs>
+
+## Step 4: View Order Book (30 seconds)
+
+Check the current market state:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```typescript
+const orderBook = await client.getOrderBook({
+  symbol: 'tBTC-tUSDC',
+  depth: 10,
+});
+
+console.log('Best Bid:', orderBook.bids[0]);
+console.log('Best Ask:', orderBook.asks[0]);
+```
+  </Tab>
+  <Tab value="Python">
+```python
+order_book = client.get_order_book(symbol='tBTC-tUSDC', depth=10)
+
+print(f"Best Bid: {order_book.bids[0]}")
+print(f"Best Ask: {order_book.asks[0]}")
+```
+  </Tab>
+  <Tab value="Go">
+```go
+orderBook, _ := client.GetOrderBook(context.Background(), &lxdex.OrderBookRequest{
+    Symbol: "tBTC-tUSDC",
+    Depth:  10,
+})
+
+fmt.Printf("Best Bid: %+v\n", orderBook.Bids[0])
+fmt.Printf("Best Ask: %+v\n", orderBook.Asks[0])
+```
+  </Tab>
+  <Tab value="curl">
+```bash
+curl -X POST https://testnet-api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_getOrderBook",
+    "params": {"symbol": "tBTC-tUSDC", "depth": 10},
+    "id": 1
+  }'
+```
+  </Tab>
+</Tabs>
+
+## Step 5: Place Your First Order (1 minute)
+
+Place a limit buy order:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```typescript
+const order = await client.placeOrder({
+  symbol: 'tBTC-tUSDC',
+  type: 'limit',
+  side: 'buy',
+  price: 50000,
+  size: 0.01,
+  timeInForce: 'GTC',
+});
+
+console.log('Order placed!');
+console.log('Order ID:', order.orderId);
+console.log('Status:', order.status);
+```
+  </Tab>
+  <Tab value="Python">
+```python
+order = client.place_order(
+    symbol='tBTC-tUSDC',
+    order_type='limit',
+    side='buy',
+    price=50000,
+    size=0.01,
+    time_in_force='GTC'
+)
+
+print("Order placed!")
+print(f"Order ID: {order.order_id}")
+print(f"Status: {order.status}")
+```
+  </Tab>
+  <Tab value="Go">
+```go
+order, _ := client.PlaceOrder(context.Background(), &lxdex.Order{
+    Symbol:      "tBTC-tUSDC",
+    Type:        lxdex.OrderTypeLimit,
+    Side:        lxdex.Buy,
+    Price:       50000,
+    Size:        0.01,
+    TimeInForce: lxdex.GTC,
+})
+
+fmt.Println("Order placed!")
+fmt.Printf("Order ID: %s\n", order.OrderID)
+fmt.Printf("Status: %s\n", order.Status)
+```
+  </Tab>
+  <Tab value="curl">
+```bash
+curl -X POST https://testnet-api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_placeOrder",
+    "params": {
+      "symbol": "tBTC-tUSDC",
+      "type": 0,
+      "side": 0,
+      "price": 50000,
+      "size": 0.01,
+      "userID": "quickstart_user"
+    },
+    "id": 1
+  }'
+```
+
+Response:
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "orderId": "123e4567-e89b-12d3-a456-426614174000",
+    "status": "open",
+    "symbol": "tBTC-tUSDC",
+    "side": "buy",
+    "price": 50000,
+    "size": 0.01,
+    "filledSize": 0,
+    "createdAt": 1702300800000
+  },
+  "id": 1
+}
+```
+  </Tab>
+</Tabs>
+
+## Step 6: Monitor Your Order (1 minute)
+
+Check order status and subscribe to updates:
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'curl']}>
+  <Tab value="TypeScript">
+```typescript
+// Get order status
+const status = await client.getOrder(order.orderId);
+console.log('Order status:', status);
+
+// Subscribe to order updates via WebSocket
+client.subscribe('orders', (update) => {
+  if (update.orderId === order.orderId) {
+    console.log('Order update:', update);
+  }
+});
+```
+  </Tab>
+  <Tab value="Python">
+```python
+# Get order status
+status = client.get_order(order.order_id)
+print(f"Order status: {status}")
+
+# Subscribe to order updates
+def on_order_update(update):
+    if update.order_id == order.order_id:
+        print(f"Order update: {update}")
+
+client.subscribe('orders', callback=on_order_update)
+```
+  </Tab>
+  <Tab value="Go">
+```go
+// Get order status
+status, _ := client.GetOrder(context.Background(), order.OrderID)
+fmt.Printf("Order status: %+v\n", status)
+
+// Subscribe to order updates
+client.Subscribe("orders", func(update *lxdex.OrderUpdate) {
+    if update.OrderID == order.OrderID {
+        fmt.Printf("Order update: %+v\n", update)
+    }
+})
+```
+  </Tab>
+  <Tab value="curl">
+```bash
+# Get order status
+curl -X POST https://testnet-api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "lx_getOrder",
+    "params": {"orderId": "123e4567-e89b-12d3-a456-426614174000"},
+    "id": 1
+  }'
+
+# For real-time updates, connect to WebSocket:
+# wss://testnet-api.lux.network/ws
+```
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+Here's a full working example that combines all steps:
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function main() {
+  // Initialize client
+  const client = new LXDexClient({ network: 'testnet' });
+
+  // Request test tokens
+  console.log('Requesting test tokens...');
+  await client.faucet.request({
+    address: 'your_wallet_address',
+    tokens: ['tUSDC', 'tBTC'],
+  });
+
+  // Wait for tokens to arrive
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Check balances
+  const balances = await client.getBalances();
+  console.log('Balances:', balances);
+
+  // Get current market price
+  const orderBook = await client.getOrderBook({ symbol: 'tBTC-tUSDC', depth: 1 });
+  const midPrice = (orderBook.bids[0].price + orderBook.asks[0].price) / 2;
+  console.log('Mid price:', midPrice);
+
+  // Place a buy order slightly below mid price
+  const buyOrder = await client.placeOrder({
+    symbol: 'tBTC-tUSDC',
+    type: 'limit',
+    side: 'buy',
+    price: midPrice * 0.99, // 1% below mid
+    size: 0.01,
+  });
+  console.log('Buy order placed:', buyOrder.orderId);
+
+  // Place a sell order slightly above mid price
+  const sellOrder = await client.placeOrder({
+    symbol: 'tBTC-tUSDC',
+    type: 'limit',
+    side: 'sell',
+    price: midPrice * 1.01, // 1% above mid
+    size: 0.01,
+  });
+  console.log('Sell order placed:', sellOrder.orderId);
+
+  // List open orders
+  const openOrders = await client.getOpenOrders({ symbol: 'tBTC-tUSDC' });
+  console.log('Open orders:', openOrders.length);
+
+  // Cancel all orders
+  for (const order of openOrders) {
+    await client.cancelOrder(order.orderId);
+    console.log('Cancelled:', order.orderId);
+  }
+
+  console.log('Done!');
+}
+
+main().catch(console.error);
+```
+
+## What's Next
+
+Now that you've completed the quickstart:
+
+1. **[Explore All Endpoints](/docs/testnet/endpoints)**: Full API reference for testnet
+2. **[Get More Tokens](/docs/testnet/faucet)**: Faucet details and limits
+3. **[View Available Markets](/docs/testnet/markets)**: All testnet trading pairs
+4. **[Enable Debugging](/docs/testnet/debugging)**: Request tracing and logs
+5. **[Plan Migration](/docs/testnet/migration)**: Moving to mainnet
+
+## Common Issues
+
+### "Insufficient Balance" Error
+
+Your faucet request may not have completed. Wait 30 seconds and check your balance again.
+
+### "Invalid Symbol" Error
+
+Use testnet symbols with the `t` prefix: `tBTC-tUSDC`, not `BTC-USDC`.
+
+### Connection Timeout
+
+Check your network connection and verify the endpoint URL:
+```bash
+curl https://testnet-api.lux.network/health
+```
+
+### Rate Limited
+
+Testnet has relaxed rate limits, but if you hit them:
+- Wait 60 seconds before retrying
+- Consider batching requests
+- Check [rate limit documentation](/docs/testnet/endpoints#rate-limits)
+
+## Support
+
+- **Discord**: [#testnet-support](https://discord.gg/luxfi)
+- **GitHub**: [Report issues](https://github.com/luxfi/dex/issues)
+- **Status**: [status.testnet.lux.network](https://status.testnet.lux.network)

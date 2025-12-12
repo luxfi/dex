@@ -1,0 +1,834 @@
+---
+title: WebSocket Guide
+description: WebSocket connections, subscriptions, reconnection handling, and heartbeats
+---
+
+# WebSocket Guide
+
+The TypeScript SDK provides WebSocket support for real-time market data, order updates, and account notifications.
+
+## Connection Basics
+
+### Establishing Connection
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function connectWebSocket(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  // Connect to WebSocket server
+  await client.connect();
+  console.log('WebSocket connected');
+
+  // Your subscription code here...
+}
+```
+
+### Disconnecting
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+function disconnectWebSocket(client: LXDexClient): void {
+  client.disconnect();
+  console.log('WebSocket disconnected');
+}
+```
+
+## Subscription Management
+
+### Subscribe to Channels
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function subscribeToChannels(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  // Generic subscription method
+  client.subscribe('custom:channel', (data: unknown) => {
+    console.log('Received:', data);
+  });
+
+  // Convenience methods
+  client.subscribeOrderBook('BTC-USD', (book) => {
+    console.log('Order book update');
+  });
+
+  client.subscribeTrades('BTC-USD', (trade) => {
+    console.log('Trade:', trade);
+  });
+}
+```
+
+### Unsubscribe from Channels
+
+```typescript
+import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+
+async function unsubscribeExample(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  await client.connect();
+
+  // Define callback
+  const handleOrderBook = (book: OrderBook): void => {
+    console.log('Book update');
+  };
+
+  // Subscribe
+  client.subscribeOrderBook('BTC-USD', handleOrderBook);
+
+  // Unsubscribe specific callback
+  client.unsubscribe('orderbook:BTC-USD', handleOrderBook);
+
+  // Unsubscribe all callbacks from channel
+  client.unsubscribe('orderbook:BTC-USD');
+}
+```
+
+## Available Channels
+
+| Channel Pattern | Description | Data Type |
+|-----------------|-------------|-----------|
+| `orderbook:{symbol}` | Order book updates | `OrderBook` |
+| `trades:{symbol}` | Trade executions | `Trade` |
+| `liquidations` | Liquidation events | `LiquidationInfo` |
+| `settlements` | Settlement batches | `SettlementBatch` |
+| `margin_calls:{userId}` | Margin call alerts | `MarginCallEvent` |
+
+## Reconnection Handling
+
+### Manual Reconnection
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+class ReconnectingClient {
+  private client: LXDexClient;
+  private connected: boolean = false;
+  private reconnecting: boolean = false;
+  private maxRetries: number = 5;
+  private retryDelay: number = 1000;
+
+  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
+    this.client = new LXDexClient(config);
+  }
+
+  async connect(): Promise<void> {
+    let retries = 0;
+
+    while (retries < this.maxRetries) {
+      try {
+        await this.client.connect();
+        this.connected = true;
+        console.log('Connected to WebSocket');
+        return;
+      } catch (error) {
+        retries++;
+        console.log(`Connection attempt ${retries} failed`);
+
+        if (retries < this.maxRetries) {
+          await this.delay(this.retryDelay * retries);
+        }
+      }
+    }
+
+    throw new Error('Failed to connect after max retries');
+  }
+
+  async reconnect(): Promise<void> {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+
+    console.log('Attempting to reconnect...');
+    this.client.disconnect();
+
+    try {
+      await this.connect();
+      // Resubscribe to channels here
+      console.log('Reconnected successfully');
+    } catch (error) {
+      console.error('Reconnection failed:', error);
+    } finally {
+      this.reconnecting = false;
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getClient(): LXDexClient {
+    return this.client;
+  }
+}
+```
+
+### Automatic Reconnection with Event Handling
+
+```typescript
+import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+
+interface Subscription {
+  channel: string;
+  callback: (data: unknown) => void;
+}
+
+class AutoReconnectClient {
+  private client: LXDexClient;
+  private config: { jsonRpcUrl: string; wsUrl: string };
+  private subscriptions: Subscription[] = [];
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private isConnected: boolean = false;
+
+  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
+    this.config = config;
+    this.client = new LXDexClient(config);
+  }
+
+  async connect(): Promise<void> {
+    try {
+      await this.client.connect();
+      this.isConnected = true;
+      this.resubscribeAll();
+    } catch (error) {
+      this.scheduleReconnect();
+      throw error;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+
+      try {
+        this.client = new LXDexClient(this.config);
+        await this.connect();
+      } catch {
+        this.scheduleReconnect();
+      }
+    }, 5000);
+  }
+
+  private resubscribeAll(): void {
+    for (const sub of this.subscriptions) {
+      this.client.subscribe(sub.channel, sub.callback);
+    }
+    console.log(`Resubscribed to ${this.subscriptions.length} channels`);
+  }
+
+  subscribe(channel: string, callback: (data: unknown) => void): void {
+    // Store subscription for reconnection
+    this.subscriptions.push({ channel, callback });
+
+    // Subscribe if connected
+    if (this.isConnected) {
+      this.client.subscribe(channel, callback);
+    }
+  }
+
+  subscribeOrderBook(symbol: string, callback: (book: OrderBook) => void): void {
+    this.subscribe(`orderbook:${symbol}`, callback as (data: unknown) => void);
+  }
+
+  subscribeTrades(symbol: string, callback: (trade: Trade) => void): void {
+    this.subscribe(`trades:${symbol}`, callback as (data: unknown) => void);
+  }
+
+  unsubscribe(channel: string): void {
+    this.subscriptions = this.subscriptions.filter(s => s.channel !== channel);
+    this.client.unsubscribe(channel);
+  }
+
+  disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.client.disconnect();
+    this.isConnected = false;
+  }
+}
+```
+
+## Heartbeat Implementation
+
+### Ping-Pong Heartbeat
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+class HeartbeatClient {
+  private client: LXDexClient;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private missedHeartbeats: number = 0;
+  private maxMissedHeartbeats: number = 3;
+  private heartbeatMs: number = 30000;
+  private onDisconnect?: () => void;
+
+  constructor(
+    config: { jsonRpcUrl: string; wsUrl: string },
+    onDisconnect?: () => void
+  ) {
+    this.client = new LXDexClient(config);
+    this.onDisconnect = onDisconnect;
+  }
+
+  async connect(): Promise<void> {
+    await this.client.connect();
+    this.startHeartbeat();
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(async () => {
+      try {
+        await this.client.ping();
+        this.missedHeartbeats = 0;
+      } catch (error) {
+        this.missedHeartbeats++;
+        console.log(`Missed heartbeat (${this.missedHeartbeats})`);
+
+        if (this.missedHeartbeats >= this.maxMissedHeartbeats) {
+          console.log('Connection lost - triggering disconnect');
+          this.stopHeartbeat();
+          this.onDisconnect?.();
+        }
+      }
+    }, this.heartbeatMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  disconnect(): void {
+    this.stopHeartbeat();
+    this.client.disconnect();
+  }
+
+  getClient(): LXDexClient {
+    return this.client;
+  }
+}
+
+// Usage
+async function useHeartbeatClient(): Promise<void> {
+  const client = new HeartbeatClient(
+    {
+      jsonRpcUrl: 'http://localhost:8080/rpc',
+      wsUrl: 'ws://localhost:8081'
+    },
+    () => {
+      console.log('Connection lost - attempting reconnect');
+      // Reconnection logic here
+    }
+  );
+
+  await client.connect();
+}
+```
+
+## Message Handling
+
+### Custom Message Handler
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+interface WebSocketMessage {
+  channel: string;
+  data: unknown;
+  timestamp?: number;
+}
+
+class MessageHandler {
+  private handlers: Map<string, ((data: unknown) => void)[]> = new Map();
+
+  register(channel: string, handler: (data: unknown) => void): void {
+    if (!this.handlers.has(channel)) {
+      this.handlers.set(channel, []);
+    }
+    this.handlers.get(channel)!.push(handler);
+  }
+
+  unregister(channel: string, handler?: (data: unknown) => void): void {
+    if (!handler) {
+      this.handlers.delete(channel);
+      return;
+    }
+
+    const handlers = this.handlers.get(channel);
+    if (handlers) {
+      const index = handlers.indexOf(handler);
+      if (index > -1) {
+        handlers.splice(index, 1);
+      }
+    }
+  }
+
+  handle(message: WebSocketMessage): void {
+    const handlers = this.handlers.get(message.channel);
+    if (handlers) {
+      handlers.forEach(handler => {
+        try {
+          handler(message.data);
+        } catch (error) {
+          console.error(`Handler error for ${message.channel}:`, error);
+        }
+      });
+    }
+  }
+}
+```
+
+## Browser Usage
+
+### Browser WebSocket Client
+
+```typescript
+import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+
+class BrowserDexClient {
+  private client: LXDexClient;
+  private visibilityHandler: (() => void) | null = null;
+
+  constructor(config: { jsonRpcUrl: string; wsUrl: string }) {
+    this.client = new LXDexClient(config);
+    this.setupVisibilityHandling();
+  }
+
+  private setupVisibilityHandling(): void {
+    if (typeof document === 'undefined') return;
+
+    this.visibilityHandler = (): void => {
+      if (document.visibilityState === 'visible') {
+        // Reconnect when tab becomes visible
+        console.log('Tab visible - checking connection');
+        this.checkConnection();
+      }
+    };
+
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private async checkConnection(): Promise<void> {
+    try {
+      await this.client.ping();
+    } catch {
+      console.log('Connection lost - reconnecting');
+      await this.reconnect();
+    }
+  }
+
+  async connect(): Promise<void> {
+    await this.client.connect();
+  }
+
+  async reconnect(): Promise<void> {
+    this.client.disconnect();
+    await this.client.connect();
+  }
+
+  subscribeOrderBook(symbol: string, callback: (book: OrderBook) => void): void {
+    this.client.subscribeOrderBook(symbol, callback);
+  }
+
+  subscribeTrades(symbol: string, callback: (trade: Trade) => void): void {
+    this.client.subscribeTrades(symbol, callback);
+  }
+
+  disconnect(): void {
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+    }
+    this.client.disconnect();
+  }
+}
+```
+
+### React WebSocket Hook
+
+```tsx
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { LXDexClient, LXDexConfig } from '@luxfi/dex-sdk';
+
+interface UseWebSocketOptions {
+  autoConnect?: boolean;
+  reconnectOnError?: boolean;
+  reconnectDelay?: number;
+  maxReconnectAttempts?: number;
+}
+
+interface UseWebSocketResult {
+  connected: boolean;
+  connecting: boolean;
+  error: Error | null;
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  client: LXDexClient | null;
+}
+
+export function useWebSocket(
+  config: LXDexConfig,
+  options: UseWebSocketOptions = {}
+): UseWebSocketResult {
+  const {
+    autoConnect = true,
+    reconnectOnError = true,
+    reconnectDelay = 3000,
+    maxReconnectAttempts = 5
+  } = options;
+
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const clientRef = useRef<LXDexClient | null>(null);
+  const reconnectAttempts = useRef(0);
+
+  const connect = useCallback(async () => {
+    if (connecting || connected) return;
+
+    setConnecting(true);
+    setError(null);
+
+    try {
+      if (!clientRef.current) {
+        clientRef.current = new LXDexClient(config);
+      }
+
+      await clientRef.current.connect();
+      setConnected(true);
+      reconnectAttempts.current = 0;
+    } catch (err) {
+      const connectError = err instanceof Error ? err : new Error('Connection failed');
+      setError(connectError);
+
+      if (reconnectOnError && reconnectAttempts.current < maxReconnectAttempts) {
+        reconnectAttempts.current++;
+        setTimeout(() => connect(), reconnectDelay);
+      }
+    } finally {
+      setConnecting(false);
+    }
+  }, [config, connecting, connected, reconnectOnError, reconnectDelay, maxReconnectAttempts]);
+
+  const disconnect = useCallback(() => {
+    if (clientRef.current) {
+      clientRef.current.disconnect();
+      setConnected(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (autoConnect) {
+      connect();
+    }
+
+    return () => {
+      disconnect();
+    };
+  }, [autoConnect, connect, disconnect]);
+
+  return {
+    connected,
+    connecting,
+    error,
+    connect,
+    disconnect,
+    client: clientRef.current
+  };
+}
+```
+
+### Using the Hook
+
+```tsx
+import React from 'react';
+import { useWebSocket } from './hooks/useWebSocket';
+import { OrderBook } from '@luxfi/dex-sdk';
+
+function TradingApp(): JSX.Element {
+  const { connected, connecting, error, client } = useWebSocket({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  const [orderBook, setOrderBook] = React.useState<OrderBook | null>(null);
+
+  React.useEffect(() => {
+    if (!client || !connected) return;
+
+    client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
+      setOrderBook(book);
+    });
+
+    return () => {
+      client.unsubscribe('orderbook:BTC-USD');
+    };
+  }, [client, connected]);
+
+  if (error) {
+    return <div className="error">Connection error: {error.message}</div>;
+  }
+
+  if (connecting) {
+    return <div className="loading">Connecting...</div>;
+  }
+
+  if (!connected) {
+    return <div className="disconnected">Disconnected</div>;
+  }
+
+  return (
+    <div className="trading-app">
+      <div className="connection-status">Connected</div>
+      {orderBook && (
+        <div className="order-book">
+          <div>Best Bid: {orderBook.bids[0]?.price}</div>
+          <div>Best Ask: {orderBook.asks[0]?.price}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Node.js Usage
+
+### Server-Side WebSocket Client
+
+```typescript
+import { LXDexClient, OrderBook, Trade } from '@luxfi/dex-sdk';
+
+async function runNodeClient(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc',
+    wsUrl: 'ws://localhost:8081'
+  });
+
+  // Connect with error handling
+  try {
+    await client.connect();
+    console.log('Connected to LX DEX');
+  } catch (error) {
+    console.error('Failed to connect:', error);
+    process.exit(1);
+  }
+
+  // Subscribe to market data
+  client.subscribeOrderBook('BTC-USD', (book: OrderBook) => {
+    const spread = book.asks[0]?.price - book.bids[0]?.price;
+    console.log(`Spread: ${spread?.toFixed(2) || 'N/A'}`);
+  });
+
+  client.subscribeTrades('BTC-USD', (trade: Trade) => {
+    console.log(`Trade: ${trade.size} @ ${trade.price}`);
+  });
+
+  // Handle process termination
+  process.on('SIGINT', () => {
+    console.log('Shutting down...');
+    client.disconnect();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    client.disconnect();
+    process.exit(0);
+  });
+}
+
+runNodeClient();
+```
+
+## Connection Monitoring
+
+### Connection Status Monitor
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+interface ConnectionStatus {
+  connected: boolean;
+  lastPing: Date | null;
+  latency: number | null;
+  reconnectCount: number;
+}
+
+class ConnectionMonitor {
+  private client: LXDexClient;
+  private status: ConnectionStatus = {
+    connected: false,
+    lastPing: null,
+    latency: null,
+    reconnectCount: 0
+  };
+  private pingInterval: NodeJS.Timeout | null = null;
+  private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
+
+  constructor(client: LXDexClient) {
+    this.client = client;
+  }
+
+  start(): void {
+    this.pingInterval = setInterval(async () => {
+      const start = Date.now();
+
+      try {
+        await this.client.ping();
+        this.status = {
+          ...this.status,
+          connected: true,
+          lastPing: new Date(),
+          latency: Date.now() - start
+        };
+      } catch {
+        this.status = {
+          ...this.status,
+          connected: false,
+          latency: null
+        };
+      }
+
+      this.notifyStatusChange();
+    }, 5000);
+  }
+
+  stop(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  onStatusChange(callback: (status: ConnectionStatus) => void): void {
+    this.statusCallbacks.push(callback);
+  }
+
+  getStatus(): ConnectionStatus {
+    return { ...this.status };
+  }
+
+  private notifyStatusChange(): void {
+    this.statusCallbacks.forEach(cb => cb(this.getStatus()));
+  }
+}
+```
+
+## Error Handling
+
+### WebSocket Error Types
+
+```typescript
+enum WebSocketErrorType {
+  CONNECTION_FAILED = 'CONNECTION_FAILED',
+  CONNECTION_LOST = 'CONNECTION_LOST',
+  SUBSCRIPTION_FAILED = 'SUBSCRIPTION_FAILED',
+  MESSAGE_PARSE_ERROR = 'MESSAGE_PARSE_ERROR',
+  TIMEOUT = 'TIMEOUT'
+}
+
+class WebSocketError extends Error {
+  type: WebSocketErrorType;
+  originalError?: Error;
+
+  constructor(type: WebSocketErrorType, message: string, originalError?: Error) {
+    super(message);
+    this.type = type;
+    this.originalError = originalError;
+    this.name = 'WebSocketError';
+  }
+}
+
+// Error handler
+function handleWebSocketError(error: WebSocketError): void {
+  switch (error.type) {
+    case WebSocketErrorType.CONNECTION_FAILED:
+      console.error('Failed to establish connection');
+      // Retry connection
+      break;
+
+    case WebSocketErrorType.CONNECTION_LOST:
+      console.error('Connection was lost');
+      // Attempt reconnection
+      break;
+
+    case WebSocketErrorType.SUBSCRIPTION_FAILED:
+      console.error('Failed to subscribe to channel');
+      // Retry subscription
+      break;
+
+    case WebSocketErrorType.MESSAGE_PARSE_ERROR:
+      console.error('Failed to parse message');
+      // Log and continue
+      break;
+
+    case WebSocketErrorType.TIMEOUT:
+      console.error('Operation timed out');
+      // Retry or fail
+      break;
+  }
+}
+```
+
+## Best Practices
+
+### Connection Management Checklist
+
+1. **Always handle connection errors**
+   ```typescript
+   try {
+     await client.connect();
+   } catch (error) {
+     // Handle connection failure
+   }
+   ```
+
+2. **Implement reconnection logic**
+   - Use exponential backoff
+   - Set maximum retry attempts
+   - Resubscribe after reconnection
+
+3. **Clean up on unmount/exit**
+   ```typescript
+   // React
+   useEffect(() => {
+     return () => client.disconnect();
+   }, []);
+
+   // Node.js
+   process.on('SIGINT', () => client.disconnect());
+   ```
+
+4. **Monitor connection health**
+   - Implement heartbeat/ping
+   - Track latency
+   - Alert on connection issues
+
+5. **Handle visibility changes (browser)**
+   - Reconnect when tab becomes visible
+   - Pause updates when tab is hidden
+
+## Next Steps
+
+- [Order Management](/docs/sdk/typescript/orders) - Place and manage orders
+- [Order Book](/docs/sdk/typescript/orderbook) - Real-time order book data
+- [Type Reference](/docs/sdk/typescript/types) - Complete type definitions
