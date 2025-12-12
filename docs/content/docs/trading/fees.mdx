@@ -7,69 +7,149 @@ description: Complete fee schedule for spot, margin, and perpetual trading on LX
 
 > **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md)
 
-LX DEX uses a maker-taker fee model with volume-based discounts. Makers add liquidity (limit orders resting in the book), takers remove liquidity (market orders or crossing limit orders).
+LX DEX uses a maker-taker fee model with volume-based VIP tiers and referral discounts. Makers add liquidity (limit orders resting in the book), takers remove liquidity (market orders or crossing limit orders).
 
-## Fee Structure
+## Fee Overview
+
+| Trading Type | Maker | Taker | VIP Discount |
+|--------------|-------|-------|--------------|
+| Spot | 0.10% | 0.20% | Up to 60% off |
+| Perpetuals | 0.10% | 0.50% | Up to 70% off |
+| Margin | 0.10% | 0.10% | Volume-based |
+
+## VIP Fee Tiers
+
+VIP tiers are based on your 30-day trailing trading volume across all markets.
+
+### Perpetual VIP Tiers
+
+| VIP Tier | 30-Day Volume | Maker Fee | Taker Fee | Savings |
+|----------|--------------|-----------|-----------|---------|
+| **VIP 0** | $0 | 0.10% | 0.50% | Base |
+| **VIP 1** | $1M | 0.08% | 0.45% | 10% |
+| **VIP 2** | $5M | 0.06% | 0.42% | 16% |
+| **VIP 3** | $10M | 0.04% | 0.39% | 22% |
+| **VIP 4** | $25M | 0.02% | 0.36% | 28% |
+| **VIP 5** | $50M | **0.00%** | 0.27% | 46% |
+| **VIP 6** | $100M | **0.00%** | 0.24% | 52% |
+| **VIP 7** | $250M | **0.00%** | 0.21% | 58% |
+| **VIP 8** | $500M | **0.00%** | 0.18% | 64% |
+| **VIP 9** | $1B | **0.00%** | **0.15%** | **70%** |
+
+### Spot VIP Tiers
+
+| VIP Tier | 30-Day Volume | Maker Fee | Taker Fee | Savings |
+|----------|--------------|-----------|-----------|---------|
+| **VIP 0** | $0 | 0.10% | 0.20% | Base |
+| **VIP 1** | $100K | 0.08% | 0.18% | 10% |
+| **VIP 2** | $500K | 0.06% | 0.16% | 20% |
+| **VIP 3** | $1M | 0.04% | 0.14% | 30% |
+| **VIP 4** | $5M | 0.02% | 0.12% | 40% |
+| **VIP 5** | $10M | **0.00%** | 0.10% | 50% |
+| **VIP 6** | $50M | **0.00%** | 0.09% | 55% |
+| **VIP 7** | $100M | **-0.01%** | 0.08% | 60% |
+| **VIP 8** | $250M | **-0.01%** | 0.07% | 65% |
+| **VIP 9** | $500M | **-0.02%** | 0.06% | **70%** |
+
+**Note**: Negative maker fees = rebates (you earn for providing liquidity).
+
+## Referral Fee Discounts
+
+Referees receive additional discounts on top of VIP tiers:
+
+| Referral Tier | Referee Discount | Combined with VIP |
+|---------------|------------------|-------------------|
+| Tier 1 | 5% | Stacks |
+| Tier 2 | 10% | Stacks |
+| Tier 3 | 10% | Stacks |
+| Tier 4 | 15% | Stacks |
+| Tier 5 | 15% | Stacks |
+| Tier 6 | **20%** | Stacks |
+
+### Combined Discount Example
+
+```
+VIP 5 Perpetual Taker + Tier 3 Referral:
+
+Base Fee: 0.50%
+VIP 5 Fee: 0.27% (46% VIP discount)
+Tier 3 Discount: 10% off VIP fee
+Final Fee: 0.27% × 0.90 = 0.243%
+
+Total Savings: 51.4% off base
+```
+
+See [Referral & Rebates](/docs/trading/referral-rebates) for full program details.
+
+## Fee Structure by Market
 
 ### Spot Trading Fees
 
-| Volume Tier (30d) | Maker | Taker | Discount |
-|------------------|-------|-------|----------|
-| < $100K | 0.10% | 0.20% | Base |
-| $100K - $1M | 0.08% | 0.18% | 10% |
-| $1M - $10M | 0.06% | 0.15% | 25% |
-| $10M - $100M | 0.04% | 0.12% | 40% |
-| $100M - $500M | 0.02% | 0.10% | 50% |
-| > $500M | 0.00% | 0.08% | 60% |
+| Fee Type | Rate | Description |
+|----------|------|-------------|
+| Maker | 0.00% - 0.10% | Limit orders resting in book |
+| Taker | 0.06% - 0.20% | Market orders or crossing limits |
+| Withdrawal | Network cost | Pass-through (no markup) |
 
 ### Perpetual Trading Fees
 
-| Volume Tier (30d) | Maker | Taker | Liquidation |
-|------------------|-------|-------|-------------|
-| < $100K | 0.02% | 0.06% | 0.10% |
-| $100K - $1M | 0.01% | 0.05% | 0.10% |
-| $1M - $10M | 0.00% | 0.04% | 0.10% |
-| $10M - $100M | -0.01% | 0.03% | 0.10% |
-| > $100M | -0.02% | 0.02% | 0.10% |
-
-**Note**: Negative maker fees indicate rebates (you earn fees for providing liquidity).
+| Fee Type | Rate | Description |
+|----------|------|-------------|
+| Maker | 0.00% - 0.10% | Limit orders resting in book |
+| Taker | 0.15% - 0.50% | Market orders or crossing limits |
+| Liquidation | 0.50% | Paid to liquidator |
+| Funding | Variable | Every 8 hours |
 
 ### Margin Trading Fees
 
 | Fee Type | Rate | Description |
 |----------|------|-------------|
-| Open Position | 0.10% | Fee on position size when opening |
-| Close Position | 0.10% | Fee on position size when closing |
+| Open Position | 0.10% | Fee on notional when opening |
+| Close Position | 0.10% | Fee on notional when closing |
 | Collateral Swap | 0.30% | Converting between collateral types |
 | Stablecoin Swap | 0.04% | Swapping between stablecoins |
-| Liquidation | 5.00% | Fee paid to liquidator from collateral |
+| Liquidation | 5.00% | Fee paid to liquidator |
 
-## Fee Calculation
+## Fee Calculation Examples
+
+### Perpetual Fee Example
+
+```
+Trade: Open 100x Long BTC-USD ($100,000 position)
+
+VIP 0 (Base Tier):
+- Taker Fee: $100,000 × 0.50% = $500
+- Maker Fee: $100,000 × 0.10% = $100
+
+VIP 5 (Tier 5):
+- Taker Fee: $100,000 × 0.27% = $270
+- Maker Fee: $100,000 × 0.00% = $0
+
+VIP 9 (Top Tier):
+- Taker Fee: $100,000 × 0.15% = $150
+- Maker Fee: $100,000 × 0.00% = $0
+
+With Tier 3 Referral Discount (10% off):
+- VIP 5 Taker: $270 × 0.90 = $243
+- VIP 9 Taker: $150 × 0.90 = $135
+```
 
 ### Spot Fee Example
 
 ```
 Trade: Buy 1 BTC at $50,000 (Market Order)
 
-Base Tier Fees:
+VIP 0:
 - Taker Fee: $50,000 × 0.20% = $100
-- Total Cost: $50,000 + $100 = $50,100
+- Total Cost: $50,100
 
-VIP Tier (>$100M volume):
-- Taker Fee: $50,000 × 0.08% = $40
-- Total Cost: $50,000 + $40 = $50,040
-```
+VIP 5:
+- Taker Fee: $50,000 × 0.10% = $50
+- Total Cost: $50,050
 
-### Perpetual Fee Example
-
-```
-Trade: Open 10x Long BTC-USD ($100,000 position)
-
-Maker Order (limit that rests):
-- Opening Fee: $100,000 × 0.02% = $20
-
-Taker Order (market or crossing):
-- Opening Fee: $100,000 × 0.06% = $60
+VIP 9 with Maker Rebate:
+- Maker Rebate: $50,000 × 0.02% = -$10 (you earn)
+- Total Cost: $49,990
 ```
 
 ### Margin Fee Example
@@ -99,11 +179,16 @@ Pay fees with LUX tokens for additional savings:
 
 ### Referral Program
 
-| Tier | Your Kickback | Referee Discount |
-|------|--------------|------------------|
-| Standard | 10% | 5% |
-| Partner | 20% | 10% |
-| Ambassador | 30% | 15% |
+| Tier | Referrer Rebate | Referee Discount |
+|------|----------------|------------------|
+| Tier 1 | 5% | 5% |
+| Tier 2 | 10% | 10% |
+| Tier 3 | 15% | 10% |
+| Tier 4 | 20% | 15% |
+| Tier 5 | 25% | 15% |
+| Tier 6 | **30%** | **20%** |
+
+See [Referral & Rebates](/docs/trading/referral-rebates) for full details.
 
 ### Market Maker Program
 
@@ -130,10 +215,24 @@ const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 const fees = await dex.getFees()
 
 console.log(`30-day Volume: $${fees.volume30d}`)
-console.log(`Current Tier: ${fees.tier}`)
+console.log(`VIP Tier: ${fees.vipTier}`)
 console.log(`Maker Fee: ${fees.makerFee}%`)
 console.log(`Taker Fee: ${fees.takerFee}%`)
+console.log(`Referral Discount: ${fees.referralDiscount}%`)
 console.log(`LUX Discount Applied: ${fees.luxDiscount}`)
+```
+
+### Get VIP Tier Progress
+
+```typescript
+// Check progress to next VIP tier
+const progress = await dex.getVIPProgress()
+
+console.log(`Current Tier: VIP ${progress.currentTier}`)
+console.log(`Current Volume: $${progress.volume30d}`)
+console.log(`Next Tier: VIP ${progress.nextTier}`)
+console.log(`Volume Needed: $${progress.volumeToNextTier}`)
+console.log(`Days Until Reset: ${progress.daysUntilReset}`)
 ```
 
 ### Calculate Trade Fee
@@ -141,15 +240,18 @@ console.log(`LUX Discount Applied: ${fees.luxDiscount}`)
 ```typescript
 // Pre-calculate fee for a trade
 const estimate = await dex.estimateFee({
-  symbol: 'BTC-USD',
+  symbol: 'BTC-USD-PERP',
   side: 'buy',
   type: 'market',
-  quantity: '1.0'
+  size: '100000'    // $100K notional
 })
 
-console.log(`Estimated Fee: $${estimate.fee}`)
-console.log(`Fee Rate: ${estimate.rate}%`)
-console.log(`Is Maker: ${estimate.isMaker}`)
+console.log(`VIP Tier: ${estimate.vipTier}`)
+console.log(`Base Fee: ${estimate.baseFee}%`)
+console.log(`VIP Discount: ${estimate.vipDiscount}%`)
+console.log(`Referral Discount: ${estimate.referralDiscount}%`)
+console.log(`Final Fee: ${estimate.finalFee}%`)
+console.log(`Fee Amount: $${estimate.feeAmount}`)
 ```
 
 ### Fee History
@@ -165,6 +267,7 @@ console.log(`Total Fees Paid: $${history.totalFees}`)
 console.log(`Maker Fees: $${history.makerFees}`)
 console.log(`Taker Fees: $${history.takerFees}`)
 console.log(`Rebates Earned: $${history.rebates}`)
+console.log(`Referral Discounts: $${history.referralDiscounts}`)
 ```
 
 ## Funding Rates
@@ -174,6 +277,7 @@ Perpetual positions are subject to funding rates that transfer between longs and
 | Parameter | Value |
 |-----------|-------|
 | Funding Interval | 8 hours |
+| Settlement Times | 00:00, 08:00, 16:00 UTC |
 | Max Rate | ±0.75% per interval |
 | Typical Rate | ±0.01% per interval |
 
@@ -192,9 +296,10 @@ If funding rate is negative, shorts pay longs.
 
 ```typescript
 // Get current funding rate
-const funding = await dex.getFundingRate('BTC-USD')
+const funding = await dex.getFundingRate('BTC-USD-PERP')
 
 console.log(`Current Rate: ${funding.rate}%`)
+console.log(`Annualized: ${(funding.rate * 3 * 365).toFixed(2)}%`)
 console.log(`Predicted Next: ${funding.predictedRate}%`)
 console.log(`Time Until Settlement: ${funding.nextSettlement}`)
 ```
@@ -217,8 +322,9 @@ Trading fees are distributed as follows:
 
 | Allocation | Percentage | Purpose |
 |------------|------------|---------|
-| Liquidity Providers | 60% | LP rewards |
-| Protocol Treasury | 25% | Development and operations |
+| Liquidity Providers | 50% | LP rewards |
+| Referral Rebates | 15% | Referrer rewards |
+| Protocol Treasury | 20% | Development and operations |
 | Insurance Fund | 10% | Cover liquidation shortfalls |
 | Stakers | 5% | LUX staking rewards |
 
@@ -226,11 +332,12 @@ Trading fees are distributed as follows:
 
 ### Minimize Fees
 
-1. **Use limit orders** - Maker fees are lower than taker fees
-2. **Accumulate volume** - Higher tiers have better rates
-3. **Pay in LUX** - Get 25% discount on all fees
-4. **Use post-only** - Guarantee maker fee execution
-5. **Join referral program** - Earn back a portion of fees
+1. **Use limit orders** - Maker fees are lower (or negative!)
+2. **Build VIP volume** - Higher tiers save significantly
+3. **Use referral code** - Additional discount on top of VIP
+4. **Pay in LUX** - Get 25% discount on all fees
+5. **Use post-only** - Guarantee maker fee execution
+6. **Refer others** - Earn rebates on their trading
 
 ### Fee-Efficient Trading
 
@@ -240,12 +347,37 @@ import { DEX } from '@luxfi/trading'
 const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Use limit orders for maker fees
-const order = await dex.limitBuy('BTC-USDC', '1.0', '49900.00')
-console.log(`Order placed: ${order.orderId}`)
+const order = await dex.limitBuy('BTC-USDC', '1.0', '49900.00', {
+  postOnly: true  // Reject if would be taker
+})
+
+// Check fee before market order
+const fee = await dex.estimateFee({
+  symbol: 'BTC-USD-PERP',
+  type: 'market',
+  size: '100000'
+})
+
+if (fee.finalFee > 0.2) {
+  console.log('Consider limit order for lower fee')
+}
+```
+
+### Volume Optimization
+
+```typescript
+// Check volume needed for next tier
+const progress = await dex.getVIPProgress()
+
+if (progress.volumeToNextTier < 100000) {
+  console.log(`Only $${progress.volumeToNextTier} to VIP ${progress.nextTier}!`)
+  console.log(`Potential savings: ${progress.savingsAtNextTier}%`)
+}
 ```
 
 ## Related Documentation
 
+- [Referral & Rebates](/docs/trading/referral-rebates) - Full referral program details
 - [Trading Overview](/docs/trading) - General trading guide
 - [Order Types](/docs/trading/order-types) - All supported order types
 - [Market Makers](/docs/market-makers) - Market maker program

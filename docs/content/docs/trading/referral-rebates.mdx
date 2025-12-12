@@ -1,0 +1,397 @@
+---
+title: Referral & Rebates
+description: Earn up to 30% rebates on trading fees through the LX DEX referral program
+---
+
+# Referral & Rebates Program
+
+LX DEX offers a fully on-chain, DeFi-native referral program that rewards both referrers and referees with fee rebates and discounts.
+
+## Overview
+
+| Feature | Value |
+|---------|-------|
+| Max Referrer Rebate | **30%** of trading fees |
+| Max Referee Discount | **20%** off trading fees |
+| Referral Tiers | 6 tiers |
+| VIP Fee Tiers | 10 tiers |
+| Codes Per User | Up to 5 |
+| On-Chain | Fully transparent |
+
+## How It Works
+
+```
+1. Referrer creates referral code (e.g., "MYCODE")
+2. Referee uses code when signing up
+3. Every trade by referee generates:
+   - Fee discount for referee
+   - Rebate reward for referrer
+4. Rebates accumulate on-chain
+5. Referrer claims rebates anytime
+```
+
+## Referral Tiers
+
+Referrers advance through tiers based on total referred volume and number of active referees:
+
+| Tier | Min Volume | Min Referrals | Referrer Rebate | Referee Discount |
+|------|------------|--------------|-----------------|------------------|
+| **1** | $0 | 0 | 5% | 5% |
+| **2** | $10M | 5 | 10% | 10% |
+| **3** | $50M | 10 | 15% | 10% |
+| **4** | $100M | 25 | 20% | 15% |
+| **5** | $250M | 50 | 25% | 15% |
+| **6** | $500M | 100 | **30%** | **20%** |
+
+### Tier Upgrade Example
+
+```
+Starting: Tier 1 (5% rebate)
+
+Progress:
+- Refer 5 traders → Tier 2 possible
+- Those traders do $10M volume → Tier 2 unlocked (10% rebate)
+- Refer 10 traders → Tier 3 possible
+- Volume reaches $50M → Tier 3 unlocked (15% rebate)
+...continue to Tier 6
+```
+
+## VIP Fee Tiers
+
+All traders (with or without referral) benefit from volume-based VIP tiers:
+
+| VIP Tier | 30-Day Volume | Maker Fee | Taker Fee |
+|----------|--------------|-----------|-----------|
+| **VIP 0** | $0 | 0.10% | 0.50% |
+| **VIP 1** | $1M | 0.08% | 0.45% |
+| **VIP 2** | $5M | 0.06% | 0.42% |
+| **VIP 3** | $10M | 0.04% | 0.39% |
+| **VIP 4** | $25M | 0.02% | 0.36% |
+| **VIP 5** | $50M | **0.00%** | 0.27% |
+| **VIP 6** | $100M | **0.00%** | 0.24% |
+| **VIP 7** | $250M | **0.00%** | 0.21% |
+| **VIP 8** | $500M | **0.00%** | 0.18% |
+| **VIP 9** | $1B | **0.00%** | **0.15%** |
+
+### Combined Benefits
+
+Referral discounts stack with VIP tier benefits:
+
+```
+Example: Tier 3 Referee with VIP 5
+
+Base Taker Fee: 0.27% (VIP 5)
+Referee Discount: 10% (Tier 3 referral)
+Final Fee: 0.27% × (1 - 10%) = 0.243%
+
+Savings: 0.257% per trade vs VIP 0 base
+```
+
+## Creating Referral Codes
+
+### Create a Code
+
+```typescript
+import { DEX } from '@luxfi/trading'
+
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
+
+// Create referral code
+const code = await dex.referral.createCode({
+  code: 'MYCODE123',    // Alphanumeric, 3-20 chars
+  customRebate: null    // Optional: override tier rebate
+})
+
+console.log(`Code: ${code.code}`)
+console.log(`Owner: ${code.owner}`)
+console.log(`Created: ${code.createdAt}`)
+console.log(`Share Link: https://lx.exchange/r/${code.code}`)
+```
+
+### Code Limits
+
+- **5 codes per user** maximum
+- Codes must be unique across platform
+- Alphanumeric characters only (3-20 chars)
+- Codes cannot be reused after deactivation
+
+### Custom Rebate Rates
+
+Tier 4+ referrers can set custom rebate rates (up to their tier maximum):
+
+```typescript
+// Set custom 20% rebate (if at Tier 4+)
+const code = await dex.referral.createCode({
+  code: 'SPECIAL20',
+  customRebate: 2000    // 20% in basis points
+})
+
+// Update existing code rebate
+await dex.referral.setCustomRebate({
+  code: 'SPECIAL20',
+  rebate: 2500          // Increase to 25% (if Tier 5+)
+})
+```
+
+## Using Referral Codes
+
+### Apply Code on Signup
+
+```typescript
+// New user applies referral code
+await dex.referral.useCode('MYCODE123')
+
+// Check referral status
+const status = await dex.referral.getReferralStatus()
+
+console.log(`Referred By: ${status.referrerId}`)
+console.log(`Code Used: ${status.code}`)
+console.log(`Fee Discount: ${status.discount}%`)
+console.log(`Referrer Tier: ${status.referrerTier}`)
+```
+
+### Check Discount
+
+```typescript
+// Get current fee discount
+const discount = await dex.referral.getFeeDiscount()
+
+console.log(`Discount: ${discount}%`)
+console.log(`Effective Taker: ${0.50 * (1 - discount/100)}%`)
+console.log(`Effective Maker: ${0.10 * (1 - discount/100)}%`)
+```
+
+## Rebate Mechanics
+
+### How Rebates Are Calculated
+
+```
+Trade Flow:
+1. Referee places trade with $50 fee
+2. Fee discount applied: $50 × 10% = $5 discount
+3. Referee pays: $45
+4. Referrer rebate: $45 × 15% = $6.75
+5. Protocol receives: $45 - $6.75 = $38.25
+
+Referee saves: $5 (10% discount)
+Referrer earns: $6.75 (15% of post-discount fee)
+```
+
+### Track Rebates
+
+```typescript
+// Get referrer stats
+const referrer = await dex.referral.getReferrerStats()
+
+console.log(`Referral Tier: ${referrer.tier}`)
+console.log(`Total Referrals: ${referrer.totalReferrals}`)
+console.log(`Active Referrals: ${referrer.activeReferrals}`)
+console.log(`Total Volume: $${referrer.totalVolume}`)
+console.log(`Pending Rebates: $${referrer.pendingRebates}`)
+console.log(`Total Claimed: $${referrer.totalClaimed}`)
+```
+
+### Claim Rebates
+
+```typescript
+// Check pending rebates
+const pending = await dex.referral.getPendingRebates()
+console.log(`Pending: $${pending}`)
+
+// Claim all pending rebates
+const claimed = await dex.referral.claimRebates()
+
+console.log(`Claimed: $${claimed.amount}`)
+console.log(`Tx Hash: ${claimed.txHash}`)
+```
+
+### Auto-Claim Settings
+
+```typescript
+// Enable auto-claim when balance reaches threshold
+await dex.referral.setAutoClaimThreshold({
+  enabled: true,
+  threshold: '100'      // Claim when $100 accumulated
+})
+```
+
+## Managing Referral Codes
+
+### View Your Codes
+
+```typescript
+const codes = await dex.referral.getCodes()
+
+codes.forEach(code => {
+  console.log(`Code: ${code.code}`)
+  console.log(`  Active: ${code.isActive}`)
+  console.log(`  Uses: ${code.totalUses}`)
+  console.log(`  Volume: $${code.totalVolume}`)
+  console.log(`  Rebates: $${code.totalRebates}`)
+})
+```
+
+### Deactivate Code
+
+```typescript
+// Deactivate a code (existing referrals continue)
+await dex.referral.deactivateCode('OLDCODE')
+
+// Note: Cannot reactivate or reuse deactivated codes
+```
+
+### Transfer Code Ownership
+
+```typescript
+// Transfer code to another address (Tier 5+ only)
+await dex.referral.transferCode({
+  code: 'MYCODE123',
+  newOwner: '0x...'
+})
+```
+
+## Rebate History
+
+### View Rebate Payments
+
+```typescript
+const history = await dex.referral.getRebateHistory({
+  limit: 100,
+  offset: 0
+})
+
+history.forEach(payment => {
+  console.log(`${payment.timestamp}:`)
+  console.log(`  Referee: ${payment.refereeId}`)
+  console.log(`  Trade: ${payment.tradeId}`)
+  console.log(`  Market: ${payment.market}`)
+  console.log(`  Trade Volume: $${payment.volume}`)
+  console.log(`  Trade Fee: $${payment.fee}`)
+  console.log(`  Discount Given: $${payment.discount}`)
+  console.log(`  Rebate Earned: $${payment.rebate}`)
+})
+```
+
+### Export History
+
+```typescript
+// Export to CSV
+const csv = await dex.referral.exportHistory({
+  format: 'csv',
+  startDate: '2024-01-01',
+  endDate: '2024-12-31'
+})
+```
+
+## Program Statistics
+
+### Global Stats
+
+```typescript
+const stats = await dex.referral.getStats()
+
+console.log(`Total Referrers: ${stats.totalReferrers}`)
+console.log(`Total Referees: ${stats.totalReferees}`)
+console.log(`Total Rebates Paid: $${stats.totalRebatesPaid}`)
+console.log(`Total Discounts Given: $${stats.totalDiscountsGiven}`)
+console.log(`Active Codes: ${stats.activeCodes}`)
+```
+
+### Leaderboard
+
+```typescript
+const leaderboard = await dex.referral.getLeaderboard({
+  period: '30d',
+  limit: 100
+})
+
+leaderboard.forEach((referrer, rank) => {
+  console.log(`#${rank + 1}: ${referrer.address}`)
+  console.log(`  Tier: ${referrer.tier}`)
+  console.log(`  Referrals: ${referrer.referrals}`)
+  console.log(`  Volume: $${referrer.volume}`)
+  console.log(`  Rebates: $${referrer.rebates}`)
+})
+```
+
+## Rules & Restrictions
+
+### Code Rules
+
+- Codes must be alphanumeric (A-Z, 0-9)
+- Length: 3-20 characters
+- Case-insensitive (MYCODE = mycode)
+- No special characters or spaces
+- Cannot contain offensive terms
+
+### Referral Rules
+
+- Users can only use one referral code (permanent)
+- Self-referral is prohibited
+- Cannot change referrer after using code
+- Referral relationship is permanent
+
+### Rebate Rules
+
+- Rebates calculated on post-discount fees
+- Rebates paid in trading fee currency (USDT/USDC)
+- Minimum claim amount: $1
+- No rebates on zero-fee maker trades
+- Wash trading detection disqualifies rebates
+
+## Best Practices
+
+### For Referrers
+
+1. **Share your code widely** - Social media, communities, content
+2. **Create memorable codes** - Easy to type and remember
+3. **Use multiple codes** - Track different campaigns
+4. **Engage referees** - Help them trade successfully
+5. **Compound earnings** - Reinvest rebates in trading
+
+### For Referees
+
+1. **Use a code before first trade** - Cannot apply later
+2. **Verify discount active** - Check account settings
+3. **Trade actively** - Higher volume = higher referrer tier = better discount
+4. **Stack with VIP** - Volume tiers further reduce fees
+
+## On-Chain Verification
+
+All referral data is stored on-chain and verifiable:
+
+```typescript
+// Verify referral code on-chain
+const onChainCode = await dex.referral.verifyCode('MYCODE123')
+
+console.log(`Owner: ${onChainCode.owner}`)
+console.log(`Created Block: ${onChainCode.createdBlock}`)
+console.log(`Total Uses: ${onChainCode.uses}`)
+console.log(`Total Volume: ${onChainCode.volume}`)
+
+// Verify rebate payment
+const payment = await dex.referral.verifyPayment(txHash)
+console.log(`Valid: ${payment.verified}`)
+```
+
+## API Reference
+
+### Referral Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/referral/codes` | GET | List your referral codes |
+| `/referral/codes` | POST | Create new referral code |
+| `/referral/codes/{code}` | DELETE | Deactivate code |
+| `/referral/use` | POST | Apply referral code |
+| `/referral/stats` | GET | Get referrer statistics |
+| `/referral/rebates` | GET | Get pending rebates |
+| `/referral/claim` | POST | Claim pending rebates |
+| `/referral/history` | GET | Get rebate history |
+
+## Related Documentation
+
+- [Perpetual Trading](/docs/trading/perpetuals) - Trade perpetuals with fee discounts
+- [Fees](/docs/trading/fees) - Complete fee schedule
+- [VIP Tiers](/docs/trading/fees#vip-tiers) - Volume-based discounts
+- [API Reference](/docs/api) - Full API documentation
