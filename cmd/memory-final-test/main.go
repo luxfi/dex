@@ -26,7 +26,7 @@ func main() {
 	debug.SetGCPercent(100)
 
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║     LX DEX Production Memory Test - 21,000 Global Markets       ║")
+	fmt.Println("║     LX Production Memory Test - 21,000 Global Markets       ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Println("Configuration:")

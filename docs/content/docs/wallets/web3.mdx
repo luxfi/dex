@@ -1,6 +1,6 @@
 ---
 title: Web3 Wallets
-description: MetaMask, WalletConnect, and browser wallet integration for LX DEX
+description: MetaMask, WalletConnect, and browser wallet integration for LX
 ---
 
 # Web3 Wallet Integration
@@ -9,7 +9,7 @@ description: MetaMask, WalletConnect, and browser wallet integration for LX DEX
 
 ## Overview
 
-LX DEX supports all major Web3 wallets through standard interfaces:
+LX supports all major Web3 wallets through standard interfaces:
 - **EIP-1193**: Provider API for browser wallets
 - **EIP-6963**: Multi-wallet discovery
 - **WalletConnect v2**: Mobile and desktop wallet connection
@@ -152,7 +152,7 @@ const adapter = new WalletConnectAdapter({
   chains: [96369], // Lux Mainnet
   optionalChains: [96370], // Lux Testnet
   metadata: {
-    name: 'LX DEX',
+    name: 'LX',
     description: 'High-performance decentralized exchange',
     url: 'https://dex.lux.network',
     icons: ['https://dex.lux.network/logo.png']
@@ -403,7 +403,7 @@ const ORDER_TYPES = {
 };
 
 const DOMAIN = {
-  name: 'LX DEX',
+  name: 'LX',
   version: '1',
   chainId: 96369,
   verifyingContract: '0x...' // DEX contract address

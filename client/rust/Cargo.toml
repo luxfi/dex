@@ -2,7 +2,7 @@
 name = "lx-cli"
 version = "0.1.0"
 edition = "2021"
-description = "LX DEX CLI Client"
+description = "LX CLI Client"
 license = "MIT"
 repository = "https://github.com/luxfi/dex"
 

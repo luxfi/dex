@@ -1,4 +1,4 @@
-// LX DEX C++ SDK - Type Definitions
+// LX C++ SDK - Type Definitions
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 

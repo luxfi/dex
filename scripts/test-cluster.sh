@@ -1,7 +1,7 @@
 #!/bin/bash
-# Test LX DEX Cluster and RPC
+# Test LX Cluster and RPC
 
-echo "🧪 Testing LX DEX Cluster"
+echo "🧪 Testing LX Cluster"
 echo "========================"
 
 # Colors

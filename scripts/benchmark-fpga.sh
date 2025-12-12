@@ -6,7 +6,7 @@ set -e
 
 echo ""
 echo "════════════════════════════════════════════════════════════════════"
-echo "              LX DEX - FPGA ACCELERATION BENCHMARK                  "
+echo "              LX - FPGA ACCELERATION BENCHMARK                  "
 echo "════════════════════════════════════════════════════════════════════"
 echo ""
 

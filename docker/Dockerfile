@@ -1,4 +1,4 @@
-# Multi-stage build for LX DEX
+# Multi-stage build for LX
 FROM golang:1.23-alpine AS builder
 
 # Install build dependencies

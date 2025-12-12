@@ -1,6 +1,6 @@
-# LX DEX Go SDK
+# LX Go SDK
 
-Official Go SDK for interacting with the LX DEX trading platform.
+Official Go SDK for interacting with the LX trading platform.
 
 ## Features
 
@@ -182,7 +182,7 @@ for ob := range obChan {
 
 ## Order Types
 
-The SDK supports all LX DEX order types:
+The SDK supports all LX order types:
 
 ```go
 const (

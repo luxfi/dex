@@ -1,4 +1,4 @@
-# LX DEX API Documentation
+# LX API Documentation
 
 ## Table of Contents
 - [WebSocket API](#websocket-api)

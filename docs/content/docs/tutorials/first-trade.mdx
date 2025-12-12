@@ -1,17 +1,17 @@
 ---
 title: Your First Trade
-description: Place your first order on LX DEX - a complete beginner guide with code examples in TypeScript, Python, and Go
+description: Place your first order on LX - a complete beginner guide with code examples in TypeScript, Python, and Go
 ---
 
 # Your First Trade
 
-This tutorial walks you through placing your first order on LX DEX. By the end, you will understand the complete trading flow from connection to order confirmation.
+This tutorial walks you through placing your first order on LX. By the end, you will understand the complete trading flow from connection to order confirmation.
 
 ## Objectives
 
 After completing this tutorial, you will be able to:
 
-- Connect to the LX DEX API
+- Connect to the LX API
 - Query market data
 - Place limit and market orders
 - Check order status and fills
@@ -19,7 +19,7 @@ After completing this tutorial, you will be able to:
 
 ## Prerequisites
 
-- LX DEX node running locally (see [Getting Started](/docs/getting-started))
+- LX node running locally (see [Getting Started](/docs/getting-started))
 - SDK installed for your preferred language
 - Basic understanding of trading concepts (orders, orderbooks)
 
@@ -35,7 +35,7 @@ First, ensure your local DEX node is running:
 You should see output indicating the node is ready:
 
 ```
-INFO  Starting LX DEX node
+INFO  Starting LX node
 INFO  JSON-RPC server listening on :8080
 INFO  WebSocket server listening on :8081
 INFO  gRPC server listening on :50051
@@ -59,7 +59,7 @@ const client = new LXDexClient({
 async function testConnection() {
     try {
         const info = await client.getInfo();
-        console.log('Connected to LX DEX');
+        console.log('Connected to LX');
         console.log('Node version:', info.version);
         console.log('Network:', info.network);
         return true;
@@ -87,7 +87,7 @@ client = LXDexClient(
 def test_connection():
     try:
         info = client.get_info()
-        print('Connected to LX DEX')
+        print('Connected to LX')
         print(f'Node version: {info["version"]}')
         print(f'Network: {info["network"]}')
         return True
@@ -125,7 +125,7 @@ func main() {
         log.Fatalf("Connection failed: %v", err)
     }
 
-    fmt.Println("Connected to LX DEX")
+    fmt.Println("Connected to LX")
     fmt.Printf("Node version: %s\n", info.Version)
     fmt.Printf("Network: %s\n", info.Network)
 }
@@ -911,7 +911,7 @@ Congratulations on completing your first trade! Continue your learning:
 
 In this tutorial, you learned to:
 
-- Connect to the LX DEX API
+- Connect to the LX API
 - Query order book data
 - Place limit and market orders
 - Monitor order status

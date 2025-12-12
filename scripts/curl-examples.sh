@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "======================================"
-echo "LX DEX JSON-RPC API - Curl Examples"
+echo "LX JSON-RPC API - Curl Examples"
 echo "======================================"
 echo ""
 

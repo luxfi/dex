@@ -1,7 +1,7 @@
 /**
- * Hummingbot Gateway Plugin for LX DEX
+ * Hummingbot Gateway Plugin for LX
  *
- * This plugin registers the LX DEX connector with Hummingbot Gateway.
+ * This plugin registers the LX connector with Hummingbot Gateway.
  */
 
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
@@ -13,18 +13,18 @@ export interface LXDexPluginOptions extends FastifyPluginOptions {
 }
 
 /**
- * Register the LX DEX plugin with Hummingbot Gateway
+ * Register the LX plugin with Hummingbot Gateway
  */
 export async function lxdexPlugin(
   fastify: FastifyInstance,
   options: LXDexPluginOptions
 ): Promise<void> {
-  // Register the LX DEX routes
+  // Register the LX routes
   await fastify.register(lxdexRoutes, {
     prefix: options.prefix,
   });
 
-  fastify.log.info('LX DEX plugin registered successfully');
+  fastify.log.info('LX plugin registered successfully');
 }
 
 export default lxdexPlugin;

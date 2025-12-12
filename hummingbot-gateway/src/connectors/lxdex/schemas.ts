@@ -1,7 +1,7 @@
 /**
- * LX DEX Gateway Connector Schemas
+ * LX Gateway Connector Schemas
  *
- * Request and response schemas for the LX DEX connector.
+ * Request and response schemas for the LX connector.
  * Implements Router, AMM, and CLMM schema types.
  */
 

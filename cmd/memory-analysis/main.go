@@ -21,7 +21,7 @@ func main() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	fmt.Println("=== LX DEX Memory Analysis for 1M Markets ===")
+	fmt.Println("=== LX Memory Analysis for 1M Markets ===")
 	fmt.Printf("Initial memory: %.2f MB\n", float64(m.Alloc)/(1024*1024))
 	fmt.Println()
 

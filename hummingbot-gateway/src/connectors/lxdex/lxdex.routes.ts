@@ -1,7 +1,7 @@
 /**
- * LX DEX Gateway Connector Routes
+ * LX Gateway Connector Routes
  *
- * Fastify route registration for all LX DEX endpoints.
+ * Fastify route registration for all LX endpoints.
  * Implements Router, AMM, CLMM, and Order Book schemas.
  */
 

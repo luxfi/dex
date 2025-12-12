@@ -1,4 +1,4 @@
-//! Error types for the LX DEX SDK.
+//! Error types for the LX SDK.
 //!
 //! Provides a unified error type with precise failure modes.
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# LX DEX Achievement Summary
+# LX Achievement Summary
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
-echo "            LX DEX - PRODUCTION READY ACHIEVEMENTS                 "
+echo "            LX - PRODUCTION READY ACHIEVEMENTS                 "
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
 echo "✅ TEST COVERAGE: 100% PASSING"

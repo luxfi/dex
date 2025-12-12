@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# LX DEX - Final Verification Script
+# LX - Final Verification Script
 # Ensures everything builds, tests pass, and benchmarks work
 
 set -e
 
 echo "========================================="
-echo "   LX DEX Complete Verification"  
+echo "   LX Complete Verification"  
 echo "========================================="
 echo ""
 

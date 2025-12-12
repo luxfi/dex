@@ -30,7 +30,7 @@ func main() {
 	parallel := flag.Int("parallel", runtime.NumCPU(), "Parallel workers")
 	flag.Parse()
 
-	fmt.Printf("🚀 LX DEX Performance Benchmark\n")
+	fmt.Printf("🚀 LX Performance Benchmark\n")
 	fmt.Printf("================================\n")
 	fmt.Printf("Orders: %d\n", *numOrders)
 	fmt.Printf("Workers: %d\n", *parallel)

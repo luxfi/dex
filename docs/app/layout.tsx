@@ -17,8 +17,8 @@ const interMono = Inter({
 
 export const metadata = {
   title: {
-    default: "LX DEX - Ultra-High Performance Decentralized Exchange Documentation",
-    template: "%s | LX DEX - Ultra-High Performance Decentralized Exchange",
+    default: "LX - Ultra-High Performance Decentralized Exchange Documentation",
+    template: "%s | LX - Ultra-High Performance Decentralized Exchange",
   },
   description: "434M+ orders/sec, sub-microsecond latency, quantum-resistant",
 }

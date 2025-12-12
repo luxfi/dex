@@ -97,8 +97,8 @@ EOF
 echo -e "${GREEN}Step 1: Generating Certificate Authority${NC}"
 generate_mldsa_keypair "lx-ca" "ca" "3"
 create_certificate "lx-ca" "ca" \
-    "CN=LX DEX Root CA, O=Lux Network, C=US" \
-    "CN=LX DEX Root CA, O=Lux Network, C=US" \
+    "CN=LX Root CA, O=Lux Network, C=US" \
+    "CN=LX Root CA, O=Lux Network, C=US" \
     "3"
 
 # Generate node certificates
@@ -106,7 +106,7 @@ echo -e "${GREEN}Step 2: Generating Node Certificates${NC}"
 for i in {0..2}; do
     generate_mldsa_keypair "node-${i}" "nodes" "2"
     create_certificate "node-${i}" "nodes" \
-        "CN=LX DEX Root CA, O=Lux Network, C=US" \
+        "CN=LX Root CA, O=Lux Network, C=US" \
         "CN=Node-${i}, OU=DEX Nodes, O=Lux Network, C=US" \
         "2"
 done
@@ -116,7 +116,7 @@ echo -e "${GREEN}Step 3: Generating Client Certificates${NC}"
 for client in "trader" "market-maker" "admin"; do
     generate_mldsa_keypair "${client}" "clients" "2"
     create_certificate "${client}" "clients" \
-        "CN=LX DEX Root CA, O=Lux Network, C=US" \
+        "CN=LX Root CA, O=Lux Network, C=US" \
         "CN=${client}, OU=DEX Clients, O=Lux Network, C=US" \
         "2"
 done

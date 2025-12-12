@@ -9,7 +9,7 @@ description: DAG-based consensus protocol for ultra-low latency DEX settlement
 >
 > **Implementation**: [`github.com/luxfi/consensus`](https://github.com/luxfi/consensus)
 
-LX DEX uses a custom DAG-based consensus protocol designed for ultra-low latency trading with 1ms finality.
+LX uses a custom DAG-based consensus protocol designed for ultra-low latency trading with 1ms finality.
 
 ## Protocol Stack
 
@@ -17,7 +17,7 @@ The consensus layer implements a three-protocol stack optimized for different as
 
 ```
 +------------------------------------------------------------------+
-|                     LX DEX Consensus Stack                        |
+|                     LX Consensus Stack                        |
 +------------------------------------------------------------------+
 |                                                                   |
 |  +--------------------+  +--------------------+  +---------------+ |
@@ -51,7 +51,7 @@ The consensus layer implements a three-protocol stack optimized for different as
 
 ### DAG-Based Block Structure
 
-Unlike traditional linear blockchains, LX DEX uses a Directed Acyclic Graph (DAG) structure that enables parallel block processing:
+Unlike traditional linear blockchains, LX uses a Directed Acyclic Graph (DAG) structure that enables parallel block processing:
 
 ```
          Block A (Round 1)

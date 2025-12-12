@@ -1,7 +1,7 @@
 """
-LX DEX Trading Client
+LX Trading Client
 
-Multi-protocol Python trading client for LX DEX.
+Multi-protocol Python trading client for LX.
 Supports WebSocket and gRPC protocols.
 
 Usage:
