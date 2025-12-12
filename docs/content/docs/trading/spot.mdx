@@ -76,9 +76,9 @@ Buyer                                    Seller
 ### Buy Order (Acquire Asset)
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Market buy - immediate execution
 const marketBuy = await dex.spot.buy({
