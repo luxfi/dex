@@ -581,7 +581,7 @@ function detectAnomaly(session: Session, request: Request): boolean {
 
 ```typescript
 // Enable request debugging (development only)
-const dex = new LxDex({
+const dex = await DEX({
   debug: true,
   onRequest: (req) => {
     console.log('Request:', {

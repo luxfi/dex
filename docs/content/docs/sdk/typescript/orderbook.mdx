@@ -29,11 +29,11 @@ interface OrderBook {
 ### Basic Snapshot
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 async function getOrderBookSnapshot(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const book = await client.getOrderBook('BTC-USD', 10);
@@ -55,11 +55,11 @@ async function getOrderBookSnapshot(): Promise<void> {
 ### Custom Depth
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 async function getDeepOrderBook(): Promise<OrderBook> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   // Get 50 levels on each side
@@ -69,8 +69,8 @@ async function getDeepOrderBook(): Promise<OrderBook> {
 }
 
 async function getShallowOrderBook(): Promise<OrderBook> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   // Get just top 3 levels (best bid/ask)
@@ -85,11 +85,11 @@ async function getShallowOrderBook(): Promise<OrderBook> {
 ### Get Best Bid
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 async function getBestBid(): Promise<number> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const bestBid = await client.getBestBid('BTC-USD');
@@ -102,11 +102,11 @@ async function getBestBid(): Promise<number> {
 ### Get Best Ask
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 async function getBestAsk(): Promise<number> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const bestAsk = await client.getBestAsk('BTC-USD');
@@ -119,7 +119,7 @@ async function getBestAsk(): Promise<number> {
 ### Get Spread
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
 interface SpreadInfo {
   bid: number;
@@ -130,8 +130,8 @@ interface SpreadInfo {
 }
 
 async function getSpread(symbol: string): Promise<SpreadInfo> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const [bid, ask] = await Promise.all([
@@ -169,11 +169,11 @@ async function displaySpread(): Promise<void> {
 ### Subscribe to Order Book Updates
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 async function subscribeToOrderBook(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -195,11 +195,11 @@ async function subscribeToOrderBook(): Promise<void> {
 ### Unsubscribe
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 async function unsubscribeExample(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -226,7 +226,7 @@ async function unsubscribeExample(): Promise<void> {
 ### Calculate Liquidity Depth
 
 ```typescript
-import { LXDexClient, OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+import { Client, OrderBook, OrderBookLevel } from '@luxfi/trading';
 
 interface LiquidityDepth {
   bidLiquidity: number;
@@ -259,8 +259,8 @@ function calculateLiquidity(book: OrderBook): LiquidityDepth {
 }
 
 async function analyzeLiquidity(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const book = await client.getOrderBook('BTC-USD', 50);
@@ -278,7 +278,7 @@ async function analyzeLiquidity(): Promise<void> {
 ### Calculate Market Impact
 
 ```typescript
-import { LXDexClient, OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+import { Client, OrderBook, OrderBookLevel } from '@luxfi/trading';
 
 interface MarketImpact {
   averagePrice: number;
@@ -326,8 +326,8 @@ async function analyzeMarketImpact(
   orderSize: number,
   side: 'buy' | 'sell'
 ): Promise<MarketImpact> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const book = await client.getOrderBook(symbol, 100);
@@ -355,7 +355,7 @@ async function displayMarketImpact(): Promise<void> {
 ### Order Book Imbalance
 
 ```typescript
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 interface OrderBookImbalance {
   bidVolume: number;
@@ -397,8 +397,8 @@ function calculateImbalance(book: OrderBook, depth: number = 10): OrderBookImbal
 }
 
 async function monitorImbalance(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc',
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc',
     wsUrl: 'ws://localhost:8081'
   });
 
@@ -419,7 +419,7 @@ async function monitorImbalance(): Promise<void> {
 
 ```tsx
 import { useState, useEffect, useCallback } from 'react';
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 interface UseOrderBookOptions {
   depth?: number;
@@ -435,7 +435,7 @@ interface UseOrderBookResult {
 }
 
 export function useOrderBook(
-  client: LXDexClient | null,
+  client: Client | null,
   symbol: string,
   options: UseOrderBookOptions = {}
 ): UseOrderBookResult {
@@ -551,7 +551,7 @@ function OrderBookDisplay(): JSX.Element {
 
 ```tsx
 import { useState, useEffect } from 'react';
-import { LXDexClient, OrderBook } from '@luxfi/dex-sdk';
+import { Client, OrderBook } from '@luxfi/trading';
 
 interface BestPrices {
   bid: number | null;
@@ -561,7 +561,7 @@ interface BestPrices {
 }
 
 export function useBestPrices(
-  client: LXDexClient | null,
+  client: Client | null,
   symbol: string
 ): BestPrices {
   const [prices, setPrices] = useState<BestPrices>({
@@ -598,7 +598,7 @@ export function useBestPrices(
 ### Generate Depth Chart Data
 
 ```typescript
-import { OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+import { OrderBook, OrderBookLevel } from '@luxfi/trading';
 
 interface DepthPoint {
   price: number;
@@ -638,7 +638,7 @@ function generateDepthChartData(book: OrderBook): DepthPoint[] {
 ### Price Level Aggregation
 
 ```typescript
-import { OrderBook, OrderBookLevel } from '@luxfi/dex-sdk';
+import { OrderBook, OrderBookLevel } from '@luxfi/trading';
 
 function aggregateOrderBook(
   book: OrderBook,
@@ -668,8 +668,8 @@ function aggregateOrderBook(
 
 // Usage: Aggregate to $100 increments
 async function getAggregatedBook(): Promise<void> {
-  const client = new LXDexClient({
-    jsonRpcUrl: 'http://localhost:8080/rpc'
+  const client = new Client({
+    rpcUrl: 'http://localhost:8080/rpc'
   });
 
   const book = await client.getOrderBook('BTC-USD', 100);

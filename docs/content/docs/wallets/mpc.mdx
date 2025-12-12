@@ -62,7 +62,7 @@ MPC Wallet Architecture
 ### Setup
 
 ```typescript
-import { FireblocksAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+import { FireblocksAdapter } from '@luxfi/trading/wallets/mpc';
 
 const fireblocks = new FireblocksAdapter({
   apiKey: process.env.FIREBLOCKS_API_KEY,
@@ -71,7 +71,7 @@ const fireblocks = new FireblocksAdapter({
   vaultAccountId: 'YOUR_VAULT_ACCOUNT_ID'
 });
 
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'https://dex.lux.network',
   wallet: fireblocks
 });
@@ -191,7 +191,7 @@ app.post('/webhook/fireblocks', (req, res) => {
 ### Setup
 
 ```typescript
-import { BitGoAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+import { BitGoAdapter } from '@luxfi/trading/wallets/mpc';
 
 const bitgo = new BitGoAdapter({
   accessToken: process.env.BITGO_ACCESS_TOKEN,
@@ -199,7 +199,7 @@ const bitgo = new BitGoAdapter({
   coin: 'lux'
 });
 
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'https://dex.lux.network',
   wallet: bitgo
 });
@@ -249,7 +249,7 @@ async function signWithBitGo(order: Order): Promise<string> {
 ### Setup
 
 ```typescript
-import { CopperAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+import { CopperAdapter } from '@luxfi/trading/wallets/mpc';
 
 const copper = new CopperAdapter({
   apiKey: process.env.COPPER_API_KEY,
@@ -257,7 +257,7 @@ const copper = new CopperAdapter({
   portfolioId: process.env.COPPER_PORTFOLIO_ID
 });
 
-const client = new LXDexClient({
+const client = new Client({
   endpoint: 'https://dex.lux.network',
   wallet: copper
 });
@@ -288,7 +288,7 @@ For self-hosted MPC using Lux's native threshold signing:
 ### Setup
 
 ```typescript
-import { ThresholdAdapter } from '@luxfi/dex-sdk/wallets/mpc';
+import { ThresholdAdapter } from '@luxfi/trading/wallets/mpc';
 
 const threshold = new ThresholdAdapter({
   endpoint: 'https://t-chain.lux.network',

@@ -72,9 +72,9 @@ curl -X POST https://faucet.testnet.lux.network/api/request \
 #### TypeScript
 
 ```typescript
-import { LXDexClient } from '@luxfi/dex-sdk';
+import { Client } from '@luxfi/trading';
 
-const client = new LXDexClient({ network: 'testnet' });
+const client = new Client({ network: 'testnet' });
 
 // Request all available tokens
 const result = await client.faucet.request({
@@ -94,9 +94,9 @@ console.log('Remaining today:', allowance);
 #### Python
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(network='testnet')
+client = Client(network='testnet')
 
 # Request all available tokens
 result = client.faucet.request(

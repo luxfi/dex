@@ -1,30 +1,30 @@
 ---
 title: Client
-description: LXDexClient and AsyncLXDexClient - synchronous and asynchronous clients for LX
+description: Client and AsyncClient - synchronous and asynchronous clients for LX
 ---
 
 # Client Classes
 
 The Python SDK provides two client classes for different use cases:
-- **`LXDexClient`** - Synchronous client for scripts and simple applications
-- **`AsyncLXDexClient`** - Asynchronous client for high-performance and concurrent applications
+- **`Client`** - Synchronous client for scripts and simple applications
+- **`AsyncClient`** - Asynchronous client for high-performance and concurrent applications
 
-## LXDexClient (Synchronous)
+## Client (Synchronous)
 
 The synchronous client is suitable for scripts, CLI tools, and applications that do not require concurrent operations.
 
 ### Initialization
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 # Basic initialization
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc"
 )
 
 # Full configuration
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc",
     ws_url="ws://localhost:8081",
     api_key="your-api-key",
@@ -34,7 +34,7 @@ client = LXDexClient(
 )
 
 # From environment variables
-client = LXDexClient.from_env()
+client = Client.from_env()
 ```
 
 ### Class Definition
@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 @dataclass
-class LXDexClient:
+class Client:
     """Synchronous LX client.
 
     Attributes:
@@ -67,10 +67,10 @@ class LXDexClient:
 ### Core Methods
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.types import NodeInfo, Order, OrderBook, Trade
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Node information
 def get_info(self) -> NodeInfo:
@@ -142,9 +142,9 @@ def get_trades(
 ### Usage Examples
 
 ```python
-from luxfi_dex import LXDexClient, OrderType, Side
+from luxfi_dex import Client, OrderType, Side
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Test connectivity
 if client.ping():
@@ -177,7 +177,7 @@ cancelled = client.cancel_order(order.order_id)
 print(f"Order cancelled: {cancelled.status}")
 ```
 
-## AsyncLXDexClient (Asynchronous)
+## AsyncClient (Asynchronous)
 
 The asynchronous client is designed for high-performance applications, web servers, and scenarios requiring concurrent operations.
 
@@ -185,11 +185,11 @@ The asynchronous client is designed for high-performance applications, web serve
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 # Basic initialization
 async def main():
-    client = AsyncLXDexClient(
+    client = AsyncClient(
         json_rpc_url="http://localhost:8080/rpc"
     )
 
@@ -204,10 +204,10 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def main():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         info = await client.get_info()
         print(f"Connected to: {info.node_id}")
 
@@ -219,7 +219,7 @@ asyncio.run(main())
 ```python
 from typing import AsyncIterator
 
-class AsyncLXDexClient:
+class AsyncClient:
     """Asynchronous LX client.
 
     Supports context manager protocol for automatic resource cleanup.
@@ -237,7 +237,7 @@ class AsyncLXDexClient:
     ) -> None:
         ...
 
-    async def __aenter__(self) -> "AsyncLXDexClient":
+    async def __aenter__(self) -> "AsyncClient":
         """Enter async context manager."""
         ...
 
@@ -253,7 +253,7 @@ class AsyncLXDexClient:
 ### Core Methods
 
 ```python
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 from luxfi_dex.types import NodeInfo, Order, OrderBook, Trade
 
 # All methods are coroutines
@@ -324,10 +324,10 @@ async def stream_trades(
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient, OrderType, Side
+from luxfi_dex import AsyncClient, OrderType, Side
 
 async def main():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Test connectivity
         if await client.ping():
             print("Connected to LX")
@@ -357,10 +357,10 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def main():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Execute multiple requests concurrently
         results = await asyncio.gather(
             client.get_order_book("BTC-USD"),
@@ -412,7 +412,7 @@ class ClientConfig:
 ### Using ClientConfig
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.config import ClientConfig, RetryConfig
 
 config = ClientConfig(
@@ -428,7 +428,7 @@ config = ClientConfig(
     )
 )
 
-client = LXDexClient(config=config)
+client = Client(config=config)
 ```
 
 ## Authentication
@@ -436,9 +436,9 @@ client = LXDexClient(config=config)
 ### API Key Authentication
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(
+client = Client(
     json_rpc_url="https://api.lux.network/rpc",
     api_key="your-api-key",
     api_secret="your-api-secret"
@@ -457,9 +457,9 @@ order = client.place_order(
 ### JWT Authentication
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient(
+client = Client(
     json_rpc_url="https://api.lux.network/rpc"
 )
 
@@ -467,7 +467,7 @@ client = LXDexClient(
 client.set_jwt_token("eyJhbGciOiJIUzI1NiIs...")
 
 # Or initialize with token
-client = LXDexClient(
+client = Client(
     json_rpc_url="https://api.lux.network/rpc",
     jwt_token="eyJhbGciOiJIUzI1NiIs..."
 )
@@ -499,7 +499,7 @@ def sign_request(
 ## Error Handling
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.exceptions import (
     LXDexError,
     ConnectionError,
@@ -511,7 +511,7 @@ from luxfi_dex.exceptions import (
     ValidationError
 )
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 try:
     order = client.place_order(
@@ -543,7 +543,7 @@ except LXDexError as e:
 
 ```python
 import logging
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -551,10 +551,10 @@ logger = logging.getLogger("luxfi_dex")
 logger.setLevel(logging.DEBUG)
 
 # Client automatically logs requests and responses
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 # Or configure custom logger
-client = LXDexClient(
+client = Client(
     json_rpc_url="http://localhost:8080/rpc",
     logger=logger
 )
@@ -568,9 +568,9 @@ The synchronous client is **thread-safe**. You can share a single client instanc
 
 ```python
 import threading
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 
-client = LXDexClient("http://localhost:8080/rpc")
+client = Client("http://localhost:8080/rpc")
 
 def place_order_thread(symbol: str, price: float):
     order = client.place_order(
@@ -599,10 +599,10 @@ The async client is designed for single-threaded async code. Use `asyncio.gather
 
 ```python
 import asyncio
-from luxfi_dex import AsyncLXDexClient
+from luxfi_dex import AsyncClient
 
 async def main():
-    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+    async with AsyncClient("http://localhost:8080/rpc") as client:
         # Concurrent operations in same event loop
         tasks = [
             client.place_order("BTC-USD", "limit", "buy", 50000 + i * 100, 1.0)
@@ -620,7 +620,7 @@ asyncio.run(main())
 Both clients use connection pooling internally for efficient resource usage:
 
 ```python
-from luxfi_dex import LXDexClient
+from luxfi_dex import Client
 from luxfi_dex.config import ClientConfig
 
 config = ClientConfig(
@@ -631,7 +631,7 @@ config = ClientConfig(
     pool_block=True
 )
 
-client = LXDexClient(config=config)
+client = Client(config=config)
 ```
 
 ## Next Steps

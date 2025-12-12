@@ -1,0 +1,604 @@
+---
+title: L2 Chain Architecture
+description: LX as a Lux L2 chain - shared consensus and finality with the Lux network
+---
+
+# LX L2 Chain Architecture
+
+LX runs as a dedicated **Layer 2 chain** on the Lux network. Unlike traditional sidechains or rollups, LX is a native Lux subnet that shares consensus and finality with the main network chains. Validators must stake LUX to operate DEX nodes, ensuring economic alignment with the broader Lux ecosystem.
+
+## Relationship to Lux Network
+
+### LX as a Lux L2
+
+```
++==============================================================================+
+|                           LUX NETWORK ARCHITECTURE                           |
++==============================================================================+
+|                                                                               |
+|   PRIMARY CHAINS (L1)                                                         |
+|   +------------+  +------------+  +------------+  +------------+              |
+|   |  D-Chain   |  |  C-Chain   |  |  X-Chain   |  |  Q-Chain   |              |
+|   | Platform   |  |    EVM     |  | Exchange   |  | Quantum    |              |
+|   +-----+------+  +-----+------+  +-----+------+  +-----+------+              |
+|         |               |               |               |                     |
+|         +-------+-------+-------+-------+-------+-------+                     |
+|                 |               |               |                             |
+|            Shared Consensus & Finality (Lux FPC)                              |
+|                 |               |               |                             |
+|         +-------+-------+-------+-------+-------+-------+                     |
+|         |               |               |               |                     |
+|   +-----v------+  +-----v------+  +-----v------+  +-----v------+              |
+|   |  B-Chain   |  |  T-Chain   |  |  LX Chain  |  | Future L2s |              |
+|   |  Bridge    |  | Threshold  |  |    DEX     |  |    ...     |              |
+|   +------------+  +------------+  +------------+  +------------+              |
+|                                                                               |
+|   LAYER 2 CHAINS (Subnets)                                                    |
++==============================================================================+
+```
+
+### Key Relationships
+
+| Component | Relationship to LX |
+|-----------|-------------------|
+| **D-Chain (Platform)** | Validator registration, staking requirements, subnet management |
+| **C-Chain (EVM)** | Token contracts, DeFi integrations, smart contract settlement |
+| **X-Chain (Exchange)** | UTXO-based asset transfers, cross-chain liquidity |
+| **B-Chain (Bridge)** | Cross-chain asset bridging from external networks |
+| **Q-Chain (Quantum)** | Post-quantum signature verification for high-security trades |
+| **T-Chain (Threshold)** | MPC custody for institutional assets |
+
+## Validator Requirements
+
+### Staking to Run LX Nodes
+
+To operate an LX DEX node, validators must:
+
+1. **Stake LUX on D-Chain**: Minimum stake requirement for subnet validation
+2. **Register as Subnet Validator**: Join the LX subnet via D-Chain
+3. **Run lxd Node**: Deploy the LX DEX node software
+4. **Maintain Uptime**: Meet availability requirements for consensus participation
+
+```go
+// ValidatorConfig for LX subnet
+type ValidatorConfig struct {
+    // D-Chain staking
+    StakeAmount     *big.Int  // Minimum LUX stake
+    StakeDuration   time.Duration
+    DelegationFee   uint32    // Fee for delegators (basis points)
+
+    // LX subnet specific
+    SubnetID        [32]byte  // LX subnet identifier
+    NodeID          string    // Validator node ID
+    BLSPublicKey    []byte    // For consensus participation
+
+    // DEX node requirements
+    MatchingBackend Backend   // Go/CGO/MLX/CUDA
+    MinMemory       uint64    // 16GB minimum
+    MinCPUCores     int       // 8 cores minimum
+}
+```
+
+### Validator Responsibilities
+
+```
++====================================+
+|        LX VALIDATOR NODE           |
++====================================+
+|                                    |
+|  +------------------------------+  |
+|  |  D-Chain Validator Module    |  |
+|  |  - Stake management          |  |
+|  |  - Subnet participation      |  |
+|  |  - Reward distribution       |  |
+|  +------------------------------+  |
+|              |                     |
+|              v                     |
+|  +------------------------------+  |
+|  |  LX DEX Engine (lxd)         |  |
+|  |  - Order matching            |  |
+|  |  - Market data               |  |
+|  |  - Settlement batching       |  |
+|  +------------------------------+  |
+|              |                     |
+|              v                     |
+|  +------------------------------+  |
+|  |  Consensus Participation     |  |
+|  |  - DAG vertex creation       |  |
+|  |  - Vote casting (FPC)        |  |
+|  |  - Certificate generation    |  |
+|  +------------------------------+  |
+|                                    |
++====================================+
+```
+
+## Shared Consensus & Finality
+
+### How LX Inherits Lux Consensus
+
+LX uses the same Fast Probabilistic Consensus (FPC) protocol as the main Lux network:
+
+```go
+// LuxFPC implements shared consensus
+type LuxFPC struct {
+    // Network-wide parameters (inherited from Lux)
+    NetworkID     uint32
+    ValidatorSet  *ValidatorSet  // Shared with D-Chain
+
+    // LX-specific configuration
+    SubnetID      [32]byte
+    ThetaMin      float64  // 0.55 - minimum vote threshold
+    ThetaMax      float64  // 0.65 - maximum vote threshold
+    RoundDuration time.Duration  // 50ms
+
+    // Quantum-safe extensions
+    BLSAggregator *BLSAggregator
+    RingtailSigner *RingtailSigner
+}
+
+// ProcessVertex handles new order vertices
+func (fpc *LuxFPC) ProcessVertex(ctx context.Context, v *OrderVertex) error {
+    // 1. Validate vertex structure
+    if err := v.Validate(); err != nil {
+        return fmt.Errorf("invalid vertex: %w", err)
+    }
+
+    // 2. Check parent vertices are finalized
+    for _, parentID := range v.Parents {
+        if !fpc.IsFinalized(parentID) {
+            return ErrParentNotFinalized
+        }
+    }
+
+    // 3. Add to local DAG
+    fpc.dag.AddVertex(v)
+
+    // 4. Begin voting rounds
+    return fpc.initiateVoting(ctx, v.ID)
+}
+```
+
+### Finality Flow
+
+```
+LX Order → DAG Vertex → FPC Voting → Certificate → Settlement → Lux Finality
+
+Timeline:
+0ms      - Order received
+1ms      - DAG vertex created
+50ms     - First voting round complete
+100ms    - Certificate generated (if consensus reached)
+150ms    - Settlement batch sent to C-Chain
+200ms    - Full Lux network finality
+```
+
+## Integration with Lux Infrastructure
+
+### Bridge Integration (B-Chain)
+
+LX integrates with B-Chain for cross-chain asset deposits and withdrawals:
+
+```go
+// BridgeClient handles cross-chain operations
+type BridgeClient struct {
+    bChainRPC   string
+    lxChainID   [32]byte
+
+    // Asset mappings
+    wrappedAssets map[[32]byte]WrappedAsset
+}
+
+// DepositFromExternal bridges assets to LX for trading
+func (bc *BridgeClient) DepositFromExternal(
+    ctx context.Context,
+    sourceChain string,  // "ethereum", "bitcoin", etc.
+    asset string,
+    amount *big.Int,
+    recipient [20]byte,
+) (*DepositReceipt, error) {
+    // 1. Lock on source chain (via B-Chain bridge)
+    lockTx, err := bc.lockOnSource(ctx, sourceChain, asset, amount)
+    if err != nil {
+        return nil, fmt.Errorf("lock failed: %w", err)
+    }
+
+    // 2. Wait for B-Chain confirmation
+    proof, err := bc.waitForBridgeProof(ctx, lockTx)
+    if err != nil {
+        return nil, fmt.Errorf("bridge proof failed: %w", err)
+    }
+
+    // 3. Mint wrapped asset on LX
+    return bc.mintOnLX(ctx, proof, recipient)
+}
+```
+
+### C-Chain Settlement
+
+Trade settlements are batched and committed to C-Chain smart contracts:
+
+```go
+// SettlementContract interface for C-Chain
+type SettlementContract struct {
+    address     common.Address
+    cChainRPC   string
+    signer      *ecdsa.PrivateKey
+}
+
+// BatchSettle commits trade settlements to C-Chain
+func (sc *SettlementContract) BatchSettle(
+    ctx context.Context,
+    settlements []*Settlement,
+) (*types.Receipt, error) {
+    // Encode settlement batch
+    data, err := sc.encodeSettlements(settlements)
+    if err != nil {
+        return nil, err
+    }
+
+    // Submit to C-Chain
+    tx := types.NewTransaction(
+        sc.nonce,
+        sc.address,
+        big.NewInt(0),
+        sc.gasLimit,
+        sc.gasPrice,
+        data,
+    )
+
+    signedTx, err := types.SignTx(tx, types.NewEIP155Signer(sc.chainID), sc.signer)
+    if err != nil {
+        return nil, err
+    }
+
+    return sc.client.SendTransaction(ctx, signedTx)
+}
+```
+
+### Warp Messaging
+
+LX uses Lux Warp messaging for cross-chain communication:
+
+```go
+// WarpMessage for cross-chain settlement
+type WarpMessage struct {
+    // Standard Warp fields
+    NetworkID     uint32
+    SourceChainID [32]byte  // LX chain ID
+    DestChainID   [32]byte  // Target chain (C-Chain, etc.)
+
+    // Payload
+    MessageType   WarpMessageType
+    Payload       []byte
+
+    // Signatures (threshold required)
+    BLSSignature  []byte    // Aggregated BLS signature
+    RTSignature   []byte    // Post-quantum Ringtail signature
+    SignerBitmap  []byte    // Which validators signed
+}
+
+const (
+    WarpSettlement    WarpMessageType = iota + 1
+    WarpWithdrawal
+    WarpDeposit
+    WarpLiquidation
+    WarpOracleUpdate
+)
+```
+
+## LX Node (lxd) Architecture
+
+### Process Model
+
+```go
+// Daemon represents the lxd node
+type Daemon struct {
+    // Core components
+    engine     *TradingEngine
+    consensus  *LuxFPC
+    gateway    *Gateway
+
+    // Lux network integration
+    dChainClient *DChainClient  // Staking, validator set
+    cChainClient *CChainClient  // Settlement contracts
+    bChainClient *BridgeClient  // Cross-chain bridges
+    warpClient   *WarpClient    // Warp messaging
+
+    // Configuration
+    config     *Config
+    nodeID     string
+    subnetID   [32]byte
+
+    // Lifecycle
+    ctx        context.Context
+    cancel     context.CancelFunc
+}
+```
+
+### Startup Sequence
+
+```
+1. INITIALIZATION
+   +-> Load configuration
+   +-> Initialize cryptographic keys (Ed25519, BLS, Ringtail)
+   +-> Verify D-Chain stake is active
+
+2. LUX NETWORK CONNECTION
+   +-> Connect to D-Chain (validator set sync)
+   +-> Connect to C-Chain (settlement contract)
+   +-> Connect to B-Chain (bridge status)
+   +-> Initialize Warp client
+
+3. LX SUBNET BOOTSTRAP
+   +-> Join LX subnet validator set
+   +-> Sync DAG state from peers
+   +-> Initialize trading engine
+   +-> Start consensus participation
+
+4. GATEWAY ACTIVATION
+   +-> Bind gRPC server
+   +-> Bind WebSocket server
+   +-> Accept client connections
+   +-> Begin order processing
+```
+
+### Memory Layout
+
+```
+lxd Process Memory (~2GB typical)
++================================+
+|  Order Pool         256MB      |  <- Pre-allocated order objects
++--------------------------------+
+|  Order Books        512MB      |  <- Per-symbol B-trees
++--------------------------------+
+|  Trade Buffer       128MB      |  <- Circular trade history
++--------------------------------+
+|  DAG Vertices       256MB      |  <- Consensus state
++--------------------------------+
+|  Warp Message Queue  64MB      |  <- Pending settlements
++--------------------------------+
+|  Network Buffers    128MB      |  <- gRPC/WS buffers
++--------------------------------+
+|  Heap / GC          ~700MB     |  <- Dynamic allocations
++================================+
+```
+
+## Order Processing Pipeline
+
+### Order Lifecycle
+
+```go
+// OrderProcessor handles the full order lifecycle
+type OrderProcessor struct {
+    engine   *TradingEngine
+    dag      *LuxFPC
+    warp     *WarpClient
+    metrics  *Metrics
+}
+
+// ProcessOrder handles a new order from gateway
+func (p *OrderProcessor) ProcessOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
+    // 1. Validate order
+    order, err := p.validateOrder(req)
+    if err != nil {
+        return nil, fmt.Errorf("validation failed: %w", err)
+    }
+
+    // 2. Risk check
+    if err := p.riskCheck(ctx, order); err != nil {
+        return nil, fmt.Errorf("risk check failed: %w", err)
+    }
+
+    // 3. Add to order book
+    orderID := p.engine.OrderBooks[order.Symbol].AddOrder(order)
+    if orderID == 0 {
+        return nil, ErrOrderRejected
+    }
+
+    // 4. Create DAG vertex (async)
+    go p.createVertex(ctx, order)
+
+    // 5. Return immediately
+    return &OrderResponse{
+        OrderID:   orderID,
+        Status:    "accepted",
+        Timestamp: time.Now(),
+    }, nil
+}
+
+// createVertex creates a DAG vertex for consensus
+func (p *OrderProcessor) createVertex(ctx context.Context, order *Order) {
+    vertex := &OrderVertex{
+        ID:        generateVertexID(order),
+        Order:     order,
+        NodeID:    p.dag.NodeID(),
+        Height:    p.dag.Height(),
+        Parents:   p.dag.Frontier(),
+        Timestamp: time.Now(),
+    }
+
+    // Add to local DAG
+    p.dag.AddVertex(vertex)
+
+    // Broadcast to peers
+    p.dag.BroadcastVertex(ctx, vertex)
+}
+```
+
+### Concurrency Model
+
+```
+                    +-------------------+
+                    |  Order Gateway    |
+                    +--------+----------+
+                             |
+              +--------------+--------------+
+              |              |              |
+        +-----v-----+  +-----v-----+  +-----v-----+
+        | Worker 1  |  | Worker 2  |  | Worker N  |
+        +-----+-----+  +-----+-----+  +-----+-----+
+              |              |              |
+              +--------------+--------------+
+                             |
+                    +--------v--------+
+                    |  Order Book     |
+                    |  (Lock-free)    |
+                    +-----------------+
+                             |
+              +--------------+--------------+
+              |              |              |
+        +-----v-----+  +-----v-----+  +-----v-----+
+        | Match     |  | DAG       |  | Warp      |
+        | Engine    |  | Consensus |  | Publisher |
+        +-----------+  +-----------+  +-----------+
+```
+
+## Security Model
+
+### Inherited from Lux Network
+
+LX inherits Lux's security guarantees:
+
+1. **Stake-Weighted Consensus**: Attacks require controlling significant stake
+2. **Validator Slashing**: Malicious behavior results in stake loss
+3. **Quantum Resistance**: Post-quantum signatures via Q-Chain
+4. **Bridge Security**: Multi-sig and threshold custody via T-Chain
+
+### LX-Specific Security
+
+```go
+// SecurityConfig for LX chain
+type SecurityConfig struct {
+    // Consensus security
+    MinValidators     int     // Minimum active validators
+    QuorumThreshold   float64 // 0.67 for finality
+
+    // Trade security
+    PreTradeRiskCheck bool    // Enable risk checks
+    MaxOrderSize      *big.Int
+    MaxLeverage       int     // For perpetuals
+
+    // Settlement security
+    SettlementDelay   time.Duration // Time before settlement final
+    RequireMPC        bool          // Require T-Chain MPC for large trades
+}
+```
+
+## Operational Considerations
+
+### Running an LX Validator
+
+```yaml
+# lxd.yaml - Production configuration
+daemon:
+  node_id: "lxd-validator-1"
+  data_dir: "/var/lib/lxd"
+  log_level: "info"
+
+staking:
+  d_chain_rpc: "https://api.lux.network/d-chain"
+  stake_amount: "2000"  # LUX
+  delegation_fee: 200   # 2% in basis points
+
+network:
+  subnet_id: "LX_SUBNET_ID_HERE"
+  grpc_addr: "0.0.0.0:9100"
+  websocket_addr: "0.0.0.0:9101"
+  peers:
+    - "lxd-validator-2:9100"
+    - "lxd-validator-3:9100"
+
+engine:
+  backend: "go"  # go, cgo, mlx, cuda
+  worker_pool_size: 8
+  order_pool_size: 1000000
+
+consensus:
+  theta_min: 0.55
+  theta_max: 0.65
+  round_duration: "50ms"
+
+settlement:
+  c_chain_rpc: "https://api.lux.network/c-chain"
+  contract_address: "0x..."
+  batch_size: 1000
+  batch_interval: "100ms"
+
+security:
+  tls_cert: "/etc/lxd/tls/cert.pem"
+  tls_key: "/etc/lxd/tls/key.pem"
+```
+
+### Monitoring
+
+```go
+var (
+    validatorStake = prometheus.NewGauge(
+        prometheus.GaugeOpts{
+            Name: "lxd_validator_stake_lux",
+            Help: "Current validator stake in LUX",
+        },
+    )
+
+    consensusParticipation = prometheus.NewCounter(
+        prometheus.CounterOpts{
+            Name: "lxd_consensus_votes_total",
+            Help: "Total votes cast in FPC consensus",
+        },
+    )
+
+    settlementLatency = prometheus.NewHistogram(
+        prometheus.HistogramOpts{
+            Name:    "lxd_settlement_latency_seconds",
+            Help:    "Time from trade to C-Chain settlement",
+            Buckets: prometheus.ExponentialBuckets(0.01, 2, 10),
+        },
+    )
+)
+```
+
+## Trade-offs and Design Decisions
+
+### ADR-001: L2 Chain vs Rollup
+
+**Context**: Need high-performance trading with blockchain settlement guarantees.
+
+**Decision**: Implement LX as a native Lux L2 subnet rather than a rollup.
+
+**Trade-off**:
+- **Pro**: Native consensus integration, shared security with Lux network
+- **Pro**: Sub-millisecond latency (no rollup batching delays)
+- **Pro**: Validators economically aligned via LUX staking
+- **Con**: Requires dedicated validator set
+- **Con**: Less decentralized than L1 (subnet validator subset)
+
+**Rationale**: A native L2 chain provides the performance characteristics required for high-frequency trading while maintaining strong security guarantees through shared consensus with the Lux network.
+
+### ADR-002: Warp Messaging vs Direct Bridge
+
+**Context**: Need to settle trades and move assets between LX and other Lux chains.
+
+**Decision**: Use Lux Warp messaging protocol for all cross-chain communication.
+
+**Trade-off**:
+- **Pro**: Native Lux protocol, no additional trust assumptions
+- **Pro**: Aggregated signatures reduce verification cost
+- **Pro**: Quantum-safe with Ringtail signatures
+- **Con**: Requires threshold of validators to sign messages
+
+**Rationale**: Warp messaging is the standard cross-chain protocol in Lux, providing security guarantees equivalent to the network itself.
+
+### ADR-003: Shared vs Independent Consensus
+
+**Context**: LX could run its own isolated consensus or share with the Lux network.
+
+**Decision**: Share consensus and finality with the main Lux network via FPC.
+
+**Trade-off**:
+- **Pro**: Inherits full network security (stake-weighted)
+- **Pro**: Consistent finality guarantees across all Lux chains
+- **Pro**: Simpler validator operation (single stake covers all chains)
+- **Con**: Bound to network-wide consensus parameters
+- **Con**: Subnet-specific optimizations limited
+
+**Rationale**: Sharing consensus eliminates the need for separate security assumptions and allows LX validators to leverage their existing Lux network stake.
