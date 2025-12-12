@@ -1,0 +1,755 @@
+---
+title: MPC Security
+description: Multi-Party Computation security, threshold signatures, and key ceremonies for LX DEX
+---
+
+# MPC Security
+
+LX DEX uses Multi-Party Computation (MPC) for secure key management, ensuring no single party can access complete private keys. This enables trustless custody while maintaining operational flexibility.
+
+## MPC Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MPC ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Threshold Signing (67-of-100)                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                                                          │   │
+│  │    Party 1 ──┐                                          │   │
+│  │    Party 2 ──┤                                          │   │
+│  │    Party 3 ──┼── Threshold ── Combined Signature        │   │
+│  │      ...     │   (67 of 100)                            │   │
+│  │    Party 100 ┘                                          │   │
+│  │                                                          │   │
+│  │  Key shares NEVER combined - signing is distributed     │   │
+│  │                                                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Supported Protocols                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  CGGMP21/CMP    ECDSA threshold signing                 │   │
+│  │  LSS            Linear Secret Sharing                    │   │
+│  │  Corona       Post-quantum threshold signatures       │   │
+│  │  BLS            Aggregate signatures                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Threshold Parameters
+
+### Signer Set Configuration
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| **Total Signers (n)** | 100 | Diverse validator set |
+| **Threshold (t)** | 67 | 2/3 BFT security |
+| **Bond Requirement** | 100M LUX | Economic security |
+| **Reshare Trigger** | Slot replacement only | Minimizes ceremony frequency |
+
+### Security Guarantees
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 SECURITY GUARANTEES                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Liveness: Any 67 parties can sign                             │
+│  ├── 33 parties can be offline/malicious                       │
+│  └── System remains operational                                │
+│                                                                  │
+│  Security: 66 colluding parties learn nothing                  │
+│  ├── Need 67 to reconstruct key                                │
+│  └── Honest majority assumption                                │
+│                                                                  │
+│  Proactive Security: Periodic resharing                        │
+│  ├── Old shares become useless                                 │
+│  └── Compromised shares don't accumulate                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Key Generation Ceremony (DKG)
+
+### Protocol Overview
+
+```go
+package mpc
+
+import (
+    "github.com/luxfi/threshold/protocols/cmp"
+)
+
+// DKGCeremony orchestrates distributed key generation
+type DKGCeremony struct {
+    config     *DKGConfig
+    parties    []*cmp.Party
+    publicKey  []byte
+    status     CeremonyStatus
+}
+
+// DKGConfig defines ceremony parameters
+type DKGConfig struct {
+    Threshold    int           // t in t-of-n
+    TotalParties int           // n total parties
+    Timeout      time.Duration // Max ceremony duration
+    NetworkID    uint32        // Lux network ID
+}
+
+// NewDKGCeremony creates new key generation ceremony
+func NewDKGCeremony(config *DKGConfig, parties []PartyInfo) (*DKGCeremony, error) {
+    if config.Threshold > config.TotalParties {
+        return nil, ErrInvalidThreshold
+    }
+
+    ceremony := &DKGCeremony{
+        config: config,
+        status: CeremonyStatusInitialized,
+    }
+
+    // Initialize all parties
+    for i, p := range parties {
+        party, err := cmp.NewParty(i, p.PublicKey, config.Threshold, config.TotalParties)
+        if err != nil {
+            return nil, err
+        }
+        ceremony.parties = append(ceremony.parties, party)
+    }
+
+    return ceremony, nil
+}
+
+// Run executes the DKG protocol
+func (c *DKGCeremony) Run(ctx context.Context) (*DKGResult, error) {
+    c.status = CeremonyStatusRunning
+
+    // Round 1: Generate and broadcast commitments
+    round1Msgs := make([][]byte, len(c.parties))
+    for i, party := range c.parties {
+        msg, err := party.Round1()
+        if err != nil {
+            return nil, fmt.Errorf("party %d round 1 failed: %w", i, err)
+        }
+        round1Msgs[i] = msg
+    }
+
+    // Broadcast round 1 messages
+    if err := c.broadcast(round1Msgs); err != nil {
+        return nil, err
+    }
+
+    // Round 2: Generate and send secret shares
+    round2Msgs := make([][]byte, len(c.parties))
+    for i, party := range c.parties {
+        msg, err := party.Round2(round1Msgs)
+        if err != nil {
+            return nil, fmt.Errorf("party %d round 2 failed: %w", i, err)
+        }
+        round2Msgs[i] = msg
+    }
+
+    // Distribute round 2 messages (point-to-point)
+    if err := c.distribute(round2Msgs); err != nil {
+        return nil, err
+    }
+
+    // Round 3: Verify and finalize
+    for i, party := range c.parties {
+        if err := party.Round3(round2Msgs); err != nil {
+            return nil, fmt.Errorf("party %d round 3 failed: %w", i, err)
+        }
+    }
+
+    // Extract combined public key
+    c.publicKey = c.parties[0].PublicKey()
+    c.status = CeremonyStatusCompleted
+
+    return &DKGResult{
+        PublicKey: c.publicKey,
+        Threshold: c.config.Threshold,
+        Parties:   len(c.parties),
+    }, nil
+}
+```
+
+### Ceremony Security Requirements
+
+```yaml
+# DKG Ceremony Security Checklist
+prerequisites:
+  - All parties verified identity (KYC for validators)
+  - Secure communication channels established (mTLS)
+  - HSM or secure enclave available at each party
+  - Time synchronized (NTP within 1 second)
+
+during_ceremony:
+  - No party logs secret shares
+  - Messages verified before processing
+  - Timeout enforced (max 1 hour)
+  - Abort on any verification failure
+
+post_ceremony:
+  - Public key published on-chain
+  - All temporary data securely erased
+  - Audit log preserved
+  - Backup procedures initiated
+```
+
+## Threshold Signing
+
+### CGGMP21 Protocol
+
+```go
+package mpc
+
+import (
+    "github.com/luxfi/threshold/protocols/cmp"
+)
+
+// SigningSession manages threshold signing
+type SigningSession struct {
+    parties   []*cmp.Signer
+    threshold int
+    messageHash []byte
+}
+
+// NewSigningSession creates new signing session
+func NewSigningSession(
+    keyShares []*cmp.KeyShare,
+    messageHash []byte,
+    threshold int,
+) (*SigningSession, error) {
+    session := &SigningSession{
+        threshold:   threshold,
+        messageHash: messageHash,
+    }
+
+    for _, share := range keyShares {
+        signer, err := cmp.NewSigner(share)
+        if err != nil {
+            return nil, err
+        }
+        session.parties = append(session.parties, signer)
+    }
+
+    return session, nil
+}
+
+// Sign executes threshold signing protocol
+func (s *SigningSession) Sign(ctx context.Context) ([]byte, error) {
+    if len(s.parties) < s.threshold {
+        return nil, ErrInsufficientParties
+    }
+
+    // Pre-signing: Generate nonce shares
+    presignMsgs := make([][]byte, len(s.parties))
+    for i, party := range s.parties {
+        msg, err := party.Presign()
+        if err != nil {
+            return nil, err
+        }
+        presignMsgs[i] = msg
+    }
+
+    // Exchange presigning data
+    for i, party := range s.parties {
+        if err := party.ReceivePresign(presignMsgs); err != nil {
+            return nil, err
+        }
+    }
+
+    // Sign: Create partial signatures
+    partialSigs := make([][]byte, len(s.parties))
+    for i, party := range s.parties {
+        sig, err := party.PartialSign(s.messageHash)
+        if err != nil {
+            return nil, err
+        }
+        partialSigs[i] = sig
+    }
+
+    // Combine: Aggregate partial signatures
+    signature, err := cmp.CombineSignatures(partialSigs, s.threshold)
+    if err != nil {
+        return nil, err
+    }
+
+    // Verify combined signature
+    if !cmp.Verify(s.parties[0].PublicKey(), s.messageHash, signature) {
+        return nil, ErrInvalidSignature
+    }
+
+    return signature, nil
+}
+```
+
+### Signing Security
+
+```go
+// SigningPolicy defines what can be signed
+type SigningPolicy struct {
+    AllowedMessageTypes []MessageType
+    MaxValuePerTx       *big.Int
+    DailyLimit          *big.Int
+    RequireMultiApproval bool
+    CooldownPeriod      time.Duration
+}
+
+// DefaultBridgePolicy for bridge transactions
+func DefaultBridgePolicy() *SigningPolicy {
+    return &SigningPolicy{
+        AllowedMessageTypes: []MessageType{
+            MessageTypeBridgeTransfer,
+            MessageTypeWarpMessage,
+        },
+        MaxValuePerTx:        new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18)), // 1M tokens
+        DailyLimit:           new(big.Int).Mul(big.NewInt(100_000_000), big.NewInt(1e18)), // 100M tokens
+        RequireMultiApproval: true,
+        CooldownPeriod:       5 * time.Minute,
+    }
+}
+
+// ValidateSigningRequest checks if signing is allowed
+func (p *SigningPolicy) ValidateSigningRequest(req *SigningRequest) error {
+    // Check message type
+    if !contains(p.AllowedMessageTypes, req.MessageType) {
+        return ErrMessageTypeNotAllowed
+    }
+
+    // Check value limits
+    if req.Value.Cmp(p.MaxValuePerTx) > 0 {
+        return ErrExceedsMaxValue
+    }
+
+    // Check daily limit
+    dailyTotal := getDailyTotal(req.Signer)
+    newTotal := new(big.Int).Add(dailyTotal, req.Value)
+    if newTotal.Cmp(p.DailyLimit) > 0 {
+        return ErrExceedsDailyLimit
+    }
+
+    // Check cooldown
+    lastSigning := getLastSigningTime(req.Signer)
+    if time.Since(lastSigning) < p.CooldownPeriod {
+        return ErrCooldownActive
+    }
+
+    return nil
+}
+```
+
+## Key Resharing
+
+### Reshare Protocol (LP-333)
+
+```go
+package mpc
+
+// ReshareSession manages key resharing
+type ReshareSession struct {
+    oldParties   []*cmp.Party    // Current signers
+    newParties   []*cmp.Party    // New signer set
+    removedParty int             // Party being replaced
+    newParty     *cmp.Party      // Replacement party
+    threshold    int
+}
+
+// NewReshareSession creates reshare session for slot replacement
+func NewReshareSession(
+    oldShares []*cmp.KeyShare,
+    removedPartyID int,
+    newPartyInfo PartyInfo,
+    threshold int,
+) (*ReshareSession, error) {
+    session := &ReshareSession{
+        removedParty: removedPartyID,
+        threshold:    threshold,
+    }
+
+    // Initialize old parties (excluding removed)
+    for i, share := range oldShares {
+        if i == removedPartyID {
+            continue
+        }
+        party, err := cmp.NewParty(i, share)
+        if err != nil {
+            return nil, err
+        }
+        session.oldParties = append(session.oldParties, party)
+    }
+
+    // Initialize new party
+    newParty, err := cmp.NewParty(removedPartyID, newPartyInfo)
+    if err != nil {
+        return nil, err
+    }
+    session.newParty = newParty
+
+    return session, nil
+}
+
+// Reshare executes the resharing protocol
+func (s *ReshareSession) Reshare(ctx context.Context) error {
+    // Verify sufficient old parties
+    if len(s.oldParties) < s.threshold {
+        return ErrInsufficientParties
+    }
+
+    // Round 1: Old parties generate reshare commitments
+    reshareCommitments := make([][]byte, len(s.oldParties))
+    for i, party := range s.oldParties {
+        commit, err := party.ReshareRound1()
+        if err != nil {
+            return err
+        }
+        reshareCommitments[i] = commit
+    }
+
+    // Round 2: Generate new shares for replacement party
+    newShareParts := make([][]byte, len(s.oldParties))
+    for i, party := range s.oldParties {
+        sharePart, err := party.ReshareRound2(s.newParty.ID(), reshareCommitments)
+        if err != nil {
+            return err
+        }
+        newShareParts[i] = sharePart
+    }
+
+    // Round 3: New party reconstructs their share
+    if err := s.newParty.ReceiveReshareShares(newShareParts); err != nil {
+        return err
+    }
+
+    // Verify: New party can participate in threshold signing
+    testMsg := []byte("reshare-verification")
+    if err := s.verifyNewParty(testMsg); err != nil {
+        return err
+    }
+
+    return nil
+}
+```
+
+### Reshare Triggers (Opt-In Model)
+
+```go
+package bridgevm
+
+// SignerSetManager manages opt-in signer set
+type SignerSetManager struct {
+    signerSet   *SignerSet
+    maxSigners  int
+    threshold   int
+}
+
+// RegisterValidator handles opt-in (NO reshare)
+func (m *SignerSetManager) RegisterValidator(
+    nodeID ids.NodeID,
+    bondAmount uint64,
+    mpcPubKey []byte,
+) error {
+    // Verify bond requirement
+    if bondAmount < RequiredBond {
+        return ErrInsufficientBond
+    }
+
+    // Check if set is frozen
+    if m.signerSet.SetFrozen {
+        // Add to waitlist instead
+        m.signerSet.Waitlist = append(m.signerSet.Waitlist, nodeID)
+        return nil
+    }
+
+    // Add to signer set (NO reshare triggered)
+    m.signerSet.Signers = append(m.signerSet.Signers, &SignerInfo{
+        NodeID:     nodeID,
+        BondAmount: bondAmount,
+        MPCPubKey:  mpcPubKey,
+        JoinedAt:   time.Now(),
+    })
+
+    // Freeze at max signers
+    if len(m.signerSet.Signers) >= m.maxSigners {
+        m.signerSet.SetFrozen = true
+    }
+
+    return nil
+}
+
+// RemoveSigner handles slot replacement (TRIGGERS reshare)
+func (m *SignerSetManager) RemoveSigner(nodeID ids.NodeID, reason RemovalReason) error {
+    // Find and remove signer
+    idx := m.findSigner(nodeID)
+    if idx < 0 {
+        return ErrSignerNotFound
+    }
+
+    removedSigner := m.signerSet.Signers[idx]
+
+    // Get replacement from waitlist
+    var replacement *ids.NodeID
+    if len(m.signerSet.Waitlist) > 0 {
+        replacement = &m.signerSet.Waitlist[0]
+        m.signerSet.Waitlist = m.signerSet.Waitlist[1:]
+    }
+
+    // Trigger reshare - THIS is the ONLY reshare trigger
+    if err := m.triggerReshare(removedSigner, replacement); err != nil {
+        return err
+    }
+
+    // Increment epoch
+    m.signerSet.CurrentEpoch++
+
+    return nil
+}
+
+// triggerReshare initiates MPC resharing
+func (m *SignerSetManager) triggerReshare(removed *SignerInfo, replacement *ids.NodeID) error {
+    req := &MPCReshareRequest{
+        OldEpoch:       m.signerSet.CurrentEpoch,
+        NewEpoch:       m.signerSet.CurrentEpoch + 1,
+        RemovedPartyID: removed.NodeID.String(),
+        Threshold:      m.threshold,
+    }
+
+    if replacement != nil {
+        req.ReplacementPartyID = replacement.String()
+    }
+
+    // Send to ThresholdVM via CrossChainAppRequest
+    return m.sendToThresholdVM(req)
+}
+```
+
+## Slashing Mechanics
+
+```go
+package bridgevm
+
+// SlashSigner reduces signer's bond for misbehavior
+func (m *SignerSetManager) SlashSigner(
+    nodeID ids.NodeID,
+    percent int,
+    evidence []byte,
+) error {
+    if percent < 1 || percent > 100 {
+        return ErrInvalidSlashPercent
+    }
+
+    idx := m.findSigner(nodeID)
+    if idx < 0 {
+        return ErrSignerNotFound
+    }
+
+    signer := m.signerSet.Signers[idx]
+
+    // Calculate slash amount
+    slashAmount := (signer.BondAmount * uint64(percent)) / 100
+
+    // Update bond
+    signer.BondAmount -= slashAmount
+    signer.Slashed = true
+    signer.SlashCount++
+
+    // Log slashing event
+    m.emitSlashEvent(nodeID, slashAmount, evidence)
+
+    // Remove if below minimum bond
+    if signer.BondAmount < RequiredBond {
+        return m.RemoveSigner(nodeID, RemovalReasonSlashed)
+    }
+
+    return nil
+}
+
+// SlashReasons defines slashable offenses
+type SlashReason string
+
+const (
+    SlashReasonDoubleSigning   SlashReason = "double_signing"
+    SlashReasonDowntime        SlashReason = "downtime"
+    SlashReasonInvalidSignature SlashReason = "invalid_signature"
+    SlashReasonProtocolViolation SlashReason = "protocol_violation"
+)
+
+// SlashAmounts defines slash percentages
+var SlashAmounts = map[SlashReason]int{
+    SlashReasonDoubleSigning:    100, // Full slash
+    SlashReasonDowntime:         5,   // Minor slash
+    SlashReasonInvalidSignature: 50,  // Major slash
+    SlashReasonProtocolViolation: 25, // Moderate slash
+}
+```
+
+## Security Monitoring
+
+### Anomaly Detection
+
+```go
+package mpc
+
+// AnomalyDetector monitors MPC operations
+type AnomalyDetector struct {
+    metrics   *MPCMetrics
+    alerter   Alerter
+    threshold AnomalyThreshold
+}
+
+// AnomalyThreshold defines detection thresholds
+type AnomalyThreshold struct {
+    MaxSigningLatency    time.Duration
+    MaxFailedAttempts    int
+    MinParticipation     float64
+    MaxDailyReshares     int
+}
+
+// DefaultThresholds returns production thresholds
+func DefaultThresholds() *AnomalyThreshold {
+    return &AnomalyThreshold{
+        MaxSigningLatency: 30 * time.Second,
+        MaxFailedAttempts: 3,
+        MinParticipation:  0.8, // 80% of threshold
+        MaxDailyReshares:  2,
+    }
+}
+
+// MonitorSigningSession watches for anomalies
+func (d *AnomalyDetector) MonitorSigningSession(session *SigningSession) {
+    start := time.Now()
+
+    // Monitor latency
+    go func() {
+        <-session.Done()
+        latency := time.Since(start)
+        if latency > d.threshold.MaxSigningLatency {
+            d.alerter.Alert(AlertHighLatency, map[string]interface{}{
+                "latency": latency,
+                "threshold": d.threshold.MaxSigningLatency,
+            })
+        }
+    }()
+
+    // Monitor participation
+    go func() {
+        participation := float64(session.ActiveParties()) / float64(session.TotalParties())
+        if participation < d.threshold.MinParticipation {
+            d.alerter.Alert(AlertLowParticipation, map[string]interface{}{
+                "participation": participation,
+                "threshold": d.threshold.MinParticipation,
+            })
+        }
+    }()
+
+    // Monitor failures
+    session.OnFailure(func(err error) {
+        d.metrics.FailedAttempts++
+        if d.metrics.FailedAttempts >= d.threshold.MaxFailedAttempts {
+            d.alerter.Alert(AlertRepeatedFailures, map[string]interface{}{
+                "failures": d.metrics.FailedAttempts,
+                "error": err.Error(),
+            })
+        }
+    })
+}
+```
+
+### Audit Logging
+
+```go
+package mpc
+
+// AuditEvent represents MPC operation audit entry
+type AuditEvent struct {
+    Timestamp   time.Time         `json:"timestamp"`
+    EventType   AuditEventType    `json:"event_type"`
+    SessionID   string            `json:"session_id"`
+    Parties     []string          `json:"parties"`
+    MessageHash string            `json:"message_hash,omitempty"`
+    Result      string            `json:"result"`
+    Duration    time.Duration     `json:"duration"`
+    Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type AuditEventType string
+
+const (
+    AuditEventDKG       AuditEventType = "dkg"
+    AuditEventSigning   AuditEventType = "signing"
+    AuditEventReshare   AuditEventType = "reshare"
+    AuditEventSlash     AuditEventType = "slash"
+)
+
+// AuditLogger writes immutable audit trail
+type AuditLogger struct {
+    store  AuditStore
+    signer *Ed25519Signer // Sign all audit entries
+}
+
+// Log records audit event with signature
+func (l *AuditLogger) Log(event *AuditEvent) error {
+    // Serialize event
+    eventBytes, err := json.Marshal(event)
+    if err != nil {
+        return err
+    }
+
+    // Sign for integrity
+    signature := l.signer.Sign(eventBytes)
+
+    // Store with signature
+    entry := &SignedAuditEntry{
+        Event:     eventBytes,
+        Signature: signature,
+        PublicKey: l.signer.PublicKeyBytes(),
+    }
+
+    return l.store.Append(entry)
+}
+```
+
+## Best Practices Checklist
+
+### DKG Ceremony
+
+- [ ] Verify all party identities before ceremony
+- [ ] Use secure, dedicated hardware for key generation
+- [ ] Ensure network isolation during ceremony
+- [ ] Set reasonable timeout (1 hour max)
+- [ ] Abort immediately on any verification failure
+- [ ] Securely erase all temporary data post-ceremony
+- [ ] Publish ceremony transcript for auditing
+
+### Signing Operations
+
+- [ ] Validate all signing requests against policy
+- [ ] Implement rate limiting per signer
+- [ ] Monitor for signing latency anomalies
+- [ ] Log all signing attempts (success and failure)
+- [ ] Implement automatic pause on repeated failures
+- [ ] Verify signatures before broadcast
+
+### Key Management
+
+- [ ] Store key shares in HSM or secure enclave
+- [ ] Never combine key shares outside signing protocol
+- [ ] Implement proactive resharing on schedule
+- [ ] Backup key shares with split custody
+- [ ] Test recovery procedures quarterly
+
+### Incident Response
+
+- [ ] Define clear escalation paths
+- [ ] Implement automatic signer removal on misbehavior
+- [ ] Maintain hotline for emergency resharing
+- [ ] Document all incidents and responses
+- [ ] Conduct post-mortems after incidents
+
+## References
+
+- [CGGMP21 Paper](https://eprint.iacr.org/2021/060)
+- [LP-333: Dynamic Signer Rotation](https://github.com/luxfi/LPs/blob/main/LPs/lp-333-dynamic-signer-rotation.md)
+- [Threshold Cryptography Library](https://github.com/luxfi/threshold)
+- [BridgeVM Implementation](https://github.com/luxfi/node/tree/main/vms/bridgevm)
