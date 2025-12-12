@@ -1,0 +1,212 @@
+---
+title: Hummingbot Quick Start
+description: Get started with Hummingbot and LX DEX in 5 minutes
+---
+
+# Hummingbot Quick Start
+
+Get your first trading bot running on LX DEX in under 5 minutes.
+
+## Prerequisites
+
+- [Docker](https://docker.com) installed
+- A Lux wallet with some LUX for gas
+- Basic terminal/command line knowledge
+
+## Step 1: Clone Hummingbot
+
+```bash
+git clone https://github.com/hummingbot/hummingbot.git
+cd hummingbot
+```
+
+## Step 2: Install LX DEX Connector
+
+```bash
+# Install the LX DEX Gateway connector
+cd gateway
+npm install @lxdex/hummingbot-gateway-connector
+```
+
+## Step 3: Configure LX DEX
+
+Create the configuration file:
+
+```bash
+cat > conf/lxdex.yml << 'EOF'
+enabled: true
+chain: lux
+
+networks:
+  - testnet  # Start with testnet!
+
+trading:
+  slippagePct: 0.5
+  maxHops: 3
+
+testnet:
+  chainId: 9393
+  apiEndpoint: https://api.testnet.dex.lux.network
+  wsEndpoint: wss://ws.testnet.dex.lux.network
+EOF
+```
+
+## Step 4: Start Gateway
+
+```bash
+# Using Docker Compose
+docker-compose up -d gateway
+
+# Or manually
+npm run start
+```
+
+Verify Gateway is running:
+
+```bash
+curl http://localhost:15888/lxdex/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "healthy",
+  "network": "testnet",
+  "timestamp": 1702300000000
+}
+```
+
+## Step 5: Start Hummingbot Client
+
+```bash
+docker-compose up -d hummingbot
+docker attach hummingbot
+```
+
+## Step 6: Connect to LX DEX
+
+In the Hummingbot client:
+
+```
+>>> connect lxdex
+```
+
+Enter your wallet private key when prompted.
+
+## Step 7: Create a Simple Strategy
+
+Let's create a basic market making strategy:
+
+```
+>>> create
+```
+
+Select options:
+1. Strategy: `pure_market_making`
+2. Exchange: `lxdex`
+3. Trading pair: `LUX-USDC`
+4. Bid spread: `0.5%`
+5. Ask spread: `0.5%`
+6. Order amount: `10`
+
+## Step 8: Start Trading
+
+```
+>>> start
+```
+
+Watch your bot create orders! You can monitor with:
+
+```
+>>> status
+>>> history
+>>> open_orders
+```
+
+## Step 9: Stop When Done
+
+```
+>>> stop
+>>> exit
+```
+
+## Quick Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `connect lxdex` | Connect to LX DEX |
+| `balance` | Check wallet balances |
+| `ticker LUX-USDC` | Get current price |
+| `create` | Create new strategy |
+| `start` | Start strategy |
+| `stop` | Stop strategy |
+| `status` | Check strategy status |
+| `history` | View trade history |
+
+## Verify on Explorer
+
+Check your transactions on the [Lux Explorer](https://testnet.explorer.lux.network):
+
+1. Go to the explorer
+2. Search for your wallet address
+3. View your trading transactions
+
+## Troubleshooting
+
+### Gateway Connection Failed
+
+```bash
+# Check Gateway is running
+curl http://localhost:15888/lxdex/health
+
+# Check logs
+docker logs gateway
+```
+
+### Insufficient Balance
+
+Get testnet LUX from the [faucet](https://faucet.lux.network).
+
+### Order Failed
+
+Check slippage settings. For testnet with lower liquidity:
+
+```yaml
+trading:
+  slippagePct: 2.0  # Increase for testnet
+```
+
+## Next Steps
+
+Now that you have a basic setup:
+
+1. **[Strategy Guide](/docs/integrations/hummingbot-strategies)**: Learn advanced strategies
+2. **[API Reference](/docs/integrations/hummingbot)**: Full endpoint documentation
+3. **[Deploy to Mainnet](#mainnet-deployment)**: Go live with real funds
+
+## Mainnet Deployment
+
+When ready for mainnet:
+
+1. Update configuration:
+
+```yaml
+networks:
+  - mainnet
+
+mainnet:
+  chainId: 93
+  apiEndpoint: https://api.dex.lux.network
+  wsEndpoint: wss://ws.dex.lux.network
+```
+
+2. Fund your wallet with real LUX
+3. Start with small amounts
+4. Monitor closely for the first few hours
+
+## Getting Help
+
+- **Discord**: [Join our community](https://discord.gg/lux)
+- **GitHub**: [Report issues](https://github.com/luxfi/dex/issues)
+- **Hummingbot Discord**: [Hummingbot community](https://discord.gg/hummingbot)
