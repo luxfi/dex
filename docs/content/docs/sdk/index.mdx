@@ -1,11 +1,15 @@
 ---
 title: SDK Guide
-description: Client libraries for integrating with LX - TypeScript, Python, Go, and Rust SDKs
+description: Client libraries for integrating with LX - TypeScript, Python, Go, Rust, C, and C++ SDKs
 ---
 
 # LX SDK Documentation
 
 > **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+
+## Releases
+
+**Latest**: [v1.2.1](https://github.com/luxfi/dex/releases/tag/v1.2.1) | [All Releases](https://github.com/luxfi/dex/releases)
 
 ## Overview
 
@@ -13,17 +17,20 @@ LX provides multiple SDKs and APIs for integration:
 - **TypeScript/JavaScript** - Web and Node.js applications
 - **Python** - Data analysis and algorithmic trading
 - **Go** - High-performance server applications
-- **Rust** - Systems programming
+- **Rust** - Systems programming with zero-cost abstractions
+- **C/C++** - High-frequency trading and native integration
 
 ## Implementation Status
 
-| SDK | Package | Description | Status |
-|-----|---------|-------------|--------|
-| TypeScript (base) | [`@luxfi/dex`](https://npmjs.com/package/@luxfi/dex) | Core SDK - Client, types, low-level API | Complete |
-| TypeScript (trading) | [`@luxfi/trading`](https://npmjs.com/package/@luxfi/trading) | Trading bots - DEX(), AMM(), CCXT integration | Complete |
-| Python | [`lux-dex`](https://pypi.org/project/lux-dex/) | Full-featured Python SDK | Complete |
-| Go | `github.com/luxfi/dex/sdk/go` | High-performance Go SDK | Complete |
-| Rust | [`lux-dex`](https://crates.io/crates/lux-dex) | Systems programming SDK | Complete |
+| SDK | Package | Install | Status |
+|-----|---------|---------|--------|
+| TypeScript (base) | `@luxfi/dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/typescript) | Complete |
+| TypeScript (trading) | `@luxfi/trading` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/lx-trading-ts) | Complete |
+| Python | `lux-dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/python) | Complete |
+| Go | `github.com/luxfi/dex/sdk/go` | `go get` | Complete |
+| Rust | `lux-dex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/rust) | Complete |
+| C | `lxdex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/c) | Complete |
+| C++ | `lxdex` | [GitHub](https://github.com/luxfi/dex/tree/main/sdk/cpp) | Complete |
 
 ## Quick Start
 
@@ -53,11 +60,20 @@ LX provides two TypeScript packages:
 ### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/luxfi/dex
+cd dex
+
 # Core SDK (for building applications)
-npm install @luxfi/dex
+cd sdk/typescript && npm install && npm run build
+npm link  # Makes @luxfi/dex available globally
 
 # Trading SDK (for bots and trading strategies)
-npm install @luxfi/trading
+cd sdk/lx-trading-ts && npm install && npm run build
+npm link  # Makes @luxfi/trading available globally
+
+# In your project
+npm link @luxfi/dex @luxfi/trading
 ```
 
 ### Quick Start with @luxfi/trading
@@ -140,7 +156,13 @@ await client.connect()
 ### Installation
 
 ```bash
-pip install lux-dex
+# From GitHub
+git clone https://github.com/luxfi/dex
+cd dex/sdk/python
+pip install -e .
+
+# Or install directly from GitHub
+pip install git+https://github.com/luxfi/dex.git#subdirectory=sdk/python
 ```
 
 ### Basic Usage
@@ -294,6 +316,166 @@ resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
     Size:   1.0,
     UserId: "trader1",
 })
+```
+
+## Rust SDK
+
+### Installation
+
+```bash
+# From GitHub (add to Cargo.toml)
+[dependencies]
+lux-dex = { git = "https://github.com/luxfi/dex", branch = "main" }
+
+# Or clone and build
+git clone https://github.com/luxfi/dex
+cd dex/sdk/rust
+cargo build --release
+```
+
+### Basic Usage
+
+```rust
+use lux_dex::{Client, ClientConfig, Order, OrderType, OrderSide};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig {
+        rpc_url: "http://localhost:8080/rpc".to_string(),
+        ws_url: Some("ws://localhost:8081".to_string()),
+        ..Default::default()
+    };
+
+    let client = Client::new(config).await?;
+
+    // Place an order
+    let order = client.place_order(Order {
+        symbol: "BTC-USD".to_string(),
+        order_type: OrderType::Limit,
+        side: OrderSide::Buy,
+        price: Some(50000.0),
+        size: 1.0,
+        ..Default::default()
+    }).await?;
+
+    println!("Order placed: {}", order.order_id);
+    Ok(())
+}
+```
+
+## C++ SDK
+
+### Installation
+
+```bash
+git clone https://github.com/luxfi/dex
+cd dex/sdk/cpp
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
+```
+
+### Basic Usage
+
+```cpp
+#include <lxdex/client.hpp>
+#include <iostream>
+
+int main() {
+    using namespace lxdex;
+
+    ClientConfig config;
+    config.ws_url = "ws://localhost:8081";
+    config.api_key = "your-api-key";
+
+    auto client = make_client(config);
+
+    if (auto err = client->connect()) {
+        std::cerr << "Failed to connect: " << err.message << std::endl;
+        return 1;
+    }
+
+    // Place an order
+    Order order;
+    order.symbol = "BTC-USD";
+    order.type = OrderType::Limit;
+    order.side = OrderSide::Buy;
+    order.price = 50000.0;
+    order.size = 1.0;
+
+    auto result = client->place_order(order);
+    if (result.ok()) {
+        std::cout << "Order placed: " << result.value.order_id << std::endl;
+    }
+
+    return 0;
+}
+```
+
+## C SDK
+
+### Installation
+
+```bash
+git clone https://github.com/luxfi/dex
+cd dex/sdk/c
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
+```
+
+### Basic Usage
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+
+int main() {
+    lxdex_config_t config = {
+        .ws_url = "ws://localhost:8081",
+        .api_key = "your-api-key"
+    };
+
+    lxdex_client_t* client = lxdex_client_new(&config);
+
+    if (lxdex_client_connect(client) != 0) {
+        fprintf(stderr, "Failed to connect\n");
+        return 1;
+    }
+
+    // Place an order
+    lxdex_order_t order = {
+        .symbol = "BTC-USD",
+        .type = LXDEX_ORDER_LIMIT,
+        .side = LXDEX_SIDE_BUY,
+        .price = 50000.0,
+        .size = 1.0
+    };
+
+    lxdex_order_response_t response;
+    if (lxdex_place_order(client, &order, &response) == 0) {
+        printf("Order placed: %s\n", response.order_id);
+    }
+
+    lxdex_client_free(client);
+    return 0;
+}
+```
+
+### Linking
+
+```cmake
+# CMakeLists.txt
+find_package(lxdex REQUIRED)
+target_link_libraries(your_app PRIVATE lxdex::lxdex)
+```
+
+Or with pkg-config:
+
+```bash
+gcc -o myapp myapp.c $(pkg-config --cflags --libs lxdex)
 ```
 
 ## Order Types
