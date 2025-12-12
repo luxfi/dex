@@ -303,7 +303,7 @@ func (ta *TradeAggregator) GetRecentTrades(symbol string, limit int) []*client.T
     defer ta.mu.RUnlock()
 
     trades := ta.trades[symbol]
-    if len(trades) <= limit {
+    if len(trades) &lt;= limit {
         result := make([]*client.Trade, len(trades))
         copy(result, trades)
         return result
@@ -442,7 +442,7 @@ func BuildVolumeProfile(trades []*client.Trade, buckets int) []PriceVolume {
     volumeMap := make(map[int]float64)
     for _, trade := range trades {
         bucket := int((trade.Price - minPrice) / bucketSize)
-        if bucket >= buckets {
+        if bucket &gt;= buckets {
             bucket = buckets - 1
         }
         volumeMap[bucket] += trade.Size
@@ -551,7 +551,7 @@ func AnalyzeTradeFlow(trades []*client.Trade, largeThreshold float64) *TradeFlow
             flow.SellCount++
         }
 
-        if trade.Size >= largeThreshold {
+        if trade.Size &gt;= largeThreshold {
             flow.LargeTrades++
         }
     }
@@ -805,7 +805,7 @@ func (tb *TradeBatcher) Add(trade *client.Trade) {
     defer tb.mu.Unlock()
 
     tb.trades = append(tb.trades, trade)
-    if len(tb.trades) >= tb.maxSize {
+    if len(tb.trades) &gt;= tb.maxSize {
         tb.flushLocked()
     }
 }
