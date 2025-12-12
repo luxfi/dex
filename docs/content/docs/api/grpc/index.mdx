@@ -1,0 +1,371 @@
+---
+title: gRPC API Overview
+description: High-performance gRPC API for LX DEX internal node communication
+---
+
+# gRPC API Overview
+
+The LX DEX gRPC API provides high-performance, strongly-typed communication for internal node operations. Built on Protocol Buffers 3, it offers sub-millisecond latency for order execution and real-time market data streaming.
+
+## Why gRPC
+
+| Feature | gRPC | REST | WebSocket |
+|---------|------|------|-----------|
+| Latency | ~50us | ~1ms | ~500us |
+| Type Safety | Strong (protobuf) | Weak (JSON) | None |
+| Streaming | Bidirectional | None | Server-push |
+| Code Generation | Native | Manual | Manual |
+| Binary Protocol | Yes | No | Optional |
+
+## Service Definition
+
+The LX DEX exposes a single unified service with multiple RPC methods:
+
+```protobuf
+syntax = "proto3";
+
+package lxdex;
+
+option go_package = "github.com/luxfi/dex/pkg/grpc/pb";
+
+// LX DEX gRPC Service for internal Lux Network IPC
+service LXDEXService {
+  // Order Management
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc GetOrders(GetOrdersRequest) returns (GetOrdersResponse);
+
+  // Market Data
+  rpc GetOrderBook(GetOrderBookRequest) returns (OrderBook);
+  rpc StreamOrderBook(StreamOrderBookRequest) returns (stream OrderBookUpdate);
+  rpc GetTrades(GetTradesRequest) returns (GetTradesResponse);
+  rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+
+  // Account Management
+  rpc GetBalance(GetBalanceRequest) returns (Balance);
+  rpc GetPositions(GetPositionsRequest) returns (GetPositionsResponse);
+
+  // Node Management
+  rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+```
+
+## Endpoint Configuration
+
+### Default Ports
+
+| Environment | Port | TLS |
+|-------------|------|-----|
+| Development | 50051 | No |
+| Staging | 50051 | Yes |
+| Production | 50051 | Yes (mTLS) |
+
+### Connection String
+
+```
+# Plaintext (development only)
+localhost:50051
+
+# TLS
+dns:///dex.lux.network:50051
+
+# Load-balanced
+dns:///dex-grpc.lux.network:443
+```
+
+## Protocol Buffer Schema Location
+
+```
+proto/
+  lxdex.proto           # Main service definition
+  buf.yaml              # Buf configuration
+  buf.gen.yaml          # Code generation config
+```
+
+## buf.yaml Configuration
+
+```yaml
+version: v2
+name: buf.build/luxfi/dex
+deps:
+  - buf.build/googleapis/googleapis
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT
+  except:
+    - PACKAGE_VERSION_SUFFIX
+  rpc_allow_same_request_response: false
+  rpc_allow_google_protobuf_empty_request: true
+  rpc_allow_google_protobuf_empty_response: false
+```
+
+## buf.gen.yaml Configuration
+
+```yaml
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/luxfi/dex/pkg/grpc/gen
+plugins:
+  # Go
+  - remote: buf.build/protocolbuffers/go
+    out: pkg/grpc/gen
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go
+    out: pkg/grpc/gen
+    opt: paths=source_relative
+
+  # Python
+  - remote: buf.build/protocolbuffers/python
+    out: sdk/python/lxdex_grpc
+  - remote: buf.build/grpc/python
+    out: sdk/python/lxdex_grpc
+
+  # TypeScript
+  - remote: buf.build/connectrpc/es
+    out: sdk/typescript/src/grpc
+    opt: target=ts
+
+  # Rust
+  - remote: buf.build/community/neoeinstein-tonic
+    out: sdk/rust/src/grpc
+    opt:
+      - compile_well_known_types
+      - extern_path=.google.protobuf=::pbjson_types
+```
+
+## Common Enums
+
+### OrderType
+
+```protobuf
+enum OrderType {
+  LIMIT = 0;       // Standard limit order
+  MARKET = 1;      // Execute at best available price
+  STOP = 2;        // Market order triggered at stop price
+  STOP_LIMIT = 3;  // Limit order triggered at stop price
+  ICEBERG = 4;     // Large order split into visible chunks
+  PEG = 5;         // Order pegged to reference price
+}
+```
+
+### OrderSide
+
+```protobuf
+enum OrderSide {
+  BUY = 0;   // Bid side
+  SELL = 1;  // Ask side
+}
+```
+
+### OrderStatus
+
+```protobuf
+enum OrderStatus {
+  OPEN = 0;       // Order is active in book
+  PARTIAL = 1;    // Partially filled
+  FILLED = 2;     // Completely filled
+  CANCELLED = 3;  // Cancelled by user
+  REJECTED = 4;   // Rejected by matching engine
+}
+```
+
+### TimeInForce
+
+```protobuf
+enum TimeInForce {
+  GTC = 0;  // Good Till Cancelled
+  IOC = 1;  // Immediate Or Cancel
+  FOK = 2;  // Fill Or Kill
+  DAY = 3;  // Day Order (expires at EOD)
+}
+```
+
+## Error Handling
+
+gRPC uses standard status codes. LX DEX maps domain errors to appropriate codes:
+
+| gRPC Code | HTTP | Description | Example |
+|-----------|------|-------------|---------|
+| `OK` | 200 | Success | Order placed |
+| `INVALID_ARGUMENT` | 400 | Bad request | Invalid price |
+| `NOT_FOUND` | 404 | Resource missing | Order not found |
+| `ALREADY_EXISTS` | 409 | Duplicate | Client order ID exists |
+| `PERMISSION_DENIED` | 403 | Unauthorized | Invalid API key |
+| `RESOURCE_EXHAUSTED` | 429 | Rate limited | Too many requests |
+| `FAILED_PRECONDITION` | 400 | State conflict | Insufficient balance |
+| `ABORTED` | 409 | Concurrency | Order already cancelled |
+| `UNAVAILABLE` | 503 | Service down | Matching engine offline |
+| `INTERNAL` | 500 | Server error | Unexpected failure |
+
+### Error Details
+
+```protobuf
+// Standard error response structure
+message ErrorDetail {
+  string code = 1;           // Machine-readable error code
+  string message = 2;        // Human-readable message
+  map<string, string> metadata = 3;  // Additional context
+}
+```
+
+```go
+// Go error handling example
+resp, err := client.PlaceOrder(ctx, req)
+if err != nil {
+    st, ok := status.FromError(err)
+    if !ok {
+        return fmt.Errorf("unknown error: %w", err)
+    }
+
+    switch st.Code() {
+    case codes.InvalidArgument:
+        return fmt.Errorf("invalid order: %s", st.Message())
+    case codes.ResourceExhausted:
+        return fmt.Errorf("rate limited, retry after backoff")
+    case codes.FailedPrecondition:
+        return fmt.Errorf("insufficient balance")
+    default:
+        return fmt.Errorf("grpc error %s: %s", st.Code(), st.Message())
+    }
+}
+```
+
+## Performance Characteristics
+
+### Latency Benchmarks
+
+| Operation | P50 | P99 | P999 |
+|-----------|-----|-----|------|
+| PlaceOrder | 45us | 120us | 350us |
+| CancelOrder | 25us | 80us | 200us |
+| GetOrderBook | 15us | 50us | 150us |
+| StreamOrderBook (per update) | 10us | 30us | 80us |
+
+### Throughput
+
+| Metric | Value |
+|--------|-------|
+| Orders/second (single node) | 100,000 |
+| Orders/second (cluster) | 1,000,000+ |
+| Concurrent streams | 10,000 |
+| Max message size | 4MB |
+
+## Connection Management
+
+### Keep-Alive Settings
+
+```go
+// Recommended client configuration
+conn, err := grpc.Dial(
+    "dex.lux.network:50051",
+    grpc.WithKeepaliveParams(keepalive.ClientParameters{
+        Time:                10 * time.Second,  // Ping interval
+        Timeout:             3 * time.Second,   // Ping timeout
+        PermitWithoutStream: true,              // Ping even without active streams
+    }),
+    grpc.WithDefaultCallOptions(
+        grpc.MaxCallRecvMsgSize(4*1024*1024),  // 4MB receive
+        grpc.MaxCallSendMsgSize(4*1024*1024),  // 4MB send
+    ),
+)
+```
+
+### Connection Pooling
+
+For high-throughput applications, use connection pooling:
+
+```go
+type ConnectionPool struct {
+    conns []*grpc.ClientConn
+    idx   uint64
+}
+
+func (p *ConnectionPool) Get() *grpc.ClientConn {
+    n := atomic.AddUint64(&p.idx, 1)
+    return p.conns[n%uint64(len(p.conns))]
+}
+```
+
+## Quick Start
+
+### Go Client
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    pb "github.com/luxfi/dex/pkg/grpc/gen"
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+    conn, err := grpc.Dial(
+        "localhost:50051",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+
+    client := pb.NewLXDEXServiceClient(conn)
+
+    // Place an order
+    resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
+        Symbol:      "LUX-USDC",
+        Type:        pb.OrderType_LIMIT,
+        Side:        pb.OrderSide_BUY,
+        Price:       100.50,
+        Size:        10.0,
+        UserId:      "user123",
+        TimeInForce: pb.TimeInForce_GTC,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Order placed: ID=%d Status=%s", resp.OrderId, resp.Status)
+}
+```
+
+### Python Client
+
+```python
+import grpc
+from lxdex_grpc import lxdex_pb2, lxdex_pb2_grpc
+
+channel = grpc.insecure_channel('localhost:50051')
+stub = lxdex_pb2_grpc.LXDEXServiceStub(channel)
+
+response = stub.PlaceOrder(lxdex_pb2.PlaceOrderRequest(
+    symbol="LUX-USDC",
+    type=lxdex_pb2.LIMIT,
+    side=lxdex_pb2.BUY,
+    price=100.50,
+    size=10.0,
+    user_id="user123",
+    time_in_force=lxdex_pb2.GTC,
+))
+
+print(f"Order placed: ID={response.order_id} Status={response.status}")
+```
+
+## Next Steps
+
+- [Services Reference](/docs/api/grpc/services) - Complete service documentation
+- [Streaming](/docs/api/grpc/streaming) - Real-time data streaming patterns
+- [Authentication](/docs/api/grpc/auth) - API keys and TLS configuration
+- [Code Generation](/docs/api/grpc/codegen) - Generate client code for your language

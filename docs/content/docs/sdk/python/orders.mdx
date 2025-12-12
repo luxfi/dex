@@ -1,0 +1,677 @@
+---
+title: Orders
+description: Order placement, cancellation, and management with the Python SDK
+---
+
+# Order Operations
+
+Complete guide to order management with the Python SDK including placement, cancellation, modification, and status tracking.
+
+## Order Types
+
+```python
+from luxfi_dex.types import OrderType
+
+# Available order types
+OrderType.LIMIT       # Order at specific price
+OrderType.MARKET      # Execute immediately at best price
+OrderType.STOP        # Trigger when price reaches stop level
+OrderType.STOP_LIMIT  # Stop that becomes limit order
+OrderType.ICEBERG     # Hidden quantity order
+OrderType.PEG         # Pegged to best bid/ask
+```
+
+## Place Order
+
+### Limit Order
+
+```python
+from luxfi_dex import LXDexClient, OrderType, Side, TimeInForce
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+# Basic limit order
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0
+)
+
+print(f"Order ID: {order.order_id}")
+print(f"Status: {order.status}")
+print(f"Price: {order.price}")
+print(f"Size: {order.size}")
+```
+
+### Market Order
+
+```python
+# Market buy - execute at best available ask
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.MARKET,
+    side=Side.BUY,
+    size=1.0
+    # No price required for market orders
+)
+
+print(f"Executed at: {order.average_price}")
+print(f"Filled: {order.filled_size}")
+```
+
+### Stop Order
+
+```python
+# Stop loss - triggers when price drops to 48000
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.STOP,
+    side=Side.SELL,
+    price=48000.0,  # Stop trigger price
+    size=1.0
+)
+
+# Stop limit - triggers at 48000, places limit at 47900
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.STOP_LIMIT,
+    side=Side.SELL,
+    stop_price=48000.0,   # Trigger price
+    price=47900.0,        # Limit price
+    size=1.0
+)
+```
+
+### Iceberg Order
+
+```python
+# Iceberg order - show only 0.1 BTC of 10 BTC total
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.ICEBERG,
+    side=Side.BUY,
+    price=50000.0,
+    size=10.0,
+    display_size=0.1  # Visible quantity
+)
+```
+
+### Peg Order
+
+```python
+# Peg to best bid with 10 offset
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.PEG,
+    side=Side.BUY,
+    size=1.0,
+    peg_offset=-10.0  # 10 below best bid
+)
+```
+
+## Time in Force
+
+```python
+from luxfi_dex.types import TimeInForce
+
+# Good Till Cancelled (default)
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    time_in_force=TimeInForce.GTC
+)
+
+# Immediate Or Cancel - fill what you can, cancel rest
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    time_in_force=TimeInForce.IOC
+)
+
+# Fill Or Kill - complete fill or nothing
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    time_in_force=TimeInForce.FOK
+)
+
+# Day order - expires at end of trading day
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    time_in_force=TimeInForce.DAY
+)
+```
+
+## Order Response
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+from datetime import datetime
+
+@dataclass
+class Order:
+    """Order response model."""
+    order_id: str
+    client_order_id: Optional[str]
+    symbol: str
+    order_type: OrderType
+    side: Side
+    price: float
+    size: float
+    filled_size: float
+    remaining_size: float
+    average_price: float
+    status: OrderStatus
+    time_in_force: TimeInForce
+    created_at: datetime
+    updated_at: datetime
+    user_id: str
+
+    @property
+    def is_open(self) -> bool:
+        """Check if order is still open."""
+        return self.status in (OrderStatus.NEW, OrderStatus.PARTIALLY_FILLED)
+
+    @property
+    def is_filled(self) -> bool:
+        """Check if order is completely filled."""
+        return self.status == OrderStatus.FILLED
+
+    @property
+    def fill_percentage(self) -> float:
+        """Calculate fill percentage."""
+        if self.size == 0:
+            return 0.0
+        return (self.filled_size / self.size) * 100
+```
+
+## Cancel Order
+
+### Cancel by Order ID
+
+```python
+# Cancel single order
+cancelled = client.cancel_order(order_id="ord_123456")
+print(f"Cancelled: {cancelled.status}")
+
+# With error handling
+from luxfi_dex.exceptions import OrderNotFoundError
+
+try:
+    cancelled = client.cancel_order("ord_123456")
+except OrderNotFoundError:
+    print("Order not found or already cancelled")
+```
+
+### Cancel Multiple Orders
+
+```python
+# Cancel all orders for a symbol
+cancelled_orders = client.cancel_all_orders(symbol="BTC-USD")
+print(f"Cancelled {len(cancelled_orders)} orders")
+
+# Cancel all orders for user
+cancelled_orders = client.cancel_all_orders(user_id="trader1")
+
+# Cancel orders by side
+cancelled_orders = client.cancel_all_orders(
+    symbol="BTC-USD",
+    side=Side.BUY
+)
+```
+
+### Async Cancellation
+
+```python
+import asyncio
+from luxfi_dex import AsyncLXDexClient
+
+async def cancel_orders():
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        # Cancel multiple orders concurrently
+        order_ids = ["ord_1", "ord_2", "ord_3", "ord_4", "ord_5"]
+
+        tasks = [client.cancel_order(oid) for oid in order_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for order_id, result in zip(order_ids, results):
+            if isinstance(result, Exception):
+                print(f"{order_id}: Failed - {result}")
+            else:
+                print(f"{order_id}: Cancelled")
+
+asyncio.run(cancel_orders())
+```
+
+## Get Order
+
+```python
+# Get single order
+order = client.get_order("ord_123456")
+print(f"Status: {order.status}")
+print(f"Filled: {order.filled_size}/{order.size}")
+
+# Get all open orders
+open_orders = client.get_orders(status=OrderStatus.NEW)
+for order in open_orders:
+    print(f"{order.order_id}: {order.side} {order.size} @ {order.price}")
+
+# Get orders for symbol
+btc_orders = client.get_orders(symbol="BTC-USD")
+
+# Get orders with pagination
+orders = client.get_orders(
+    symbol="BTC-USD",
+    limit=100,
+    offset=0
+)
+```
+
+## Order Status
+
+```python
+from luxfi_dex.types import OrderStatus
+
+# Available statuses
+OrderStatus.NEW              # Order accepted, waiting to be filled
+OrderStatus.PARTIALLY_FILLED # Order partially executed
+OrderStatus.FILLED           # Order completely filled
+OrderStatus.CANCELLED        # Order cancelled by user
+OrderStatus.REJECTED         # Order rejected by system
+OrderStatus.EXPIRED          # Order expired (time in force)
+OrderStatus.PENDING_CANCEL   # Cancel request pending
+```
+
+## Client Order ID
+
+Use client order IDs for idempotent order submission:
+
+```python
+import uuid
+
+# Generate unique client order ID
+client_order_id = str(uuid.uuid4())
+
+# Place order with client ID
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    client_order_id=client_order_id
+)
+
+# Retrieve order by client ID
+order = client.get_order_by_client_id(client_order_id)
+
+# Idempotent retry - same client_order_id returns existing order
+order = client.place_order(
+    symbol="BTC-USD",
+    order_type=OrderType.LIMIT,
+    side=Side.BUY,
+    price=50000.0,
+    size=1.0,
+    client_order_id=client_order_id  # Same ID
+)
+# Returns existing order instead of creating duplicate
+```
+
+## Batch Orders
+
+```python
+from luxfi_dex.types import OrderRequest
+
+# Create batch of orders
+orders = [
+    OrderRequest(
+        symbol="BTC-USD",
+        order_type=OrderType.LIMIT,
+        side=Side.BUY,
+        price=49000.0,
+        size=1.0
+    ),
+    OrderRequest(
+        symbol="BTC-USD",
+        order_type=OrderType.LIMIT,
+        side=Side.BUY,
+        price=48000.0,
+        size=1.0
+    ),
+    OrderRequest(
+        symbol="BTC-USD",
+        order_type=OrderType.LIMIT,
+        side=Side.BUY,
+        price=47000.0,
+        size=1.0
+    )
+]
+
+# Submit batch
+results = client.place_orders_batch(orders)
+
+for result in results:
+    if result.success:
+        print(f"Order placed: {result.order.order_id}")
+    else:
+        print(f"Order failed: {result.error}")
+```
+
+### Async Batch Orders
+
+```python
+import asyncio
+from luxfi_dex import AsyncLXDexClient
+
+async def place_batch_orders():
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        # Prepare orders
+        order_params = [
+            ("BTC-USD", 49000.0, 1.0),
+            ("BTC-USD", 48000.0, 1.0),
+            ("BTC-USD", 47000.0, 1.0),
+        ]
+
+        # Submit concurrently
+        tasks = [
+            client.place_order(
+                symbol=symbol,
+                order_type=OrderType.LIMIT,
+                side=Side.BUY,
+                price=price,
+                size=size
+            )
+            for symbol, price, size in order_params
+        ]
+
+        orders = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for order in orders:
+            if isinstance(order, Exception):
+                print(f"Failed: {order}")
+            else:
+                print(f"Placed: {order.order_id}")
+
+asyncio.run(place_batch_orders())
+```
+
+## Order Modification
+
+```python
+# Modify order price and size
+modified = client.modify_order(
+    order_id="ord_123456",
+    price=50500.0,
+    size=2.0
+)
+
+# Modify price only
+modified = client.modify_order(
+    order_id="ord_123456",
+    price=50500.0
+)
+
+# Cancel and replace (atomic)
+new_order = client.replace_order(
+    order_id="ord_123456",
+    price=51000.0,
+    size=1.5
+)
+```
+
+## Order Events Subscription
+
+```python
+from luxfi_dex import LXDexClient
+from luxfi_dex.types import OrderEvent, OrderEventType
+
+client = LXDexClient(
+    json_rpc_url="http://localhost:8080/rpc",
+    ws_url="ws://localhost:8081"
+)
+
+def on_order_event(event: OrderEvent) -> None:
+    """Handle order events."""
+    match event.event_type:
+        case OrderEventType.NEW:
+            print(f"Order created: {event.order.order_id}")
+        case OrderEventType.FILL:
+            print(f"Order filled: {event.fill_size} @ {event.fill_price}")
+        case OrderEventType.PARTIAL_FILL:
+            print(f"Partial fill: {event.fill_size} @ {event.fill_price}")
+        case OrderEventType.CANCELLED:
+            print(f"Order cancelled: {event.order.order_id}")
+        case OrderEventType.REJECTED:
+            print(f"Order rejected: {event.reason}")
+
+# Subscribe to order events
+client.subscribe_order_events(
+    callback=on_order_event,
+    user_id="trader1"
+)
+
+# Keep connection alive
+import time
+while True:
+    time.sleep(1)
+```
+
+### Async Order Events
+
+```python
+import asyncio
+from luxfi_dex import AsyncLXDexClient
+
+async def monitor_orders():
+    async with AsyncLXDexClient(
+        json_rpc_url="http://localhost:8080/rpc",
+        ws_url="ws://localhost:8081"
+    ) as client:
+        async for event in client.stream_order_events(user_id="trader1"):
+            print(f"Event: {event.event_type} - {event.order.order_id}")
+
+            if event.event_type == OrderEventType.FILL:
+                print(f"  Filled: {event.fill_size} @ {event.fill_price}")
+
+asyncio.run(monitor_orders())
+```
+
+## pandas Integration
+
+### Orders to DataFrame
+
+```python
+import pandas as pd
+from luxfi_dex import LXDexClient
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+# Get orders and convert to DataFrame
+orders = client.get_orders(symbol="BTC-USD", limit=100)
+
+df = pd.DataFrame([
+    {
+        "order_id": o.order_id,
+        "symbol": o.symbol,
+        "side": o.side.value,
+        "price": o.price,
+        "size": o.size,
+        "filled": o.filled_size,
+        "status": o.status.value,
+        "created_at": o.created_at
+    }
+    for o in orders
+])
+
+# Analysis
+print(f"Total orders: {len(df)}")
+print(f"Buy orders: {len(df[df['side'] == 'buy'])}")
+print(f"Sell orders: {len(df[df['side'] == 'sell'])}")
+print(f"Average size: {df['size'].mean():.4f}")
+print(f"Total volume: {df['size'].sum():.4f}")
+```
+
+### Order History Analysis
+
+```python
+import pandas as pd
+import numpy as np
+from luxfi_dex import LXDexClient
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+# Get filled orders
+filled_orders = client.get_orders(
+    symbol="BTC-USD",
+    status=OrderStatus.FILLED,
+    limit=1000
+)
+
+df = pd.DataFrame([
+    {
+        "order_id": o.order_id,
+        "side": o.side.value,
+        "price": o.average_price,
+        "size": o.filled_size,
+        "notional": o.average_price * o.filled_size,
+        "created_at": o.created_at,
+        "filled_at": o.updated_at
+    }
+    for o in filled_orders
+])
+
+df["created_at"] = pd.to_datetime(df["created_at"])
+df["filled_at"] = pd.to_datetime(df["filled_at"])
+df["fill_time_ms"] = (df["filled_at"] - df["created_at"]).dt.total_seconds() * 1000
+
+# Performance metrics
+print(f"Total trades: {len(df)}")
+print(f"Total volume: ${df['notional'].sum():,.2f}")
+print(f"Average fill time: {df['fill_time_ms'].mean():.2f}ms")
+print(f"P99 fill time: {df['fill_time_ms'].quantile(0.99):.2f}ms")
+
+# Group by side
+by_side = df.groupby("side").agg({
+    "size": "sum",
+    "notional": "sum",
+    "fill_time_ms": "mean"
+})
+print(by_side)
+```
+
+## Error Handling
+
+```python
+from luxfi_dex import LXDexClient
+from luxfi_dex.exceptions import (
+    InsufficientBalanceError,
+    OrderNotFoundError,
+    ValidationError,
+    RateLimitError,
+    LXDexError
+)
+
+client = LXDexClient("http://localhost:8080/rpc")
+
+def place_order_safe(
+    symbol: str,
+    price: float,
+    size: float
+) -> Order | None:
+    """Place order with comprehensive error handling."""
+    try:
+        return client.place_order(
+            symbol=symbol,
+            order_type=OrderType.LIMIT,
+            side=Side.BUY,
+            price=price,
+            size=size
+        )
+    except InsufficientBalanceError as e:
+        print(f"Insufficient balance: need {e.required}, have {e.available}")
+        return None
+    except ValidationError as e:
+        print(f"Invalid order: {e.field} - {e.message}")
+        return None
+    except RateLimitError as e:
+        print(f"Rate limited. Retry after {e.retry_after}s")
+        time.sleep(e.retry_after)
+        return place_order_safe(symbol, price, size)  # Retry
+    except LXDexError as e:
+        print(f"DEX error [{e.code}]: {e.message}")
+        return None
+```
+
+## Jupyter Notebook Examples
+
+```python
+# Cell 1: Setup
+import nest_asyncio
+nest_asyncio.apply()
+
+from luxfi_dex import AsyncLXDexClient, OrderType, Side
+import pandas as pd
+
+# Cell 2: Place orders
+async def trading_session():
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        # Place ladder of buy orders
+        prices = [49000, 48500, 48000, 47500, 47000]
+        orders = []
+
+        for price in prices:
+            order = await client.place_order(
+                symbol="BTC-USD",
+                order_type=OrderType.LIMIT,
+                side=Side.BUY,
+                price=float(price),
+                size=0.1
+            )
+            orders.append(order)
+            print(f"Placed: {order.order_id} @ {price}")
+
+        return orders
+
+orders = await trading_session()
+
+# Cell 3: Analyze orders
+df = pd.DataFrame([
+    {"id": o.order_id, "price": o.price, "size": o.size, "status": o.status.value}
+    for o in orders
+])
+display(df)
+
+# Cell 4: Cancel all orders
+async def cancel_all():
+    async with AsyncLXDexClient("http://localhost:8080/rpc") as client:
+        for order in orders:
+            try:
+                await client.cancel_order(order.order_id)
+                print(f"Cancelled: {order.order_id}")
+            except Exception as e:
+                print(f"Failed to cancel {order.order_id}: {e}")
+
+await cancel_all()
+```
+
+## Next Steps
+
+- [Order Book](/docs/sdk/python/orderbook) - Market data access
+- [Trades](/docs/sdk/python/trades) - Trade history and streaming
+- [Account](/docs/sdk/python/account) - Balance and portfolio management

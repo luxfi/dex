@@ -1,0 +1,891 @@
+---
+title: Docker Deployment
+description: Container deployment with Docker and Kubernetes
+---
+
+# Docker Deployment
+
+This guide covers deploying LX DEX using Docker, Docker Compose, and Kubernetes.
+
+## Docker Images
+
+### Official Images
+
+| Image | Description | Size |
+|-------|-------------|------|
+| `registry.lux.network/lxdex:latest` | Standard image | ~50MB |
+| `registry.lux.network/lxdex:gpu` | CUDA GPU support | ~2GB |
+| `registry.lux.network/lxdex:fpga` | FPGA support | ~100MB |
+
+### Pull Images
+
+```bash
+# Latest stable
+docker pull registry.lux.network/lxdex:latest
+
+# Specific version
+docker pull registry.lux.network/lxdex:v1.0.0
+
+# GPU-enabled
+docker pull registry.lux.network/lxdex:v1.0.0-gpu
+```
+
+## Dockerfile
+
+### Standard Dockerfile
+
+```dockerfile
+# Build stage
+FROM golang:1.24.6-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make gcc musl-dev
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /luxd ./cmd/luxd
+
+# Final stage
+FROM alpine:3.19
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1000 -S lxdex && \
+    adduser -u 1000 -S lxdex -G lxdex
+
+# Create directories
+RUN mkdir -p /data /etc/lxdex && \
+    chown -R lxdex:lxdex /data /etc/lxdex
+
+WORKDIR /home/lxdex
+
+# Copy binary
+COPY --from=builder /luxd /usr/local/bin/luxd
+
+# Switch to non-root user
+USER lxdex
+
+# Expose ports
+EXPOSE 8080 8081 50051 5555 5556 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q --spider http://localhost:8080/health || exit 1
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/luxd"]
+CMD ["--config", "/etc/lxdex/node.yaml"]
+```
+
+### GPU-Enabled Dockerfile
+
+```dockerfile
+# Build stage
+FROM nvidia/cuda:12.3-devel-ubuntu22.04 AS builder
+
+RUN apt-get update && apt-get install -y \
+    golang-1.24 \
+    git \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/usr/lib/go-1.24/bin:${PATH}"
+
+WORKDIR /app
+COPY . .
+
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -tags gpu \
+    -ldflags="-s -w" \
+    -o /luxd ./cmd/luxd
+
+# Final stage
+FROM nvidia/cuda:12.3-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -r -u 1000 -s /bin/false lxdex
+RUN mkdir -p /data /etc/lxdex && chown -R lxdex:lxdex /data /etc/lxdex
+
+WORKDIR /home/lxdex
+COPY --from=builder /luxd /usr/local/bin/luxd
+
+USER lxdex
+EXPOSE 8080 8081 50051 5555 5556 9090
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q --spider http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/luxd"]
+CMD ["--config", "/etc/lxdex/node.yaml", "--enable-gpu"]
+```
+
+## Docker Compose
+
+### Development Setup
+
+```yaml
+# compose.dev.yml
+services:
+  lxdex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lxdex-dev
+    ports:
+      - "8080:8080"   # HTTP API
+      - "8081:8081"   # WebSocket
+      - "9090:9090"   # Metrics
+    volumes:
+      - ./config/dev.yaml:/etc/lxdex/node.yaml:ro
+      - lxdex-data:/data
+    environment:
+      - LX_NODE_LOG_LEVEL=debug
+      - LX_CONSENSUS_ENABLE=false
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  lxdex-data:
+```
+
+### Production Setup
+
+```yaml
+# compose.yml
+services:
+  lxdex-node-0:
+    image: registry.lux.network/lxdex:v1.0.0
+    container_name: lxdex-node-0
+    hostname: lxdex-node-0
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "9090:9090"
+    volumes:
+      - ./config/node-0.yaml:/etc/lxdex/node.yaml:ro
+      - ./tls:/etc/lxdex/tls:ro
+      - node0-data:/data
+    environment:
+      - LX_NODE_ID=node-0
+      - LX_DATABASE_DSN=postgres://lxdex:${POSTGRES_PASSWORD}@postgres:5432/lxdex
+      - LX_CACHE_ADDRESS=redis:6379
+      - LX_CACHE_PASSWORD=${REDIS_PASSWORD}
+      - LX_AUTH_JWT_SECRET=${JWT_SECRET}
+    networks:
+      - lxdex-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+    restart: always
+
+  lxdex-node-1:
+    image: registry.lux.network/lxdex:v1.0.0
+    container_name: lxdex-node-1
+    hostname: lxdex-node-1
+    ports:
+      - "8082:8080"
+      - "8083:8081"
+      - "9091:9090"
+    volumes:
+      - ./config/node-1.yaml:/etc/lxdex/node.yaml:ro
+      - ./tls:/etc/lxdex/tls:ro
+      - node1-data:/data
+    environment:
+      - LX_NODE_ID=node-1
+      - LX_DATABASE_DSN=postgres://lxdex:${POSTGRES_PASSWORD}@postgres:5432/lxdex
+      - LX_CACHE_ADDRESS=redis:6379
+      - LX_CACHE_PASSWORD=${REDIS_PASSWORD}
+      - LX_AUTH_JWT_SECRET=${JWT_SECRET}
+    networks:
+      - lxdex-internal
+    depends_on:
+      - lxdex-node-0
+    restart: always
+
+  lxdex-node-2:
+    image: registry.lux.network/lxdex:v1.0.0
+    container_name: lxdex-node-2
+    hostname: lxdex-node-2
+    ports:
+      - "8084:8080"
+      - "8085:8081"
+      - "9092:9090"
+    volumes:
+      - ./config/node-2.yaml:/etc/lxdex/node.yaml:ro
+      - ./tls:/etc/lxdex/tls:ro
+      - node2-data:/data
+    environment:
+      - LX_NODE_ID=node-2
+      - LX_DATABASE_DSN=postgres://lxdex:${POSTGRES_PASSWORD}@postgres:5432/lxdex
+      - LX_CACHE_ADDRESS=redis:6379
+      - LX_CACHE_PASSWORD=${REDIS_PASSWORD}
+      - LX_AUTH_JWT_SECRET=${JWT_SECRET}
+    networks:
+      - lxdex-internal
+    depends_on:
+      - lxdex-node-0
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: lxdex-postgres
+    environment:
+      - POSTGRES_USER=lxdex
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=lxdex
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - lxdex-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lxdex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: lxdex-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - lxdex-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: lxdex-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    ports:
+      - "9093:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - lxdex-internal
+    restart: always
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: lxdex-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SERVER_ROOT_URL=https://grafana.lux.network
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - lxdex-internal
+    depends_on:
+      - prometheus
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: lxdex-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - lxdex-internal
+    depends_on:
+      - lxdex-node-0
+      - lxdex-node-1
+      - lxdex-node-2
+    restart: always
+
+networks:
+  lxdex-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  node0-data:
+  node1-data:
+  node2-data:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+```
+
+### Environment File
+
+```bash
+# .env
+POSTGRES_PASSWORD=your-secure-postgres-password
+REDIS_PASSWORD=your-secure-redis-password
+JWT_SECRET=your-256-bit-jwt-secret
+GRAFANA_PASSWORD=your-grafana-admin-password
+```
+
+## Kubernetes Deployment
+
+### Namespace and RBAC
+
+```yaml
+# k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lxdex
+  labels:
+    app.kubernetes.io/name: lxdex
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lxdex
+  namespace: lxdex
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lxdex
+  namespace: lxdex
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lxdex
+  namespace: lxdex
+subjects:
+  - kind: ServiceAccount
+    name: lxdex
+    namespace: lxdex
+roleRef:
+  kind: Role
+  name: lxdex
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### ConfigMap
+
+```yaml
+# k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lxdex-config
+  namespace: lxdex
+data:
+  node.yaml: |
+    node:
+      id: ${POD_NAME}
+      data_dir: /data/lxdex
+      log_level: info
+      log_format: json
+
+    network:
+      http_port: 8080
+      ws_port: 8081
+      grpc_port: 50051
+      qzmq_pub_port: 5555
+      qzmq_sub_port: 5556
+      metrics_port: 9090
+      peers:
+        - lxdex-0.lxdex-headless:50051
+        - lxdex-1.lxdex-headless:50051
+        - lxdex-2.lxdex-headless:50051
+
+    consensus:
+      enable: true
+      k: 3
+      n: 3
+      block_time: 1ms
+      finality_threshold: 0.67
+
+    engine:
+      type: hybrid
+      enable_mlx: true
+      max_batch_size: 10000
+
+    orderbook:
+      max_orders_per_user: 1000
+      price_precision: 7
+
+    risk:
+      enable: true
+      max_leverage: 100
+
+    qzmq:
+      enabled: true
+      pq_only: true
+      suite: high_security
+```
+
+### Secrets
+
+```yaml
+# k8s/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lxdex-secrets
+  namespace: lxdex
+type: Opaque
+stringData:
+  postgres-dsn: "postgres://lxdex:PASSWORD@postgres-primary:5432/lxdex?sslmode=require"
+  redis-url: "redis://:PASSWORD@redis-master:6379/0"
+  jwt-secret: "your-256-bit-secret-key"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lxdex-tls
+  namespace: lxdex
+type: kubernetes.io/tls
+data:
+  tls.crt: <base64-encoded-cert>
+  tls.key: <base64-encoded-key>
+```
+
+### StatefulSet
+
+```yaml
+# k8s/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: lxdex
+  namespace: lxdex
+spec:
+  serviceName: lxdex-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lxdex
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lxdex
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: lxdex
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: lxdex
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: lxdex
+          image: registry.lux.network/lxdex:v1.0.0
+          imagePullPolicy: Always
+          command: ["/usr/local/bin/luxd"]
+          args:
+            - "--config=/etc/lxdex/node.yaml"
+            - "--enable-qzmq"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: LX_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: lxdex-secrets
+                  key: postgres-dsn
+            - name: LX_CACHE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: lxdex-secrets
+                  key: redis-url
+            - name: LX_AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lxdex-secrets
+                  key: jwt-secret
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: websocket
+              containerPort: 8081
+              protocol: TCP
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: qzmq-pub
+              containerPort: 5555
+              protocol: TCP
+            - name: qzmq-sub
+              containerPort: 5556
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+            limits:
+              cpu: "16"
+              memory: "32Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/lxdex
+            - name: data
+              mountPath: /data
+            - name: tls
+              mountPath: /etc/lxdex/tls
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: lxdex-config
+        - name: tls
+          secret:
+            secretName: lxdex-tls
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 500Gi
+```
+
+### Services
+
+```yaml
+# k8s/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lxdex-headless
+  namespace: lxdex
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: lxdex
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lxdex
+  namespace: lxdex
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: lxdex
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: websocket
+      port: 443
+      targetPort: websocket
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+```
+
+### Ingress
+
+```yaml
+# k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lxdex
+  namespace: lxdex
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  tls:
+    - hosts:
+        - api.lux.network
+        - ws.lux.network
+      secretName: lxdex-tls-cert
+  rules:
+    - host: api.lux.network
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lxdex
+                port:
+                  number: 80
+    - host: ws.lux.network
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lxdex
+                port:
+                  number: 443
+```
+
+### HorizontalPodAutoscaler
+
+```yaml
+# k8s/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: lxdex
+  namespace: lxdex
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: lxdex
+  minReplicas: 3
+  maxReplicas: 9
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+```
+
+## Helm Chart
+
+### Install from Repository
+
+```bash
+# Add repository
+helm repo add lux https://charts.lux.network
+helm repo update
+
+# Install with default values
+helm install lxdex lux/lxdex \
+  --namespace lxdex \
+  --create-namespace
+
+# Install with custom values
+helm install lxdex lux/lxdex \
+  --namespace lxdex \
+  --create-namespace \
+  --values custom-values.yaml
+
+# Upgrade
+helm upgrade lxdex lux/lxdex \
+  --namespace lxdex \
+  --values custom-values.yaml
+```
+
+### Custom Values
+
+```yaml
+# custom-values.yaml
+replicaCount: 3
+
+image:
+  repository: registry.lux.network/lxdex
+  tag: v1.0.0
+  pullPolicy: Always
+
+resources:
+  requests:
+    cpu: "8"
+    memory: "16Gi"
+  limits:
+    cpu: "32"
+    memory: "64Gi"
+
+persistence:
+  enabled: true
+  storageClass: fast-ssd
+  size: 1Ti
+
+lxdex:
+  consensus:
+    enabled: true
+    k: 3
+    n: 3
+    blockTime: 1ms
+
+  engine:
+    type: hybrid
+    enableMLX: true
+    maxBatchSize: 10000
+
+  qzmq:
+    enabled: true
+    pqOnly: true
+
+postgresql:
+  enabled: true
+  auth:
+    password: "changeme"
+  primary:
+    persistence:
+      size: 100Gi
+
+redis:
+  enabled: true
+  auth:
+    password: "changeme"
+
+monitoring:
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
+```
+
+## Docker Commands Reference
+
+```bash
+# Build image
+docker build -t lxdex:local .
+
+# Run single node
+docker run -d --name lxdex -p 8080:8080 lxdex:local
+
+# View logs
+docker logs -f lxdex
+
+# Execute shell
+docker exec -it lxdex /bin/sh
+
+# Stop and remove
+docker stop lxdex && docker rm lxdex
+
+# Compose up
+docker compose -f compose.yml up -d
+
+# Compose down
+docker compose -f compose.yml down
+
+# Compose logs
+docker compose -f compose.yml logs -f
+
+# Scale nodes
+docker compose -f compose.yml up -d --scale lxdex=5
+```
+
+## Next Steps
+
+- [Monitoring](/docs/operations/monitoring) - Set up observability
+- [Scaling](/docs/operations/scaling) - Scale your deployment
+- [Backup](/docs/operations/backup) - Configure backups

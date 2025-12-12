@@ -1,0 +1,597 @@
+---
+title: Order Book Methods
+description: LP-9002 JSON-RPC order book and depth methods
+---
+
+# Order Book Methods
+
+Methods for querying order book state, depth, and spread. These methods do not require authentication.
+
+## lx_getOrderBook
+
+Get a snapshot of the order book for a market.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair (e.g., "BTC-USDT") |
+| `depth` | integer | No | Number of price levels (default: 20, max: 500) |
+| `aggregate` | string | No | Price aggregation level (e.g., "0.01", "1", "10") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrderBook",
+  "params": {
+    "market": "BTC-USDT",
+    "depth": 20
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "bids": [
+      ["42000.00", "1.5000", 3],
+      ["41999.50", "2.2500", 5],
+      ["41999.00", "0.7500", 2],
+      ["41998.50", "3.0000", 7],
+      ["41998.00", "1.2500", 4]
+    ],
+    "asks": [
+      ["42000.50", "1.2000", 2],
+      ["42001.00", "0.8000", 3],
+      ["42001.50", "2.5000", 6],
+      ["42002.00", "1.0000", 4],
+      ["42002.50", "3.2000", 8]
+    ],
+    "sequence": 1234567890,
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Price Level Format
+
+Each bid/ask entry is an array: `[price, quantity, orderCount]`
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | string | Price level |
+| 1 | string | Total quantity at price |
+| 2 | integer | Number of orders at price |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getOrderBook",
+    "params": {
+      "market": "BTC-USDT",
+      "depth": 20
+    }
+  }'
+```
+
+### Aggregated Order Book
+
+Request with price aggregation:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrderBook",
+  "params": {
+    "market": "BTC-USDT",
+    "depth": 10,
+    "aggregate": "10"
+  }
+}
+```
+
+Response (prices rounded to nearest 10):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "aggregate": "10",
+    "bids": [
+      ["42000", "8.7500", 21],
+      ["41990", "12.3000", 35],
+      ["41980", "6.2000", 18]
+    ],
+    "asks": [
+      ["42010", "7.5000", 19],
+      ["42020", "9.8000", 28],
+      ["42030", "5.1000", 15]
+    ],
+    "sequence": 1234567890,
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Errors
+
+| Code | Message | Cause |
+|------|---------|-------|
+| -32001 | Market not found | Invalid market symbol |
+| -32602 | Invalid params | Invalid depth or aggregate value |
+
+### Rate Limit
+
+- **Limit**: 100 requests per second
+- **Note**: Public endpoint, no authentication required
+
+---
+
+## lx_getOrderBookDepth
+
+Get cumulative order book depth (useful for depth charts).
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+| `levels` | integer | No | Number of depth levels (default: 50, max: 200) |
+| `priceRange` | string | No | Percentage range from mid-price (e.g., "5%") |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrderBookDepth",
+  "params": {
+    "market": "BTC-USDT",
+    "levels": 50
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "midPrice": "42000.25",
+    "bidDepth": [
+      {
+        "price": "42000.00",
+        "quantity": "1.5000",
+        "cumulative": "1.5000",
+        "cumulativeValue": "63000.00"
+      },
+      {
+        "price": "41999.50",
+        "quantity": "2.2500",
+        "cumulative": "3.7500",
+        "cumulativeValue": "157498.125"
+      },
+      {
+        "price": "41999.00",
+        "quantity": "0.7500",
+        "cumulative": "4.5000",
+        "cumulativeValue": "188995.50"
+      }
+    ],
+    "askDepth": [
+      {
+        "price": "42000.50",
+        "quantity": "1.2000",
+        "cumulative": "1.2000",
+        "cumulativeValue": "50400.60"
+      },
+      {
+        "price": "42001.00",
+        "quantity": "0.8000",
+        "cumulative": "2.0000",
+        "cumulativeValue": "84001.40"
+      },
+      {
+        "price": "42001.50",
+        "quantity": "2.5000",
+        "cumulative": "4.5000",
+        "cumulativeValue": "189005.15"
+      }
+    ],
+    "totalBidValue": "2500000.00",
+    "totalAskValue": "2350000.00",
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Depth Entry Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `price` | string | Price level |
+| `quantity` | string | Quantity at this level |
+| `cumulative` | string | Cumulative quantity from best price |
+| `cumulativeValue` | string | Cumulative value (price * cumulative qty) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getOrderBookDepth",
+    "params": {
+      "market": "BTC-USDT",
+      "levels": 100,
+      "priceRange": "2%"
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+
+---
+
+## lx_getSpread
+
+Get current bid-ask spread for a market.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getSpread",
+  "params": {
+    "market": "BTC-USDT"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "bestBid": "42000.00",
+    "bestBidSize": "1.5000",
+    "bestAsk": "42000.50",
+    "bestAskSize": "1.2000",
+    "spread": "0.50",
+    "spreadPercent": "0.0012",
+    "midPrice": "42000.25",
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bestBid` | string | Highest bid price |
+| `bestBidSize` | string | Quantity at best bid |
+| `bestAsk` | string | Lowest ask price |
+| `bestAskSize` | string | Quantity at best ask |
+| `spread` | string | Absolute spread (ask - bid) |
+| `spreadPercent` | string | Spread as percentage of mid-price |
+| `midPrice` | string | Mid-market price ((bid + ask) / 2) |
+| `timestamp` | integer | Server timestamp (ms) |
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getSpread",
+    "params": {
+      "market": "BTC-USDT"
+    }
+  }'
+```
+
+### Empty Order Book Response
+
+If no orders exist:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "bestBid": null,
+    "bestBidSize": null,
+    "bestAsk": null,
+    "bestAskSize": null,
+    "spread": null,
+    "spreadPercent": null,
+    "midPrice": null,
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Rate Limit
+
+- **Limit**: 100 requests per second
+
+---
+
+## lx_getBestPrices
+
+Get best bid and ask prices for multiple markets in a single request.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `markets` | array | Yes | List of market symbols |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getBestPrices",
+  "params": {
+    "markets": ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "prices": {
+      "BTC-USDT": {
+        "bestBid": "42000.00",
+        "bestAsk": "42000.50",
+        "midPrice": "42000.25"
+      },
+      "ETH-USDT": {
+        "bestBid": "2250.00",
+        "bestAsk": "2250.25",
+        "midPrice": "2250.125"
+      },
+      "SOL-USDT": {
+        "bestBid": "98.50",
+        "bestAsk": "98.55",
+        "midPrice": "98.525"
+      }
+    },
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getBestPrices",
+    "params": {
+      "markets": ["BTC-USDT", "ETH-USDT"]
+    }
+  }'
+```
+
+### Limits
+
+- **Max markets per request**: 50
+
+### Rate Limit
+
+- **Limit**: 50 requests per second
+
+---
+
+## lx_getOrderBookChecksum
+
+Get a checksum of the order book state for synchronization verification.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `market` | string | Yes | Trading pair |
+| `depth` | integer | No | Depth to include in checksum (default: 100) |
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_getOrderBookChecksum",
+  "params": {
+    "market": "BTC-USDT",
+    "depth": 100
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "market": "BTC-USDT",
+    "checksum": "a1b2c3d4e5f6",
+    "sequence": 1234567890,
+    "bidLevels": 100,
+    "askLevels": 100,
+    "timestamp": 1702300000000
+  }
+}
+```
+
+### Checksum Algorithm
+
+The checksum is computed as:
+
+```
+CRC32(bid1_price:bid1_qty:ask1_price:ask1_qty:bid2_price:bid2_qty:...)
+```
+
+Prices and quantities are formatted without trailing zeros.
+
+### Use Case
+
+Verify WebSocket order book synchronization:
+
+1. Subscribe to order book updates via WebSocket
+2. Periodically call `lx_getOrderBookChecksum`
+3. Compare local computed checksum with server checksum
+4. If mismatch, re-fetch full order book with `lx_getOrderBook`
+
+### curl Example
+
+```bash
+curl -X POST https://api.lux.network/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "lx_getOrderBookChecksum",
+    "params": {
+      "market": "BTC-USDT"
+    }
+  }'
+```
+
+### Rate Limit
+
+- **Limit**: 20 requests per second
+
+---
+
+## OpenRPC Schema Reference
+
+```json
+{
+  "name": "lx_getOrderBook",
+  "summary": "Get order book snapshot",
+  "params": [
+    {
+      "name": "market",
+      "required": true,
+      "schema": {"type": "string", "pattern": "^[A-Z]+-[A-Z]+$"}
+    },
+    {
+      "name": "depth",
+      "required": false,
+      "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 20}
+    },
+    {
+      "name": "aggregate",
+      "required": false,
+      "schema": {"type": "string", "pattern": "^[0-9]+\\.?[0-9]*$"}
+    }
+  ],
+  "result": {
+    "name": "OrderBookResult",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "market": {"type": "string"},
+        "bids": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {"type": "string"},
+              {"type": "string"},
+              {"type": "integer"}
+            ]
+          }
+        },
+        "asks": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {"type": "string"},
+              {"type": "string"},
+              {"type": "integer"}
+            ]
+          }
+        },
+        "sequence": {"type": "integer"},
+        "timestamp": {"type": "integer"}
+      },
+      "required": ["market", "bids", "asks", "sequence", "timestamp"]
+    }
+  }
+}
+```
+
+---
+
+## WebSocket Subscription
+
+For real-time order book updates, use WebSocket subscriptions instead of polling:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "lx_subscribe",
+  "params": {
+    "channel": "orderbook",
+    "market": "BTC-USDT",
+    "depth": 20
+  }
+}
+```
+
+See [WebSocket API](/docs/api/websocket) for subscription details.

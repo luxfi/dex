@@ -238,18 +238,38 @@ The DEX supports multiple execution backends:
 
 1. **Pure Go Engine**
    - Portable and maintainable
-   - 13M+ orders/sec
-   - 75.9ns latency
+   - 163K-332K msgs/sec (FIX protocol)
+   - 33.5μs average latency
 
 2. **C++ Engine**
    - SIMD optimizations
    - Lock-free algorithms
-   - 30M+ orders/sec potential
+   - 444K-1.08M msgs/sec (FIX protocol)
+   - 8.2μs average latency
 
-3. **GPU Engine (MLX/CUDA)**
+3. **Rust Engine**
+   - Memory safety with performance
+   - 232K-586K msgs/sec (FIX protocol)
+   - 11.9μs average latency
+
+4. **GPU Engine (MLX)**
+   - Metal Performance Shaders on Apple Silicon
    - Massive parallelization
-   - Batch order processing
-   - 100M+ orders/sec potential
+   - **3.12M-5.95M msgs/sec (FIX protocol)**
+   - **0.68-1.75μs average latency**
+   - 434M+ orders/sec batch processing
+
+### FIX Protocol Performance (December 2024)
+
+| Engine | NewOrderSingle | ExecutionReport | MarketDataSnapshot |
+|--------|----------------|-----------------|-------------------|
+| Pure Go | 163K/sec | 124K/sec | 332K/sec |
+| Hybrid Go/C++ | 167K/sec | 378K/sec | 616K/sec |
+| Pure C++ | 444K/sec | 804K/sec | 1.08M/sec |
+| Rust | 484K/sec | 232K/sec | 586K/sec |
+| **MLX (Apple Silicon)** | **3.12M/sec** | **4.27M/sec** | **5.95M/sec** |
+
+*MLX achieves 7-40x throughput improvement via GPU parallelism
 
 ### Memory Management
 

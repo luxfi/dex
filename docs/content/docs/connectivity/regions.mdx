@@ -1,0 +1,391 @@
+---
+title: Regional Data Centers
+description: LX DEX data center locations, latency maps, and regional connectivity options
+---
+
+# Regional Data Centers
+
+> **Network Operations**: noc@lux.network | **24/7 Hotline**: +1-833-LUX-TRADE
+
+## Data Center Overview
+
+LX DEX operates from Tier IV data centers strategically located to minimize latency for traders worldwide. Our primary matching engine is located in Equinix NY5, with secondary matching engines in London, Tokyo, and Singapore.
+
+## Primary Data Center - New York
+
+### Equinix NY5 (Secaucus, NJ)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    EQUINIX NY5 - PRIMARY                         │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Location:    800 Secaucus Road, Secaucus, NJ 07094              │
+│  Tier:        IV (99.995% uptime)                                │
+│  Power:       2N redundant, 40MW capacity                        │
+│  Cooling:     N+1 redundant CRAC units                           │
+│  Network:     100+ carriers, 1000+ cross-connects                │
+│                                                                   │
+│  LX DEX Infrastructure:                                          │
+│  ┌─────────────────────────────────────────────────────────┐     │
+│  │  Matching Engine Cluster                                 │     │
+│  │  ├── Primary ME (Active)                                │     │
+│  │  ├── Secondary ME (Hot Standby)                         │     │
+│  │  └── Tertiary ME (Warm Standby)                         │     │
+│  ├─────────────────────────────────────────────────────────┤     │
+│  │  Market Data Distribution                                │     │
+│  │  ├── Multicast Feed A                                   │     │
+│  │  └── Multicast Feed B                                   │     │
+│  ├─────────────────────────────────────────────────────────┤     │
+│  │  Colocation Cages                                        │     │
+│  │  ├── Premium (Adjacent to ME)                           │     │
+│  │  └── Standard (Same building)                           │     │
+│  └─────────────────────────────────────────────────────────┘     │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Specifications:**
+
+| Attribute | Value |
+|-----------|-------|
+| Address | 800 Secaucus Road, Secaucus, NJ 07094 |
+| Campus | NY5 IBX |
+| Total Space | 180,000 sq ft |
+| LX DEX Space | 10,000 sq ft |
+| Power Density | Up to 30kW per cabinet |
+| Connectivity | 100+ network providers |
+
+## Secondary Data Centers
+
+### Equinix LD4 (London)
+
+```
+Location:    Harbour Exchange, London E14 9GE
+Tier:        IV
+Role:        EMEA Primary, Global Secondary
+Latency:     70ms to NY5
+```
+
+| Attribute | Value |
+|-----------|-------|
+| Address | Harbour Exchange Square, London E14 9GE |
+| LX DEX Space | 5,000 sq ft |
+| Cross-Connects | 500+ |
+| Carriers | 80+ |
+
+### Equinix TY3 (Tokyo)
+
+```
+Location:    Heiwajima, Ota-ku, Tokyo
+Tier:        IV
+Role:        APAC Primary, Global Secondary
+Latency:     160ms to NY5
+```
+
+| Attribute | Value |
+|-----------|-------|
+| Address | 2-1-4 Heiwajima, Ota-ku, Tokyo |
+| LX DEX Space | 3,000 sq ft |
+| Cross-Connects | 400+ |
+| Carriers | 60+ |
+
+### Equinix SG1 (Singapore)
+
+```
+Location:    Ayer Rajah Crescent, Singapore
+Tier:        IV
+Role:        SEA Primary, APAC Secondary
+Latency:     230ms to NY5
+```
+
+| Attribute | Value |
+|-----------|-------|
+| Address | 26A Ayer Rajah Crescent, Singapore |
+| LX DEX Space | 2,000 sq ft |
+| Cross-Connects | 300+ |
+| Carriers | 50+ |
+
+## Global Latency Map
+
+### From New York (NY5)
+
+```
+                              LATENCY FROM NY5 (ms)
+
+        Seattle                                      London
+         65ms    ●                               ● 70ms
+                  \                             /
+    San Francisco  \    Chicago              /    Frankfurt
+         75ms   ●   \    20ms ●           /   ●  80ms
+                 \   \        |         /    /
+                  \   \       |       /    /
+     Los Angeles   ●   ●------●-----●    ●  Amsterdam
+         60ms      \   Dallas  NYC  /     75ms
+                    \  35ms   <1ms/
+                     \       /   \
+                      \     /     \
+                       ●   /       \   ●  Sao Paulo
+                Miami    /         \  180ms
+                 30ms   /           \
+                       /             \
+                      ●
+                   Mexico City
+                    60ms
+```
+
+### Global Latency Matrix (milliseconds)
+
+| From/To | NYC | London | Tokyo | Singapore | Sydney |
+|---------|-----|--------|-------|-----------|--------|
+| **NYC** | - | 70 | 160 | 230 | 210 |
+| **London** | 70 | - | 220 | 170 | 280 |
+| **Tokyo** | 160 | 220 | - | 70 | 100 |
+| **Singapore** | 230 | 170 | 70 | - | 150 |
+| **Sydney** | 210 | 280 | 100 | 150 | - |
+| **Chicago** | 20 | 85 | 150 | 240 | 220 |
+| **Los Angeles** | 60 | 130 | 100 | 170 | 140 |
+| **Frankfurt** | 80 | 10 | 230 | 160 | 290 |
+| **Hong Kong** | 200 | 180 | 50 | 35 | 130 |
+| **Dubai** | 200 | 100 | 180 | 100 | 230 |
+
+## Latency by Major Trading Cities
+
+### Americas
+
+| City | Nearest DC | Latency to ME | Recommended Endpoint |
+|------|------------|---------------|---------------------|
+| New York | NY5 | < 1ms | us-east.api.lux.network |
+| Chicago | NY5 | 15-20ms | us-central.api.lux.network |
+| Toronto | NY5 | 12-18ms | ca.api.lux.network |
+| Los Angeles | NY5 | 55-65ms | us-west.api.lux.network |
+| San Francisco | NY5 | 60-70ms | us-west.api.lux.network |
+| Miami | NY5 | 25-35ms | us-east.api.lux.network |
+| Sao Paulo | NY5 | 170-190ms | us-east.api.lux.network |
+| Mexico City | NY5 | 55-65ms | us-east.api.lux.network |
+
+### Europe
+
+| City | Nearest DC | Latency to ME | Recommended Endpoint |
+|------|------------|---------------|---------------------|
+| London | LD4 | < 1ms | uk.api.lux.network |
+| Frankfurt | LD4 | 8-12ms | de.api.lux.network |
+| Amsterdam | LD4 | 6-10ms | nl.api.lux.network |
+| Paris | LD4 | 10-15ms | uk.api.lux.network |
+| Zurich | LD4 | 12-18ms | ch.api.lux.network |
+| Dublin | LD4 | 12-18ms | uk.api.lux.network |
+| Madrid | LD4 | 25-35ms | uk.api.lux.network |
+| Stockholm | LD4 | 30-40ms | uk.api.lux.network |
+
+### Asia Pacific
+
+| City | Nearest DC | Latency to ME | Recommended Endpoint |
+|------|------------|---------------|---------------------|
+| Tokyo | TY3 | < 1ms | jp.api.lux.network |
+| Hong Kong | TY3/SG1 | 35-50ms | hk.api.lux.network |
+| Singapore | SG1 | < 1ms | sg.api.lux.network |
+| Sydney | SG1 | 90-110ms | au.api.lux.network |
+| Seoul | TY3 | 25-35ms | kr.api.lux.network |
+| Mumbai | SG1 | 60-80ms | sg.api.lux.network |
+| Shanghai | TY3 | 40-60ms | jp.api.lux.network |
+| Taipei | TY3 | 30-45ms | jp.api.lux.network |
+
+## Network Topology
+
+### Backbone Architecture
+
+```
+                        GLOBAL BACKBONE NETWORK
+
+                     ┌─────────────────────────┐
+                     │      NY5 PRIMARY        │
+                     │   (Matching Engine)     │
+                     └───────────┬─────────────┘
+                                 │
+              100G dedicated     │     100G dedicated
+         ┌───────────────────────┼───────────────────────┐
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   LD4 LONDON    │    │   TY3 TOKYO     │    │  SG1 SINGAPORE  │
+│   (Secondary)   │    │   (Secondary)   │    │   (Secondary)   │
+└────────┬────────┘    └────────┬────────┘    └────────┬────────┘
+         │                      │                      │
+    40G links              40G links              40G links
+         │                      │                      │
+         ▼                      ▼                      ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ Regional PoPs   │    │ Regional PoPs   │    │ Regional PoPs   │
+│ FR5, AM5, PA3   │    │ HK1, SY4, SE2   │    │ HK1, SY4        │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Inter-DC Connectivity
+
+| Route | Bandwidth | Provider | Latency |
+|-------|-----------|----------|---------|
+| NY5 ↔ LD4 | 100 Gbps | Telia + NTT | 70ms |
+| NY5 ↔ TY3 | 100 Gbps | NTT + PCCW | 160ms |
+| NY5 ↔ SG1 | 100 Gbps | Telia + Singtel | 230ms |
+| LD4 ↔ TY3 | 40 Gbps | NTT | 220ms |
+| LD4 ↔ SG1 | 40 Gbps | Telia | 170ms |
+| TY3 ↔ SG1 | 40 Gbps | NTT + Singtel | 70ms |
+
+## Points of Presence (PoPs)
+
+### Tier 1 PoPs (Full Stack)
+
+Full matching capability with local order books:
+
+- New York (NY5) - Primary
+- London (LD4) - EMEA
+- Tokyo (TY3) - APAC
+- Singapore (SG1) - SEA
+
+### Tier 2 PoPs (Gateway)
+
+Order routing and market data distribution:
+
+- Frankfurt (FR5)
+- Amsterdam (AM5)
+- Chicago (CH1)
+- Los Angeles (LA1)
+- Hong Kong (HK1)
+- Sydney (SY4)
+- Seoul (SE2)
+- Mumbai (MB1)
+
+### Tier 3 PoPs (Edge)
+
+CDN and API caching:
+
+- 45+ global locations via Cloudflare Enterprise
+
+## Choosing Your Region
+
+### Decision Factors
+
+1. **Primary Trading Hours**
+   - Americas: Use NY5 or regional US endpoint
+   - EMEA: Use LD4 or regional EU endpoint
+   - APAC: Use TY3 or SG1
+
+2. **Asset Preference**
+   - Crypto/Digital Assets: NY5 (primary liquidity)
+   - European markets: LD4
+   - Asian markets: TY3
+
+3. **Latency Requirements**
+   - HFT (< 1ms): Colocation required
+   - Algorithmic (< 10ms): Regional endpoint or dedicated
+   - Active (< 100ms): Any regional endpoint
+   - Casual (< 500ms): Global endpoint
+
+### Regional Endpoint Selection
+
+```typescript
+function selectEndpoint(userLocation: string): string {
+  const regionMap: Record<string, string> = {
+    // Americas
+    'US-EAST': 'us-east.api.lux.network',
+    'US-WEST': 'us-west.api.lux.network',
+    'US-CENTRAL': 'us-central.api.lux.network',
+    'CANADA': 'ca.api.lux.network',
+    'LATAM': 'us-east.api.lux.network',
+
+    // EMEA
+    'UK': 'uk.api.lux.network',
+    'EU-WEST': 'uk.api.lux.network',
+    'EU-CENTRAL': 'de.api.lux.network',
+    'MIDDLE-EAST': 'uk.api.lux.network',
+
+    // APAC
+    'JAPAN': 'jp.api.lux.network',
+    'CHINA': 'hk.api.lux.network',
+    'KOREA': 'kr.api.lux.network',
+    'SEA': 'sg.api.lux.network',
+    'ANZ': 'au.api.lux.network',
+  };
+
+  return regionMap[userLocation] || 'api.lux.network';
+}
+```
+
+## Latency Testing
+
+### Test Your Latency
+
+```bash
+# HTTP latency test
+curl -w "@-" -o /dev/null -s "https://api.lux.network/health" <<'EOF'
+     time_namelookup:  %{time_namelookup}s\n
+        time_connect:  %{time_connect}s\n
+     time_appconnect:  %{time_appconnect}s\n
+    time_pretransfer:  %{time_pretransfer}s\n
+       time_redirect:  %{time_redirect}s\n
+  time_starttransfer:  %{time_starttransfer}s\n
+          time_total:  %{time_total}s\n
+EOF
+
+# Multi-region test
+for region in us-east us-west uk jp sg; do
+  echo -n "$region: "
+  curl -w "%{time_total}s\n" -o /dev/null -s "https://$region.api.lux.network/health"
+done
+```
+
+### WebSocket Latency Test
+
+```javascript
+const WebSocket = require('ws');
+
+async function measureLatency(endpoint) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(endpoint);
+    const start = process.hrtime.bigint();
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({type: 'ping', ts: Date.now()}));
+    });
+
+    ws.on('message', (data) => {
+      const end = process.hrtime.bigint();
+      const latency = Number(end - start) / 1e6; // ms
+      ws.close();
+      resolve(latency);
+    });
+
+    ws.on('error', reject);
+  });
+}
+
+// Test all regions
+const regions = [
+  'wss://us-east.ws.lux.network',
+  'wss://uk.ws.lux.network',
+  'wss://jp.ws.lux.network',
+  'wss://sg.ws.lux.network'
+];
+
+regions.forEach(async (region) => {
+  const latency = await measureLatency(region);
+  console.log(`${region}: ${latency.toFixed(2)}ms`);
+});
+```
+
+## Compliance by Region
+
+### Data Residency
+
+| Region | Data Center | Data Stored | Compliance |
+|--------|-------------|-------------|------------|
+| US | NY5 | Orders, Trades, Accounts | SOC 2, CCPA |
+| EU | LD4 | EU user data only | GDPR, MiFID II |
+| Japan | TY3 | Japan user data | JFSA compliant |
+| Singapore | SG1 | SEA user data | MAS compliant |
+
+### Regulatory Requirements
+
+- **EU Users**: Data processed in LD4 by default
+- **Japan Users**: Option to keep data in TY3
+- **China Users**: Access via Hong Kong PoP only

@@ -1,0 +1,737 @@
+---
+title: Pre-Trade Risk Checks
+description: Order validation, price bands, balance verification, and pre-trade risk controls
+---
+
+# Pre-Trade Risk Checks
+
+Pre-trade risk checks validate every order before it enters the matching engine, preventing invalid orders, ensuring sufficient margin, and enforcing trading limits.
+
+## Check Sequence
+
+```
+                        PRE-TRADE RISK CHECK PIPELINE
+
+    Order Received ─────────────────────────────────────────────────────────────
+          │
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  1. STRUCTURAL VALIDATION                          Latency: ~50ns       │
+    │     • Order type valid (limit, market, stop, etc.)                      │
+    │     • Required fields present (symbol, side, size)                      │
+    │     • Field format valid (price precision, size precision)              │
+    │     • Client order ID unique                                            │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  2. MARKET VALIDATION                              Latency: ~100ns      │
+    │     • Symbol exists and is tradeable                                    │
+    │     • Market not halted (circuit breaker check)                         │
+    │     • Trading hours check (if applicable)                               │
+    │     • Market state valid (not in auction/settlement)                    │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  3. PRICE VALIDATION                               Latency: ~200ns      │
+    │     • Price within tick size (price % tick_size == 0)                   │
+    │     • Price within price bands (mark ± band%)                           │
+    │     • Price sanity check (not 0, not negative)                          │
+    │     • Limit price reasonable vs mark price                              │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  4. SIZE VALIDATION                                Latency: ~100ns      │
+    │     • Size >= minimum order size                                        │
+    │     • Size <= maximum order size                                        │
+    │     • Size within lot size (size % lot_size == 0)                       │
+    │     • Notional value within limits                                      │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  5. BALANCE/MARGIN CHECK                           Latency: ~500ns      │
+    │     • Calculate required margin for order                               │
+    │     • Check available balance >= required                               │
+    │     • Reserve margin for order                                          │
+    │     • Update buying power                                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  6. POSITION LIMIT CHECK                           Latency: ~300ns      │
+    │     • New position within position limits                               │
+    │     • Account exposure within limits                                    │
+    │     • Concentration limits check                                        │
+    │     • Open order count within limits                                    │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  7. RATE LIMIT CHECK                               Latency: ~100ns      │
+    │     • Orders per second within limit                                    │
+    │     • Orders per minute within limit                                    │
+    │     • Cancel ratio within acceptable range                              │
+    │     • Message rate within limit                                         │
+    └─────────────────────────────────────────────────────────────────────────┘
+          │ PASS
+          v
+    Order Accepted ───────> Matching Engine
+
+    Total Pre-Trade Latency: ~1.5 microseconds (typical)
+```
+
+## 1. Structural Validation
+
+### Order Field Requirements
+
+```typescript
+interface OrderValidation {
+  // Required fields
+  symbol: string          // e.g., "BTC-USD", "ETH-PERP"
+  side: 'buy' | 'sell'
+  type: OrderType
+  size: string            // Decimal string for precision
+
+  // Conditional requirements
+  price?: string          // Required for limit orders
+  stopPrice?: string      // Required for stop orders
+  timeInForce?: TIF       // Optional, defaults to GTC
+  clientOrderId?: string  // Optional, auto-generated if missing
+
+  // Advanced options
+  reduceOnly?: boolean
+  postOnly?: boolean
+  hidden?: boolean
+  icebergQty?: string
+}
+
+type OrderType = 'limit' | 'market' | 'stop' | 'stop_limit' |
+                 'trailing_stop' | 'iceberg' | 'twap'
+
+type TIF = 'GTC' | 'IOC' | 'FOK' | 'GTD' | 'DAY'
+```
+
+### Validation Rules
+
+```go
+func (v *Validator) ValidateStructure(order *Order) error {
+    // Symbol validation
+    if order.Symbol == "" {
+        return ErrSymbolRequired
+    }
+    if !v.marketExists(order.Symbol) {
+        return ErrInvalidSymbol
+    }
+
+    // Side validation
+    if order.Side != Buy && order.Side != Sell {
+        return ErrInvalidSide
+    }
+
+    // Type validation
+    if !isValidOrderType(order.Type) {
+        return ErrInvalidOrderType
+    }
+
+    // Size validation - must be positive
+    if order.Size.IsZero() || order.Size.IsNegative() {
+        return ErrInvalidSize
+    }
+
+    // Price validation for limit orders
+    if order.Type == Limit && (order.Price.IsZero() || order.Price.IsNegative()) {
+        return ErrInvalidPrice
+    }
+
+    // Stop price validation for stop orders
+    if isStopOrder(order.Type) && order.StopPrice.IsZero() {
+        return ErrStopPriceRequired
+    }
+
+    // Client order ID uniqueness
+    if order.ClientOrderID != "" {
+        if v.clientOrderExists(order.UserID, order.ClientOrderID) {
+            return ErrDuplicateClientOrderID
+        }
+    }
+
+    return nil
+}
+```
+
+## 2. Price Band Validation
+
+### Price Band Calculation
+
+Price bands prevent orders at unreasonable prices that could result from fat-finger errors or manipulation attempts.
+
+```go
+type PriceBands struct {
+    MarkPrice    decimal.Decimal
+    UpperBand    decimal.Decimal  // Mark + band%
+    LowerBand    decimal.Decimal  // Mark - band%
+    BandPercent  decimal.Decimal  // Typically 5-15%
+}
+
+func (v *Validator) CalculatePriceBands(symbol string) PriceBands {
+    market := v.getMarket(symbol)
+    markPrice := v.getMarkPrice(symbol)
+
+    // Band percentage varies by asset tier
+    bandPct := market.PriceBandPercent  // e.g., 0.05 for 5%
+
+    band := markPrice.Mul(bandPct)
+
+    return PriceBands{
+        MarkPrice:   markPrice,
+        UpperBand:   markPrice.Add(band),
+        LowerBand:   markPrice.Sub(band),
+        BandPercent: bandPct,
+    }
+}
+
+func (v *Validator) CheckPriceBands(order *Order) error {
+    if order.Type == Market {
+        return nil  // Market orders skip price band check
+    }
+
+    bands := v.CalculatePriceBands(order.Symbol)
+
+    // Buy orders - price must be below upper band
+    if order.Side == Buy && order.Price.GreaterThan(bands.UpperBand) {
+        return fmt.Errorf("%w: buy price %s > upper band %s",
+            ErrPriceBandViolation, order.Price, bands.UpperBand)
+    }
+
+    // Sell orders - price must be above lower band
+    if order.Side == Sell && order.Price.LessThan(bands.LowerBand) {
+        return fmt.Errorf("%w: sell price %s < lower band %s",
+            ErrPriceBandViolation, order.Price, bands.LowerBand)
+    }
+
+    return nil
+}
+```
+
+### Price Band Configuration by Tier
+
+| Tier | Assets | Band Width | Rationale |
+|------|--------|------------|-----------|
+| Tier 1 | BTC, ETH | 5% | High liquidity, tight bands |
+| Tier 2 | LUX, SOL | 7.5% | Good liquidity |
+| Tier 3 | Mid-caps | 10% | Moderate liquidity |
+| Tier 4 | Small-caps | 15% | Lower liquidity |
+| Tier 5 | New listings | 20% | High volatility expected |
+
+### Tick Size Validation
+
+```go
+// Tick size varies by price level
+func (v *Validator) GetTickSize(symbol string, price decimal.Decimal) decimal.Decimal {
+    market := v.getMarket(symbol)
+
+    // Dynamic tick size based on price
+    for _, tier := range market.TickTiers {
+        if price.LessThanOrEqual(tier.MaxPrice) {
+            return tier.TickSize
+        }
+    }
+
+    return market.DefaultTickSize
+}
+
+func (v *Validator) ValidateTickSize(order *Order) error {
+    tickSize := v.GetTickSize(order.Symbol, order.Price)
+
+    // Price must be multiple of tick size
+    remainder := order.Price.Mod(tickSize)
+    if !remainder.IsZero() {
+        return fmt.Errorf("%w: price %s not multiple of tick %s",
+            ErrInvalidTickSize, order.Price, tickSize)
+    }
+
+    return nil
+}
+```
+
+**Example Tick Sizes (BTC-USD):**
+
+| Price Range | Tick Size |
+|-------------|-----------|
+| $0 - $100 | $0.01 |
+| $100 - $1,000 | $0.10 |
+| $1,000 - $10,000 | $1.00 |
+| $10,000 - $100,000 | $10.00 |
+| > $100,000 | $100.00 |
+
+## 3. Size Validation
+
+### Lot Size and Notional Limits
+
+```go
+type SizeLimits struct {
+    MinOrderSize   decimal.Decimal  // Minimum order size
+    MaxOrderSize   decimal.Decimal  // Maximum order size
+    LotSize        decimal.Decimal  // Size increment
+    MinNotional    decimal.Decimal  // Minimum USD value
+    MaxNotional    decimal.Decimal  // Maximum USD value
+}
+
+func (v *Validator) ValidateSize(order *Order) error {
+    limits := v.getSizeLimits(order.Symbol)
+    markPrice := v.getMarkPrice(order.Symbol)
+
+    // Check minimum size
+    if order.Size.LessThan(limits.MinOrderSize) {
+        return fmt.Errorf("%w: size %s < min %s",
+            ErrSizeTooSmall, order.Size, limits.MinOrderSize)
+    }
+
+    // Check maximum size
+    if order.Size.GreaterThan(limits.MaxOrderSize) {
+        return fmt.Errorf("%w: size %s > max %s",
+            ErrSizeTooLarge, order.Size, limits.MaxOrderSize)
+    }
+
+    // Check lot size
+    remainder := order.Size.Mod(limits.LotSize)
+    if !remainder.IsZero() {
+        return fmt.Errorf("%w: size %s not multiple of lot %s",
+            ErrInvalidLotSize, order.Size, limits.LotSize)
+    }
+
+    // Check notional value
+    notional := order.Size.Mul(markPrice)
+
+    if notional.LessThan(limits.MinNotional) {
+        return fmt.Errorf("%w: notional $%s < min $%s",
+            ErrNotionalTooSmall, notional, limits.MinNotional)
+    }
+
+    if notional.GreaterThan(limits.MaxNotional) {
+        return fmt.Errorf("%w: notional $%s > max $%s",
+            ErrNotionalTooLarge, notional, limits.MaxNotional)
+    }
+
+    return nil
+}
+```
+
+**Example Size Limits:**
+
+| Symbol | Min Size | Max Size | Lot Size | Min Notional | Max Notional |
+|--------|----------|----------|----------|--------------|--------------|
+| BTC-USD | 0.0001 | 100 | 0.0001 | $10 | $10,000,000 |
+| ETH-USD | 0.001 | 1,000 | 0.001 | $10 | $5,000,000 |
+| LUX-USD | 1 | 1,000,000 | 1 | $10 | $1,000,000 |
+
+## 4. Balance and Margin Check
+
+### Margin Calculation for Orders
+
+```go
+type MarginRequirement struct {
+    InitialMargin     decimal.Decimal
+    MaintenanceMargin decimal.Decimal
+    OrderMargin       decimal.Decimal  // Reserved for open orders
+    TotalRequired     decimal.Decimal
+}
+
+func (v *Validator) CalculateOrderMargin(order *Order) MarginRequirement {
+    market := v.getMarket(order.Symbol)
+    markPrice := v.getMarkPrice(order.Symbol)
+
+    // Calculate notional value
+    notional := order.Size.Mul(markPrice)
+
+    // Get margin rates for market
+    imRate := market.InitialMarginRate      // e.g., 0.10 for 10x
+    mmRate := market.MaintenanceMarginRate  // e.g., 0.05
+
+    // Calculate margins
+    initialMargin := notional.Mul(imRate)
+    maintenanceMargin := notional.Mul(mmRate)
+
+    // Order margin (reserved until filled/cancelled)
+    orderMargin := initialMargin
+
+    return MarginRequirement{
+        InitialMargin:     initialMargin,
+        MaintenanceMargin: maintenanceMargin,
+        OrderMargin:       orderMargin,
+        TotalRequired:     orderMargin,
+    }
+}
+
+func (v *Validator) CheckBalance(order *Order) error {
+    account := v.getAccount(order.UserID)
+    requirement := v.CalculateOrderMargin(order)
+
+    // Get available balance
+    available := account.AvailableBalance
+
+    // Check if sufficient
+    if available.LessThan(requirement.TotalRequired) {
+        return fmt.Errorf("%w: required $%s, available $%s",
+            ErrInsufficientMargin,
+            requirement.TotalRequired,
+            available)
+    }
+
+    // Reserve margin for order
+    account.ReserveMargin(requirement.OrderMargin)
+
+    return nil
+}
+```
+
+### Reduce-Only Validation
+
+```go
+func (v *Validator) ValidateReduceOnly(order *Order) error {
+    if !order.ReduceOnly {
+        return nil
+    }
+
+    position := v.getPosition(order.UserID, order.Symbol)
+
+    // Must have existing position
+    if position == nil || position.Size.IsZero() {
+        return ErrNoPositionToReduce
+    }
+
+    // Order must be opposite side of position
+    if (position.Side == Long && order.Side == Buy) ||
+       (position.Side == Short && order.Side == Sell) {
+        return ErrReduceOnlyWrongSide
+    }
+
+    // Order size cannot exceed position size
+    if order.Size.GreaterThan(position.Size.Abs()) {
+        return fmt.Errorf("%w: order size %s > position %s",
+            ErrReduceOnlyExceedsPosition,
+            order.Size,
+            position.Size.Abs())
+    }
+
+    return nil
+}
+```
+
+## 5. Rate Limiting
+
+### Rate Limit Tiers
+
+```go
+type RateLimits struct {
+    OrdersPerSecond   int
+    OrdersPerMinute   int
+    CancelsPerMinute  int
+    MessagesPerSecond int
+    MaxOpenOrders     int
+}
+
+var rateLimitTiers = map[string]RateLimits{
+    "standard": {
+        OrdersPerSecond:   10,
+        OrdersPerMinute:   300,
+        CancelsPerMinute:  600,
+        MessagesPerSecond: 50,
+        MaxOpenOrders:     200,
+    },
+    "professional": {
+        OrdersPerSecond:   50,
+        OrdersPerMinute:   1500,
+        CancelsPerMinute:  3000,
+        MessagesPerSecond: 200,
+        MaxOpenOrders:     1000,
+    },
+    "market_maker": {
+        OrdersPerSecond:   200,
+        OrdersPerMinute:   6000,
+        CancelsPerMinute:  12000,
+        MessagesPerSecond: 1000,
+        MaxOpenOrders:     5000,
+    },
+    "institutional": {
+        OrdersPerSecond:   500,
+        OrdersPerMinute:   15000,
+        CancelsPerMinute:  30000,
+        MessagesPerSecond: 5000,
+        MaxOpenOrders:     10000,
+    },
+}
+```
+
+### Rate Limit Implementation
+
+```go
+type RateLimiter struct {
+    ordersSec    *slidingWindow
+    ordersMin    *slidingWindow
+    cancelsMin   *slidingWindow
+    messagesSec  *slidingWindow
+    openOrders   atomic.Int32
+    limits       RateLimits
+}
+
+func (rl *RateLimiter) CheckOrderRate(userID string) error {
+    // Check orders per second
+    if !rl.ordersSec.Allow() {
+        return fmt.Errorf("%w: %d orders/sec exceeded",
+            ErrRateLimitExceeded, rl.limits.OrdersPerSecond)
+    }
+
+    // Check orders per minute
+    if !rl.ordersMin.Allow() {
+        return fmt.Errorf("%w: %d orders/min exceeded",
+            ErrRateLimitExceeded, rl.limits.OrdersPerMinute)
+    }
+
+    // Check open order count
+    if int(rl.openOrders.Load()) >= rl.limits.MaxOpenOrders {
+        return fmt.Errorf("%w: %d max open orders",
+            ErrMaxOpenOrdersExceeded, rl.limits.MaxOpenOrders)
+    }
+
+    return nil
+}
+
+func (rl *RateLimiter) CheckCancelRate(userID string) error {
+    // Check cancel-to-order ratio
+    orders := rl.ordersMin.Count()
+    cancels := rl.cancelsMin.Count()
+
+    if orders > 0 {
+        ratio := float64(cancels) / float64(orders)
+        if ratio > 10.0 {  // More than 10 cancels per order
+            return ErrExcessiveCancellations
+        }
+    }
+
+    return rl.cancelsMin.Allow()
+}
+```
+
+## API Endpoints
+
+### Validate Order (Dry Run)
+
+```http
+POST /api/v1/risk/validate
+Authorization: Bearer {api_key}
+Content-Type: application/json
+
+{
+  "symbol": "BTC-PERP",
+  "side": "buy",
+  "type": "limit",
+  "price": "42000",
+  "size": "1.5"
+}
+```
+
+Response (Success):
+```json
+{
+  "valid": true,
+  "margin_required": "6300.00",
+  "margin_available": "100000.00",
+  "estimated_fee": "6.30",
+  "price_band": {
+    "mark_price": "42500.00",
+    "upper_band": "44625.00",
+    "lower_band": "40375.00"
+  },
+  "warnings": []
+}
+```
+
+Response (Failure):
+```json
+{
+  "valid": false,
+  "error": {
+    "code": "PRICE_BAND_VIOLATION",
+    "message": "Buy price 50000.00 exceeds upper band 44625.00",
+    "details": {
+      "submitted_price": "50000.00",
+      "mark_price": "42500.00",
+      "upper_band": "44625.00",
+      "band_percent": "5%"
+    }
+  }
+}
+```
+
+### Get Pre-Trade Info
+
+```http
+GET /api/v1/risk/pretrade/{symbol}
+Authorization: Bearer {api_key}
+```
+
+Response:
+```json
+{
+  "symbol": "BTC-PERP",
+  "mark_price": "42500.00",
+  "price_bands": {
+    "upper": "44625.00",
+    "lower": "40375.00",
+    "percent": 5
+  },
+  "size_limits": {
+    "min": "0.001",
+    "max": "100",
+    "lot_size": "0.001"
+  },
+  "notional_limits": {
+    "min": "10.00",
+    "max": "10000000.00"
+  },
+  "tick_size": "0.50",
+  "margin_rates": {
+    "initial": 0.02,
+    "maintenance": 0.005
+  },
+  "market_status": "trading",
+  "trading_enabled": true
+}
+```
+
+### Get Rate Limit Status
+
+```http
+GET /api/v1/risk/ratelimits
+Authorization: Bearer {api_key}
+```
+
+Response:
+```json
+{
+  "tier": "professional",
+  "limits": {
+    "orders_per_second": 50,
+    "orders_per_minute": 1500,
+    "cancels_per_minute": 3000,
+    "max_open_orders": 1000
+  },
+  "current": {
+    "orders_this_second": 5,
+    "orders_this_minute": 127,
+    "cancels_this_minute": 45,
+    "open_orders": 23
+  },
+  "remaining": {
+    "orders_this_second": 45,
+    "orders_this_minute": 1373,
+    "cancels_this_minute": 2955,
+    "open_order_slots": 977
+  }
+}
+```
+
+## Error Codes
+
+| Code | Description | Resolution |
+|------|-------------|------------|
+| `INVALID_SYMBOL` | Symbol does not exist | Check symbol list |
+| `INVALID_SIDE` | Side must be 'buy' or 'sell' | Correct side value |
+| `INVALID_ORDER_TYPE` | Unsupported order type | Check supported types |
+| `INVALID_PRICE` | Price is zero, negative, or invalid | Provide valid price |
+| `INVALID_SIZE` | Size is zero, negative, or invalid | Provide valid size |
+| `PRICE_BAND_VIOLATION` | Price outside acceptable range | Adjust price closer to mark |
+| `INVALID_TICK_SIZE` | Price not multiple of tick | Round to tick size |
+| `SIZE_TOO_SMALL` | Below minimum order size | Increase order size |
+| `SIZE_TOO_LARGE` | Above maximum order size | Decrease order size |
+| `INVALID_LOT_SIZE` | Size not multiple of lot | Round to lot size |
+| `NOTIONAL_TOO_SMALL` | Below minimum notional | Increase order value |
+| `NOTIONAL_TOO_LARGE` | Above maximum notional | Decrease order value |
+| `INSUFFICIENT_MARGIN` | Not enough available margin | Add funds or reduce order |
+| `RATE_LIMIT_EXCEEDED` | Too many orders | Wait and retry |
+| `MAX_OPEN_ORDERS` | Maximum open orders reached | Cancel existing orders |
+| `MARKET_HALTED` | Circuit breaker active | Wait for market to reopen |
+| `REDUCE_ONLY_VIOLATION` | No position or wrong side | Check position state |
+| `POST_ONLY_WOULD_TAKE` | Would execute as taker | Adjust price |
+
+## Best Practices
+
+### Order Submission
+
+1. **Validate locally first** - Check basic structure before submission
+2. **Use dry-run validation** - Call `/risk/validate` before actual order
+3. **Handle rate limits gracefully** - Implement exponential backoff
+4. **Cache market parameters** - Tick size, lot size, limits
+5. **Subscribe to market status** - Monitor for trading halts
+
+### Price Selection
+
+1. **Get current mark price** - Base limit orders on recent mark
+2. **Stay within bands** - Add buffer from band edges
+3. **Use appropriate tick** - Round to valid tick size
+4. **Monitor volatility** - Widen expectations during high vol
+
+### Size Calculation
+
+1. **Check available margin first** - Don't over-order
+2. **Account for fees** - Include fee impact in margin calc
+3. **Use lot size rounding** - Round down to valid lot
+4. **Verify notional value** - Ensure within limits
+
+### Example: Safe Order Submission
+
+```typescript
+async function submitOrderSafely(
+  dex: LxDex,
+  order: OrderParams
+): Promise<Order> {
+  // 1. Get market info
+  const market = await dex.getMarket(order.symbol)
+  const pretrade = await dex.getPreTradeInfo(order.symbol)
+
+  // 2. Validate price
+  const price = new Decimal(order.price)
+  if (price.gt(pretrade.price_bands.upper) ||
+      price.lt(pretrade.price_bands.lower)) {
+    throw new Error('Price outside bands')
+  }
+
+  // 3. Round to tick size
+  const roundedPrice = price.div(pretrade.tick_size)
+    .floor()
+    .mul(pretrade.tick_size)
+    .toString()
+
+  // 4. Validate and round size
+  let size = new Decimal(order.size)
+  size = size.div(market.lot_size)
+    .floor()
+    .mul(market.lot_size)
+
+  if (size.lt(market.min_size)) {
+    throw new Error('Size below minimum')
+  }
+
+  // 5. Dry-run validation
+  const validation = await dex.validateOrder({
+    ...order,
+    price: roundedPrice,
+    size: size.toString()
+  })
+
+  if (!validation.valid) {
+    throw new Error(validation.error.message)
+  }
+
+  // 6. Submit order
+  return dex.placeOrder({
+    ...order,
+    price: roundedPrice,
+    size: size.toString()
+  })
+}
+```

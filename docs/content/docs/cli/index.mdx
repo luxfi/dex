@@ -1,0 +1,311 @@
+---
+title: CLI Overview
+description: Command-line tools for LX DEX - installation, configuration, and usage guide
+---
+
+# LX DEX Command Line Interface
+
+> **Specification**: [LP-9002 DEX API & RPC](https://github.com/luxfi/LPs/blob/main/LPs/lp-9002-dex-api-rpc-specification.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+
+LX DEX provides two primary command-line tools:
+
+| Tool | Purpose | Description |
+|------|---------|-------------|
+| `lxd` | Node daemon | Runs the DEX node, matching engine, and network services |
+| `lux-cli` | Client tool | Interacts with running nodes for trading, account management, and operations |
+
+## Installation
+
+### From Source
+
+```bash
+# Clone and build
+git clone https://github.com/luxfi/dex.git
+cd dex
+make build
+
+# Binaries are in ./bin/
+ls -la ./bin/
+# lxd        - Node daemon
+# lux-cli    - Client CLI
+```
+
+### From Release
+
+```bash
+# Download latest release (Linux)
+curl -L https://github.com/luxfi/dex/releases/latest/download/lx-dex-linux-amd64.tar.gz | tar xz
+
+# Download latest release (macOS)
+curl -L https://github.com/luxfi/dex/releases/latest/download/lx-dex-darwin-arm64.tar.gz | tar xz
+
+# Move to PATH
+sudo mv lxd lux-cli /usr/local/bin/
+
+# Verify installation
+lxd --version
+lux-cli --version
+```
+
+### Package Managers
+
+```bash
+# macOS with Homebrew
+brew tap luxfi/tap
+brew install lux-dex
+
+# Linux with apt
+curl -fsSL https://apt.lux.network/gpg | sudo gpg --dearmor -o /usr/share/keyrings/luxfi.gpg
+echo "deb [signed-by=/usr/share/keyrings/luxfi.gpg] https://apt.lux.network stable main" | sudo tee /etc/apt/sources.list.d/luxfi.list
+sudo apt update && sudo apt install lux-dex
+
+# With Go
+go install github.com/luxfi/dex/cmd/lxd@latest
+go install github.com/luxfi/dex/cmd/lux-cli@latest
+```
+
+## Shell Completion
+
+### Bash
+
+```bash
+# Generate completion script
+lux-cli completion bash > /tmp/lux-cli-completion.bash
+
+# Install system-wide (Linux)
+sudo mv /tmp/lux-cli-completion.bash /etc/bash_completion.d/lux-cli
+
+# Install for current user
+echo 'source <(lux-cli completion bash)' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Zsh
+
+```bash
+# Generate completion script
+lux-cli completion zsh > "${fpath[1]}/_lux-cli"
+
+# Or add to .zshrc
+echo 'source <(lux-cli completion zsh)' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Fish
+
+```bash
+# Generate completion script
+lux-cli completion fish > ~/.config/fish/completions/lux-cli.fish
+```
+
+### PowerShell
+
+```powershell
+# Add to profile
+lux-cli completion powershell >> $PROFILE
+```
+
+## Quick Reference
+
+### Start a Node
+
+```bash
+# Development mode (single node)
+lxd
+
+# With custom ports
+lxd --rpc-port 8080 --ws-port 8081 --grpc-port 50051
+
+# Production mode with config file
+lxd --config /etc/lxd/config.yaml
+
+# Join existing network
+lxd --network mainnet --bootstrap-nodes node1.lux.network:5000,node2.lux.network:5000
+```
+
+### Trading Commands
+
+```bash
+# Place a limit buy order
+lux-cli order place --symbol BTC-USD --side buy --price 50000 --size 1.0
+
+# Place a market sell order
+lux-cli order place --symbol BTC-USD --side sell --type market --size 0.5
+
+# Cancel an order
+lux-cli order cancel --id ord_abc123
+
+# List open orders
+lux-cli order list --status open
+
+# Get order details
+lux-cli order get --id ord_abc123
+```
+
+### Account Commands
+
+```bash
+# Check balances
+lux-cli account balance
+
+# Get trading history
+lux-cli account history --limit 100
+
+# View positions
+lux-cli account positions
+
+# Export trade history
+lux-cli account export --format csv --output trades.csv
+```
+
+### Market Data Commands
+
+```bash
+# Get order book
+lux-cli market orderbook --symbol BTC-USD --depth 20
+
+# Get recent trades
+lux-cli market trades --symbol BTC-USD --limit 50
+
+# Get ticker
+lux-cli market ticker --symbol BTC-USD
+
+# List all markets
+lux-cli market list
+
+# Get 24h statistics
+lux-cli market stats --symbol BTC-USD
+```
+
+### Bridge Commands
+
+```bash
+# Initiate cross-chain transfer
+lux-cli bridge transfer --from ethereum --to lux --asset USDC --amount 1000
+
+# Check transfer status
+lux-cli bridge status --tx-id 0xabc123
+
+# List pending transfers
+lux-cli bridge pending
+
+# Register as bridge signer
+lux-cli bridge signer register --bond 100000000
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LX_RPC_URL` | JSON-RPC endpoint URL | `http://localhost:8080/rpc` |
+| `LX_WS_URL` | WebSocket endpoint URL | `ws://localhost:8081` |
+| `LX_GRPC_URL` | gRPC endpoint URL | `localhost:50051` |
+| `LX_API_KEY` | API key for authentication | - |
+| `LX_API_SECRET` | API secret for authentication | - |
+| `LX_CONFIG` | Path to config file | `~/.lxd/config.yaml` |
+| `LX_DATA_DIR` | Data directory | `~/.lxd/data` |
+| `LX_LOG_LEVEL` | Logging level | `info` |
+| `LX_LOG_FORMAT` | Log format (text, json) | `text` |
+| `LX_NETWORK` | Network to connect to | `mainnet` |
+| `LX_PROFILE` | Configuration profile | `default` |
+
+## Configuration Files
+
+### Default Locations
+
+| Platform | Config File | Data Directory |
+|----------|-------------|----------------|
+| Linux | `~/.lxd/config.yaml` | `~/.lxd/data` |
+| macOS | `~/.lxd/config.yaml` | `~/.lxd/data` |
+| Windows | `%APPDATA%\lxd\config.yaml` | `%APPDATA%\lxd\data` |
+
+### Sample Configuration
+
+```yaml
+# ~/.lxd/config.yaml
+network: mainnet
+profile: default
+
+rpc:
+  url: http://localhost:8080/rpc
+  timeout: 30s
+
+websocket:
+  url: ws://localhost:8081
+  reconnect: true
+  reconnect_interval: 5s
+
+grpc:
+  url: localhost:50051
+  tls: false
+
+auth:
+  api_key: ${LX_API_KEY}
+  api_secret: ${LX_API_SECRET}
+
+output:
+  format: table  # table, json, yaml
+  color: auto    # auto, always, never
+
+logging:
+  level: info
+  file: ~/.lxd/cli.log
+```
+
+## Output Formats
+
+All commands support multiple output formats:
+
+```bash
+# Table format (default, human-readable)
+lux-cli order list
+
+# JSON format (for scripting)
+lux-cli order list --output json
+
+# YAML format
+lux-cli order list --output yaml
+
+# Quiet mode (minimal output)
+lux-cli order place ... --quiet
+
+# Verbose mode (detailed output)
+lux-cli order list --verbose
+```
+
+## Global Flags
+
+These flags are available for all commands:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--config` | `-c` | Path to config file |
+| `--profile` | `-p` | Configuration profile to use |
+| `--rpc-url` | | JSON-RPC endpoint URL |
+| `--output` | `-o` | Output format (table, json, yaml) |
+| `--quiet` | `-q` | Minimal output |
+| `--verbose` | `-v` | Verbose output |
+| `--no-color` | | Disable colored output |
+| `--help` | `-h` | Show help |
+| `--version` | `-V` | Show version |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Invalid arguments |
+| 3 | Connection error |
+| 4 | Authentication error |
+| 5 | Resource not found |
+| 6 | Timeout |
+| 7 | Rate limited |
+
+## Next Steps
+
+- [lxd Reference](/docs/cli/lxd) - Node daemon configuration and operation
+- [lux-cli Reference](/docs/cli/lux-cli) - Client CLI commands and options
+- [Trading Commands](/docs/cli/trading) - Order placement and management
+- [Scripting Guide](/docs/cli/scripting) - Automation and scripting
+- [Command Reference](/docs/cli/reference) - Complete A-Z command list
