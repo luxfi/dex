@@ -13,6 +13,10 @@ const config = {
   images: {
     unoptimized: true,
   },
+  // For GitHub Pages deployment at dex.lux.network
+  // No basePath needed since using custom domain
+  basePath: '',
+  trailingSlash: true,
 }
 
 const withMDX = createMDX()
