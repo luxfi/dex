@@ -72,3 +72,9 @@ libc = "0.2"
 tokio-test = "0.4"
 criterion = "0.5"
 mockall = "0.12"
+rand = "0.8"
+rust_decimal_macros = "1.33"
+
+[[example]]
+name = "arbitrage_bot"
+path = "examples/arbitrage_bot.rs"

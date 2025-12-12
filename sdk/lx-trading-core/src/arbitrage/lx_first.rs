@@ -185,6 +185,7 @@ impl LxFirstArbitrage {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_opportunity(
         &self,
         symbol: &str,
