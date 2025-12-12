@@ -1,0 +1,641 @@
+---
+title: API Access
+description: Dedicated API endpoints, rate limits, priority access, and technical specifications for LX DEX market makers
+---
+
+# Market Maker API Access
+
+LX DEX provides market makers with dedicated API infrastructure designed for high-frequency trading, including priority endpoints, elevated rate limits, and direct market access capabilities.
+
+## API Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    API ACCESS BY TIER                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Feature              │ Tier 1  │ Tier 2   │ Tier 3   │ Tier 4     │
+│  ─────────────────────┼─────────┼──────────┼──────────┼────────────│
+│  Rate Limit (req/s)   │ 1,000   │ 5,000    │ 20,000   │ Unlimited  │
+│  WebSocket Streams    │ 10      │ 50       │ 200      │ Unlimited  │
+│  Order Rate (ord/s)   │ 100     │ 500      │ 2,000    │ 10,000     │
+│  Batch Orders         │ 10      │ 50       │ 200      │ 1,000      │
+│  Dedicated Endpoint   │ No      │ Yes      │ Yes      │ Yes        │
+│  Priority Queue       │ No      │ No       │ Yes      │ Yes        │
+│  Co-location          │ No      │ No       │ Optional │ Included   │
+│  FIX Protocol         │ No      │ No       │ Optional │ Included   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Endpoints
+
+### Standard Endpoints (All Tiers)
+
+| Protocol | Endpoint | Port | Use Case |
+|----------|----------|------|----------|
+| REST | `https://api.lux.network` | 443 | Orders, account data |
+| WebSocket | `wss://ws.lux.network` | 443 | Market data, orders |
+| gRPC | `grpc.lux.network` | 9090 | High-performance streaming |
+
+### Dedicated Endpoints (Tier 2+)
+
+| Protocol | Endpoint | Port | Latency |
+|----------|----------|------|---------|
+| REST | `https://mm-api.lux.network` | 443 | <10ms |
+| WebSocket | `wss://mm-ws.lux.network` | 443 | <5ms |
+| gRPC | `mm-grpc.lux.network` | 9090 | <1ms |
+
+### Priority Endpoints (Tier 3+)
+
+| Protocol | Endpoint | Port | Latency |
+|----------|----------|------|---------|
+| REST | `https://priority.lux.network` | 443 | <1ms |
+| WebSocket | `wss://priority-ws.lux.network` | 443 | <500us |
+| gRPC | `priority-grpc.lux.network` | 9090 | <100us |
+| FIX | `fix.lux.network` | 4433 | <100us |
+
+### Co-location Endpoints (Tier 4)
+
+| Protocol | Endpoint | Port | Latency |
+|----------|----------|------|---------|
+| Direct | `10.0.1.x` (assigned) | Various | <10us |
+| FIX | `10.0.2.x` (assigned) | 4433 | <10us |
+
+---
+
+## Authentication
+
+### API Key Authentication
+
+```bash
+# REST API
+curl -X GET "https://mm-api.lux.network/v1/account" \
+  -H "X-LX-API-KEY: your_api_key" \
+  -H "X-LX-SIGNATURE: signature" \
+  -H "X-LX-TIMESTAMP: 1702300800000"
+```
+
+### Signature Generation
+
+```python
+import hashlib
+import hmac
+import time
+
+def generate_signature(api_secret: str, method: str, path: str,
+                       body: str, timestamp: int) -> str:
+    """Generate HMAC-SHA256 signature for API requests."""
+
+    message = f"{timestamp}{method}{path}{body}"
+    signature = hmac.new(
+        api_secret.encode('utf-8'),
+        message.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+    return signature
+
+# Example
+api_secret = "your_secret_key"
+timestamp = int(time.time() * 1000)
+method = "POST"
+path = "/v1/orders"
+body = '{"symbol":"BTC-USD","side":"buy","price":"50000","size":"1"}'
+
+signature = generate_signature(api_secret, method, path, body, timestamp)
+```
+
+### WebSocket Authentication
+
+```javascript
+// Connect and authenticate
+const ws = new WebSocket('wss://mm-ws.lux.network');
+
+ws.onopen = () => {
+  const timestamp = Date.now();
+  const signature = generateSignature(apiSecret, timestamp);
+
+  ws.send(JSON.stringify({
+    type: 'auth',
+    apiKey: apiKey,
+    timestamp: timestamp,
+    signature: signature
+  }));
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === 'auth_success') {
+    console.log('Authenticated successfully');
+    // Subscribe to channels
+    ws.send(JSON.stringify({
+      type: 'subscribe',
+      channels: ['orderbook.BTC-USD', 'trades.BTC-USD', 'orders']
+    }));
+  }
+};
+```
+
+---
+
+## Rate Limits
+
+### Request Rate Limits
+
+| Endpoint Type | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
+|---------------|--------|--------|--------|--------|
+| Public (market data) | 100/s | 500/s | 2,000/s | Unlimited |
+| Private (account) | 50/s | 250/s | 1,000/s | 5,000/s |
+| Orders (submit) | 100/s | 500/s | 2,000/s | 10,000/s |
+| Orders (cancel) | 200/s | 1,000/s | 5,000/s | 20,000/s |
+| Batch operations | 10/s | 50/s | 200/s | 1,000/s |
+
+### Rate Limit Headers
+
+```
+HTTP/1.1 200 OK
+X-RateLimit-Limit: 5000
+X-RateLimit-Remaining: 4987
+X-RateLimit-Reset: 1702300860
+X-RateLimit-Window: 1s
+```
+
+### Rate Limit Exceeded Response
+
+```json
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Rate limit exceeded. Please retry after 0.5 seconds.",
+    "retryAfter": 500,
+    "limit": 5000,
+    "window": "1s"
+  }
+}
+```
+
+### Burst Handling
+
+| Tier | Burst Allowance | Recovery Rate |
+|------|-----------------|---------------|
+| Tier 1 | 2x for 5 seconds | 100 req/s |
+| Tier 2 | 3x for 10 seconds | 500 req/s |
+| Tier 3 | 5x for 30 seconds | 2,000 req/s |
+| Tier 4 | No limit | N/A |
+
+---
+
+## Order Management API
+
+### Place Order
+
+```python
+import requests
+
+def place_order(symbol: str, side: str, order_type: str,
+                price: str, size: str) -> dict:
+    """Place a new order."""
+
+    endpoint = "https://mm-api.lux.network/v1/orders"
+
+    body = {
+        "symbol": symbol,
+        "side": side,         # "buy" or "sell"
+        "type": order_type,   # "limit", "market", "post_only"
+        "price": price,
+        "size": size,
+        "timeInForce": "GTC", # "GTC", "IOC", "FOK"
+        "clientOrderId": "mm_order_12345"
+    }
+
+    headers = get_auth_headers("POST", "/v1/orders", json.dumps(body))
+
+    response = requests.post(endpoint, json=body, headers=headers)
+    return response.json()
+
+# Example
+order = place_order("BTC-USD", "buy", "limit", "50000.00", "1.5")
+print(f"Order ID: {order['orderId']}")
+```
+
+### Batch Orders (Market Makers)
+
+```python
+def batch_place_orders(orders: list) -> dict:
+    """Place multiple orders atomically."""
+
+    endpoint = "https://mm-api.lux.network/v1/orders/batch"
+
+    body = {
+        "orders": [
+            {
+                "symbol": "BTC-USD",
+                "side": "buy",
+                "type": "limit",
+                "price": "49990.00",
+                "size": "2.0",
+                "clientOrderId": "bid_1"
+            },
+            {
+                "symbol": "BTC-USD",
+                "side": "sell",
+                "type": "limit",
+                "price": "50010.00",
+                "size": "2.0",
+                "clientOrderId": "ask_1"
+            }
+        ]
+    }
+
+    headers = get_auth_headers("POST", "/v1/orders/batch", json.dumps(body))
+    response = requests.post(endpoint, json=body, headers=headers)
+    return response.json()
+
+# Batch limits by tier:
+# Tier 1: 10 orders/batch
+# Tier 2: 50 orders/batch
+# Tier 3: 200 orders/batch
+# Tier 4: 1000 orders/batch
+```
+
+### Cancel All Orders
+
+```python
+def cancel_all_orders(symbol: str = None) -> dict:
+    """Cancel all open orders, optionally filtered by symbol."""
+
+    endpoint = "https://mm-api.lux.network/v1/orders/cancel-all"
+
+    body = {}
+    if symbol:
+        body["symbol"] = symbol
+
+    headers = get_auth_headers("DELETE", "/v1/orders/cancel-all", json.dumps(body))
+    response = requests.delete(endpoint, json=body, headers=headers)
+    return response.json()
+
+# Response
+{
+    "cancelledOrders": 42,
+    "failedCancels": 0,
+    "timestamp": 1702300800000
+}
+```
+
+### Mass Quote Update
+
+```python
+def mass_quote_update(quotes: list) -> dict:
+    """Update multiple quotes atomically (MM-only endpoint)."""
+
+    endpoint = "https://mm-api.lux.network/v1/mm/mass-quote"
+
+    body = {
+        "quoteId": "quote_batch_123",
+        "quotes": [
+            {
+                "symbol": "BTC-USD",
+                "bidPrice": "49990.00",
+                "bidSize": "5.0",
+                "askPrice": "50010.00",
+                "askSize": "5.0"
+            },
+            {
+                "symbol": "ETH-USD",
+                "bidPrice": "2995.00",
+                "bidSize": "50.0",
+                "askPrice": "3005.00",
+                "askSize": "50.0"
+            }
+        ]
+    }
+
+    headers = get_auth_headers("POST", "/v1/mm/mass-quote", json.dumps(body))
+    response = requests.post(endpoint, json=body, headers=headers)
+    return response.json()
+```
+
+---
+
+## Market Data API
+
+### Order Book Snapshot
+
+```python
+def get_orderbook(symbol: str, depth: int = 100) -> dict:
+    """Get order book snapshot."""
+
+    endpoint = f"https://mm-api.lux.network/v1/orderbook/{symbol}"
+    params = {"depth": depth}
+
+    response = requests.get(endpoint, params=params)
+    return response.json()
+
+# Response
+{
+    "symbol": "BTC-USD",
+    "timestamp": 1702300800000,
+    "bids": [
+        ["49990.00", "5.23"],
+        ["49985.00", "10.50"],
+        ...
+    ],
+    "asks": [
+        ["50010.00", "4.85"],
+        ["50015.00", "8.20"],
+        ...
+    ]
+}
+```
+
+### WebSocket Market Data
+
+```javascript
+// Subscribe to L2 order book updates
+ws.send(JSON.stringify({
+  type: 'subscribe',
+  channel: 'orderbook',
+  symbol: 'BTC-USD',
+  depth: 50  // Top 50 levels
+}));
+
+// L2 update message
+{
+  "type": "orderbook_update",
+  "symbol": "BTC-USD",
+  "timestamp": 1702300800001,
+  "bids": [
+    {"price": "49990.00", "size": "5.23", "action": "update"}
+  ],
+  "asks": [
+    {"price": "50009.00", "size": "0.00", "action": "delete"}
+  ],
+  "sequence": 12345678
+}
+
+// L3 order-by-order updates (Tier 3+)
+{
+  "type": "orderbook_l3",
+  "symbol": "BTC-USD",
+  "timestamp": 1702300800001,
+  "orders": [
+    {
+      "orderId": "ord_abc123",
+      "side": "buy",
+      "price": "49990.00",
+      "size": "2.50",
+      "action": "add"
+    }
+  ],
+  "sequence": 12345679
+}
+```
+
+### Trade Feed
+
+```javascript
+// Subscribe to trades
+ws.send(JSON.stringify({
+  type: 'subscribe',
+  channel: 'trades',
+  symbol: 'BTC-USD'
+}));
+
+// Trade message
+{
+  "type": "trade",
+  "symbol": "BTC-USD",
+  "tradeId": "trade_xyz789",
+  "price": "50000.00",
+  "size": "1.5",
+  "side": "buy",     // Taker side
+  "timestamp": 1702300800002,
+  "makerOrderId": "ord_maker_123",
+  "takerOrderId": "ord_taker_456"
+}
+```
+
+---
+
+## FIX Protocol (Tier 3+)
+
+### Connection Details
+
+| Parameter | Value |
+|-----------|-------|
+| Host | `fix.lux.network` |
+| Port | 4433 (TLS required) |
+| FIX Version | 4.4 |
+| Heartbeat | 30 seconds |
+| Reset Sequence | Daily at 00:00 UTC |
+
+### FIX Session Configuration
+
+```
+# FIX Session Config
+[SESSION]
+BeginString=FIX.4.4
+SenderCompID=MM_FIRM_001
+TargetCompID=LXDEX
+HeartBtInt=30
+ReconnectInterval=5
+SocketConnectHost=fix.lux.network
+SocketConnectPort=4433
+UseDataDictionary=Y
+DataDictionary=LX_FIX44.xml
+```
+
+### Sample FIX Messages
+
+```
+# New Order Single (D)
+8=FIX.4.4|9=178|35=D|49=MM_FIRM_001|56=LXDEX|34=123|52=20241210-12:00:00.000|
+11=clord_001|55=BTC-USD|54=1|38=1.5|40=2|44=50000.00|59=0|10=234|
+
+# Execution Report (8)
+8=FIX.4.4|9=245|35=8|49=LXDEX|56=MM_FIRM_001|34=456|52=20241210-12:00:00.001|
+37=ord_123|11=clord_001|17=exec_001|150=0|39=0|55=BTC-USD|54=1|38=1.5|
+44=50000.00|14=0|6=0|151=1.5|10=178|
+
+# Order Cancel Request (F)
+8=FIX.4.4|9=145|35=F|49=MM_FIRM_001|56=LXDEX|34=124|52=20241210-12:00:01.000|
+41=clord_001|11=clord_002|55=BTC-USD|54=1|10=089|
+```
+
+---
+
+## gRPC API
+
+### Service Definition
+
+```protobuf
+syntax = "proto3";
+
+package lx.dex.v1;
+
+service TradingService {
+  // Orders
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc BatchPlaceOrders(BatchPlaceOrdersRequest) returns (BatchPlaceOrdersResponse);
+  rpc MassQuoteUpdate(MassQuoteRequest) returns (MassQuoteResponse);
+
+  // Streaming
+  rpc StreamOrderBook(StreamOrderBookRequest) returns (stream OrderBookUpdate);
+  rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+  rpc StreamOrders(StreamOrdersRequest) returns (stream OrderUpdate);
+}
+
+message PlaceOrderRequest {
+  string symbol = 1;
+  string side = 2;
+  string type = 3;
+  string price = 4;
+  string size = 5;
+  string time_in_force = 6;
+  string client_order_id = 7;
+}
+
+message PlaceOrderResponse {
+  string order_id = 1;
+  string client_order_id = 2;
+  string status = 3;
+  int64 timestamp = 4;
+}
+```
+
+### gRPC Client Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    pb "github.com/luxfi/dex/proto/v1"
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials"
+)
+
+func main() {
+    // Connect with TLS
+    creds, _ := credentials.NewClientTLSFromFile("ca.crt", "mm-grpc.lux.network")
+    conn, err := grpc.Dial("mm-grpc.lux.network:9090", grpc.WithTransportCredentials(creds))
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+
+    client := pb.NewTradingServiceClient(conn)
+
+    // Place order
+    resp, err := client.PlaceOrder(context.Background(), &pb.PlaceOrderRequest{
+        Symbol:        "BTC-USD",
+        Side:          "buy",
+        Type:          "limit",
+        Price:         "50000.00",
+        Size:          "1.5",
+        TimeInForce:   "GTC",
+        ClientOrderId: "grpc_order_001",
+    })
+
+    log.Printf("Order placed: %s", resp.OrderId)
+}
+```
+
+---
+
+## Performance Optimization
+
+### Best Practices
+
+1. **Use Batch Operations**
+   - Combine multiple orders in single request
+   - Reduces round trips and improves throughput
+
+2. **Persistent Connections**
+   - Reuse HTTP/2 connections
+   - Keep WebSocket connections alive with heartbeats
+
+3. **Local Caching**
+   - Cache static data (symbols, tick sizes)
+   - Use incremental order book updates
+
+4. **Message Compression**
+   - Enable gzip for REST
+   - Use binary protocols (gRPC, FIX) for lowest latency
+
+### Latency Benchmarks
+
+| Operation | Standard | Dedicated | Priority | Co-location |
+|-----------|----------|-----------|----------|-------------|
+| Order Submit | 10ms | 2ms | 500us | 50us |
+| Order Cancel | 5ms | 1ms | 200us | 20us |
+| Mass Quote | 15ms | 3ms | 800us | 80us |
+| Book Snapshot | 20ms | 5ms | 1ms | 100us |
+
+---
+
+## Error Handling
+
+### Error Codes
+
+| Code | Description | Action |
+|------|-------------|--------|
+| `INVALID_API_KEY` | API key not recognized | Check credentials |
+| `SIGNATURE_INVALID` | Signature verification failed | Check signing logic |
+| `RATE_LIMIT_EXCEEDED` | Too many requests | Implement backoff |
+| `INSUFFICIENT_BALANCE` | Not enough funds | Deposit or reduce size |
+| `INVALID_PRICE` | Price outside limits | Check tick size |
+| `MARKET_CLOSED` | Market not trading | Wait for market open |
+| `ORDER_NOT_FOUND` | Order ID doesn't exist | Verify order ID |
+| `DUPLICATE_CLIENT_ID` | Client order ID reused | Use unique IDs |
+
+### Retry Strategy
+
+```python
+import time
+from functools import wraps
+
+def retry_with_backoff(max_retries=3, base_delay=0.1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except RateLimitError:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                except (ConnectionError, TimeoutError):
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+            raise MaxRetriesExceeded()
+        return wrapper
+    return decorator
+```
+
+---
+
+## Support
+
+### API Support Channels
+
+| Tier | Support Channel | Response Time |
+|------|-----------------|---------------|
+| Tier 1 | Email | 24 hours |
+| Tier 2 | Slack, Email | 4 hours |
+| Tier 3 | Slack, Phone | 1 hour |
+| Tier 4 | Dedicated Team, Phone | 15 minutes |
+
+### Technical Contacts
+
+- **API Issues**: api-support@lux.network
+- **FIX Support**: fix-support@lux.network
+- **Emergency Hotline**: +1-555-LX-TRADE (Tier 3+ only)
+
+---
+
+*API specifications subject to change. Last updated: December 2024*

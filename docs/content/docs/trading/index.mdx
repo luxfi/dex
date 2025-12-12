@@ -1,0 +1,232 @@
+---
+title: Trading Overview
+description: Complete guide to trading on LX DEX - spot, perpetuals, margin, and advanced order types
+---
+
+# Trading Overview
+
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md) | [LP-9003 High-Performance DEX](https://github.com/luxfi/LPs/blob/main/LPs/lp-9003-high-performance-dex-protocol.md)
+
+LX DEX provides institutional-grade trading infrastructure with sub-microsecond latency and 434M+ orders per second throughput.
+
+## Trading Modes
+
+| Mode | Description | Leverage | Settlement |
+|------|-------------|----------|------------|
+| [Spot](/docs/trading/spot) | Direct asset exchange | 1x | Instant |
+| [Margin](/docs/trading/margin) | Leveraged spot trading | Up to 10x | Instant |
+| [Perpetuals](/docs/trading/perpetuals) | Perpetual futures contracts | Up to 50x | Continuous |
+| [Options](/docs/trading/options) | Options contracts | Variable | Expiration |
+
+## Supported Markets
+
+### Crypto Pairs
+- **Major pairs**: BTC-USD, ETH-USD, LUX-USD
+- **Cross pairs**: BTC-ETH, ETH-LUX
+- **Stablecoin pairs**: BTC-USDT, ETH-USDC
+
+### Traditional Assets (via Oracle)
+- **Forex**: EUR-USD, GBP-USD, JPY-USD
+- **Commodities**: XAU-USD (Gold), XAG-USD (Silver)
+- **Indices**: SPX, NDX (reference only)
+
+### Total Markets
+- **784,000+ trading pairs** across all global markets
+- Real-time oracle price feeds
+- 24/7 trading availability
+
+## Order Execution Flow
+
+```
+                    Order Submission
+                          |
+                          v
++----------------------------------------------------------+
+|                   Pre-Trade Checks                        |
++----------------------------------------------------------+
+|  1. Authentication    - API key / signature validation    |
+|  2. Balance Check     - Sufficient funds / margin         |
+|  3. Risk Validation   - Position limits, exposure caps    |
+|  4. Order Validation  - Price bounds, size limits         |
++----------------------------------------------------------+
+                          |
+                          v
++----------------------------------------------------------+
+|                   Matching Engine                         |
++----------------------------------------------------------+
+|  Price-Time Priority (FIFO)                               |
+|  - Best price matched first                               |
+|  - Same price: earliest order matched first               |
+|  - Partial fills supported                                |
++----------------------------------------------------------+
+                          |
+                          v
++----------------------------------------------------------+
+|                   Post-Trade                              |
++----------------------------------------------------------+
+|  1. Trade Execution   - Atomic balance updates            |
+|  2. Settlement        - Asset transfer (spot) or PnL      |
+|  3. Notification      - WebSocket push to clients         |
+|  4. Recording         - Trade history, audit log          |
++----------------------------------------------------------+
+```
+
+## Quick Start
+
+### 1. Place a Limit Order
+
+```typescript
+import { LxDex } from '@luxfi/dex-sdk'
+
+const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+
+// Buy 1 BTC at $50,000
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'limit',
+  price: '50000',
+  quantity: '1',
+  timeInForce: 'GTC'
+})
+
+console.log(`Order ID: ${order.orderId}`)
+console.log(`Status: ${order.status}`)
+```
+
+### 2. Place a Market Order
+
+```typescript
+// Market buy 0.5 BTC at best available price
+const order = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'buy',
+  type: 'market',
+  quantity: '0.5'
+})
+```
+
+### 3. Set Stop-Loss
+
+```typescript
+// Stop-loss: Sell if price drops to $45,000
+const stopOrder = await dex.placeOrder({
+  symbol: 'BTC-USD',
+  side: 'sell',
+  type: 'stop',
+  stopPrice: '45000',
+  quantity: '1'
+})
+```
+
+## Trading Features
+
+### Order Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| Limit | Execute at specified price or better | Precise entry/exit |
+| Market | Execute immediately at best price | Urgent execution |
+| Stop | Trigger when price reaches level | Stop-loss protection |
+| Stop-Limit | Stop that becomes limit order | Controlled stop-loss |
+| Trailing Stop | Dynamic stop that follows price | Lock in profits |
+| Iceberg | Hide total order size | Large order execution |
+| TWAP | Time-weighted average price | Minimize market impact |
+| Post-Only | Only add liquidity (maker) | Fee optimization |
+
+See [Order Types](/docs/trading/order-types) for complete documentation.
+
+### Time-in-Force Options
+
+| TIF | Name | Behavior |
+|-----|------|----------|
+| GTC | Good Till Cancelled | Remains until filled or cancelled |
+| IOC | Immediate or Cancel | Fill immediately, cancel unfilled |
+| FOK | Fill or Kill | Fill entirely or cancel entirely |
+| GTD | Good Till Date | Expires at specified time |
+| DAY | Day Order | Expires at end of trading day (00:00 UTC) |
+
+### Advanced Features
+
+- **Reduce-Only**: Close positions only, never increase
+- **Post-Only**: Ensure order is maker, never taker
+- **Hidden Orders**: Not visible in order book
+- **Bracket Orders**: Entry with take-profit and stop-loss
+
+## Account Types
+
+### Standard Account
+- Spot trading with 1x leverage
+- Basic order types
+- Standard fee tier
+
+### Margin Account
+- Up to 10x leverage on spot
+- Cross-margin and isolated margin modes
+- Access to margin lending pools
+
+### Perpetual Account
+- Up to 50x leverage on perpetuals
+- Cross-collateral support
+- Funding rate payments/receipts
+
+### Portfolio Margin Account
+- Risk-based margin calculation
+- Cross-product margining
+- Lower margin requirements for hedged positions
+
+## Risk Warnings
+
+<Callout type="warning">
+**Trading involves significant risk of loss.**
+
+- Leveraged trading can result in losses exceeding your initial deposit
+- Perpetual futures have funding costs that compound over time
+- Liquidation can occur rapidly in volatile markets
+- Past performance does not guarantee future results
+</Callout>
+
+### Risk Management Best Practices
+
+1. **Use stop-loss orders** - Always define your maximum loss
+2. **Start with low leverage** - Higher leverage = higher risk
+3. **Diversify positions** - Don't concentrate in single assets
+4. **Monitor health factor** - Keep margin buffer above requirements
+5. **Understand funding** - Track funding rate impact on positions
+
+## Performance Specifications
+
+| Metric | Value |
+|--------|-------|
+| Order Latency (GPU) | 2 ns |
+| Order Latency (CPU) | 487 ns |
+| Throughput | 434M orders/sec |
+| Order Book Depth | 100 levels standard |
+| Matching Algorithm | Price-Time Priority (FIFO) |
+| Settlement | Instant (on-chain finality ~1ms) |
+
+## API Access
+
+### WebSocket (Real-time)
+```
+wss://api.lux.network/ws
+```
+
+### REST API
+```
+https://api.lux.network/v1
+```
+
+### gRPC (High-performance)
+```
+grpc://api.lux.network:9760
+```
+
+## Next Steps
+
+- [Order Types](/docs/trading/order-types) - All supported order types
+- [Spot Trading](/docs/trading/spot) - Direct asset exchange
+- [Perpetuals](/docs/trading/perpetuals) - Perpetual futures contracts
+- [Margin Trading](/docs/trading/margin) - Leveraged trading
+- [Fees](/docs/trading/fees) - Complete fee schedule
+- [Limits](/docs/trading/limits) - Position and rate limits

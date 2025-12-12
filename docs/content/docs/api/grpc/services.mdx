@@ -1,0 +1,535 @@
+---
+title: gRPC Services Reference
+description: Complete reference for all LX DEX gRPC services and RPC methods
+---
+
+# gRPC Services Reference
+
+The LX DEX exposes a unified `LXDEXService` with methods organized into four categories: Order Management, Market Data, Account Management, and Node Management.
+
+## Service Definition
+
+```protobuf
+service LXDEXService {
+  // Order Management
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc GetOrders(GetOrdersRequest) returns (GetOrdersResponse);
+
+  // Market Data
+  rpc GetOrderBook(GetOrderBookRequest) returns (OrderBook);
+  rpc StreamOrderBook(StreamOrderBookRequest) returns (stream OrderBookUpdate);
+  rpc GetTrades(GetTradesRequest) returns (GetTradesResponse);
+  rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+
+  // Account Management
+  rpc GetBalance(GetBalanceRequest) returns (Balance);
+  rpc GetPositions(GetPositionsRequest) returns (GetPositionsResponse);
+
+  // Node Management
+  rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+```
+
+## Order Management Service
+
+### PlaceOrder
+
+Submit a new order to the matching engine.
+
+```protobuf
+rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+```
+
+**Request:**
+```protobuf
+message PlaceOrderRequest {
+  string symbol = 1;           // Trading pair (e.g., "LUX-USDC")
+  OrderType type = 2;          // LIMIT, MARKET, STOP, STOP_LIMIT, ICEBERG, PEG
+  OrderSide side = 3;          // BUY or SELL
+  double price = 4;            // Limit price (ignored for MARKET orders)
+  double size = 5;             // Order quantity
+  string user_id = 6;          // User identifier
+  string client_id = 7;        // Optional client-assigned order ID
+  TimeInForce time_in_force = 8;  // GTC, IOC, FOK, DAY
+  bool post_only = 9;          // Reject if would take liquidity
+  bool reduce_only = 10;       // Only reduce position
+  double stop_price = 11;      // Trigger price for STOP/STOP_LIMIT
+  double limit_price = 12;     // Limit price for STOP_LIMIT orders
+}
+```
+
+**Response:**
+```protobuf
+message PlaceOrderResponse {
+  uint64 order_id = 1;         // Exchange-assigned order ID
+  OrderStatus status = 2;      // Initial status (OPEN, PARTIAL, FILLED, REJECTED)
+  string message = 3;          // Status message or rejection reason
+}
+```
+
+**Example (Go):**
+```go
+resp, err := client.PlaceOrder(ctx, &pb.PlaceOrderRequest{
+    Symbol:      "LUX-USDC",
+    Type:        pb.OrderType_LIMIT,
+    Side:        pb.OrderSide_BUY,
+    Price:       100.50,
+    Size:        10.0,
+    UserId:      "user123",
+    ClientId:    "my-order-001",
+    TimeInForce: pb.TimeInForce_GTC,
+    PostOnly:    true,
+})
+if err != nil {
+    st, _ := status.FromError(err)
+    log.Printf("Order rejected: %s", st.Message())
+    return
+}
+log.Printf("Order %d: %s", resp.OrderId, resp.Status)
+```
+
+**Error Codes:**
+| Code | Reason |
+|------|--------|
+| `INVALID_ARGUMENT` | Invalid price, size, or symbol |
+| `FAILED_PRECONDITION` | Insufficient balance |
+| `ALREADY_EXISTS` | Duplicate client_id |
+| `RESOURCE_EXHAUSTED` | Rate limit exceeded |
+
+---
+
+### CancelOrder
+
+Cancel an existing order.
+
+```protobuf
+rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+```
+
+**Request:**
+```protobuf
+message CancelOrderRequest {
+  uint64 order_id = 1;  // Order to cancel
+  string user_id = 2;   // Must match order owner
+}
+```
+
+**Response:**
+```protobuf
+message CancelOrderResponse {
+  bool success = 1;     // True if order was cancelled
+  string message = 2;   // Status message
+}
+```
+
+**Example (Go):**
+```go
+resp, err := client.CancelOrder(ctx, &pb.CancelOrderRequest{
+    OrderId: 12345,
+    UserId:  "user123",
+})
+if err != nil {
+    log.Printf("Cancel failed: %v", err)
+    return
+}
+if resp.Success {
+    log.Printf("Order cancelled: %s", resp.Message)
+}
+```
+
+**Error Codes:**
+| Code | Reason |
+|------|--------|
+| `NOT_FOUND` | Order does not exist |
+| `PERMISSION_DENIED` | user_id does not match order owner |
+| `ABORTED` | Order already filled or cancelled |
+
+---
+
+### GetOrder
+
+Retrieve a single order by ID.
+
+```protobuf
+rpc GetOrder(GetOrderRequest) returns (Order);
+```
+
+**Request:**
+```protobuf
+message GetOrderRequest {
+  uint64 order_id = 1;  // Order ID to retrieve
+}
+```
+
+**Response:**
+```protobuf
+message Order {
+  uint64 order_id = 1;
+  string symbol = 2;
+  OrderType type = 3;
+  OrderSide side = 4;
+  double price = 5;
+  double size = 6;
+  double filled = 7;        // Amount filled
+  double remaining = 8;     // Amount remaining
+  OrderStatus status = 9;
+  string user_id = 10;
+  string client_id = 11;
+  int64 timestamp = 12;     // Unix timestamp (nanoseconds)
+  TimeInForce time_in_force = 13;
+  bool post_only = 14;
+  bool reduce_only = 15;
+}
+```
+
+---
+
+### GetOrders
+
+Query multiple orders with filters.
+
+```protobuf
+rpc GetOrders(GetOrdersRequest) returns (GetOrdersResponse);
+```
+
+**Request:**
+```protobuf
+message GetOrdersRequest {
+  string user_id = 1;       // Required: filter by user
+  string symbol = 2;        // Optional: filter by symbol
+  OrderStatus status = 3;   // Optional: filter by status
+  int32 limit = 4;          // Max results (default 100, max 1000)
+}
+```
+
+**Response:**
+```protobuf
+message GetOrdersResponse {
+  repeated Order orders = 1;
+}
+```
+
+**Example (Go):**
+```go
+resp, err := client.GetOrders(ctx, &pb.GetOrdersRequest{
+    UserId: "user123",
+    Symbol: "LUX-USDC",
+    Status: pb.OrderStatus_OPEN,
+    Limit:  50,
+})
+if err != nil {
+    log.Fatal(err)
+}
+for _, order := range resp.Orders {
+    log.Printf("Order %d: %s %s %.2f @ %.2f",
+        order.OrderId, order.Side, order.Symbol, order.Size, order.Price)
+}
+```
+
+---
+
+## Market Data Service
+
+### GetOrderBook
+
+Retrieve current order book snapshot.
+
+```protobuf
+rpc GetOrderBook(GetOrderBookRequest) returns (OrderBook);
+```
+
+**Request:**
+```protobuf
+message GetOrderBookRequest {
+  string symbol = 1;  // Trading pair
+  int32 depth = 2;    // Number of price levels (default 20, max 500)
+}
+```
+
+**Response:**
+```protobuf
+message OrderBook {
+  string symbol = 1;
+  repeated PriceLevel bids = 2;  // Sorted descending by price
+  repeated PriceLevel asks = 3;  // Sorted ascending by price
+  int64 timestamp = 4;           // Snapshot timestamp
+}
+
+message PriceLevel {
+  double price = 1;   // Price level
+  double size = 2;    // Total quantity at price
+  int32 count = 3;    // Number of orders at price
+}
+```
+
+---
+
+### StreamOrderBook
+
+Subscribe to real-time order book updates.
+
+```protobuf
+rpc StreamOrderBook(StreamOrderBookRequest) returns (stream OrderBookUpdate);
+```
+
+**Request:**
+```protobuf
+message StreamOrderBookRequest {
+  string symbol = 1;  // Trading pair
+  int32 depth = 2;    // Max depth to track
+}
+```
+
+**Response (stream):**
+```protobuf
+message OrderBookUpdate {
+  string symbol = 1;
+  repeated PriceLevel bid_updates = 2;  // Changed bid levels
+  repeated PriceLevel ask_updates = 3;  // Changed ask levels
+  int64 timestamp = 4;
+}
+```
+
+**Note:** A `PriceLevel` with `size = 0` indicates the level was removed.
+
+---
+
+### GetTrades
+
+Query recent trades.
+
+```protobuf
+rpc GetTrades(GetTradesRequest) returns (GetTradesResponse);
+```
+
+**Request:**
+```protobuf
+message GetTradesRequest {
+  string symbol = 1;  // Trading pair
+  int32 limit = 2;    // Max results (default 100, max 1000)
+}
+```
+
+**Response:**
+```protobuf
+message GetTradesResponse {
+  repeated Trade trades = 1;
+}
+
+message Trade {
+  uint64 trade_id = 1;
+  string symbol = 2;
+  double price = 3;
+  double size = 4;
+  OrderSide side = 5;         // Taker side
+  uint64 buy_order_id = 6;
+  uint64 sell_order_id = 7;
+  string buyer_id = 8;
+  string seller_id = 9;
+  int64 timestamp = 10;
+}
+```
+
+---
+
+### StreamTrades
+
+Subscribe to real-time trade feed.
+
+```protobuf
+rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+```
+
+**Request:**
+```protobuf
+message StreamTradesRequest {
+  string symbol = 1;  // Trading pair to subscribe
+}
+```
+
+---
+
+## Account Management Service
+
+### GetBalance
+
+Retrieve balance for a specific asset.
+
+```protobuf
+rpc GetBalance(GetBalanceRequest) returns (Balance);
+```
+
+**Request:**
+```protobuf
+message GetBalanceRequest {
+  string user_id = 1;  // User identifier
+  string asset = 2;    // Asset symbol (e.g., "LUX", "USDC")
+}
+```
+
+**Response:**
+```protobuf
+message Balance {
+  string asset = 1;
+  double available = 2;  // Available for trading
+  double locked = 3;     // Locked in open orders
+  double total = 4;      // available + locked
+}
+```
+
+---
+
+### GetPositions
+
+Retrieve all positions for a user.
+
+```protobuf
+rpc GetPositions(GetPositionsRequest) returns (GetPositionsResponse);
+```
+
+**Request:**
+```protobuf
+message GetPositionsRequest {
+  string user_id = 1;
+}
+```
+
+**Response:**
+```protobuf
+message GetPositionsResponse {
+  repeated Position positions = 1;
+}
+
+message Position {
+  string symbol = 1;
+  double size = 2;          // Position size (negative for short)
+  double entry_price = 3;   // Average entry price
+  double mark_price = 4;    // Current mark price
+  double pnl = 5;           // Unrealized P&L
+  double margin = 6;        // Margin held
+}
+```
+
+---
+
+## Node Management Service
+
+### GetNodeInfo
+
+Retrieve information about the connected DEX node.
+
+```protobuf
+rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+```
+
+**Request:**
+```protobuf
+message GetNodeInfoRequest {}
+```
+
+**Response:**
+```protobuf
+message NodeInfo {
+  string node_id = 1;                    // Unique node identifier
+  string version = 2;                    // Software version
+  string network = 3;                    // Network name (mainnet, testnet)
+  uint64 block_height = 4;               // Current block height
+  uint64 order_count = 5;                // Total orders processed
+  uint64 trade_count = 6;                // Total trades executed
+  int64 uptime = 7;                      // Uptime in seconds
+  bool syncing = 8;                      // True if syncing with network
+  repeated string supported_markets = 9; // Available trading pairs
+}
+```
+
+---
+
+### GetPeers
+
+List connected peer nodes.
+
+```protobuf
+rpc GetPeers(GetPeersRequest) returns (GetPeersResponse);
+```
+
+**Request:**
+```protobuf
+message GetPeersRequest {}
+```
+
+**Response:**
+```protobuf
+message GetPeersResponse {
+  repeated Peer peers = 1;
+}
+
+message Peer {
+  string peer_id = 1;           // Peer node ID
+  string address = 2;           // IP:port
+  int64 connected_at = 3;       // Connection timestamp
+  uint64 bytes_sent = 4;        // Total bytes sent
+  uint64 bytes_received = 5;    // Total bytes received
+}
+```
+
+---
+
+### Ping
+
+Health check and latency measurement.
+
+```protobuf
+rpc Ping(PingRequest) returns (PingResponse);
+```
+
+**Request:**
+```protobuf
+message PingRequest {
+  int64 timestamp = 1;  // Client timestamp
+}
+```
+
+**Response:**
+```protobuf
+message PingResponse {
+  int64 timestamp = 1;   // Server timestamp
+  string message = 2;    // "pong"
+}
+```
+
+**Example (Go):**
+```go
+start := time.Now()
+resp, err := client.Ping(ctx, &pb.PingRequest{
+    Timestamp: start.UnixNano(),
+})
+if err != nil {
+    log.Fatal(err)
+}
+rtt := time.Since(start)
+log.Printf("RTT: %v, Server time: %d", rtt, resp.Timestamp)
+```
+
+---
+
+## Method Summary Table
+
+| Method | Type | Rate Limit | Description |
+|--------|------|------------|-------------|
+| `PlaceOrder` | Unary | 100/s | Submit new order |
+| `CancelOrder` | Unary | 100/s | Cancel existing order |
+| `GetOrder` | Unary | 1000/s | Get single order |
+| `GetOrders` | Unary | 100/s | Query orders |
+| `GetOrderBook` | Unary | 1000/s | Order book snapshot |
+| `StreamOrderBook` | Server stream | 10 streams | Real-time book updates |
+| `GetTrades` | Unary | 1000/s | Query trades |
+| `StreamTrades` | Server stream | 10 streams | Real-time trade feed |
+| `GetBalance` | Unary | 100/s | Get asset balance |
+| `GetPositions` | Unary | 100/s | Get all positions |
+| `GetNodeInfo` | Unary | 10/s | Node information |
+| `GetPeers` | Unary | 10/s | Connected peers |
+| `Ping` | Unary | 100/s | Health check |

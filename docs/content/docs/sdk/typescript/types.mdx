@@ -1,0 +1,806 @@
+---
+title: Type Reference
+description: Complete TypeScript type definitions and interfaces for the LX DEX SDK
+---
+
+# Type Reference
+
+Complete reference of all TypeScript types, interfaces, and enums exported by `@luxfi/dex-sdk`.
+
+## Enumerations
+
+### OrderType
+
+```typescript
+enum OrderType {
+  /** Order at specific price */
+  LIMIT = 0,
+
+  /** Execute at best available price */
+  MARKET = 1,
+
+  /** Trigger when price reaches stop */
+  STOP = 2,
+
+  /** Stop that becomes limit order */
+  STOP_LIMIT = 3,
+
+  /** Hidden quantity order */
+  ICEBERG = 4,
+
+  /** Pegged to best bid/ask */
+  PEG = 5
+}
+```
+
+### OrderSide
+
+```typescript
+enum OrderSide {
+  /** Buy order */
+  BUY = 0,
+
+  /** Sell order */
+  SELL = 1
+}
+```
+
+### OrderStatus
+
+```typescript
+enum OrderStatus {
+  /** Order is active in the book */
+  OPEN = 'open',
+
+  /** Order is partially filled */
+  PARTIAL = 'partial',
+
+  /** Order is completely filled */
+  FILLED = 'filled',
+
+  /** Order was cancelled */
+  CANCELLED = 'cancelled',
+
+  /** Order was rejected */
+  REJECTED = 'rejected'
+}
+```
+
+### TimeInForce
+
+```typescript
+enum TimeInForce {
+  /** Good Till Cancelled - remains until filled or cancelled */
+  GTC = 'GTC',
+
+  /** Immediate Or Cancel - fill what you can, cancel rest */
+  IOC = 'IOC',
+
+  /** Fill Or Kill - fill entirely or cancel entirely */
+  FOK = 'FOK',
+
+  /** Day Order - expires at end of trading day */
+  DAY = 'DAY'
+}
+```
+
+## Core Interfaces
+
+### Order
+
+```typescript
+interface Order {
+  /** Unique order identifier (assigned by exchange) */
+  orderId?: number;
+
+  /** Trading pair symbol (e.g., "BTC-USD") */
+  symbol: string;
+
+  /** Order type */
+  type: OrderType;
+
+  /** Buy or sell */
+  side: OrderSide;
+
+  /** Order price (required for limit orders) */
+  price: number;
+
+  /** Order size in base currency */
+  size: number;
+
+  /** User identifier */
+  userID?: string;
+
+  /** Client-assigned order ID */
+  clientID?: string;
+
+  /** Time in force option */
+  timeInForce?: TimeInForce;
+
+  /** Only add liquidity (maker only) */
+  postOnly?: boolean;
+
+  /** Only reduce existing position */
+  reduceOnly?: boolean;
+
+  /** Current order status */
+  status?: OrderStatus;
+
+  /** Filled quantity */
+  filled?: number;
+
+  /** Remaining quantity */
+  remaining?: number;
+
+  /** Order creation timestamp (Unix ms) */
+  timestamp?: number;
+}
+```
+
+### Trade
+
+```typescript
+interface Trade {
+  /** Unique trade identifier */
+  tradeId: number;
+
+  /** Trading pair symbol */
+  symbol: string;
+
+  /** Execution price */
+  price: number;
+
+  /** Trade size */
+  size: number;
+
+  /** Taker side (who aggressed) */
+  side: OrderSide;
+
+  /** Buy order ID */
+  buyOrderId: number;
+
+  /** Sell order ID */
+  sellOrderId: number;
+
+  /** Buyer user ID */
+  buyerId: string;
+
+  /** Seller user ID */
+  sellerId: string;
+
+  /** Trade timestamp (Unix ms) */
+  timestamp: number;
+}
+```
+
+### OrderBookLevel
+
+```typescript
+interface OrderBookLevel {
+  /** Price level */
+  price: number;
+
+  /** Total size at this price */
+  size: number;
+
+  /** Number of orders at this level (optional) */
+  count?: number;
+}
+```
+
+### OrderBook
+
+```typescript
+interface OrderBook {
+  /** Trading pair symbol */
+  symbol: string;
+
+  /** Buy orders (highest price first) */
+  bids: OrderBookLevel[];
+
+  /** Sell orders (lowest price first) */
+  asks: OrderBookLevel[];
+
+  /** Snapshot timestamp (Unix ms) */
+  timestamp: number;
+}
+```
+
+### NodeInfo
+
+```typescript
+interface NodeInfo {
+  /** Node software version */
+  version: string;
+
+  /** Network identifier */
+  network: string;
+
+  /** Total orders processed */
+  orderCount: number;
+
+  /** Total trades executed */
+  tradeCount: number;
+
+  /** Current timestamp (Unix ms) */
+  timestamp: number;
+}
+```
+
+## Configuration Types
+
+### LXDexConfig
+
+```typescript
+interface LXDexConfig {
+  /** JSON-RPC endpoint URL */
+  jsonRpcUrl?: string;
+
+  /** WebSocket endpoint URL */
+  wsUrl?: string;
+
+  /** gRPC endpoint URL */
+  grpcUrl?: string;
+
+  /** API key for authentication */
+  apiKey?: string;
+
+  /** API secret for request signing */
+  apiSecret?: string;
+
+  /** Request timeout in milliseconds */
+  timeout?: number;
+
+  /** Retry configuration */
+  retry?: RetryConfig;
+}
+```
+
+### RetryConfig
+
+```typescript
+interface RetryConfig {
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+
+  /** Base delay between retries (ms) */
+  backoffMs: number;
+}
+```
+
+## Market Data Types
+
+### MarketDataSource
+
+```typescript
+interface MarketDataSource {
+  /** Source name */
+  name: string;
+
+  /** Trading pair symbol */
+  symbol: string;
+
+  /** Current price */
+  price: number;
+
+  /** Best bid price */
+  bid: number;
+
+  /** Best ask price */
+  ask: number;
+
+  /** Trading volume */
+  volume: number;
+
+  /** Data latency in nanoseconds */
+  latencyNs: number;
+
+  /** Data provider name */
+  provider: string;
+}
+```
+
+### MarketStats
+
+```typescript
+interface MarketStats {
+  /** Trading pair symbol */
+  symbol: string;
+
+  /** 24-hour trading volume */
+  volume24h: number;
+
+  /** 24-hour high price */
+  high24h: number;
+
+  /** 24-hour low price */
+  low24h: number;
+
+  /** 24-hour price change (absolute) */
+  priceChange24h: number;
+
+  /** 24-hour price change (percentage) */
+  priceChangePercent24h: number;
+
+  /** Open interest */
+  openInterest: number;
+
+  /** Current funding rate */
+  fundingRate: number;
+
+  /** Next funding time */
+  nextFundingTime: Date;
+}
+```
+
+## Account Types
+
+### MarginInfo
+
+```typescript
+interface MarginInfo {
+  /** User identifier */
+  userId: string;
+
+  /** Initial margin requirement */
+  initialMargin: number;
+
+  /** Maintenance margin requirement */
+  maintenanceMargin: number;
+
+  /** Current margin ratio */
+  marginRatio: number;
+
+  /** Available margin for new positions */
+  freeMargin: number;
+
+  /** Margin level (equity / maintenance) */
+  marginLevel: number;
+}
+```
+
+### LiquidationInfo
+
+```typescript
+interface LiquidationInfo {
+  /** User identifier */
+  userId: string;
+
+  /** Position identifier */
+  positionId: string;
+
+  /** Trading pair symbol */
+  symbol: string;
+
+  /** Position size */
+  size: number;
+
+  /** Liquidation trigger price */
+  liquidationPrice: number;
+
+  /** Mark price at liquidation */
+  markPrice: number;
+
+  /** Liquidation status */
+  status: string;
+
+  /** Liquidation timestamp */
+  timestamp: Date;
+}
+```
+
+### LiquidationRisk
+
+```typescript
+interface LiquidationRisk {
+  /** User identifier */
+  userId: string;
+
+  /** Risk level assessment */
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+
+  /** Current margin level */
+  marginLevel: number;
+
+  /** Price at which liquidation would occur */
+  liquidationPrice: number;
+
+  /** Estimated time to liquidation (ms, null if not imminent) */
+  timeToLiquidation: number | null;
+
+  /** Risk mitigation recommendations */
+  recommendations: string[];
+}
+```
+
+### SettlementBatch
+
+```typescript
+interface SettlementBatch {
+  /** Batch identifier */
+  batchId: number;
+
+  /** Order IDs in this batch */
+  orderIds: number[];
+
+  /** Settlement status */
+  status: string;
+
+  /** On-chain transaction hash (if settled) */
+  txHash?: string;
+
+  /** Gas used for settlement */
+  gasUsed?: number;
+
+  /** Settlement timestamp */
+  timestamp: Date;
+}
+```
+
+### InsuranceFundStatus
+
+```typescript
+interface InsuranceFundStatus {
+  /** Total fund balance */
+  totalFund: number;
+
+  /** Available for claims */
+  availableFund: number;
+
+  /** Currently used/reserved */
+  usedFund: number;
+
+  /** Number of pending claims */
+  pendingClaims: number;
+
+  /** Last update timestamp */
+  lastUpdate: Date;
+}
+```
+
+## Response Types
+
+### PlaceOrderResponse
+
+```typescript
+interface PlaceOrderResponse {
+  /** Assigned order ID */
+  orderId: number;
+
+  /** Order status after placement */
+  status: string;
+}
+```
+
+### CancelOrderResponse
+
+```typescript
+interface CancelOrderResponse {
+  /** Whether cancellation succeeded */
+  success: boolean;
+
+  /** Status message */
+  message: string;
+}
+```
+
+## Callback Types
+
+### OrderBookCallback
+
+```typescript
+type OrderBookCallback = (book: OrderBook) => void;
+```
+
+### TradeCallback
+
+```typescript
+type TradeCallback = (trade: Trade) => void;
+```
+
+### LiquidationCallback
+
+```typescript
+type LiquidationCallback = (liquidation: LiquidationInfo) => void;
+```
+
+### SettlementCallback
+
+```typescript
+type SettlementCallback = (settlement: SettlementBatch) => void;
+```
+
+### MarginCallCallback
+
+```typescript
+type MarginCallCallback = (event: MarginCallEvent) => void;
+```
+
+## Utility Types
+
+### MarginCallEvent
+
+```typescript
+interface MarginCallEvent {
+  /** User identifier */
+  userId: string;
+
+  /** Current margin level */
+  marginLevel: number;
+
+  /** Required action */
+  requiredAction: string;
+
+  /** Deadline for action */
+  deadline: Date;
+}
+```
+
+### DepthPoint
+
+```typescript
+interface DepthPoint {
+  /** Price level */
+  price: number;
+
+  /** Cumulative size up to this price */
+  cumulativeSize: number;
+
+  /** Which side of the book */
+  side: 'bid' | 'ask';
+}
+```
+
+### CandleData
+
+```typescript
+interface CandleData {
+  /** Open price */
+  open: number;
+
+  /** High price */
+  high: number;
+
+  /** Low price */
+  low: number;
+
+  /** Close price */
+  close: number;
+
+  /** Volume */
+  volume: number;
+
+  /** Candle start timestamp */
+  timestamp: number;
+}
+```
+
+## Constants
+
+### MarketDataProviders
+
+```typescript
+const MarketDataProviders = {
+  ALPACA: 'alpaca',
+  NYSE_ARCA: 'nyse_arca',
+  IEX_CLOUD: 'iex',
+  POLYGON: 'polygon',
+  CME_GROUP: 'cme',
+  REFINITIV: 'refinitiv',
+  ICE_DATA: 'ice',
+  BLOOMBERG: 'bloomberg',
+  NASDAQ_TOTALVIEW: 'nasdaq',
+  COINBASE_PRO: 'coinbase'
+} as const;
+
+type MarketDataProvider = typeof MarketDataProviders[keyof typeof MarketDataProviders];
+```
+
+## Class Exports
+
+### LXDexClient
+
+Main client class for interacting with LX DEX.
+
+```typescript
+class LXDexClient {
+  /** Market data sub-client */
+  marketData: MarketDataClient;
+
+  /** Liquidation monitoring sub-client */
+  liquidationMonitor: LiquidationMonitor;
+
+  constructor(config?: LXDexConfig);
+
+  // Connection
+  connect(): Promise<void>;
+  disconnect(): void;
+
+  // Orders
+  placeOrder(order: Partial<Order>): Promise<PlaceOrderResponse>;
+  cancelOrder(orderId: number): Promise<CancelOrderResponse>;
+  getOrder(orderId: number): Promise<Order>;
+
+  // Market Data
+  getOrderBook(symbol?: string, depth?: number): Promise<OrderBook>;
+  getBestBid(symbol?: string): Promise<number>;
+  getBestAsk(symbol?: string): Promise<number>;
+  getTrades(symbol?: string, limit?: number): Promise<Trade[]>;
+
+  // Node Info
+  getInfo(): Promise<NodeInfo>;
+  ping(): Promise<string>;
+
+  // Subscriptions
+  subscribe(channel: string, callback: Function): void;
+  unsubscribe(channel: string, callback?: Function): void;
+  subscribeOrderBook(symbol: string, callback: OrderBookCallback): void;
+  subscribeTrades(symbol: string, callback: TradeCallback): void;
+
+  // Utilities
+  static formatPrice(price: number, decimals?: number): string;
+  static formatSize(size: number, decimals?: number): string;
+  static calculateTotal(price: number, size: number): number;
+}
+```
+
+### MarketDataClient
+
+Sub-client for market data operations.
+
+```typescript
+class MarketDataClient {
+  constructor(jsonRpcClient: any);
+
+  getMarketData(symbol: string, source: string): Promise<MarketDataSource>;
+  getAggregatedMarketData(symbol: string): Promise<MarketDataSource[]>;
+  getLiquidations(symbol: string, limit?: number): Promise<LiquidationInfo[]>;
+  getSettlementBatch(batchId: number): Promise<SettlementBatch>;
+  getMarginInfo(userId: string): Promise<MarginInfo>;
+  checkLiquidationRisk(userId: string): Promise<LiquidationRisk>;
+  getInsuranceFundStatus(): Promise<InsuranceFundStatus>;
+  getMarketDataSources(): Promise<string[]>;
+  getMarketStats(symbol: string): Promise<MarketStats>;
+}
+```
+
+### LiquidationMonitor
+
+Sub-client for liquidation monitoring.
+
+```typescript
+class LiquidationMonitor {
+  constructor(wsConnection: WebSocket | null);
+
+  setWebSocket(ws: WebSocket): void;
+  subscribeLiquidations(callback: LiquidationCallback): void;
+  subscribeSettlements(callback: SettlementCallback): void;
+  subscribeMarginCalls(userId: string, callback: MarginCallCallback): void;
+  unsubscribe(channel: string): void;
+  handleMessage(channel: string, data: any): void;
+}
+```
+
+## Module Exports
+
+```typescript
+// Main export
+export { LXDexClient };
+export default LXDexClient;
+
+// Enums
+export { OrderType, OrderSide, OrderStatus, TimeInForce };
+
+// Interfaces
+export {
+  Order,
+  Trade,
+  OrderBook,
+  OrderBookLevel,
+  NodeInfo,
+  LXDexConfig,
+  MarketDataSource,
+  MarketStats,
+  MarginInfo,
+  LiquidationInfo,
+  LiquidationRisk,
+  SettlementBatch,
+  InsuranceFundStatus
+};
+
+// Sub-clients
+export { MarketDataClient, LiquidationMonitor };
+
+// Constants
+export { MarketDataProviders };
+
+// Types
+export type { MarketDataProvider };
+```
+
+## Type Guards
+
+### isOrder
+
+```typescript
+function isOrder(value: unknown): value is Order {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'symbol' in value &&
+    'type' in value &&
+    'side' in value &&
+    'size' in value
+  );
+}
+```
+
+### isTrade
+
+```typescript
+function isTrade(value: unknown): value is Trade {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'tradeId' in value &&
+    'symbol' in value &&
+    'price' in value &&
+    'size' in value &&
+    'timestamp' in value
+  );
+}
+```
+
+### isOrderBook
+
+```typescript
+function isOrderBook(value: unknown): value is OrderBook {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'symbol' in value &&
+    'bids' in value &&
+    'asks' in value &&
+    Array.isArray((value as OrderBook).bids) &&
+    Array.isArray((value as OrderBook).asks)
+  );
+}
+```
+
+## Generic Types
+
+### Result Type
+
+```typescript
+type Result<T, E = Error> =
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+// Usage
+async function safePlaceOrder(
+  client: LXDexClient,
+  order: Partial<Order>
+): Promise<Result<PlaceOrderResponse>> {
+  try {
+    const data = await client.placeOrder(order);
+    return { success: true, data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error : new Error('Unknown error')
+    };
+  }
+}
+```
+
+### AsyncResult Type
+
+```typescript
+type AsyncResult<T> = Promise<Result<T>>;
+```
+
+## See Also
+
+- [Client Configuration](/docs/sdk/typescript/client) - Client setup and options
+- [Order Management](/docs/sdk/typescript/orders) - Working with orders
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time connections

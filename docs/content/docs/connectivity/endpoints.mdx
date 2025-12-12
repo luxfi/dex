@@ -1,0 +1,352 @@
+---
+title: API Endpoints
+description: Complete list of LX DEX API endpoints - production, testnet, regional, and failover endpoints
+---
+
+# API Endpoints
+
+> **Status Page**: https://status.lux.network | **Uptime**: 99.99%
+
+## Endpoint Overview
+
+LX DEX provides geographically distributed endpoints optimized for latency and reliability. All endpoints support the same API interface with automatic failover capabilities.
+
+## Production Endpoints
+
+### Global (GeoDNS Load Balanced)
+
+| Protocol | Endpoint | Port | Description |
+|----------|----------|------|-------------|
+| REST | `https://api.lux.network` | 443 | Primary REST API |
+| WebSocket | `wss://ws.lux.network` | 443 | Real-time feeds |
+| gRPC | `grpc.lux.network` | 9760 | High-performance RPC |
+| FIX | `fix.lux.network` | 9880 | Financial Information eXchange |
+
+### Regional Endpoints
+
+#### North America
+
+| Region | REST | WebSocket | gRPC | Latency from NYC |
+|--------|------|-----------|------|------------------|
+| US East (NY) | `https://us-east.api.lux.network` | `wss://us-east.ws.lux.network` | `us-east.grpc.lux.network:9760` | < 1ms |
+| US West (LA) | `https://us-west.api.lux.network` | `wss://us-west.ws.lux.network` | `us-west.grpc.lux.network:9760` | ~60ms |
+| US Central (CH) | `https://us-central.api.lux.network` | `wss://us-central.ws.lux.network` | `us-central.grpc.lux.network:9760` | ~20ms |
+| Canada (TO) | `https://ca.api.lux.network` | `wss://ca.ws.lux.network` | `ca.grpc.lux.network:9760` | ~15ms |
+
+#### Europe
+
+| Region | REST | WebSocket | gRPC | Latency from London |
+|--------|------|-----------|------|---------------------|
+| UK (London) | `https://uk.api.lux.network` | `wss://uk.ws.lux.network` | `uk.grpc.lux.network:9760` | < 1ms |
+| Germany (Frankfurt) | `https://de.api.lux.network` | `wss://de.ws.lux.network` | `de.grpc.lux.network:9760` | ~10ms |
+| Netherlands (Amsterdam) | `https://nl.api.lux.network` | `wss://nl.ws.lux.network` | `nl.grpc.lux.network:9760` | ~8ms |
+| Switzerland (Zurich) | `https://ch.api.lux.network` | `wss://ch.ws.lux.network` | `ch.grpc.lux.network:9760` | ~15ms |
+
+#### Asia Pacific
+
+| Region | REST | WebSocket | gRPC | Latency from Tokyo |
+|--------|------|-----------|------|-------------------|
+| Japan (Tokyo) | `https://jp.api.lux.network` | `wss://jp.ws.lux.network` | `jp.grpc.lux.network:9760` | < 1ms |
+| Singapore | `https://sg.api.lux.network` | `wss://sg.ws.lux.network` | `sg.grpc.lux.network:9760` | ~70ms |
+| Hong Kong | `https://hk.api.lux.network` | `wss://hk.ws.lux.network` | `hk.grpc.lux.network:9760` | ~50ms |
+| Australia (Sydney) | `https://au.api.lux.network` | `wss://au.ws.lux.network` | `au.grpc.lux.network:9760` | ~100ms |
+| South Korea (Seoul) | `https://kr.api.lux.network` | `wss://kr.ws.lux.network` | `kr.grpc.lux.network:9760` | ~30ms |
+
+### Failover Endpoints
+
+Dedicated failover endpoints for mission-critical systems:
+
+```
+Primary:   https://api.lux.network
+Secondary: https://api2.lux.network
+Tertiary:  https://api3.lux.network
+```
+
+**Failover DNS Records:**
+
+```bash
+# Check all endpoints
+dig api.lux.network +short
+dig api2.lux.network +short
+dig api3.lux.network +short
+```
+
+## Testnet Endpoints
+
+| Protocol | Endpoint | Description |
+|----------|----------|-------------|
+| REST | `https://testnet-api.lux.network` | Testnet REST API |
+| WebSocket | `wss://testnet-ws.lux.network` | Testnet real-time feeds |
+| gRPC | `testnet-grpc.lux.network:9760` | Testnet gRPC |
+| Faucet | `https://faucet.lux.network` | Test token faucet |
+
+## Internal/Private Endpoints
+
+For colocation and dedicated connection customers:
+
+### Colocation (Private IPs)
+
+```
+Matching Engine:  10.100.1.1:9760 (gRPC)
+Market Data:      10.100.1.2:9770 (Multicast)
+Order Entry:      10.100.1.3:9780 (Binary)
+Drop Copy:        10.100.1.4:9790 (FIX)
+```
+
+### DirectConnect/PrivateLink
+
+```
+AWS PrivateLink:   vpce-xxx.api.lux.network
+GCP Private:       private-api.lux.network
+Azure Private:     azure-api.lux.network
+```
+
+## Endpoint Configuration
+
+### REST API Configuration
+
+```typescript
+const config = {
+  // Production
+  production: {
+    baseUrl: 'https://api.lux.network',
+    timeout: 30000,
+    retries: 3,
+    failoverUrls: [
+      'https://api2.lux.network',
+      'https://api3.lux.network'
+    ]
+  },
+
+  // Testnet
+  testnet: {
+    baseUrl: 'https://testnet-api.lux.network',
+    timeout: 60000,
+    retries: 5
+  },
+
+  // Regional (low latency)
+  regional: {
+    baseUrl: 'https://us-east.api.lux.network',
+    timeout: 5000,
+    retries: 1
+  }
+};
+```
+
+### WebSocket Configuration
+
+```typescript
+const wsConfig = {
+  url: 'wss://ws.lux.network',
+  reconnect: true,
+  reconnectInterval: 1000,
+  maxReconnectAttempts: 10,
+  heartbeatInterval: 30000,
+
+  // Regional override for lower latency
+  regionalUrls: {
+    'US': 'wss://us-east.ws.lux.network',
+    'EU': 'wss://uk.ws.lux.network',
+    'APAC': 'wss://jp.ws.lux.network'
+  }
+};
+```
+
+### gRPC Configuration
+
+```go
+import (
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials"
+    "google.golang.org/grpc/keepalive"
+)
+
+func NewGRPCClient() (*grpc.ClientConn, error) {
+    return grpc.Dial(
+        "grpc.lux.network:9760",
+        grpc.WithTransportCredentials(credentials.NewTLS(nil)),
+        grpc.WithKeepaliveParams(keepalive.ClientParameters{
+            Time:                10 * time.Second,
+            Timeout:             3 * time.Second,
+            PermitWithoutStream: true,
+        }),
+        grpc.WithDefaultServiceConfig(`{
+            "loadBalancingPolicy": "round_robin",
+            "healthCheckConfig": {
+                "serviceName": "lxdex.TradingService"
+            }
+        }`),
+    )
+}
+```
+
+## IP Allowlisting
+
+### Production IP Ranges
+
+For firewall configuration, allow these CIDR ranges:
+
+```
+# Primary (NY5)
+198.51.100.0/24
+203.0.113.0/24
+
+# Secondary (LD4)
+192.0.2.0/24
+
+# Secondary (TY3)
+198.18.0.0/24
+
+# CDN/Edge
+Cloudflare IP ranges (see cloudflare.com/ips)
+```
+
+### Outbound IPs
+
+If you need to allowlist our outbound connections (webhooks, callbacks):
+
+```
+Webhooks: 198.51.100.50-60
+Callbacks: 203.0.113.50-60
+```
+
+## DNS Configuration
+
+### Recommended DNS Settings
+
+```bash
+# Primary DNS
+nameserver 1.1.1.1  # Cloudflare
+nameserver 8.8.8.8  # Google
+
+# For lowest latency, use regional DNS
+nameserver <your-isp-dns>
+```
+
+### DNS TTL Values
+
+| Record | TTL | Purpose |
+|--------|-----|---------|
+| api.lux.network | 60s | Fast failover |
+| ws.lux.network | 60s | Fast failover |
+| grpc.lux.network | 300s | Stable connections |
+| static.lux.network | 3600s | Static assets |
+
+## Health Check Endpoints
+
+### REST Health
+
+```bash
+curl https://api.lux.network/health
+# Response: {"status":"healthy","version":"1.2.3","timestamp":1234567890}
+```
+
+### WebSocket Ping
+
+```javascript
+ws.send(JSON.stringify({type: 'ping'}));
+// Response: {"type":"pong","timestamp":1234567890}
+```
+
+### gRPC Health
+
+```bash
+grpcurl -plaintext grpc.lux.network:9760 grpc.health.v1.Health/Check
+# Response: {"status":"SERVING"}
+```
+
+## Rate Limits by Endpoint
+
+| Endpoint Type | Public | Authenticated | VIP |
+|---------------|--------|---------------|-----|
+| REST (orders) | 10/sec | 100/sec | 1000/sec |
+| REST (data) | 100/sec | 1000/sec | 10000/sec |
+| WebSocket (subscribe) | 10/min | 100/min | Unlimited |
+| gRPC (orders) | 100/sec | 1000/sec | 10000/sec |
+
+## Connection Limits
+
+| Type | Limit | Notes |
+|------|-------|-------|
+| WebSocket connections | 5 per IP | 100 for authenticated |
+| gRPC streams | 100 per connection | 1000 for VIP |
+| REST concurrent | 100 per IP | 1000 for authenticated |
+| FIX sessions | 1 per account | 10 for institutional |
+
+## TLS Configuration
+
+### Supported TLS Versions
+
+- TLS 1.3 (preferred)
+- TLS 1.2 (minimum)
+
+### Cipher Suites
+
+```
+TLS_AES_256_GCM_SHA384
+TLS_CHACHA20_POLY1305_SHA256
+TLS_AES_128_GCM_SHA256
+```
+
+### Certificate Pinning (Optional)
+
+```
+SPKI Pin: sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+Backup Pin: sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+```
+
+## Endpoint Status
+
+Real-time status available at: https://status.lux.network
+
+### Status API
+
+```bash
+curl https://status.lux.network/api/v1/status
+```
+
+**Response:**
+
+```json
+{
+  "overall": "operational",
+  "components": {
+    "rest_api": "operational",
+    "websocket": "operational",
+    "grpc": "operational",
+    "matching_engine": "operational",
+    "settlement": "operational"
+  },
+  "latency": {
+    "rest_p50": 5,
+    "rest_p99": 25,
+    "ws_p50": 1,
+    "ws_p99": 10
+  },
+  "incidents": []
+}
+```
+
+## Migration Guide
+
+### From Other Exchanges
+
+| Exchange | LX DEX Equivalent |
+|----------|-------------------|
+| Binance `api.binance.com` | `api.lux.network` |
+| FTX `ftx.com/api` | `api.lux.network/v1` |
+| Coinbase `api.coinbase.com` | `api.lux.network/v1` |
+
+### Endpoint Mapping
+
+```typescript
+// Binance → LX DEX
+const endpointMap = {
+  '/api/v3/order': '/v1/orders',
+  '/api/v3/openOrders': '/v1/orders?status=open',
+  '/api/v3/depth': '/v1/orderbook/:symbol',
+  '/api/v3/trades': '/v1/trades',
+  '/ws/stream': '/ws'
+};
+```

@@ -1,0 +1,378 @@
+---
+title: Quoting Requirements
+description: Spread requirements, quote depth obligations, uptime targets, and quoting best practices for LX DEX market makers
+---
+
+# Quoting Requirements
+
+Market makers on LX DEX must meet specific quoting obligations to maintain their tier status and receive associated benefits. This document details spread requirements, depth obligations, uptime targets, and monitoring procedures.
+
+## Quoting Obligations Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    QUOTING REQUIREMENTS BY TIER                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Metric          │ Tier 1  │ Tier 2  │ Tier 3  │ Tier 4            │
+│  ─────────────────┼─────────┼─────────┼─────────┼─────────          │
+│  Max Spread       │ 10 bps  │ 5 bps   │ 3 bps   │ 2 bps            │
+│  Min Depth/Side   │ $50K    │ $250K   │ $1M     │ $5M              │
+│  Uptime           │ 85%     │ 90%     │ 92%     │ 95%              │
+│  Depth Levels     │ 1       │ 3       │ 5       │ 10               │
+│  RFQ Response     │ 500ms   │ 200ms   │ 50ms    │ 10ms             │
+│  Quote Update     │ 1s      │ 500ms   │ 100ms   │ 10ms             │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Spread Requirements
+
+### Maximum Spread by Market Tier
+
+Markets are classified into tiers based on liquidity and trading volume:
+
+| Market Tier | Examples | Tier 1 MM | Tier 2 MM | Tier 3 MM | Tier 4 MM |
+|-------------|----------|-----------|-----------|-----------|-----------|
+| **Tier A** (Ultra-Liquid) | BTC-USD, ETH-USD | 10 bps | 3 bps | 2 bps | 1 bps |
+| **Tier B** (High-Liquid) | SOL-USD, LUX-USD | 10 bps | 5 bps | 3 bps | 2 bps |
+| **Tier C** (Mid-Liquid) | LINK-USD, UNI-USD | 15 bps | 8 bps | 5 bps | 3 bps |
+| **Tier D** (Low-Liquid) | New listings | 25 bps | 15 bps | 10 bps | 5 bps |
+
+### Spread Calculation
+
+```python
+# Spread calculated as percentage of mid-price
+spread_bps = ((best_ask - best_bid) / mid_price) * 10000
+
+# Example: BTC-USD
+best_bid = 50000.00
+best_ask = 50005.00
+mid_price = (best_bid + best_ask) / 2  # 50002.50
+spread_bps = ((50005 - 50000) / 50002.50) * 10000  # 1.0 bps
+```
+
+### Spread Monitoring
+
+Spreads are monitored continuously with the following methodology:
+
+```
+Spread Compliance Score = (Compliant Samples / Total Samples) * 100
+
+Sampling:
+- Frequency: Every 100ms during trading hours
+- Window: 24/7 for crypto markets
+- Exclusions: Scheduled maintenance, force majeure events
+
+Compliance Thresholds:
+- Tier 1: 85% of samples within max spread
+- Tier 2: 90% of samples within max spread
+- Tier 3: 92% of samples within max spread
+- Tier 4: 95% of samples within max spread
+```
+
+### Spread Widening Allowances
+
+Market makers may widen spreads under specific conditions:
+
+| Condition | Max Widening | Duration |
+|-----------|--------------|----------|
+| High volatility (>5% 1h move) | 3x normal | Until volatility subsides |
+| Low liquidity period | 2x normal | Max 1 hour |
+| Exchange maintenance | Unlimited | During maintenance |
+| Oracle outage | 5x normal | Until oracle recovery |
+| Position limit reached | 2x normal | Until position reduced |
+
+---
+
+## Depth Requirements
+
+### Minimum Depth per Side
+
+| Tier | Best Level | Top 3 Levels | Top 5 Levels | Top 10 Levels |
+|------|------------|--------------|--------------|---------------|
+| Tier 1 | $50,000 | N/A | N/A | N/A |
+| Tier 2 | $100,000 | $250,000 | N/A | N/A |
+| Tier 3 | $250,000 | $500,000 | $1,000,000 | N/A |
+| Tier 4 | $500,000 | $1,500,000 | $3,000,000 | $5,000,000 |
+
+### Depth Level Spacing
+
+```
+Tier 2+ Depth Level Requirements:
+
+Level 1: Best bid/ask (within max spread)
+Level 2: +0.1% from Level 1
+Level 3: +0.2% from Level 1
+Level 4: +0.3% from Level 1 (Tier 3+)
+Level 5: +0.5% from Level 1 (Tier 3+)
+Level 6-10: +1.0% increments (Tier 4 only)
+```
+
+### Depth Calculation Example
+
+```typescript
+// Example: BTC-USD depth for Tier 3 MM
+const midPrice = 50000;
+const requirements = {
+  level1: { price: midPrice * 1.0003, minSize: 5.0 },   // $250K
+  level2: { price: midPrice * 1.0010, minSize: 2.5 },   // $125K
+  level3: { price: midPrice * 1.0020, minSize: 2.5 },   // $125K
+  level4: { price: midPrice * 1.0030, minSize: 2.5 },   // $125K
+  level5: { price: midPrice * 1.0050, minSize: 7.5 },   // $375K
+  // Total: $1M per side
+};
+```
+
+---
+
+## Uptime Requirements
+
+### Definition
+
+Uptime is measured as the percentage of time a market maker maintains compliant quotes:
+
+```
+Uptime % = (Time with Valid Quotes / Total Scheduled Time) * 100
+
+Valid Quote Definition:
+- Both bid and ask prices present
+- Spread within maximum allowed
+- Depth meets minimum requirements
+- Prices updated within freshness window
+```
+
+### Uptime Targets
+
+| Tier | Minimum Uptime | Grace Allowance | Penalty Threshold |
+|------|----------------|-----------------|-------------------|
+| Tier 1 | 85% | 15% downtime | Below 80% |
+| Tier 2 | 90% | 10% downtime | Below 85% |
+| Tier 3 | 92% | 8% downtime | Below 88% |
+| Tier 4 | 95% | 5% downtime | Below 92% |
+
+### Scheduled Downtime
+
+Market makers may request scheduled maintenance windows:
+
+| Tier | Monthly Allowance | Max Duration | Notice Required |
+|------|-------------------|--------------|-----------------|
+| Tier 1 | 4 hours | 2 hours | 24 hours |
+| Tier 2 | 2 hours | 1 hour | 24 hours |
+| Tier 3 | 1 hour | 30 mins | 48 hours |
+| Tier 4 | 30 mins | 15 mins | 72 hours |
+
+### Unplanned Downtime Handling
+
+```
+Unplanned Downtime Protocol:
+
+1. Detection
+   - System detects missing/stale quotes
+   - 30-second grace period before flagging
+
+2. Notification
+   - Alert sent to MM operations team
+   - Status page updated
+
+3. Escalation (after 5 minutes)
+   - Dedicated support contacted
+   - Incident ticket created
+
+4. Resolution
+   - MM must provide incident report within 24 hours
+   - Repeated incidents may affect tier status
+```
+
+---
+
+## Quote Freshness
+
+### Maximum Quote Age
+
+| Tier | Max Quote Age | Update Frequency |
+|------|---------------|------------------|
+| Tier 1 | 1,000ms | Every 1 second |
+| Tier 2 | 500ms | Every 500ms |
+| Tier 3 | 100ms | Every 100ms |
+| Tier 4 | 10ms | Every 10ms |
+
+### Stale Quote Handling
+
+```python
+# Quote freshness monitoring
+def is_quote_fresh(quote, tier):
+    max_age_ms = {1: 1000, 2: 500, 3: 100, 4: 10}
+    quote_age = time.now() - quote.timestamp
+    return quote_age < max_age_ms[tier]
+
+# Stale quotes are:
+# - Not counted toward uptime
+# - Not eligible for maker rebates
+# - Flagged in performance reports
+```
+
+---
+
+## Request for Quote (RFQ)
+
+### Response Time Requirements
+
+| Tier | Max Response Time | Minimum Quote Size | Quote Validity |
+|------|-------------------|-------------------|----------------|
+| Tier 1 | 500ms | $10,000 | 2 seconds |
+| Tier 2 | 200ms | $50,000 | 3 seconds |
+| Tier 3 | 50ms | $250,000 | 5 seconds |
+| Tier 4 | 10ms | $1,000,000 | 10 seconds |
+
+### RFQ Protocol
+
+```json
+// RFQ Request
+{
+  "type": "rfq_request",
+  "request_id": "rfq_12345",
+  "symbol": "BTC-USD",
+  "side": "buy",
+  "size": "10.0",
+  "timestamp": 1702300800000
+}
+
+// RFQ Response
+{
+  "type": "rfq_response",
+  "request_id": "rfq_12345",
+  "bid": "50000.00",
+  "ask": "50002.00",
+  "bid_size": "15.0",
+  "ask_size": "15.0",
+  "valid_until": 1702300805000,
+  "timestamp": 1702300800005
+}
+```
+
+---
+
+## Market-Specific Requirements
+
+### Crypto Spot Markets
+
+| Market | Min Depth | Max Spread | Special Requirements |
+|--------|-----------|------------|---------------------|
+| BTC-USD | $500K | 2 bps | 24/7 quoting |
+| ETH-USD | $300K | 2 bps | 24/7 quoting |
+| LUX-USD | $200K | 3 bps | Primary market |
+| BTC-ETH | $200K | 3 bps | Cross pair |
+| Stables | $1M | 0.5 bps | Tight spreads |
+
+### Perpetual Futures
+
+| Contract | Min Depth | Max Spread | Funding Impact |
+|----------|-----------|------------|----------------|
+| BTC-PERP | $1M | 3 bps | Adjust for funding |
+| ETH-PERP | $500K | 3 bps | Adjust for funding |
+| LUX-PERP | $250K | 5 bps | Adjust for funding |
+
+### Options (When Available)
+
+| Requirement | Near-Term | Mid-Term | Far-Term |
+|-------------|-----------|----------|----------|
+| Max Spread | 5% of premium | 8% of premium | 12% of premium |
+| Min Depth | 10 contracts | 5 contracts | 2 contracts |
+| Delta Range | 0.1 - 0.9 | 0.15 - 0.85 | 0.2 - 0.8 |
+
+---
+
+## Performance Monitoring
+
+### Real-Time Dashboard
+
+Market makers have access to real-time performance metrics:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MARKET MAKER PERFORMANCE DASHBOARD                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Current Status: ● COMPLIANT                                    │
+│                                                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │ Uptime      │  │ Avg Spread  │  │ Total Depth │             │
+│  │   94.3%     │  │   2.1 bps   │  │   $12.5M    │             │
+│  │ Target: 92% │  │ Max: 3 bps  │  │ Min: $10M   │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│                                                                  │
+│  Markets Quoted: 35/30 required                                 │
+│  RFQ Response: 45ms avg (Target: <50ms)                        │
+│  Quote Updates: 85ms avg (Target: <100ms)                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Alerts and Notifications
+
+| Alert Type | Trigger | Notification |
+|------------|---------|--------------|
+| Spread Violation | >150% of max spread | Immediate |
+| Depth Below Min | <80% of required | Immediate |
+| Uptime Warning | 3% below target | Every 15 mins |
+| Stale Quotes | >2x max age | Immediate |
+| RFQ Timeout | >2x max response | Immediate |
+
+---
+
+## Compliance Consequences
+
+### Violations
+
+| Violation | First Occurrence | Repeated |
+|-----------|------------------|----------|
+| Spread > 150% max | Warning | Fee increase |
+| Depth < 50% min | Warning | Tier review |
+| Uptime < threshold | Warning | Tier downgrade |
+| Stale quotes > 10% | Warning | API suspension |
+
+### Remediation
+
+1. **Warning**: Written notice with 7-day cure period
+2. **Probation**: 30-day monitoring with weekly reviews
+3. **Tier Downgrade**: Move to lower tier with reduced benefits
+4. **Suspension**: Temporary removal from MM program
+5. **Termination**: Permanent removal (severe/repeated violations)
+
+---
+
+## Best Practices
+
+### Quote Management
+
+```python
+# Recommended quote update strategy
+class QuoteManager:
+    def update_quotes(self, market_data):
+        # 1. Calculate fair value
+        fair_value = self.calculate_fair_value(market_data)
+
+        # 2. Determine spread based on volatility
+        spread = self.calculate_spread(market_data.volatility)
+
+        # 3. Set depth based on inventory
+        depth = self.calculate_depth(self.inventory)
+
+        # 4. Apply risk limits
+        quotes = self.apply_risk_limits(fair_value, spread, depth)
+
+        # 5. Send atomic update
+        self.send_quotes(quotes)
+```
+
+### Resilience
+
+- Maintain hot standby systems
+- Implement automatic failover
+- Use multiple network paths
+- Monitor quote acknowledgments
+
+---
+
+*Requirements subject to change with 30 days notice. Last updated: December 2024*

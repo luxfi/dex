@@ -1,0 +1,701 @@
+---
+title: Lending Protocol
+description: Privacy-preserving overcollateralized lending with ZK credit scoring and confidential positions
+---
+
+# Lending Protocol
+
+> **Specification**: [LP-8401 Confidential Lending Protocol](https://github.com/luxfi/lps/blob/main/LPs/lp-8401-confidential-lending-protocol.md)
+>
+> **Implementation**: [`github.com/luxfi/standard/src/lending`](https://github.com/luxfi/standard/tree/main/src/lending)
+
+The LX DEX lending protocol enables privacy-preserving borrowing and lending with zero-knowledge credit scoring, confidential collateral verification, and hidden loan positions.
+
+## Implementation Status
+
+| Component | Source | Status | Description |
+|-----------|--------|--------|-------------|
+| Lending Core | [`lending/LendingPool.sol`](https://github.com/luxfi/standard/tree/main/src/lending/LendingPool.sol) | Production | Main lending logic |
+| ZK Credit Scoring | [`lending/credit/ZKCredit.sol`](https://github.com/luxfi/standard/tree/main/src/lending/credit) | Production | Privacy-preserving credit assessment |
+| Collateral Manager | [`lending/collateral/`](https://github.com/luxfi/standard/tree/main/src/lending/collateral) | Production | Confidential collateral handling |
+| Liquidation Engine | [`lending/liquidation/`](https://github.com/luxfi/standard/tree/main/src/lending/liquidation) | Production | Anonymous liquidations |
+| Interest Rate Model | [`lending/InterestRateModel.sol`](https://github.com/luxfi/standard/tree/main/src/lending/InterestRateModel.sol) | Production | Kinked rate curves |
+| Flash Loans | [`lending/flash/FlashLoan.sol`](https://github.com/luxfi/standard/tree/main/src/lending/flash) | Production | Atomic uncollateralized loans |
+
+## Architecture
+
+```
++------------------------------------------------------------------+
+|                       Lending Protocol                            |
++------------------------------------------------------------------+
+|                                                                   |
+|  [Supply Pool] <---> [Interest Rate Model] <---> [Borrow Pool]   |
+|       |                      |                        |           |
+|       v                      v                        v           |
+|  [lTokens]          [Utilization Rate]         [Debt Tokens]      |
+|       |                      |                        |           |
+|       +-----------> [Health Factor] <-----------------+           |
+|                          |                                        |
+|                          v                                        |
+|              [Liquidation Engine] <--- [Oracle Feeds]             |
+|                          |                                        |
+|                          v                                        |
+|                  [Insurance Fund]                                 |
++------------------------------------------------------------------+
+```
+
+## Core Interfaces
+
+### IConfidentialLending
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface IConfidentialLending {
+    /// @notice Private loan position with ZK commitments
+    struct PrivateLoan {
+        bytes32 loanId;
+        bytes32 borrowerCommitment;   // ZK commitment to borrower identity
+        bytes32 collateralCommitment; // Hidden collateral amount
+        bytes encryptedTerms;         // Encrypted loan terms
+        uint256 publicHealthFactor;   // Obfuscated health indicator
+        bytes32 nullifier;            // For repayment tracking
+    }
+
+    /// @notice Zero-knowledge credit score attestation
+    struct ZKCreditScore {
+        bytes32 scoreCommitment;
+        bytes zkProof;                // Proof of score validity
+        uint256 timestamp;
+        bytes32 merkleRoot;           // Historical data root
+    }
+
+    /// @notice Initiate a private borrow position
+    function borrowPrivate(
+        bytes32 commitment,
+        ZKCreditScore calldata creditProof,
+        bytes calldata encryptedRequest
+    ) external returns (bytes32 loanId);
+
+    /// @notice Deposit confidential collateral
+    function depositConfidentialCollateral(
+        bytes32 loanId,
+        bytes32 collateralCommitment,
+        bytes calldata zkProof
+    ) external;
+
+    /// @notice Repay loan with privacy preservation
+    function repayPrivate(
+        bytes32 loanId,
+        bytes32 nullifier,
+        bytes calldata repaymentProof
+    ) external;
+
+    /// @notice Supply assets privately
+    function supplyPrivate(
+        bytes32 commitment,
+        bytes calldata supplyProof
+    ) external returns (bytes32 positionId);
+
+    /// @notice Withdraw with nullifier
+    function withdrawPrivate(
+        bytes32 positionId,
+        bytes32 nullifier,
+        bytes calldata withdrawProof
+    ) external;
+
+    // Events
+    event PrivateBorrowInitiated(
+        bytes32 indexed loanId,
+        bytes32 borrowerCommitment,
+        bytes encryptedData
+    );
+
+    event ConfidentialCollateralDeposited(
+        bytes32 indexed loanId,
+        bytes32 collateralCommitment,
+        bytes zkProof
+    );
+
+    event PrivateRepayment(
+        bytes32 indexed nullifier,
+        bytes32 newCommitment
+    );
+
+    event AnonymousLiquidation(
+        bytes32 indexed loanId,
+        bytes32 liquidatorCommitment,
+        bytes encryptedData
+    );
+}
+```
+
+### IZKCreditScoring
+
+```solidity
+interface IZKCreditScoring {
+    /// @notice Credit factors with privacy preservation
+    struct PrivateCreditFactors {
+        bytes32 repaymentHistory;     // Commitment to payment history
+        bytes32 collateralRatio;      // Hidden collateralization ratio
+        bytes32 accountAge;           // Proof of account maturity
+        bytes32 volumeCommitment;     // Historical volume proof
+        bytes merkleProof;            // Inclusion in good borrowers set
+    }
+
+    /// @notice Generate ZK proof of creditworthiness
+    function generateCreditProof(
+        PrivateCreditFactors calldata factors,
+        uint256 requestedAmount
+    ) external view returns (bytes memory proof);
+
+    /// @notice Verify credit score meets minimum threshold
+    function verifyCreditScore(
+        bytes32 userCommitment,
+        uint256 minRequired,
+        bytes calldata proof
+    ) external view returns (bool eligible);
+
+    /// @notice Update credit history with new event
+    function updateCreditHistory(
+        bytes32 userCommitment,
+        bytes32 eventType,
+        bytes calldata updateProof
+    ) external;
+}
+```
+
+## Interest Rate Model
+
+### Kinked Rate Curve
+
+The protocol uses a kinked interest rate model that increases borrowing costs as utilization approaches 100%:
+
+```
+Utilization = TotalBorrows / TotalSupply
+
+If Utilization <= Kink (80%):
+    BorrowRate = BaseRate + Utilization * MultiplierPerYear
+
+If Utilization > Kink:
+    NormalRate = BaseRate + Kink * MultiplierPerYear
+    ExcessUtil = Utilization - Kink
+    BorrowRate = NormalRate + ExcessUtil * JumpMultiplierPerYear
+
+SupplyRate = BorrowRate * Utilization * (1 - ReserveFactor)
+```
+
+### Solidity Implementation
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract InterestRateModel {
+    uint256 public constant MANTISSA = 1e18;
+    uint256 public constant BLOCKS_PER_YEAR = 2628000; // ~12 sec blocks
+
+    uint256 public baseRatePerBlock;      // Base rate
+    uint256 public multiplierPerBlock;    // Rate increase per utilization
+    uint256 public jumpMultiplierPerBlock; // Rate above kink
+    uint256 public kink;                  // Utilization threshold (80%)
+
+    constructor(
+        uint256 baseRatePerYear,
+        uint256 multiplierPerYear,
+        uint256 jumpMultiplierPerYear,
+        uint256 kink_
+    ) {
+        baseRatePerBlock = baseRatePerYear / BLOCKS_PER_YEAR;
+        multiplierPerBlock = multiplierPerYear / BLOCKS_PER_YEAR;
+        jumpMultiplierPerBlock = jumpMultiplierPerYear / BLOCKS_PER_YEAR;
+        kink = kink_;
+    }
+
+    /// @notice Calculate utilization rate
+    function utilizationRate(
+        uint256 cash,
+        uint256 borrows,
+        uint256 reserves
+    ) public pure returns (uint256) {
+        if (borrows == 0) return 0;
+        return borrows * MANTISSA / (cash + borrows - reserves);
+    }
+
+    /// @notice Get borrow rate per block
+    function getBorrowRate(
+        uint256 cash,
+        uint256 borrows,
+        uint256 reserves
+    ) public view returns (uint256) {
+        uint256 util = utilizationRate(cash, borrows, reserves);
+
+        if (util <= kink) {
+            return baseRatePerBlock + util * multiplierPerBlock / MANTISSA;
+        }
+
+        uint256 normalRate = baseRatePerBlock + kink * multiplierPerBlock / MANTISSA;
+        uint256 excessUtil = util - kink;
+        return normalRate + excessUtil * jumpMultiplierPerBlock / MANTISSA;
+    }
+
+    /// @notice Get supply rate per block
+    function getSupplyRate(
+        uint256 cash,
+        uint256 borrows,
+        uint256 reserves,
+        uint256 reserveFactorMantissa
+    ) public view returns (uint256) {
+        uint256 oneMinusReserveFactor = MANTISSA - reserveFactorMantissa;
+        uint256 borrowRate = getBorrowRate(cash, borrows, reserves);
+        uint256 rateToPool = borrowRate * oneMinusReserveFactor / MANTISSA;
+        return utilizationRate(cash, borrows, reserves) * rateToPool / MANTISSA;
+    }
+}
+```
+
+### Rate Parameters
+
+| Asset | Base Rate | Multiplier | Jump Multiplier | Kink | Reserve Factor |
+|-------|-----------|------------|-----------------|------|----------------|
+| USDT | 2% | 10% | 200% | 80% | 10% |
+| USDC | 2% | 10% | 200% | 80% | 10% |
+| BTC | 3% | 15% | 300% | 75% | 15% |
+| ETH | 3% | 15% | 300% | 75% | 15% |
+| LUX | 5% | 20% | 400% | 70% | 20% |
+
+## Supply Assets
+
+### Standard Supply
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/luxfi/dex/pkg/defi/lending"
+)
+
+func supplyUSDT(ctx context.Context) error {
+    client, err := lending.NewClient(ctx, &lending.Config{
+        Endpoint: "https://api.lux.network",
+        ChainID:  96369,
+        PrivKey:  os.Getenv("PRIVATE_KEY"),
+    })
+    if err != nil {
+        return fmt.Errorf("client init: %w", err)
+    }
+
+    // Supply USDT to earn interest
+    result, err := client.Supply(ctx, &lending.SupplyParams{
+        Asset:  "USDT",
+        Amount: "10000.00",
+    })
+    if err != nil {
+        return fmt.Errorf("supply: %w", err)
+    }
+
+    fmt.Printf("Supplied: %s USDT\n", result.Amount)
+    fmt.Printf("lTokens received: %s\n", result.Shares)
+    fmt.Printf("Current APY: %s%%\n", result.CurrentAPY)
+    fmt.Printf("TxHash: %s\n", result.TxHash)
+    return nil
+}
+```
+
+### Private Supply (ZK)
+
+```go
+func supplyPrivate(ctx context.Context) error {
+    client, err := lending.NewClient(ctx, &lending.Config{
+        Endpoint:    "https://api.lux.network",
+        ChainID:     96369,
+        PrivKey:     os.Getenv("PRIVATE_KEY"),
+        PrivacyMode: true,
+    })
+    if err != nil {
+        return err
+    }
+
+    // Generate supply commitment
+    commitment, proof, err := client.GenerateSupplyProof(ctx, &lending.SupplyProofParams{
+        Asset:  "USDT",
+        Amount: "10000.00",
+        Nonce:  randomNonce(),
+    })
+    if err != nil {
+        return err
+    }
+
+    // Supply with privacy
+    result, err := client.SupplyPrivate(ctx, &lending.PrivateSupplyParams{
+        Commitment: commitment,
+        Proof:      proof,
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Position ID: %s\n", result.PositionID)
+    fmt.Printf("Nullifier (save this!): %s\n", result.Nullifier)
+    return nil
+}
+```
+
+## Borrow Assets
+
+### Collateralized Borrowing
+
+```go
+func borrowWithCollateral(ctx context.Context) error {
+    client, err := lending.NewClient(ctx, &lending.Config{
+        Endpoint: "https://api.lux.network",
+        ChainID:  96369,
+    })
+    if err != nil {
+        return err
+    }
+
+    // Step 1: Deposit collateral
+    collateral, err := client.DepositCollateral(ctx, &lending.CollateralParams{
+        Asset:  "BTC",
+        Amount: "1.0",
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Printf("Collateral deposited: %s BTC\n", collateral.Amount)
+    fmt.Printf("Collateral value: $%s\n", collateral.ValueUSD)
+    fmt.Printf("Borrowing power: $%s\n", collateral.BorrowingPower)
+
+    // Step 2: Borrow against collateral
+    borrow, err := client.Borrow(ctx, &lending.BorrowParams{
+        Asset:  "USDT",
+        Amount: "30000.00",
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Borrowed: %s USDT\n", borrow.Amount)
+    fmt.Printf("Interest rate: %s%% APR\n", borrow.InterestRate)
+    fmt.Printf("Health factor: %s\n", borrow.HealthFactor)
+    return nil
+}
+```
+
+### Health Factor
+
+The health factor determines how close a position is to liquidation:
+
+```
+Health Factor = (Collateral Value * Collateral Factor) / Total Debt
+
+> 1.5  = Safe (green)
+1.0-1.5 = Warning (yellow)
+< 1.0  = Liquidatable (red)
+```
+
+```go
+func monitorHealthFactor(ctx context.Context, userID string) error {
+    client, _ := lending.NewClient(ctx, defaultConfig)
+
+    position, err := client.GetPosition(ctx, userID)
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Health Factor: %s\n", position.HealthFactor)
+
+    switch {
+    case position.HealthFactor.Cmp(big.NewFloat(1.5)) >= 0:
+        fmt.Println("Status: SAFE")
+    case position.HealthFactor.Cmp(big.NewFloat(1.0)) >= 0:
+        fmt.Println("Status: WARNING - Consider adding collateral")
+    default:
+        fmt.Println("Status: DANGER - Position is liquidatable!")
+    }
+
+    return nil
+}
+```
+
+## Collateral Management
+
+### Supported Collateral Assets
+
+| Asset | Collateral Factor | Liquidation Threshold | Liquidation Bonus |
+|-------|-------------------|----------------------|-------------------|
+| BTC | 80% | 85% | 5% |
+| ETH | 75% | 80% | 5% |
+| LUX | 70% | 75% | 7% |
+| USDT | 85% | 90% | 3% |
+| USDC | 85% | 90% | 3% |
+| WBTC | 78% | 83% | 5% |
+
+### Collateral Factor Calculation
+
+```solidity
+/// @notice Calculate maximum borrowable amount
+function maxBorrowable(
+    address user,
+    address borrowAsset
+) public view returns (uint256) {
+    uint256 totalCollateralValue = 0;
+
+    // Sum all collateral positions
+    address[] memory collaterals = userCollaterals[user];
+    for (uint i = 0; i < collaterals.length; i++) {
+        address asset = collaterals[i];
+        uint256 balance = collateralBalances[user][asset];
+        uint256 price = oracle.getPrice(asset);
+        uint256 factor = collateralFactors[asset];
+
+        totalCollateralValue += balance * price * factor / 1e18 / 1e18;
+    }
+
+    // Subtract existing debt
+    uint256 currentDebt = userDebt[user][borrowAsset];
+    uint256 debtPrice = oracle.getPrice(borrowAsset);
+    uint256 debtValue = currentDebt * debtPrice / 1e18;
+
+    if (totalCollateralValue <= debtValue) return 0;
+    return (totalCollateralValue - debtValue) * 1e18 / debtPrice;
+}
+```
+
+## Liquidation
+
+### Liquidation Process
+
+When a position's health factor drops below 1.0:
+
+```solidity
+/// @notice Liquidate an unhealthy position
+/// @param borrower Address of the borrower
+/// @param debtAsset Asset to repay
+/// @param debtAmount Amount of debt to repay
+/// @param collateralAsset Collateral to receive
+function liquidate(
+    address borrower,
+    address debtAsset,
+    uint256 debtAmount,
+    address collateralAsset
+) external returns (uint256 collateralSeized) {
+    // 1. Verify position is liquidatable
+    require(getHealthFactor(borrower) < 1e18, "Position healthy");
+
+    // 2. Calculate maximum liquidatable amount (50% of debt)
+    uint256 maxLiquidation = userDebt[borrower][debtAsset] / 2;
+    uint256 actualDebt = debtAmount > maxLiquidation ? maxLiquidation : debtAmount;
+
+    // 3. Calculate collateral to seize (with bonus)
+    uint256 debtValue = actualDebt * oracle.getPrice(debtAsset) / 1e18;
+    uint256 collateralPrice = oracle.getPrice(collateralAsset);
+    uint256 bonus = liquidationBonuses[collateralAsset];
+
+    collateralSeized = debtValue * (1e18 + bonus) / collateralPrice;
+
+    // 4. Transfer debt from liquidator
+    IERC20(debtAsset).safeTransferFrom(msg.sender, address(this), actualDebt);
+
+    // 5. Reduce borrower's debt
+    userDebt[borrower][debtAsset] -= actualDebt;
+
+    // 6. Transfer collateral to liquidator
+    collateralBalances[borrower][collateralAsset] -= collateralSeized;
+    IERC20(collateralAsset).safeTransfer(msg.sender, collateralSeized);
+
+    emit Liquidation(borrower, msg.sender, debtAsset, actualDebt, collateralSeized);
+}
+```
+
+### Liquidation Bot Example
+
+```go
+func runLiquidationBot(ctx context.Context) error {
+    client, _ := lending.NewClient(ctx, defaultConfig)
+
+    // Subscribe to position updates
+    positions := client.WatchPositions(ctx, &lending.WatchParams{
+        HealthFactorMax: "1.05", // Watch positions near liquidation
+    })
+
+    for position := range positions {
+        if position.HealthFactor.Cmp(big.NewFloat(1.0)) < 0 {
+            // Position is liquidatable
+            result, err := client.Liquidate(ctx, &lending.LiquidateParams{
+                Borrower:        position.UserID,
+                DebtAsset:       "USDT",
+                DebtAmount:      position.Debt.Div(position.Debt, big.NewInt(2)).String(),
+                CollateralAsset: "BTC",
+            })
+            if err != nil {
+                log.Printf("Liquidation failed: %v", err)
+                continue
+            }
+
+            log.Printf("Liquidated %s, received %s BTC (bonus: %s)",
+                position.UserID,
+                result.CollateralReceived,
+                result.LiquidationBonus)
+        }
+    }
+
+    return nil
+}
+```
+
+## Repayment
+
+```go
+func repayDebt(ctx context.Context) error {
+    client, _ := lending.NewClient(ctx, defaultConfig)
+
+    // Partial repayment
+    result, err := client.Repay(ctx, &lending.RepayParams{
+        Asset:  "USDT",
+        Amount: "15000.00",
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("Repaid: %s USDT\n", result.Amount)
+    fmt.Printf("Remaining debt: %s USDT\n", result.RemainingDebt)
+    fmt.Printf("New health factor: %s\n", result.HealthFactor)
+
+    // Full repayment
+    result, err = client.RepayAll(ctx, "USDT")
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("All debt cleared!\n")
+    return nil
+}
+```
+
+## API Reference
+
+### Supply Functions
+
+```go
+// Supply assets to earn interest
+func (c *Client) Supply(ctx context.Context, params *SupplyParams) (*SupplyResult, error)
+
+// Supply with privacy (ZK)
+func (c *Client) SupplyPrivate(ctx context.Context, params *PrivateSupplyParams) (*PrivateSupplyResult, error)
+
+// Withdraw supplied assets
+func (c *Client) Withdraw(ctx context.Context, params *WithdrawParams) (*WithdrawResult, error)
+
+// Withdraw with nullifier (ZK)
+func (c *Client) WithdrawPrivate(ctx context.Context, params *PrivateWithdrawParams) (*PrivateWithdrawResult, error)
+```
+
+### Borrow Functions
+
+```go
+// Borrow against collateral
+func (c *Client) Borrow(ctx context.Context, params *BorrowParams) (*BorrowResult, error)
+
+// Private borrow with ZK credit proof
+func (c *Client) BorrowPrivate(ctx context.Context, params *PrivateBorrowParams) (*PrivateBorrowResult, error)
+
+// Repay debt
+func (c *Client) Repay(ctx context.Context, params *RepayParams) (*RepayResult, error)
+
+// Repay all debt for asset
+func (c *Client) RepayAll(ctx context.Context, asset string) (*RepayResult, error)
+```
+
+### Collateral Functions
+
+```go
+// Deposit collateral
+func (c *Client) DepositCollateral(ctx context.Context, params *CollateralParams) (*CollateralResult, error)
+
+// Withdraw collateral (if health factor allows)
+func (c *Client) WithdrawCollateral(ctx context.Context, params *WithdrawCollateralParams) (*CollateralResult, error)
+```
+
+### Query Functions
+
+```go
+// Get user's lending position
+func (c *Client) GetPosition(ctx context.Context, userID string) (*Position, error)
+
+// Get market rates
+func (c *Client) GetMarketRates(ctx context.Context, asset string) (*MarketRates, error)
+
+// Get health factor
+func (c *Client) GetHealthFactor(ctx context.Context, userID string) (*HealthFactor, error)
+
+// Check if position is liquidatable
+func (c *Client) IsLiquidatable(ctx context.Context, userID string) (bool, error)
+```
+
+## Events
+
+```go
+// Listen for lending events
+func watchEvents(ctx context.Context) error {
+    client, _ := lending.NewClient(ctx, defaultConfig)
+
+    events := client.Subscribe(ctx, lending.AllEvents)
+
+    for event := range events {
+        switch e := event.(type) {
+        case *lending.SupplyEvent:
+            fmt.Printf("Supply: %s %s by %s\n", e.Amount, e.Asset, e.UserID)
+        case *lending.BorrowEvent:
+            fmt.Printf("Borrow: %s %s by %s\n", e.Amount, e.Asset, e.UserID)
+        case *lending.RepayEvent:
+            fmt.Printf("Repay: %s %s by %s\n", e.Amount, e.Asset, e.UserID)
+        case *lending.LiquidationEvent:
+            fmt.Printf("Liquidation: %s liquidated by %s\n", e.Borrower, e.Liquidator)
+        }
+    }
+
+    return nil
+}
+```
+
+## Gas Costs
+
+| Operation | Gas | USD @ 25 gwei |
+|-----------|-----|---------------|
+| Supply | 150,000 | ~$0.08 |
+| Withdraw | 120,000 | ~$0.06 |
+| Deposit Collateral | 130,000 | ~$0.07 |
+| Borrow | 200,000 | ~$0.11 |
+| Repay | 120,000 | ~$0.06 |
+| Liquidate | 350,000 | ~$0.18 |
+| Private Supply (ZK) | 450,000 | ~$0.24 |
+| Private Borrow (ZK) | 550,000 | ~$0.29 |
+
+## Security Considerations
+
+### Smart Contract Risks
+
+- **Reentrancy**: All functions use CEI pattern and ReentrancyGuard
+- **Oracle Manipulation**: Multi-source oracles with TWAP protection
+- **Flash Loan Attacks**: Rate limits and minimum borrow times
+- **Interest Rate Manipulation**: Capped maximum rates
+
+### Privacy Guarantees
+
+- **Commitment Hiding**: Pedersen commitments for amounts
+- **Nullifier Unlinkability**: One-time nullifiers prevent tracking
+- **Zero-Knowledge**: Bulletproofs for range proofs
+- **MPC Rate Discovery**: Fair rates without revealing offers
+
+## Related Documentation
+
+- [Risk Parameters](./risks) - Collateral factors, liquidation thresholds
+- [Flash Loans](./flash) - Atomic uncollateralized lending
+- [Price Oracles](./oracles) - Oracle integration and TWAP
+- [Governance](./governance) - Parameter updates and proposals

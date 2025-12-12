@@ -1,0 +1,641 @@
+---
+title: Order Management
+description: Place, cancel, and manage orders with full TypeScript examples
+---
+
+# Order Management
+
+This guide covers all order management operations in the TypeScript SDK, including order placement, cancellation, and status tracking.
+
+## Order Types
+
+The SDK supports the following order types:
+
+```typescript
+enum OrderType {
+  LIMIT = 0,       // Order at specific price
+  MARKET = 1,      // Execute at best available price
+  STOP = 2,        // Trigger when price reaches stop
+  STOP_LIMIT = 3,  // Stop that becomes limit order
+  ICEBERG = 4,     // Hidden quantity order
+  PEG = 5          // Pegged to best bid/ask
+}
+```
+
+## Placing Orders
+
+### Limit Order
+
+A limit order executes at a specific price or better:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+
+async function placeLimitOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.LIMIT,
+      side: OrderSide.BUY,
+      price: 50000,
+      size: 0.5,
+      userID: 'trader-001',
+      timeInForce: TimeInForce.GTC
+    });
+
+    console.log('Order ID:', result.orderId);
+    console.log('Status:', result.status);
+  } catch (error) {
+    console.error('Order placement failed:', error);
+  }
+}
+```
+
+### Market Order
+
+A market order executes immediately at the best available price:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function placeMarketOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.MARKET,
+      side: OrderSide.SELL,
+      size: 1.0,
+      userID: 'trader-001'
+    });
+
+    console.log('Market order executed:', result.orderId);
+  } catch (error) {
+    console.error('Market order failed:', error);
+  }
+}
+```
+
+### Stop Order
+
+A stop order triggers when the market price reaches the stop price:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function placeStopOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    // Stop-loss order: Sell when price drops to 48000
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.STOP,
+      side: OrderSide.SELL,
+      price: 48000,  // Stop price
+      size: 0.5,
+      userID: 'trader-001'
+    });
+
+    console.log('Stop order placed:', result.orderId);
+  } catch (error) {
+    console.error('Stop order failed:', error);
+  }
+}
+```
+
+### Stop-Limit Order
+
+A stop-limit order becomes a limit order when triggered:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+interface StopLimitParams {
+  symbol: string;
+  side: OrderSide;
+  stopPrice: number;
+  limitPrice: number;
+  size: number;
+}
+
+async function placeStopLimitOrder(params: StopLimitParams): Promise<number> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const result = await client.placeOrder({
+    symbol: params.symbol,
+    type: OrderType.STOP_LIMIT,
+    side: params.side,
+    price: params.limitPrice,
+    size: params.size,
+    userID: 'trader-001'
+    // Note: Stop price configuration may vary by implementation
+  });
+
+  return result.orderId;
+}
+
+// Example: Buy BTC when price rises above 51000, but limit to 51500
+placeStopLimitOrder({
+  symbol: 'BTC-USD',
+  side: OrderSide.BUY,
+  stopPrice: 51000,
+  limitPrice: 51500,
+  size: 0.25
+});
+```
+
+### Iceberg Order
+
+An iceberg order hides the full order quantity:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function placeIcebergOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.ICEBERG,
+      side: OrderSide.BUY,
+      price: 50000,
+      size: 10.0,      // Total size (hidden)
+      userID: 'trader-001'
+      // Display size is typically 10% of total
+    });
+
+    console.log('Iceberg order placed:', result.orderId);
+  } catch (error) {
+    console.error('Iceberg order failed:', error);
+  }
+}
+```
+
+## Time in Force Options
+
+Control how long an order remains active:
+
+```typescript
+enum TimeInForce {
+  GTC = 'GTC',  // Good Till Cancelled - remains until filled or cancelled
+  IOC = 'IOC',  // Immediate Or Cancel - fill what you can, cancel rest
+  FOK = 'FOK',  // Fill Or Kill - fill entirely or cancel entirely
+  DAY = 'DAY'   // Day Order - expires at end of trading day
+}
+```
+
+### IOC Order Example
+
+```typescript
+import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+
+async function placeIOCOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // IOC: Execute immediately, cancel unfilled portion
+  const result = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: OrderType.LIMIT,
+    side: OrderSide.BUY,
+    price: 50000,
+    size: 1.0,
+    userID: 'trader-001',
+    timeInForce: TimeInForce.IOC
+  });
+
+  console.log('IOC order result:', result);
+  // Check if fully filled or partially filled
+}
+```
+
+### FOK Order Example
+
+```typescript
+import { LXDexClient, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+
+async function placeFOKOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // FOK: Must fill entirely or reject
+  const result = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: OrderType.LIMIT,
+    side: OrderSide.BUY,
+    price: 50000,
+    size: 1.0,
+    userID: 'trader-001',
+    timeInForce: TimeInForce.FOK
+  });
+
+  if (result.status === 'filled') {
+    console.log('Order fully filled');
+  } else {
+    console.log('Order rejected - could not fill entirely');
+  }
+}
+```
+
+## Order Options
+
+### Post-Only Orders
+
+Post-only orders only add liquidity (maker orders):
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function placePostOnlyOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const result = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: OrderType.LIMIT,
+    side: OrderSide.BUY,
+    price: 49900,  // Below best ask to ensure it's a maker order
+    size: 0.5,
+    userID: 'trader-001',
+    postOnly: true  // Reject if would take liquidity
+  });
+
+  console.log('Post-only order:', result.orderId);
+}
+```
+
+### Reduce-Only Orders
+
+Reduce-only orders can only reduce an existing position:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+async function placeReduceOnlyOrder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  // Close or reduce long position
+  const result = await client.placeOrder({
+    symbol: 'BTC-USD',
+    type: OrderType.LIMIT,
+    side: OrderSide.SELL,
+    price: 51000,
+    size: 0.5,
+    userID: 'trader-001',
+    reduceOnly: true  // Cannot increase position
+  });
+
+  console.log('Reduce-only order:', result.orderId);
+}
+```
+
+## Cancelling Orders
+
+### Cancel Single Order
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function cancelOrder(orderId: number): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    const result = await client.cancelOrder(orderId);
+
+    if (result.success) {
+      console.log('Order cancelled successfully');
+    } else {
+      console.log('Cancel failed:', result.message);
+    }
+  } catch (error) {
+    console.error('Cancel error:', error);
+  }
+}
+
+// Usage
+cancelOrder(12345);
+```
+
+### Cancel Multiple Orders
+
+```typescript
+import { LXDexClient } from '@luxfi/dex-sdk';
+
+async function cancelMultipleOrders(orderIds: number[]): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const results = await Promise.allSettled(
+    orderIds.map(id => client.cancelOrder(id))
+  );
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      console.log(`Order ${orderIds[index]}: cancelled`);
+    } else {
+      console.log(`Order ${orderIds[index]}: failed - ${result.reason}`);
+    }
+  });
+}
+
+// Usage
+cancelMultipleOrders([12345, 12346, 12347]);
+```
+
+## Querying Orders
+
+### Get Single Order
+
+```typescript
+import { LXDexClient, Order } from '@luxfi/dex-sdk';
+
+async function getOrderDetails(orderId: number): Promise<Order> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const order = await client.getOrder(orderId);
+
+  console.log('Order Details:');
+  console.log('  ID:', order.orderId);
+  console.log('  Symbol:', order.symbol);
+  console.log('  Type:', order.type);
+  console.log('  Side:', order.side === 0 ? 'BUY' : 'SELL');
+  console.log('  Price:', order.price);
+  console.log('  Size:', order.size);
+  console.log('  Filled:', order.filled);
+  console.log('  Remaining:', order.remaining);
+  console.log('  Status:', order.status);
+  console.log('  Timestamp:', new Date(order.timestamp!));
+
+  return order;
+}
+```
+
+## Order Builder Pattern
+
+For complex order creation, use a builder pattern:
+
+```typescript
+import { LXDexClient, Order, OrderType, OrderSide, TimeInForce } from '@luxfi/dex-sdk';
+
+class OrderBuilder {
+  private order: Partial<Order> = {};
+
+  symbol(symbol: string): OrderBuilder {
+    this.order.symbol = symbol;
+    return this;
+  }
+
+  limit(): OrderBuilder {
+    this.order.type = OrderType.LIMIT;
+    return this;
+  }
+
+  market(): OrderBuilder {
+    this.order.type = OrderType.MARKET;
+    return this;
+  }
+
+  buy(): OrderBuilder {
+    this.order.side = OrderSide.BUY;
+    return this;
+  }
+
+  sell(): OrderBuilder {
+    this.order.side = OrderSide.SELL;
+    return this;
+  }
+
+  price(price: number): OrderBuilder {
+    this.order.price = price;
+    return this;
+  }
+
+  size(size: number): OrderBuilder {
+    this.order.size = size;
+    return this;
+  }
+
+  user(userID: string): OrderBuilder {
+    this.order.userID = userID;
+    return this;
+  }
+
+  gtc(): OrderBuilder {
+    this.order.timeInForce = TimeInForce.GTC;
+    return this;
+  }
+
+  ioc(): OrderBuilder {
+    this.order.timeInForce = TimeInForce.IOC;
+    return this;
+  }
+
+  fok(): OrderBuilder {
+    this.order.timeInForce = TimeInForce.FOK;
+    return this;
+  }
+
+  postOnly(): OrderBuilder {
+    this.order.postOnly = true;
+    return this;
+  }
+
+  reduceOnly(): OrderBuilder {
+    this.order.reduceOnly = true;
+    return this;
+  }
+
+  build(): Partial<Order> {
+    // Validate required fields
+    if (!this.order.symbol) throw new Error('Symbol is required');
+    if (this.order.type === undefined) throw new Error('Type is required');
+    if (this.order.side === undefined) throw new Error('Side is required');
+    if (!this.order.size) throw new Error('Size is required');
+    if (this.order.type === OrderType.LIMIT && !this.order.price) {
+      throw new Error('Price is required for limit orders');
+    }
+
+    return this.order;
+  }
+}
+
+// Usage
+async function placeOrderWithBuilder(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const order = new OrderBuilder()
+    .symbol('BTC-USD')
+    .limit()
+    .buy()
+    .price(50000)
+    .size(0.5)
+    .user('trader-001')
+    .gtc()
+    .postOnly()
+    .build();
+
+  const result = await client.placeOrder(order);
+  console.log('Order placed:', result.orderId);
+}
+```
+
+## Error Handling
+
+Handle order-related errors appropriately:
+
+```typescript
+import { LXDexClient, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+interface OrderError extends Error {
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
+async function placeOrderWithErrorHandling(): Promise<void> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  try {
+    const result = await client.placeOrder({
+      symbol: 'BTC-USD',
+      type: OrderType.LIMIT,
+      side: OrderSide.BUY,
+      price: 50000,
+      size: 1.0,
+      userID: 'trader-001'
+    });
+
+    console.log('Order successful:', result.orderId);
+
+  } catch (error) {
+    const orderError = error as OrderError;
+
+    // Handle specific error cases
+    if (orderError.message.includes('insufficient')) {
+      console.error('Insufficient balance to place order');
+      // Suggest reducing order size or adding funds
+    } else if (orderError.message.includes('rate limit')) {
+      console.error('Rate limit exceeded - waiting before retry');
+      // Implement exponential backoff
+    } else if (orderError.message.includes('invalid symbol')) {
+      console.error('Invalid trading pair');
+      // Validate symbol exists
+    } else if (orderError.message.includes('market closed')) {
+      console.error('Market is currently closed');
+      // Show market hours or queue order
+    } else {
+      console.error('Order failed:', orderError.message);
+    }
+  }
+}
+```
+
+## Batch Order Operations
+
+Place multiple orders efficiently:
+
+```typescript
+import { LXDexClient, Order, OrderType, OrderSide } from '@luxfi/dex-sdk';
+
+interface BatchOrderResult {
+  successful: Array<{ orderId: number; index: number }>;
+  failed: Array<{ error: Error; index: number }>;
+}
+
+async function placeBatchOrders(orders: Partial<Order>[]): Promise<BatchOrderResult> {
+  const client = new LXDexClient({
+    jsonRpcUrl: 'http://localhost:8080/rpc'
+  });
+
+  const results = await Promise.allSettled(
+    orders.map(order => client.placeOrder(order))
+  );
+
+  const successful: Array<{ orderId: number; index: number }> = [];
+  const failed: Array<{ error: Error; index: number }> = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      successful.push({ orderId: result.value.orderId, index });
+    } else {
+      failed.push({ error: result.reason, index });
+    }
+  });
+
+  console.log(`Batch result: ${successful.length} successful, ${failed.length} failed`);
+
+  return { successful, failed };
+}
+
+// Usage: Place grid orders
+async function placeGridOrders(): Promise<void> {
+  const basePrice = 50000;
+  const gridSize = 5;
+  const gridSpacing = 100;
+  const orderSize = 0.1;
+
+  const buyOrders: Partial<Order>[] = [];
+  const sellOrders: Partial<Order>[] = [];
+
+  for (let i = 1; i <= gridSize; i++) {
+    // Buy orders below current price
+    buyOrders.push({
+      symbol: 'BTC-USD',
+      type: OrderType.LIMIT,
+      side: OrderSide.BUY,
+      price: basePrice - (i * gridSpacing),
+      size: orderSize,
+      userID: 'grid-bot'
+    });
+
+    // Sell orders above current price
+    sellOrders.push({
+      symbol: 'BTC-USD',
+      type: OrderType.LIMIT,
+      side: OrderSide.SELL,
+      price: basePrice + (i * gridSpacing),
+      size: orderSize,
+      userID: 'grid-bot'
+    });
+  }
+
+  const allOrders = [...buyOrders, ...sellOrders];
+  const result = await placeBatchOrders(allOrders);
+
+  console.log('Grid orders placed:', result.successful.length);
+}
+```
+
+## Next Steps
+
+- [Order Book](/docs/sdk/typescript/orderbook) - Access real-time order book data
+- [Trade History](/docs/sdk/typescript/trades) - Query executed trades
+- [WebSocket Guide](/docs/sdk/typescript/websocket) - Real-time order updates

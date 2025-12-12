@@ -1,0 +1,285 @@
+---
+title: Go SDK
+description: High-performance Go SDK for LX DEX - gRPC, WebSocket, and JSON-RPC client libraries
+---
+
+# Go SDK Overview
+
+The LX DEX Go SDK provides a production-ready client library for building high-performance trading applications. It supports multiple transport protocols (gRPC, WebSocket, JSON-RPC) with automatic failover, connection pooling, and comprehensive error handling.
+
+## Features
+
+- **Multi-Protocol Support**: gRPC for low-latency operations, WebSocket for real-time streaming, JSON-RPC for compatibility
+- **Connection Management**: Automatic reconnection with exponential backoff
+- **High-Performance**: Object pooling, zero-allocation hot paths, concurrent request handling
+- **Type Safety**: Strongly typed order, trade, and market data structures
+- **Context Support**: Full context.Context integration for cancellation and timeouts
+
+## Installation
+
+```bash
+go get github.com/luxfi/dex/sdk/go/client
+```
+
+**Requirements**:
+- Go 1.21 or later
+- gRPC dependencies (automatically fetched)
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/sdk/go/client"
+)
+
+func main() {
+    // Create client with options
+    c, err := client.NewClient(
+        client.WithJSONRPCURL("http://localhost:8080"),
+        client.WithWebSocketURL("ws://localhost:8081"),
+        client.WithGRPCURL("localhost:50051"),
+        client.WithAPIKey("your-api-key"),
+    )
+    if err != nil {
+        log.Fatal("Failed to create client:", err)
+    }
+    defer c.Disconnect()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    // Connect to gRPC for high-performance operations
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Printf("gRPC unavailable, using JSON-RPC: %v", err)
+    }
+
+    // Place a limit order
+    order := &client.Order{
+        Symbol:      "BTC-USD",
+        Type:        client.OrderTypeLimit,
+        Side:        client.OrderSideBuy,
+        Price:       50000.00,
+        Size:        0.1,
+        UserID:      "trader-001",
+        ClientID:    "my-order-001",
+        TimeInForce: client.TimeInForceGTC,
+    }
+
+    resp, err := c.PlaceOrder(ctx, order)
+    if err != nil {
+        log.Fatal("Failed to place order:", err)
+    }
+
+    fmt.Printf("Order placed: ID=%d, Status=%s\n", resp.OrderID, resp.Status)
+}
+```
+
+## Architecture
+
+```
++------------------+
+|   Application    |
++------------------+
+         |
++------------------+
+|   LX DEX Client  |
++------------------+
+    |    |    |
+    v    v    v
++------+------+------+
+| gRPC |  WS  | HTTP |
++------+------+------+
+    |    |    |
+    v    v    v
++------------------+
+|   LX DEX Node    |
++------------------+
+```
+
+## Protocol Selection
+
+| Protocol | Use Case | Latency | Throughput |
+|----------|----------|---------|------------|
+| **gRPC** | Order execution, high-frequency trading | ~100us | Highest |
+| **WebSocket** | Real-time market data, order updates | ~1ms | High |
+| **JSON-RPC** | General queries, compatibility | ~5ms | Medium |
+
+## Connection Patterns
+
+### Single Connection (Simple)
+
+```go
+c, err := client.NewClient(
+    client.WithJSONRPCURL("http://localhost:8080"),
+)
+```
+
+### Multi-Protocol (Production)
+
+```go
+c, err := client.NewClient(
+    client.WithJSONRPCURL("http://localhost:8080"),
+    client.WithWebSocketURL("ws://localhost:8081"),
+    client.WithGRPCURL("localhost:50051"),
+    client.WithAPIKey("your-api-key"),
+)
+
+// Connect to gRPC (primary for orders)
+if err := c.ConnectGRPC(ctx); err != nil {
+    log.Printf("gRPC unavailable: %v", err)
+}
+
+// Connect to WebSocket (for streaming)
+if err := c.ConnectWebSocket(ctx); err != nil {
+    log.Printf("WebSocket unavailable: %v", err)
+}
+```
+
+### Connection Pool (High-Throughput)
+
+```go
+const poolSize = 10
+clients := make([]*client.Client, poolSize)
+
+for i := 0; i < poolSize; i++ {
+    c, err := client.NewClient(
+        client.WithGRPCURL("localhost:50051"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := c.ConnectGRPC(ctx); err != nil {
+        log.Fatal(err)
+    }
+    clients[i] = c
+}
+
+// Round-robin load balancing
+var counter uint64
+func getClient() *client.Client {
+    idx := atomic.AddUint64(&counter, 1) % uint64(poolSize)
+    return clients[idx]
+}
+```
+
+## Types Reference
+
+### Order Types
+
+```go
+const (
+    OrderTypeLimit     OrderType = 0 // Execute at specific price
+    OrderTypeMarket    OrderType = 1 // Execute at best available price
+    OrderTypeStop      OrderType = 2 // Trigger at stop price
+    OrderTypeStopLimit OrderType = 3 // Stop becomes limit order
+    OrderTypeIceberg   OrderType = 4 // Hidden quantity order
+    OrderTypePeg       OrderType = 5 // Pegged to best bid/ask
+)
+```
+
+### Order Sides
+
+```go
+const (
+    OrderSideBuy  OrderSide = 0
+    OrderSideSell OrderSide = 1
+)
+```
+
+### Order Status
+
+```go
+const (
+    OrderStatusOpen      OrderStatus = "open"
+    OrderStatusPartial   OrderStatus = "partial"
+    OrderStatusFilled    OrderStatus = "filled"
+    OrderStatusCancelled OrderStatus = "cancelled"
+    OrderStatusRejected  OrderStatus = "rejected"
+)
+```
+
+### Time In Force
+
+```go
+const (
+    TimeInForceGTC TimeInForce = "GTC" // Good Till Cancelled
+    TimeInForceIOC TimeInForce = "IOC" // Immediate Or Cancel
+    TimeInForceFOK TimeInForce = "FOK" // Fill Or Kill
+    TimeInForceDAY TimeInForce = "DAY" // Day Order
+)
+```
+
+## Performance Guidelines
+
+### Memory Allocation
+
+```go
+// Pre-allocate order structures for hot paths
+orderPool := sync.Pool{
+    New: func() interface{} {
+        return &client.Order{}
+    },
+}
+
+func placeOrder(symbol string, price, size float64, side client.OrderSide) {
+    order := orderPool.Get().(*client.Order)
+    defer orderPool.Put(order)
+
+    order.Symbol = symbol
+    order.Price = price
+    order.Size = size
+    order.Side = side
+    order.Type = client.OrderTypeLimit
+
+    _, err := c.PlaceOrder(ctx, order)
+    // handle error
+}
+```
+
+### Concurrent Requests
+
+```go
+// Use semaphore to limit concurrent requests
+sem := make(chan struct{}, 100)
+
+func placeOrderConcurrent(order *client.Order) error {
+    sem <- struct{}{}
+    defer func() { <-sem }()
+
+    _, err := c.PlaceOrder(ctx, order)
+    return err
+}
+```
+
+### Context Timeouts
+
+```go
+// Always use context timeouts for network operations
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+resp, err := c.PlaceOrder(ctx, order)
+if err != nil {
+    if errors.Is(err, context.DeadlineExceeded) {
+        log.Println("Order timed out, may or may not have been placed")
+    }
+    return err
+}
+```
+
+## Next Steps
+
+- [Client Initialization](/docs/sdk/go/client) - Connection management and configuration
+- [Orders](/docs/sdk/go/orders) - Placing, canceling, and modifying orders
+- [Order Book](/docs/sdk/go/orderbook) - Market depth and real-time updates
+- [Trades](/docs/sdk/go/trades) - Trade history and streaming
+- [Account](/docs/sdk/go/account) - Balances and positions
+- [WebSocket](/docs/sdk/go/websocket) - Real-time subscriptions
+- [Error Handling](/docs/sdk/go/errors) - Error codes and retry strategies
