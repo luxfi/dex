@@ -185,6 +185,11 @@ func (lf *LxFirstArbitrage) checkOpportunities(symbol string) {
 		return
 	}
 
+	// Guard against division by zero
+	if lxPrice.Mid.IsZero() {
+		return
+	}
+
 	now := time.Now()
 
 	for _, vp := range venuePrices {
