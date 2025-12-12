@@ -1,0 +1,420 @@
+---
+title: Hummingbot Strategies
+description: Trading strategies for LX DEX with Hummingbot
+---
+
+# Hummingbot Strategies for LX DEX
+
+This guide covers popular trading strategies you can run on LX DEX using Hummingbot.
+
+## Strategy Overview
+
+| Strategy | Risk | Complexity | Capital Required |
+|----------|------|------------|------------------|
+| Pure Market Making | Medium | Low | Medium |
+| Cross-Exchange MM | Low | Medium | High |
+| Arbitrage | Low | Medium | Medium |
+| CLMM Range Orders | Medium | High | Medium |
+| Liquidity Mining | Low | Low | Low |
+
+## Pure Market Making
+
+The simplest strategy: place buy and sell orders around the current price.
+
+### Configuration
+
+```yaml
+# conf/pure_mm_lxdex.yml
+strategy: pure_market_making
+exchange: lxdex
+market: LUX-USDC
+
+# Spread settings
+bid_spread: 0.5%     # Buy 0.5% below mid price
+ask_spread: 0.5%     # Sell 0.5% above mid price
+
+# Order settings
+order_amount: 100    # Order size in LUX
+order_levels: 3      # Number of orders per side
+order_level_spread: 0.2%  # Spread between levels
+
+# Risk management
+inventory_target_base_pct: 50%  # Target 50% LUX, 50% USDC
+inventory_range_multiplier: 1.5
+
+# Order refresh
+order_refresh_time: 30s
+filled_order_delay: 10s
+
+# Advanced
+hanging_orders_enabled: true
+hanging_orders_cancel_pct: 5%
+```
+
+### Starting the Strategy
+
+```bash
+>>> config pure_mm_lxdex.yml
+>>> start
+```
+
+### Optimal Parameters for LX DEX
+
+Due to LX DEX's low latency, you can use tighter spreads:
+
+| Market Condition | Bid Spread | Ask Spread | Refresh Time |
+|------------------|------------|------------|--------------|
+| High volatility | 1.0% | 1.0% | 15s |
+| Normal | 0.3% | 0.3% | 30s |
+| Low volatility | 0.1% | 0.1% | 60s |
+
+## Cross-Exchange Market Making
+
+Arbitrage between LX DEX and centralized exchanges.
+
+### Configuration
+
+```yaml
+# conf/cross_exchange_mm.yml
+strategy: cross_exchange_market_making
+
+maker_exchange: lxdex
+taker_exchange: binance
+
+maker_market: LUX-USDC
+taker_market: LUX-USDT
+
+# Spread requirements
+min_profitability: 0.2%
+
+# Order settings
+order_amount: 50
+top_depth_tolerance: 0.1%
+
+# Hedging
+hedging_enabled: true
+hedging_delay: 0.5s
+```
+
+### Risk Management
+
+- Keep sufficient inventory on both exchanges
+- Monitor funding costs for borrowed assets
+- Set maximum position limits
+
+## AMM Liquidity Provision
+
+Provide liquidity to LX DEX AMM pools.
+
+### Using the API Directly
+
+```typescript
+import { LXDex } from '@lxdex/hummingbot-gateway-connector';
+
+const connector = LXDex.getInstance('mainnet');
+
+// Check pool info first
+const poolInfo = await connector.getPoolInfo({
+  tokenA: 'LUX',
+  tokenB: 'USDC',
+});
+
+const pool = poolInfo.pools[0];
+console.log(`APY: ${pool.apy}%`);
+console.log(`TVL: $${pool.tvlUSD}`);
+
+// Add liquidity
+const result = await connector.addLiquidity({
+  walletAddress: 'your-wallet',
+  tokenA: 'LUX',
+  tokenB: 'USDC',
+  amountA: '1000000000000000000000', // 1000 LUX
+  amountB: '12500000000', // 12,500 USDC
+  slippagePct: 0.5,
+});
+
+console.log(`LP tokens minted: ${result.liquidityMinted}`);
+```
+
+### Custom LP Strategy Script
+
+```python
+# scripts/lxdex_lp_strategy.py
+from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+
+class LXDexLPStrategy(ScriptStrategyBase):
+    markets = {"lxdex": {"LUX-USDC"}}
+
+    def __init__(self):
+        super().__init__()
+        self.target_pool_share = 0.01  # Target 1% of pool
+        self.rebalance_threshold = 0.1  # Rebalance if off by 10%
+
+    async def on_tick(self):
+        # Get current position
+        position = await self.connector.get_position_info({
+            "walletAddress": self.wallet_address,
+        })
+
+        # Get pool info
+        pool = await self.connector.get_pool_info({
+            "tokenA": "LUX",
+            "tokenB": "USDC",
+        })
+
+        current_share = float(position.share_percent) / 100
+
+        # Rebalance if needed
+        if abs(current_share - self.target_pool_share) > self.rebalance_threshold:
+            await self.rebalance(pool, position)
+```
+
+## CLMM Range Orders
+
+Concentrated liquidity strategies for maximum capital efficiency.
+
+### Tight Range Strategy
+
+Best for stable pairs or when you have a strong price view:
+
+```typescript
+const connector = LXDex.getInstance('mainnet');
+
+// Get current pool state
+const poolInfo = await connector.getCLMMPoolInfo({
+  tokenA: 'USDC',
+  tokenB: 'USDT',
+  fee: 500, // 0.05% fee tier for stables
+});
+
+const pool = poolInfo.pools[0];
+const currentTick = pool.currentTick;
+
+// Set tight range: +/- 0.1%
+// Each tick is ~0.01% price change
+const tickLower = currentTick - 100;
+const tickUpper = currentTick + 100;
+
+// Open position
+const result = await connector.openPosition({
+  walletAddress: 'your-wallet',
+  tokenA: 'USDC',
+  tokenB: 'USDT',
+  fee: 500,
+  tickLower,
+  tickUpper,
+  amountA: '10000000000', // 10,000 USDC
+  amountB: '10000000000', // 10,000 USDT
+});
+
+console.log(`Position NFT ID: ${result.tokenId}`);
+```
+
+### Active Range Management
+
+Monitor and adjust positions as price moves:
+
+```python
+# scripts/clmm_range_manager.py
+import asyncio
+from typing import List
+
+class CLMMRangeManager:
+    def __init__(self, connector, wallet_address):
+        self.connector = connector
+        self.wallet = wallet_address
+        self.check_interval = 60  # Check every minute
+
+    async def monitor_positions(self):
+        while True:
+            positions = await self.connector.get_positions_owned({
+                "walletAddress": self.wallet,
+            })
+
+            for pos in positions.positions:
+                if not pos.in_range:
+                    print(f"Position {pos.token_id} out of range!")
+                    await self.handle_out_of_range(pos)
+
+            await asyncio.sleep(self.check_interval)
+
+    async def handle_out_of_range(self, position):
+        # Option 1: Close position and collect fees
+        await self.connector.close_position({
+            "walletAddress": self.wallet,
+            "tokenId": position.token_id,
+        })
+
+        # Option 2: Just collect fees and keep position
+        # await self.connector.collect_fees({
+        #     "walletAddress": self.wallet,
+        #     "tokenId": position.token_id,
+        # })
+```
+
+## Arbitrage Strategies
+
+### DEX-CEX Arbitrage
+
+```python
+# scripts/dex_cex_arb.py
+class DexCexArbitrage:
+    def __init__(self, lxdex_connector, cex_connector):
+        self.lxdex = lxdex_connector
+        self.cex = cex_connector
+        self.min_profit_bps = 10  # Minimum 0.1% profit
+
+    async def find_opportunities(self, pair: str):
+        # Get LX DEX price
+        lxdex_quote = await self.lxdex.get_quote({
+            "baseToken": pair.split("/")[0],
+            "quoteToken": pair.split("/")[1],
+            "amount": "1000000000000000000",  # 1 token
+            "side": "SELL",
+        })
+
+        # Get CEX price
+        cex_price = await self.cex.get_ticker(pair)
+
+        lxdex_price = float(lxdex_quote.price)
+        cex_bid = float(cex_price.bid)
+        cex_ask = float(cex_price.ask)
+
+        # Check for arbitrage
+        if lxdex_price > cex_ask * (1 + self.min_profit_bps / 10000):
+            return {
+                "direction": "buy_cex_sell_lxdex",
+                "profit_bps": (lxdex_price / cex_ask - 1) * 10000,
+            }
+        elif cex_bid > lxdex_price * (1 + self.min_profit_bps / 10000):
+            return {
+                "direction": "buy_lxdex_sell_cex",
+                "profit_bps": (cex_bid / lxdex_price - 1) * 10000,
+            }
+
+        return None
+```
+
+### Cross-AMM Arbitrage
+
+Find price discrepancies between AMM pools:
+
+```typescript
+async function findAmmArbitrage(connector: LXDex, tokenPath: string[]) {
+  const quotes = [];
+
+  // Get quote for direct path
+  const directQuote = await connector.getQuote({
+    baseToken: tokenPath[0],
+    quoteToken: tokenPath[tokenPath.length - 1],
+    amount: '1000000000000000000',
+    side: 'SELL',
+    maxHops: 1,
+  });
+
+  // Get quote through intermediate tokens
+  const multiHopQuote = await connector.getQuote({
+    baseToken: tokenPath[0],
+    quoteToken: tokenPath[tokenPath.length - 1],
+    amount: '1000000000000000000',
+    side: 'SELL',
+    maxHops: 3,
+  });
+
+  const directOutput = BigInt(directQuote.amountOut);
+  const multiHopOutput = BigInt(multiHopQuote.amountOut);
+
+  if (multiHopOutput > directOutput * 1001n / 1000n) {
+    console.log('Arbitrage opportunity found!');
+    console.log(`Direct: ${directOutput}`);
+    console.log(`Multi-hop: ${multiHopOutput}`);
+    console.log(`Route: ${multiHopQuote.route.path.join(' → ')}`);
+  }
+}
+```
+
+## Risk Management
+
+### Position Limits
+
+Always set maximum position sizes:
+
+```yaml
+# In your strategy config
+max_order_size: 1000  # Max single order
+max_inventory: 10000  # Max total position
+daily_volume_limit: 50000  # Max daily volume
+```
+
+### Stop Loss Configuration
+
+```yaml
+# Kill switch settings
+kill_switch_enabled: true
+kill_switch_rate: -5%  # Stop if down 5%
+```
+
+### Inventory Management
+
+```yaml
+# Inventory skew settings
+inventory_skew_enabled: true
+inventory_target_base_pct: 50%
+inventory_range_multiplier: 2.0
+```
+
+## Monitoring and Alerts
+
+### Set Up Telegram Alerts
+
+```yaml
+# conf/telegram.yml
+telegram:
+  enabled: true
+  token: "your-bot-token"
+  chat_id: "your-chat-id"
+
+alerts:
+  - type: fill
+    threshold: 100  # Alert on fills > 100
+  - type: inventory
+    threshold: 80%  # Alert when inventory > 80% on one side
+  - type: pnl
+    threshold: -2%  # Alert on -2% PnL
+```
+
+### Performance Metrics
+
+Track key metrics:
+
+```bash
+>>> pnl
+>>> trades
+>>> history --days 7
+```
+
+## Best Practices
+
+### 1. Start Small
+Begin with small amounts and increase gradually.
+
+### 2. Test on Testnet
+Always test new strategies on testnet first.
+
+### 3. Monitor Regularly
+Check your bot at least every few hours initially.
+
+### 4. Diversify
+Don't put all capital in one strategy or pair.
+
+### 5. Keep Reserves
+Maintain emergency funds outside the bot.
+
+### 6. Document Everything
+Keep a trading journal of your strategies and results.
+
+## Getting Help
+
+- **[Hummingbot Documentation](https://docs.hummingbot.org)**
+- **[LX DEX Discord](https://discord.gg/lux)**
+- **[Strategy Examples](https://github.com/hummingbot/hummingbot/tree/master/scripts)**
