@@ -110,8 +110,8 @@ message PlaceOrderResponse {
 | Field | Validation |
 |-------|------------|
 | `symbol` | Must exist in supported markets |
-| `price` | `> 0`, precision `&lt;= 8` decimals |
-| `size` | `&gt;= min_order_size`, precision `&lt;= 8` decimals |
+| `price` | `> 0`, precision `<= 8` decimals |
+| `size` | `>= min_order_size`, precision `<= 8` decimals |
 | `user_id` | Non-empty, valid user |
 | `client_id` | Max 64 characters, unique per user within 24h |
 | `stop_price` | `> 0` for STOP/STOP_LIMIT orders |

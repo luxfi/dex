@@ -44,8 +44,8 @@ Pre-trade risk checks validate every order before it enters the matching engine,
           v
     ┌─────────────────────────────────────────────────────────────────────────┐
     │  4. SIZE VALIDATION                                Latency: ~100ns      │
-    │     • Size &gt;= minimum order size                                        │
-    │     • Size &lt;= maximum order size                                        │
+    │     • Size >= minimum order size                                        │
+    │     • Size <= maximum order size                                        │
     │     • Size within lot size (size % lot_size == 0)                       │
     │     • Notional value within limits                                      │
     └─────────────────────────────────────────────────────────────────────────┘
@@ -54,7 +54,7 @@ Pre-trade risk checks validate every order before it enters the matching engine,
     ┌─────────────────────────────────────────────────────────────────────────┐
     │  5. BALANCE/MARGIN CHECK                           Latency: ~500ns      │
     │     • Calculate required margin for order                               │
-    │     • Check available balance &gt;= required                               │
+    │     • Check available balance >= required                               │
     │     • Reserve margin for order                                          │
     │     • Update buying power                                               │
     └─────────────────────────────────────────────────────────────────────────┘
@@ -492,7 +492,7 @@ func (rl *RateLimiter) CheckOrderRate(userID string) error {
     }
 
     // Check open order count
-    if int(rl.openOrders.Load()) &gt;= rl.limits.MaxOpenOrders {
+    if int(rl.openOrders.Load()) >= rl.limits.MaxOpenOrders {
         return fmt.Errorf("%w: %d max open orders",
             ErrMaxOpenOrdersExceeded, rl.limits.MaxOpenOrders)
     }

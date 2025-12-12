@@ -303,7 +303,7 @@ class HeartbeatClient {
         this.missedHeartbeats++;
         console.log(`Missed heartbeat (${this.missedHeartbeats})`);
 
-        if (this.missedHeartbeats &gt;= this.maxMissedHeartbeats) {
+        if (this.missedHeartbeats >= this.maxMissedHeartbeats) {
           console.log('Connection lost - triggering disconnect');
           this.stopHeartbeat();
           this.onDisconnect?.();
