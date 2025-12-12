@@ -1,0 +1,134 @@
+{
+  "version": "1.0.0",
+  "description": "Shared test vectors for LX Trading SDK cross-language validation",
+
+  "trading_pairs": {
+    "valid": [
+      {"input": "BTC-USDC", "base": "BTC", "quote": "USDC"},
+      {"input": "ETH/USDT", "base": "ETH", "quote": "USDT"},
+      {"input": "LUX_USD", "base": "LUX", "quote": "USD"},
+      {"input": "BTCUSDC", "base": "BTC", "quote": "USDC"},
+      {"input": "ETHBTC", "base": "ETH", "quote": "BTC"}
+    ],
+    "invalid": ["", "BTC", "---", "123"]
+  },
+
+  "orderbook": {
+    "simple": {
+      "bids": [
+        {"price": "50000.00", "quantity": "1.5"},
+        {"price": "49995.00", "quantity": "2.0"},
+        {"price": "49990.00", "quantity": "3.5"}
+      ],
+      "asks": [
+        {"price": "50005.00", "quantity": "1.0"},
+        {"price": "50010.00", "quantity": "2.5"},
+        {"price": "50020.00", "quantity": "4.0"}
+      ],
+      "expected": {
+        "best_bid": "50000.00",
+        "best_ask": "50005.00",
+        "spread": "5.00",
+        "mid_price": "50002.50"
+      }
+    },
+    "vwap": {
+      "bids": [
+        {"price": "100.00", "quantity": "10"},
+        {"price": "99.00", "quantity": "20"},
+        {"price": "98.00", "quantity": "30"}
+      ],
+      "test_quantity": "25",
+      "expected_vwap": "99.40"
+    }
+  },
+
+  "math": {
+    "black_scholes": {
+      "inputs": {
+        "spot": 100,
+        "strike": 100,
+        "rate": 0.05,
+        "time": 1.0,
+        "volatility": 0.2
+      },
+      "expected": {
+        "call_price": 10.4506,
+        "put_price": 5.5735,
+        "delta": 0.6368,
+        "gamma": 0.0188,
+        "vega": 37.52,
+        "theta": -6.414
+      },
+      "tolerance": 0.01
+    },
+    "constant_product": {
+      "reserve_a": "1000000",
+      "reserve_b": "50000",
+      "amount_in": "1000",
+      "expected_out": "49.9",
+      "tolerance": 0.1
+    },
+    "volatility": {
+      "returns": [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.025],
+      "expected": 0.0158,
+      "tolerance": 0.001
+    },
+    "sharpe_ratio": {
+      "returns": [0.05, 0.03, 0.07, 0.02, 0.04],
+      "risk_free_rate": 0.01,
+      "expected": 1.897,
+      "tolerance": 0.1
+    },
+    "max_drawdown": {
+      "values": [100, 120, 110, 130, 100, 140],
+      "expected": 0.2308,
+      "tolerance": 0.01
+    }
+  },
+
+  "risk": {
+    "position_limits": {
+      "max_position_size": "10000",
+      "current_position": "8000",
+      "order_size": "3000",
+      "should_reject": true
+    },
+    "daily_loss": {
+      "max_daily_loss": "1000",
+      "current_loss": "800",
+      "potential_loss": "300",
+      "should_reject": true
+    }
+  },
+
+  "orders": {
+    "market_buy": {
+      "symbol": "BTC-USDC",
+      "side": "buy",
+      "type": "market",
+      "quantity": "0.1"
+    },
+    "limit_sell": {
+      "symbol": "ETH-USDC",
+      "side": "sell",
+      "type": "limit",
+      "quantity": "1.0",
+      "price": "2000.00",
+      "time_in_force": "GTC"
+    }
+  },
+
+  "arbitrage": {
+    "simple_opportunity": {
+      "symbol": "BTC-USDC",
+      "buy_venue": "lx_dex",
+      "buy_price": "50000.00",
+      "sell_venue": "binance",
+      "sell_price": "50100.00",
+      "spread_bps": 20,
+      "min_spread_bps": 10,
+      "should_trigger": true
+    }
+  }
+}
