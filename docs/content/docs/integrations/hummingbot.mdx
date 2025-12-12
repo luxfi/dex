@@ -1,0 +1,461 @@
+---
+title: Hummingbot Integration
+description: Official LX DEX connector for Hummingbot Gateway
+---
+
+# Hummingbot Integration
+
+[Hummingbot](https://hummingbot.org) is the most popular open-source trading bot software, used by thousands of traders and market makers worldwide. LX DEX provides an official Gateway connector enabling automated trading on our ultra-low latency DEX.
+
+## Features
+
+Our Hummingbot Gateway connector supports all four LX DEX trading schemas:
+
+| Schema | Description | Use Cases |
+|--------|-------------|-----------|
+| **Router** | DEX aggregation | Optimal swap execution, arbitrage |
+| **AMM** | Liquidity pools | Market making, LP strategies |
+| **CLMM** | Concentrated liquidity | Range orders, active LP management |
+| **CLOB** | Order book | Limit orders, market making |
+
+## Prerequisites
+
+- Node.js 18 or higher
+- Hummingbot Gateway v2.8.0 or higher
+- A Lux wallet with LUX for gas fees
+
+## Installation
+
+### Option 1: Install via npm
+
+```bash
+cd hummingbot-gateway
+npm install @lxdex/hummingbot-gateway-connector
+```
+
+### Option 2: Clone and Build
+
+```bash
+git clone https://github.com/luxfi/dex.git
+cd dex/hummingbot-gateway/src/connectors/lxdex
+npm install
+npm run build
+```
+
+### Option 3: Use the Plugin
+
+```bash
+npm install hummingbot-gateway-lxdex-plugin
+```
+
+## Configuration
+
+### 1. Add Configuration File
+
+Create `conf/lxdex.yml` in your Gateway directory:
+
+```yaml
+# LX DEX Configuration
+enabled: true
+chain: lux
+
+networks:
+  - mainnet
+  - testnet
+
+# Trading parameters
+trading:
+  slippagePct: 0.5
+  maxHops: 3
+  quoteExpirationMs: 30000
+
+# Network endpoints
+mainnet:
+  chainId: 93
+  apiEndpoint: https://api.dex.lux.network
+  wsEndpoint: wss://ws.dex.lux.network
+  grpcEndpoint: grpc.dex.lux.network:443
+
+testnet:
+  chainId: 9393
+  apiEndpoint: https://api.testnet.dex.lux.network
+  wsEndpoint: wss://ws.testnet.dex.lux.network
+  grpcEndpoint: grpc.testnet.dex.lux.network:443
+```
+
+### 2. Register the Connector
+
+In your Gateway startup:
+
+```typescript
+import { FastifyInstance } from 'fastify';
+import { lxdexRoutes } from '@lxdex/hummingbot-gateway-connector';
+
+async function registerConnectors(fastify: FastifyInstance) {
+  await fastify.register(lxdexRoutes);
+}
+```
+
+### 3. Start Gateway
+
+```bash
+# Start with Docker
+docker-compose up -d gateway
+
+# Or start directly
+npm run start
+```
+
+## API Endpoints
+
+### Router Schema (Swaps)
+
+#### GET /lxdex/router/quote-swap
+
+Get an optimal swap quote with routing.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| baseToken | string | Yes | Input token symbol or address |
+| quoteToken | string | Yes | Output token symbol or address |
+| amount | string | Yes | Amount in smallest units |
+| side | string | Yes | `BUY` or `SELL` |
+| slippagePct | number | No | Slippage tolerance (default: 0.5) |
+| maxHops | number | No | Maximum routing hops (default: 3) |
+
+**Example:**
+
+```bash
+curl "http://localhost:15888/lxdex/router/quote-swap?\
+baseToken=LUX&\
+quoteToken=USDC&\
+amount=1000000000000000000&\
+side=SELL"
+```
+
+**Response:**
+
+```json
+{
+  "quoteId": "q-abc123def456",
+  "tokenIn": {
+    "symbol": "LUX",
+    "address": "0x...",
+    "decimals": 18
+  },
+  "tokenOut": {
+    "symbol": "USDC",
+    "address": "0x...",
+    "decimals": 6
+  },
+  "amountIn": "1000000000000000000",
+  "amountOut": "12500000",
+  "price": "12.50",
+  "priceImpactPct": "0.05",
+  "minAmountOut": "12437500",
+  "route": {
+    "path": ["LUX", "USDC"],
+    "pools": ["0x..."],
+    "expectedOutput": "12500000",
+    "priceImpact": "0.05",
+    "fee": "0.003"
+  },
+  "estimatedGas": "150000",
+  "expiresAt": 1702300000000
+}
+```
+
+#### POST /lxdex/router/execute-swap
+
+Execute a swap directly.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "baseToken": "LUX",
+  "quoteToken": "USDC",
+  "amount": "1000000000000000000",
+  "side": "SELL",
+  "slippagePct": 0.5
+}
+```
+
+#### POST /lxdex/router/execute-quote
+
+Execute a previously fetched quote.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "quoteId": "q-abc123def456"
+}
+```
+
+### AMM Schema (Liquidity Pools)
+
+#### GET /lxdex/amm/pool-info
+
+Get pool information including reserves and pricing.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| tokenA | string | Yes | First token |
+| tokenB | string | Yes | Second token |
+
+**Response:**
+
+```json
+{
+  "pools": [{
+    "address": "0x...",
+    "tokenA": { "symbol": "LUX", "address": "0x...", "decimals": 18 },
+    "tokenB": { "symbol": "USDC", "address": "0x...", "decimals": 6 },
+    "reserveA": "1000000000000000000000",
+    "reserveB": "12500000000",
+    "totalLiquidity": "3535533905932738",
+    "fee": "0.003",
+    "apy": "24.5",
+    "volume24h": "1500000"
+  }]
+}
+```
+
+#### POST /lxdex/amm/add-liquidity
+
+Add liquidity to a pool.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "tokenA": "LUX",
+  "tokenB": "USDC",
+  "amountA": "1000000000000000000",
+  "amountB": "12500000",
+  "slippagePct": 0.5
+}
+```
+
+#### POST /lxdex/amm/remove-liquidity
+
+Remove liquidity from a pool.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "poolAddress": "0x...",
+  "liquidity": "1000000000000000000",
+  "slippagePct": 0.5
+}
+```
+
+### CLMM Schema (Concentrated Liquidity)
+
+#### GET /lxdex/clmm/pool-info
+
+Get CLMM pool information.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| tokenA | string | Yes | First token |
+| tokenB | string | Yes | Second token |
+| fee | number | No | Fee tier in basis points |
+
+#### POST /lxdex/clmm/open-position
+
+Open a concentrated liquidity position.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "tokenA": "LUX",
+  "tokenB": "USDC",
+  "fee": 3000,
+  "tickLower": -887220,
+  "tickUpper": 887220,
+  "amountA": "1000000000000000000",
+  "amountB": "12500000",
+  "slippagePct": 0.5
+}
+```
+
+#### POST /lxdex/clmm/close-position
+
+Close a position and withdraw all liquidity.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "tokenId": "12345",
+  "slippagePct": 0.5
+}
+```
+
+#### POST /lxdex/clmm/collect-fees
+
+Collect accumulated fees from a position.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "tokenId": "12345"
+}
+```
+
+### Order Book Schema
+
+#### POST /lxdex/order
+
+Place a new order.
+
+**Body:**
+
+```json
+{
+  "walletAddress": "0x...",
+  "symbol": "LUX/USDC",
+  "side": "BUY",
+  "type": "LIMIT",
+  "price": "12.00",
+  "size": "100",
+  "timeInForce": "GTC"
+}
+```
+
+#### DELETE /lxdex/order/:orderId
+
+Cancel an order.
+
+#### GET /lxdex/orders
+
+Get orders for a wallet.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| walletAddress | string | Yes | Wallet address |
+| symbol | string | No | Filter by symbol |
+| status | string | No | Comma-separated statuses |
+| limit | number | No | Maximum results |
+
+## WebSocket Subscriptions
+
+Connect to real-time data feeds:
+
+```typescript
+import { LXDex } from '@lxdex/hummingbot-gateway-connector';
+
+const connector = LXDex.getInstance('mainnet');
+await connector.connectWebSocket();
+
+// Order book updates
+connector.on('orderbook', (data) => {
+  console.log('Order book:', data);
+});
+await connector.subscribeOrderBook('LUX/USDC');
+
+// Trade updates
+connector.on('trade', (data) => {
+  console.log('Trade:', data);
+});
+await connector.subscribeTrades('LUX/USDC');
+
+// Order status updates
+connector.on('order', (data) => {
+  console.log('Order update:', data);
+});
+await connector.subscribeOrders('0xYourWallet');
+```
+
+## Error Handling
+
+The connector provides detailed error responses:
+
+| Error Code | Description |
+|------------|-------------|
+| `INSUFFICIENT_LIQUIDITY` | Not enough liquidity for trade |
+| `SLIPPAGE_EXCEEDED` | Price moved beyond tolerance |
+| `QUOTE_EXPIRED` | Quote has expired |
+| `INVALID_TOKEN` | Token not found |
+| `INSUFFICIENT_BALANCE` | Wallet balance too low |
+| `ORDER_NOT_FOUND` | Order does not exist |
+| `POSITION_NOT_FOUND` | Position does not exist |
+
+```typescript
+try {
+  const result = await connector.executeSwap(request);
+} catch (error) {
+  if (error.code === 'SLIPPAGE_EXCEEDED') {
+    // Fetch new quote and retry
+    const newQuote = await connector.getQuote(request);
+    // ...
+  }
+}
+```
+
+## Best Practices
+
+### 1. Use Testnet First
+
+Always test strategies on testnet before deploying to mainnet:
+
+```typescript
+const connector = LXDex.getInstance('testnet');
+```
+
+### 2. Handle Quote Expiration
+
+Quotes expire after 30 seconds. Always check expiration:
+
+```typescript
+const quote = await connector.getQuote(request);
+if (quote.expiresAt < Date.now()) {
+  // Fetch a new quote
+}
+```
+
+### 3. Set Appropriate Slippage
+
+For volatile pairs, increase slippage tolerance:
+
+```typescript
+const quote = await connector.getQuote({
+  ...request,
+  slippagePct: 1.0  // 1% for volatile pairs
+});
+```
+
+### 4. Monitor Position Health
+
+For CLMM positions, check if in range:
+
+```typescript
+const positions = await connector.getPositionsOwned({ walletAddress });
+for (const pos of positions.positions) {
+  if (!pos.inRange) {
+    console.warn(`Position ${pos.tokenId} is out of range`);
+  }
+}
+```
+
+## Next Steps
+
+- [Quick Start Guide](/docs/integrations/hummingbot-quickstart): Set up your first strategy
+- [Strategy Examples](/docs/integrations/hummingbot-strategies): Market making and arbitrage strategies
+- [API Reference](/docs/api): Full API documentation
