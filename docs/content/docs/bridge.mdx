@@ -5,7 +5,21 @@ description: Universal asset bridge for cross-chain transfers between major bloc
 
 # Cross-Chain Bridge
 
+> **Specification**: [LP-6000 B-Chain Bridge](https://github.com/luxfi/LPs/blob/main/LPs/lp-6000-b-chain-bridge-specification.md) | [LP-6015 MPC Bridge Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md) | [LP-6016 Teleport Protocol](https://github.com/luxfi/LPs/blob/main/LPs/lp-6016-teleport-cross-chain-protocol.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+>
+> **Implementation**: [`github.com/luxfi/bridge`](https://github.com/luxfi/bridge) | [`vms/bridgevm`](https://github.com/luxfi/node/tree/main/vms/bridgevm)
+
 The LX DEX bridge enables seamless asset transfers between multiple blockchains.
+
+## Implementation Status
+
+| Component | Source | Status |
+|-----------|--------|--------|
+| BridgeVM (B-Chain) | [`vms/bridgevm/`](https://github.com/luxfi/node/tree/main/vms/bridgevm) | Complete |
+| MPC Custody | [`vms/bridgevm/custody/`](https://github.com/luxfi/node/tree/main/vms/bridgevm/custody) | Complete |
+| Threshold Signing | [`github.com/luxfi/threshold`](https://github.com/luxfi/threshold) | Complete |
+| Bridge Contracts | [`github.com/luxfi/standard`](https://github.com/luxfi/standard) | Complete |
+| Bridge UI | [`bridge/app/bridge-ui/`](https://github.com/luxfi/bridge/tree/main/app/bridge-ui) | Complete |
 
 ## Overview
 
@@ -28,6 +42,30 @@ The bridge supports:
 | Avalanche | Live | AVAX, ARC-20 tokens |
 | Solana | Beta | SOL, SPL tokens |
 | Cosmos | Beta | ATOM, IBC tokens |
+
+## Bridge Architecture
+
+The B-Chain (Bridge Chain) is a dedicated blockchain for cross-chain operations, implementing MPC-based custody using CGGMP21 threshold signatures extended with Corona for quantum safety.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    B-Chain Architecture                          │
+├─────────────────────────────┬───────────────────────────────────┤
+│   External Chains           │        B-Chain Core               │
+├─────────────────────────────┼───────────────────────────────────┤
+│ • Ethereum                  │ • MPC Custody (CGGMP21)           │
+│ • Bitcoin                   │ • Corona Quantum Extension      │
+│ • BSC                       │ • Asset Registry                  │
+│ • Polygon                   │ • Threshold Signing               │
+│ • Arbitrum                  │ • Bridge State Machine            │
+│ • Cosmos                    │ • Slashing & Rewards              │
+└─────────────────────────────┴───────────────────────────────────┘
+                                   │
+                     ┌─────────────┴─────────────┐
+                     │     Lux Internal Chains   │
+                     │  (P, C, X, Q, A, T, Z)    │
+                     └───────────────────────────┘
+```
 
 ## Bridge Flow
 
