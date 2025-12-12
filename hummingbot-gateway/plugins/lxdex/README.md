@@ -1,6 +1,6 @@
-# LX DEX Hummingbot Gateway Plugin
+# LX Hummingbot Gateway Plugin
 
-Official Hummingbot Gateway plugin for [LX DEX](https://dex.lux.network).
+Official Hummingbot Gateway plugin for [LX](https://dex.lux.network).
 
 ## Installation
 
@@ -60,7 +60,7 @@ import { FastifyInstance } from 'fastify';
 import { lxdexPlugin } from 'hummingbot-gateway-lxdex-plugin';
 
 async function start(fastify: FastifyInstance) {
-  // Register LX DEX plugin
+  // Register LX plugin
   await fastify.register(lxdexPlugin);
 
   await fastify.listen({ port: 15888 });

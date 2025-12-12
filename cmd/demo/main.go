@@ -9,7 +9,7 @@ import (
 
 func main() {
 	fmt.Println("================================================")
-	fmt.Println("      LX DEX - Order Book Demo")
+	fmt.Println("      LX - Order Book Demo")
 	fmt.Println("================================================")
 	fmt.Println()
 
@@ -151,7 +151,7 @@ func main() {
 	fmt.Println()
 	fmt.Println("✅ Demo complete!")
 	fmt.Println()
-	fmt.Println("The LX DEX successfully:")
+	fmt.Println("The LX successfully:")
 	fmt.Println("  • Matched orders by price-time priority")
 	fmt.Println("  • Executed trades at best available prices")
 	fmt.Println("  • Updated order book state in real-time")

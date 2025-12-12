@@ -1,7 +1,7 @@
 {
   "name": "@luxfi/dex-sdk",
   "version": "1.0.0",
-  "description": "TypeScript SDK for LX DEX",
+  "description": "TypeScript SDK for LX",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

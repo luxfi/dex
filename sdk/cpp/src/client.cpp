@@ -1,4 +1,4 @@
-// LX DEX C++ SDK - Client Implementation
+// LX C++ SDK - Client Implementation
 // Copyright (c) 2025 Lux Partners Limited
 // SPDX-License-Identifier: MIT
 

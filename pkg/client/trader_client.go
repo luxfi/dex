@@ -13,7 +13,7 @@ import (
 	"github.com/luxfi/dex/pkg/lx"
 )
 
-// TraderClient is the main client for traders to interact with LX DEX
+// TraderClient is the main client for traders to interact with LX
 type TraderClient struct {
 	// Connection
 	wsConn      *websocket.Conn

@@ -36,7 +36,7 @@ func main() {
 	runtime.GC()
 	debug.FreeOSMemory()
 
-	fmt.Println("=== LX DEX Memory Stress Test ===")
+	fmt.Println("=== LX Memory Stress Test ===")
 	fmt.Println("Target: 11,000 Securities + 10,000 Crypto Markets")
 	fmt.Println("Hardware Target: Mac Studio M2 Ultra (512GB RAM)")
 	fmt.Println()

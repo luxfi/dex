@@ -1,6 +1,6 @@
 ---
 title: API Endpoints
-description: Complete list of LX DEX API endpoints - production, testnet, regional, and failover endpoints
+description: Complete list of LX API endpoints - production, testnet, regional, and failover endpoints
 ---
 
 # API Endpoints
@@ -9,7 +9,7 @@ description: Complete list of LX DEX API endpoints - production, testnet, region
 
 ## Endpoint Overview
 
-LX DEX provides geographically distributed endpoints optimized for latency and reliability. All endpoints support the same API interface with automatic failover capabilities.
+LX provides geographically distributed endpoints optimized for latency and reliability. All endpoints support the same API interface with automatic failover capabilities.
 
 ## Production Endpoints
 
@@ -332,7 +332,7 @@ curl https://status.lux.network/api/v1/status
 
 ### From Other Exchanges
 
-| Exchange | LX DEX Equivalent |
+| Exchange | LX Equivalent |
 |----------|-------------------|
 | Binance `api.binance.com` | `api.lux.network` |
 | FTX `ftx.com/api` | `api.lux.network/v1` |
@@ -341,7 +341,7 @@ curl https://status.lux.network/api/v1/status
 ### Endpoint Mapping
 
 ```typescript
-// Binance → LX DEX
+// Binance → LX
 const endpointMap = {
   '/api/v3/order': '/v1/orders',
   '/api/v3/openOrders': '/v1/orders?status=open',

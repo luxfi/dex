@@ -1,7 +1,7 @@
 /**
- * LX DEX Gateway Connector Configuration
+ * LX Gateway Connector Configuration
  *
- * Configuration interface and loader for the LX DEX connector.
+ * Configuration interface and loader for the LX connector.
  * Supports Router, AMM, CLMM, and CLOB trading types.
  */
 

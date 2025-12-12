@@ -1,4 +1,4 @@
-# LaTeX Makefile for LX DEX White Paper
+# LaTeX Makefile for LX White Paper
 
 PAPER = lx-dex-whitepaper
 LATEX = pdflatex

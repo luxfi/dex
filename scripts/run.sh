@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# LX DEX - Run Script
-# This script builds and runs various components of the LX DEX
+# LX - Run Script
+# This script builds and runs various components of the LX
 
 set -e
 
@@ -10,7 +10,7 @@ export CGO_ENABLED=0
 
 case "$1" in
   "demo")
-    echo "🚀 Running LX DEX Demo..."
+    echo "🚀 Running LX Demo..."
     go run ./cmd/demo
     ;;
     
@@ -43,7 +43,7 @@ case "$1" in
     ;;
     
   *)
-    echo "LX DEX - Ultra High-Performance Order Book"
+    echo "LX - Ultra High-Performance Order Book"
     echo ""
     echo "Usage: ./run.sh [command]"
     echo ""

@@ -1,11 +1,11 @@
 ---
 title: Colocation
-description: Global data center presence with sub-microsecond access to LX DEX matching engines
+description: Global data center presence with sub-microsecond access to LX matching engines
 ---
 
 # Colocation Services
 
-LX DEX offers **institutional-grade colocation** at premier financial data centers worldwide.
+LX offers **institutional-grade colocation** at premier financial data centers worldwide.
 
 ## Data Center Locations
 
@@ -62,7 +62,7 @@ LX DEX offers **institutional-grade colocation** at premier financial data cente
 │                    NY5 NETWORK TOPOLOGY                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Your Rack                          LX DEX Rack             │
+│  Your Rack                          LX Rack             │
 │  ┌──────────────┐                   ┌──────────────┐        │
 │  │ Your Server  │                   │ Gateway      │        │
 │  │              │                   │ (FPGA)       │        │
@@ -202,7 +202,7 @@ OS: Ubuntu 22.04 LTS
 
 ```bash
 #!/bin/bash
-# Optimal NIC configuration for LX DEX colocation
+# Optimal NIC configuration for LX colocation
 
 # Disable interrupt coalescing
 ethtool -C eth0 rx-usecs 0 tx-usecs 0

@@ -1,11 +1,11 @@
 ---
 title: gRPC API Overview
-description: High-performance gRPC API for LX DEX internal node communication
+description: High-performance gRPC API for LX internal node communication
 ---
 
 # gRPC API Overview
 
-The LX DEX gRPC API provides high-performance, strongly-typed communication for internal node operations. Built on Protocol Buffers 3, it offers sub-millisecond latency for order execution and real-time market data streaming.
+The LX gRPC API provides high-performance, strongly-typed communication for internal node operations. Built on Protocol Buffers 3, it offers sub-millisecond latency for order execution and real-time market data streaming.
 
 ## Why gRPC
 
@@ -19,7 +19,7 @@ The LX DEX gRPC API provides high-performance, strongly-typed communication for 
 
 ## Service Definition
 
-The LX DEX exposes a single unified service with multiple RPC methods:
+The LX exposes a single unified service with multiple RPC methods:
 
 ```protobuf
 syntax = "proto3";
@@ -28,7 +28,7 @@ package lxdex;
 
 option go_package = "github.com/luxfi/dex/pkg/grpc/pb";
 
-// LX DEX gRPC Service for internal Lux Network IPC
+// LX gRPC Service for internal Lux Network IPC
 service LXDEXService {
   // Order Management
   rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
@@ -191,7 +191,7 @@ enum TimeInForce {
 
 ## Error Handling
 
-gRPC uses standard status codes. LX DEX maps domain errors to appropriate codes:
+gRPC uses standard status codes. LX maps domain errors to appropriate codes:
 
 | gRPC Code | HTTP | Description | Example |
 |-----------|------|-------------|---------|

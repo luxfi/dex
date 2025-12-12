@@ -24,7 +24,7 @@ func main() {
 	)
 	flag.Parse()
 
-	fmt.Println("LX DEX Price Feed")
+	fmt.Println("LX Price Feed")
 	fmt.Println("=================")
 	fmt.Println()
 
