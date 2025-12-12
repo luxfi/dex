@@ -131,7 +131,7 @@ func (tree *OrderTree) getLevels(depth int) []PriceLevel {
 
     // Build levels
     for i, price := range prices {
-        if depth > 0 && i >= depth {
+        if depth > 0 && i &gt;= depth {
             break
         }
         priceInt := PriceInt(price * PriceMultiplier)

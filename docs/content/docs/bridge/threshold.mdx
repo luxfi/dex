@@ -294,7 +294,7 @@ func (vm *VM) RequestSignature(
 
     // Check quota
     vm.checkQuotaReset()
-    if vm.dailySigningCount[requestingChain] >= perms.DailySigningLimit {
+    if vm.dailySigningCount[requestingChain] &gt;= perms.DailySigningLimit {
         return nil, ErrQuotaExceeded
     }
 

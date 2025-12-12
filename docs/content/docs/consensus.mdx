@@ -105,7 +105,7 @@ func (c *ConsensusEngine) CheckFinality(block *Block) bool {
     
     // Check cumulative stake weight
     weight := c.CalculateWeight(signatures)
-    return weight >= c.Alpha
+    return weight &gt;= c.Alpha
 }
 ```
 

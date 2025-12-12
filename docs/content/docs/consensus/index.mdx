@@ -214,7 +214,7 @@ func (e *Engine) CheckFinality(block *Block) Decision {
 | Metric | Target | Achieved |
 |--------|--------|----------|
 | Block Time | 1ms | 1ms |
-| Time to Finality | 1ms | <1ms |
+| Time to Finality | 1ms | `&lt;1ms` |
 | Throughput | 100K TPS | 150K TPS |
 | Concurrent Blocks | 4 | 4 |
 | Fork Rate | 0% | 0% |
@@ -244,7 +244,7 @@ Total               ~= 1.0ms
 The consensus protocol tolerates up to f Byzantine validators where:
 
 ```
-n >= 3f + 1
+n &gt;= 3f + 1
 ```
 
 For the standard 21-validator set:
