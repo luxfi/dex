@@ -1,0 +1,582 @@
+---
+title: Client
+description: Connection management, configuration, and lifecycle for the C SDK
+---
+
+# Client
+
+The `lxdex_client` structure manages WebSocket connections to LX DEX, handling authentication, reconnection, and request/response correlation.
+
+## Client Lifecycle
+
+```
+lxdex_init()
+     |
+     v
+lxdex_client_new()
+     |
+     v
+lxdex_client_connect()
+     |
+     v
++---> lxdex_client_poll() <--+
+|            |               |
+|     (process events)       |
+|            |               |
++------------+---------------+
+     |
+     v
+lxdex_client_disconnect()
+     |
+     v
+lxdex_client_free()
+     |
+     v
+lxdex_shutdown()
+```
+
+## Basic Usage
+
+### Creating a Client
+
+```c
+#include <lxdex.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    // Initialize library (once per process)
+    if (lxdex_init() != LXDEX_OK) {
+        fprintf(stderr, "Failed to initialize\n");
+        return 1;
+    }
+
+    // Configure client
+    struct lxdex_config config = {
+        .url = "wss://api.lux.network/ws",
+        .api_key = getenv("LX_API_KEY"),
+        .api_secret = getenv("LX_API_SECRET"),
+        .connect_timeout_ms = 5000,
+        .request_timeout_ms = 1000
+    };
+
+    // Create client
+    struct lxdex_client *client = lxdex_client_new(&config);
+    if (!client) {
+        fprintf(stderr, "Failed to create client\n");
+        lxdex_shutdown();
+        return 1;
+    }
+
+    // Connect
+    int err = lxdex_client_connect(client);
+    if (err != LXDEX_OK) {
+        fprintf(stderr, "Connection failed: %s\n", lxdex_strerror(err));
+        lxdex_client_free(client);
+        lxdex_shutdown();
+        return 1;
+    }
+
+    printf("Connected successfully\n");
+
+    // ... trading operations ...
+
+    // Cleanup
+    lxdex_client_disconnect(client);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+## Configuration Options
+
+### Full Configuration Structure
+
+```c
+struct lxdex_config {
+    // Connection
+    const char *url;                  // WebSocket endpoint (required)
+    const char *api_key;              // API key (NULL for public access)
+    const char *api_secret;           // API secret (NULL for public access)
+
+    // Timeouts (milliseconds)
+    int connect_timeout_ms;           // Connection timeout (default: 5000)
+    int request_timeout_ms;           // Request timeout (default: 1000)
+    int heartbeat_interval_ms;        // Heartbeat interval (default: 30000)
+
+    // Reconnection
+    int reconnect_enabled;            // Enable auto-reconnect (default: 1)
+    int reconnect_max_attempts;       // Max reconnect attempts (default: 10)
+    int reconnect_base_delay_ms;      // Initial delay (default: 100)
+    int reconnect_max_delay_ms;       // Max delay (default: 30000)
+
+    // Buffers
+    size_t send_buffer_size;          // Send buffer (default: 64KB)
+    size_t recv_buffer_size;          // Receive buffer (default: 64KB)
+
+    // Callbacks
+    lxdex_connect_callback on_connect;
+    lxdex_disconnect_callback on_disconnect;
+    lxdex_error_callback on_error;
+    void *user_data;                  // Passed to callbacks
+};
+```
+
+### Environment-Based Configuration
+
+```c
+struct lxdex_config config = {0};  // Zero-initialize for defaults
+
+// Required
+config.url = "wss://api.lux.network/ws";
+
+// Optional: from environment
+config.api_key = getenv("LX_API_KEY");
+config.api_secret = getenv("LX_API_SECRET");
+
+// Use defaults for everything else
+struct lxdex_client *client = lxdex_client_new(&config);
+```
+
+### Network Environments
+
+```c
+// Local development
+struct lxdex_config dev_config = {
+    .url = "ws://localhost:8081",
+    .connect_timeout_ms = 1000
+};
+
+// Testnet
+struct lxdex_config testnet_config = {
+    .url = "wss://testnet-api.lux.network/ws",
+    .api_key = getenv("LX_TESTNET_API_KEY")
+};
+
+// Production
+struct lxdex_config prod_config = {
+    .url = "wss://api.lux.network/ws",
+    .api_key = getenv("LX_API_KEY"),
+    .api_secret = getenv("LX_API_SECRET"),
+    .reconnect_enabled = 1,
+    .reconnect_max_attempts = 50
+};
+```
+
+## Connection Management
+
+### Connecting
+
+```c
+struct lxdex_client *client = lxdex_client_new(&config);
+
+// Blocking connect with configured timeout
+int err = lxdex_client_connect(client);
+if (err != LXDEX_OK) {
+    fprintf(stderr, "Connect failed: %s\n", lxdex_strerror(err));
+}
+```
+
+### Connection Status
+
+```c
+// Check if connected
+if (lxdex_client_is_connected(client)) {
+    printf("Connected\n");
+} else {
+    printf("Disconnected\n");
+}
+
+// Get connection info
+struct lxdex_connection_info info;
+if (lxdex_client_get_info(client, &info) == LXDEX_OK) {
+    printf("Endpoint: %s\n", info.endpoint);
+    printf("Latency: %d ms\n", info.latency_ms);
+    printf("Messages sent: %llu\n", info.messages_sent);
+    printf("Messages received: %llu\n", info.messages_received);
+}
+```
+
+### Disconnecting
+
+```c
+// Graceful disconnect
+lxdex_client_disconnect(client);
+
+// Check disconnect was clean
+if (!lxdex_client_is_connected(client)) {
+    printf("Disconnected cleanly\n");
+}
+```
+
+## Reconnection
+
+### Automatic Reconnection
+
+```c
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .reconnect_enabled = 1,
+    .reconnect_max_attempts = 10,
+    .reconnect_base_delay_ms = 100,
+    .reconnect_max_delay_ms = 30000
+};
+
+// Reconnection happens automatically on connection loss
+struct lxdex_client *client = lxdex_client_new(&config);
+```
+
+### Manual Reconnection
+
+```c
+// Disable auto-reconnect
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .reconnect_enabled = 0
+};
+
+struct lxdex_client *client = lxdex_client_new(&config);
+
+// Manual reconnect loop
+while (running) {
+    if (!lxdex_client_is_connected(client)) {
+        printf("Reconnecting...\n");
+        int err = lxdex_client_connect(client);
+        if (err != LXDEX_OK) {
+            fprintf(stderr, "Reconnect failed: %s\n", lxdex_strerror(err));
+            sleep(5);
+            continue;
+        }
+    }
+
+    lxdex_client_poll(client, 100);
+}
+```
+
+### Reconnection with Exponential Backoff
+
+```c
+int reconnect_with_backoff(struct lxdex_client *client, int max_attempts) {
+    int delay_ms = 100;
+    const int max_delay_ms = 30000;
+
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        printf("Reconnect attempt %d/%d\n", attempt + 1, max_attempts);
+
+        int err = lxdex_client_connect(client);
+        if (err == LXDEX_OK) {
+            return LXDEX_OK;
+        }
+
+        fprintf(stderr, "Attempt failed: %s\n", lxdex_strerror(err));
+
+        // Sleep with exponential backoff
+        usleep(delay_ms * 1000);
+        delay_ms = (delay_ms * 2 > max_delay_ms) ? max_delay_ms : delay_ms * 2;
+    }
+
+    return LXDEX_ERR_CONNECTION;
+}
+```
+
+## Event Loop
+
+### Basic Polling
+
+```c
+// Poll for events (non-blocking with timeout)
+while (running) {
+    int err = lxdex_client_poll(client, 100);  // 100ms timeout
+    if (err != LXDEX_OK && err != LXDEX_ERR_TIMEOUT) {
+        fprintf(stderr, "Poll error: %s\n", lxdex_strerror(err));
+        break;
+    }
+
+    // Process application logic
+}
+```
+
+### Integration with select/poll
+
+```c
+#include <sys/select.h>
+
+// Get underlying file descriptor
+int fd = lxdex_client_get_fd(client);
+
+fd_set read_fds;
+FD_ZERO(&read_fds);
+FD_SET(fd, &read_fds);
+
+struct timeval tv = {.tv_sec = 0, .tv_usec = 100000};  // 100ms
+
+int ret = select(fd + 1, &read_fds, NULL, NULL, &tv);
+if (ret > 0 && FD_ISSET(fd, &read_fds)) {
+    // Data available, process it
+    lxdex_client_poll(client, 0);  // Non-blocking
+}
+```
+
+### Integration with epoll (Linux)
+
+```c
+#include <sys/epoll.h>
+
+int epoll_fd = epoll_create1(0);
+
+struct epoll_event ev = {
+    .events = EPOLLIN,
+    .data.ptr = client
+};
+
+int client_fd = lxdex_client_get_fd(client);
+epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &ev);
+
+struct epoll_event events[10];
+int nfds = epoll_wait(epoll_fd, events, 10, 100);
+
+for (int i = 0; i < nfds; i++) {
+    struct lxdex_client *c = events[i].data.ptr;
+    lxdex_client_poll(c, 0);
+}
+```
+
+## Callbacks
+
+### Connection Callbacks
+
+```c
+void on_connect(const struct lxdex_connection_info *info, void *user_data) {
+    printf("Connected to %s (latency: %d ms)\n", info->endpoint, info->latency_ms);
+}
+
+void on_disconnect(int reason, const char *message, void *user_data) {
+    printf("Disconnected: %s\n", message);
+}
+
+void on_error(int code, const char *message, void *user_data) {
+    fprintf(stderr, "Error [%d]: %s\n", code, message);
+}
+
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .on_connect = on_connect,
+    .on_disconnect = on_disconnect,
+    .on_error = on_error,
+    .user_data = NULL
+};
+```
+
+### Callback Thread Safety
+
+Callbacks are invoked from the polling thread:
+
+```c
+struct app_state {
+    pthread_mutex_t mutex;
+    int connected;
+    // ... other state
+};
+
+void on_connect(const struct lxdex_connection_info *info, void *user_data) {
+    struct app_state *state = user_data;
+    pthread_mutex_lock(&state->mutex);
+    state->connected = 1;
+    pthread_mutex_unlock(&state->mutex);
+}
+
+// Main thread setup
+struct app_state state = {
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+    .connected = 0
+};
+
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .on_connect = on_connect,
+    .user_data = &state
+};
+```
+
+## Authentication
+
+### API Key Authentication
+
+```c
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .api_key = "pk_live_...",
+    .api_secret = "sk_live_..."
+};
+
+// Authentication happens automatically on connect
+struct lxdex_client *client = lxdex_client_new(&config);
+int err = lxdex_client_connect(client);
+
+if (err == LXDEX_ERR_AUTH) {
+    fprintf(stderr, "Authentication failed\n");
+}
+```
+
+### Public Access (No Authentication)
+
+```c
+struct lxdex_config config = {
+    .url = "wss://api.lux.network/ws",
+    .api_key = NULL,
+    .api_secret = NULL
+};
+
+// Only public endpoints available
+struct lxdex_client *client = lxdex_client_new(&config);
+```
+
+## Error Handling
+
+### Error Codes
+
+```c
+enum {
+    LXDEX_OK = 0,
+    LXDEX_ERR_INVALID_ARG = -1,
+    LXDEX_ERR_NO_MEMORY = -2,
+    LXDEX_ERR_CONNECTION = -3,
+    LXDEX_ERR_TIMEOUT = -4,
+    LXDEX_ERR_AUTH = -5,
+    LXDEX_ERR_RATE_LIMIT = -6,
+    LXDEX_ERR_INSUFFICIENT_BALANCE = -7,
+    LXDEX_ERR_ORDER_NOT_FOUND = -8,
+    LXDEX_ERR_PROTOCOL = -9,
+    LXDEX_ERR_INTERNAL = -100
+};
+```
+
+### Error Handling Pattern
+
+```c
+int err = lxdex_client_connect(client);
+
+switch (err) {
+case LXDEX_OK:
+    printf("Connected\n");
+    break;
+
+case LXDEX_ERR_CONNECTION:
+    fprintf(stderr, "Network error: %s\n", lxdex_strerror(err));
+    // Retry
+    break;
+
+case LXDEX_ERR_AUTH:
+    fprintf(stderr, "Authentication failed\n");
+    // Check credentials
+    break;
+
+case LXDEX_ERR_TIMEOUT:
+    fprintf(stderr, "Connection timeout\n");
+    // Retry with longer timeout
+    break;
+
+default:
+    fprintf(stderr, "Unexpected error: %s\n", lxdex_strerror(err));
+    break;
+}
+```
+
+### Getting Detailed Error Information
+
+```c
+int err = lxdex_place_order(client, &order, &result);
+
+if (err != LXDEX_OK) {
+    // Get detailed error from client
+    int last_err = lxdex_client_last_error(client);
+    const char *msg = lxdex_client_last_error_msg(client);
+    fprintf(stderr, "Error %d: %s\n", last_err, msg);
+}
+```
+
+## Resource Management
+
+### Proper Cleanup
+
+```c
+int main(void) {
+    // Initialize
+    if (lxdex_init() != LXDEX_OK) {
+        return 1;
+    }
+
+    struct lxdex_client *client = lxdex_client_new(&config);
+    if (!client) {
+        lxdex_shutdown();
+        return 1;
+    }
+
+    if (lxdex_client_connect(client) != LXDEX_OK) {
+        lxdex_client_free(client);
+        lxdex_shutdown();
+        return 1;
+    }
+
+    // ... use client ...
+
+    // Cleanup in reverse order
+    lxdex_client_disconnect(client);
+    lxdex_client_free(client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+### Signal Handling
+
+```c
+#include <signal.h>
+
+static struct lxdex_client *g_client = NULL;
+static volatile sig_atomic_t g_running = 1;
+
+void signal_handler(int sig) {
+    (void)sig;
+    g_running = 0;
+}
+
+int main(void) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    lxdex_init();
+
+    g_client = lxdex_client_new(&config);
+    lxdex_client_connect(g_client);
+
+    while (g_running) {
+        lxdex_client_poll(g_client, 100);
+    }
+
+    printf("Shutting down...\n");
+    lxdex_client_disconnect(g_client);
+    lxdex_client_free(g_client);
+    lxdex_shutdown();
+
+    return 0;
+}
+```
+
+## Best Practices
+
+1. **Initialize once**: Call `lxdex_init()` once at program start
+2. **Check all return values**: Every function can fail
+3. **Use timeouts**: Always set appropriate timeouts
+4. **Handle reconnection**: Network connections will drop
+5. **Clean up properly**: Free resources in reverse order of allocation
+6. **Thread safety**: Use mutex when sharing client across threads
+
+## Next Steps
+
+- [Orders](/docs/sdk/c/orders) - Place and manage orders
+- [Order Book](/docs/sdk/c/orderbook) - Market data access
+- [FFI](/docs/sdk/c/ffi) - Language bindings
