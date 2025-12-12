@@ -14,6 +14,7 @@ bin/
 
 # Test outputs
 coverage/
+coverage.out
 *.coverage
 *.test
 test-results/
