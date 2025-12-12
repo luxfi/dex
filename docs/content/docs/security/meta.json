@@ -1,0 +1,12 @@
+{
+  "title": "Security",
+  "pages": [
+    "index",
+    "authentication",
+    "encryption",
+    "quantum",
+    "mpc",
+    "smartcontracts",
+    "audits"
+  ]
+}
