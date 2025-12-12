@@ -301,6 +301,11 @@ func (s *Scanner) findSimpleArb(symbol string, sources []PriceSource) []Arbitrag
 				continue
 			}
 
+			// Guard against division by zero
+			if buySrc.Ask.IsZero() {
+				continue
+			}
+
 			spreadBps := spread.Div(buySrc.Ask).Mul(decimal.NewFromInt(10000))
 			if spreadBps.LessThan(s.config.MinSpreadBps) {
 				continue
@@ -415,6 +420,11 @@ func (s *Scanner) findCEXDEXArb(symbol string, sources []PriceSource) []Arbitrag
 				continue
 			}
 
+			// Guard against division by zero
+			if cex.Ask.IsZero() {
+				continue
+			}
+
 			spreadBps := spread.Div(cex.Ask).Mul(decimal.NewFromInt(10000))
 			if spreadBps.LessThan(s.config.MinSpreadBps) {
 				continue
@@ -474,7 +484,11 @@ func (s *Scanner) calculateConfidence(buy, sell PriceSource) float64 {
 	// Freshness score (newer = better)
 	buyAge := now.Sub(buy.Timestamp).Seconds()
 	sellAge := now.Sub(sell.Timestamp).Seconds()
-	freshnessScore := 1.0 - (buyAge+sellAge)/(2*s.config.MaxPriceAge.Seconds())
+	maxAge := s.config.MaxPriceAge.Seconds()
+	freshnessScore := 1.0
+	if maxAge > 0 {
+		freshnessScore = 1.0 - (buyAge+sellAge)/(2*maxAge)
+	}
 	if freshnessScore < 0 {
 		freshnessScore = 0
 	}
