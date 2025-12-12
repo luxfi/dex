@@ -36,9 +36,9 @@ Margin trading allows you to trade with borrowed funds, amplifying both potentia
 ### Open a Long Position
 
 ```typescript
-import { LxDex } from '@luxfi/dex-sdk'
+import { DEX } from '@luxfi/trading'
 
-const dex = new LxDex({ endpoint: 'https://dex.lux.network' })
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
 
 // Open 10x long BTC position
 const position = await dex.margin.openPosition({
