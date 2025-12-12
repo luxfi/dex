@@ -1,6 +1,7 @@
 //! Unified trading engine with smart order routing.
 
 use dashmap::DashMap;
+use rust_decimal::prelude::FromStr;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -283,7 +284,7 @@ impl UnifiedClient {
 
     /// Place order on default venue
     pub async fn place_order(&self, request: OrderRequest) -> Result<Order> {
-        if let Some(venue) = &request.venue {
+        if request.venue.is_some() {
             return self.place_order_on(request.clone()).await;
         }
 
@@ -456,12 +457,6 @@ impl UnifiedClient {
 
         adapter.get_lp_positions().await
     }
-}
-
-use rust_decimal::prelude::FromStr;
-
-fn decimal_from_str(s: &str) -> Result<Decimal> {
-    Decimal::from_str(s).map_err(|e| Error::DeserializationError(e.to_string()))
 }
 
 #[cfg(test)]
