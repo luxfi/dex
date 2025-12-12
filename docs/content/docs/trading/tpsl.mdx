@@ -1,0 +1,596 @@
+---
+title: Take Profit & Stop Loss
+description: Automate your exits with TP/SL orders supporting percentage targets up to +300%
+---
+
+# Take Profit & Stop Loss (TP/SL)
+
+LX DEX provides advanced TP/SL functionality that lets you set automatic exit points using absolute prices or percentage-based targets like "+300%".
+
+## Overview
+
+| Feature | Value |
+|---------|-------|
+| Take Profit | Close at profit target |
+| Stop Loss | Close at loss limit |
+| Trailing Stop | Dynamic following stop |
+| Percentage Targets | Up to +/- any % |
+| Trigger Types | Mark, Last, Index |
+| Partial Close | 1-100% of position |
+
+## Order Types
+
+### Take Profit (TP)
+
+Automatically closes position when price reaches profit target.
+
+```
+Long Position: TP triggers when price >= target
+Short Position: TP triggers when price <= target
+```
+
+### Stop Loss (SL)
+
+Automatically closes position when price reaches loss limit.
+
+```
+Long Position: SL triggers when price <= target
+Short Position: SL triggers when price >= target
+```
+
+### Trailing Stop
+
+A dynamic stop that follows price movements, locking in gains while protecting against reversals.
+
+```
+Long Position:
+- Tracks highest price since activation
+- Stop = Highest Price - Trail Delta
+- Triggers when price drops to stop
+
+Short Position:
+- Tracks lowest price since activation
+- Stop = Lowest Price + Trail Delta
+- Triggers when price rises to stop
+```
+
+## Quick Start
+
+### Basic TP/SL on Position
+
+```typescript
+import { DEX } from '@luxfi/trading'
+
+const dex = await DEX({ rpcUrl: 'https://api.lux.network/rpc' })
+
+// Open position with TP/SL
+const position = await dex.perpetual.openPosition({
+  symbol: 'BTC-USD-PERP',
+  side: 'long',
+  size: '10000',
+  leverage: 20,
+  type: 'market',
+  takeProfit: {
+    percent: 50,        // +50% profit target
+    type: 'limit'
+  },
+  stopLoss: {
+    percent: 10,        // -10% max loss
+    type: 'market'
+  }
+})
+
+console.log(`Entry: $${position.entryPrice}`)
+console.log(`TP: $${position.takeProfitPrice}`)  // Entry × 1.5
+console.log(`SL: $${position.stopLossPrice}`)    // Entry × 0.9
+```
+
+### Add TP/SL to Existing Position
+
+```typescript
+// Get existing position
+const position = await dex.perpetual.getPosition('pos_123')
+
+// Add Take Profit at +300%
+const tp = await dex.perpetual.createTPSL({
+  positionId: position.id,
+  type: 'takeProfit',
+  percent: 300,           // +300% from entry
+  triggerType: 'mark',
+  orderType: 'limit',
+  closePercent: 100
+})
+
+// Add Stop Loss at -50%
+const sl = await dex.perpetual.createTPSL({
+  positionId: position.id,
+  type: 'stopLoss',
+  percent: 50,
+  triggerType: 'mark',
+  orderType: 'market',
+  closePercent: 100
+})
+```
+
+## Percentage-Based Targets
+
+### How Percentages Work
+
+```
+Take Profit:
+  Long:  TP Price = Entry × (1 + Percent/100)
+  Short: TP Price = Entry × (1 - Percent/100)
+
+Stop Loss:
+  Long:  SL Price = Entry × (1 - Percent/100)
+  Short: SL Price = Entry × (1 + Percent/100)
+
+Example - Long BTC at $50,000:
+  +300% TP = $50,000 × 4 = $200,000
+  +100% TP = $50,000 × 2 = $100,000
+  +50% TP  = $50,000 × 1.5 = $75,000
+  -10% SL  = $50,000 × 0.9 = $45,000
+  -50% SL  = $50,000 × 0.5 = $25,000
+
+Example - Short BTC at $50,000:
+  +100% TP = $50,000 × 0 = $0 (max)
+  +50% TP  = $50,000 × 0.5 = $25,000
+  -10% SL  = $50,000 × 1.1 = $55,000
+```
+
+### Using Percentage Targets
+
+```typescript
+// Long with +300% TP and -25% SL
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 300,           // +300%
+  triggerType: 'mark',
+  orderType: 'limit'
+})
+
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  percent: 25,            // -25%
+  triggerType: 'mark',
+  orderType: 'market'
+})
+
+// For short position, percentages work inversely
+// +300% short TP = significant price drop
+```
+
+### Calculate TP/SL Prices
+
+```typescript
+// Get calculated prices before creating orders
+const preview = await dex.perpetual.previewTPSL({
+  positionId: 'pos_123',
+  tpPercent: 300,
+  slPercent: 25
+})
+
+console.log(`Entry: $${preview.entryPrice}`)
+console.log(`TP Price (+300%): $${preview.takeProfitPrice}`)
+console.log(`SL Price (-25%): $${preview.stopLossPrice}`)
+console.log(`Risk/Reward: ${preview.riskRewardRatio}:1`)
+```
+
+## Price-Based Targets
+
+### Set Exact Prices
+
+```typescript
+// Take Profit at specific price
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  price: '100000',        // Exact price target
+  triggerType: 'mark',
+  orderType: 'limit'
+})
+
+// Stop Loss at specific price
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  price: '40000',
+  triggerType: 'mark',
+  orderType: 'market'
+})
+```
+
+### Validation
+
+The system validates TP/SL prices based on position side:
+
+```typescript
+// Long position validation:
+// - TP must be above entry price
+// - SL must be below entry price
+
+// Short position validation:
+// - TP must be below entry price
+// - SL must be above entry price
+
+// Invalid order will throw error:
+try {
+  await dex.perpetual.createTPSL({
+    positionId: 'pos_123',  // Long position
+    type: 'takeProfit',
+    price: '40000',         // Below entry - INVALID
+    triggerType: 'mark'
+  })
+} catch (err) {
+  console.log(err.message)  // "TP price must be above entry for long"
+}
+```
+
+## Trigger Types
+
+### Mark Price (Recommended)
+
+Trigger based on oracle mark price - most reliable, prevents manipulation.
+
+```typescript
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 100,
+  triggerType: 'mark'      // Default, recommended
+})
+```
+
+### Last Price
+
+Trigger based on last traded price on the exchange.
+
+```typescript
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 100,
+  triggerType: 'last'      // Last trade price
+})
+```
+
+### Index Price
+
+Trigger based on underlying spot index price from multiple exchanges.
+
+```typescript
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 100,
+  triggerType: 'index'     // Spot index price
+})
+```
+
+### Trigger Type Comparison
+
+| Trigger | Source | Best For |
+|---------|--------|----------|
+| Mark | Oracle TWAP | Liquidation-aligned stops |
+| Last | Exchange trades | Quick execution |
+| Index | Spot exchanges | Manipulation protection |
+
+## Trailing Stops
+
+### Fixed Delta Trailing
+
+Stop trails price by fixed amount:
+
+```typescript
+// Trail by $1,000
+const trailing = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'trailingStop',
+  trailingDelta: '1000',  // $1,000 trail distance
+  triggerType: 'last'
+})
+
+// How it works (Long position):
+// Price: $50,000 → Stop: $49,000
+// Price: $52,000 → Stop: $51,000 (raised)
+// Price: $51,500 → Stop: $51,000 (not lowered)
+// Price: $51,000 → TRIGGERED
+```
+
+### Percentage Trailing
+
+Stop trails by percentage of price:
+
+```typescript
+// Trail by 2%
+const trailing = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'trailingStop',
+  trailingPercent: 2,     // 2% trail
+  triggerType: 'mark'
+})
+
+// How it works (Long position):
+// Price: $50,000 → Stop: $49,000 (2% below)
+// Price: $55,000 → Stop: $53,900 (2% below $55K)
+// Price: $53,500 → Stop: $53,900 (not lowered)
+```
+
+### Trailing with Activation Price
+
+Trailing only starts after price reaches activation level:
+
+```typescript
+// Activate trailing after +10% gain
+const trailing = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'trailingStop',
+  trailingPercent: 2,
+  activationPrice: '55000', // Start trailing after $55K
+  triggerType: 'mark'
+})
+
+// Behavior:
+// Price $50K → $54K: Trailing not active
+// Price hits $55K: Trailing activates
+// Price $55K → $58K: Stop = $56,840 (2% below)
+// Price drops: Stop holds at $56,840
+```
+
+### Trailing Stop Visualization
+
+```
+Long with 2% Trail, Activation at $55K:
+
+Price
+  │
+$60K│         ╭──╮     ← Highest tracked
+    │        ╱    ╲
+$58K│       ╱      ╲
+    │      ╱        ╲   ← Stop follows 2% below
+$56K│     ╱  ........╲
+    │    ╱            ╲
+$55K│...╱              ╲  ← Activation
+    │  ╱                ╲
+$50K│─╱                  ╲ ← Entry
+    │
+    └────────────────────── Time
+        Activation   Trigger
+```
+
+## Partial Close
+
+### Close Portion of Position
+
+```typescript
+// TP for 50% of position at +100%
+const tp1 = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 100,
+  closePercent: 50        // Close 50%
+})
+
+// TP for remaining 50% at +200%
+const tp2 = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 200,
+  closePercent: 50        // Close remaining 50%
+})
+```
+
+### Scaled Exit Strategy
+
+```typescript
+// Scale out at multiple levels
+const exits = [
+  { percent: 50, close: 25 },   // +50%: close 25%
+  { percent: 100, close: 25 },  // +100%: close 25%
+  { percent: 200, close: 25 },  // +200%: close 25%
+  { percent: 300, close: 25 },  // +300%: close final 25%
+]
+
+for (const exit of exits) {
+  await dex.perpetual.createTPSL({
+    positionId: 'pos_123',
+    type: 'takeProfit',
+    percent: exit.percent,
+    closePercent: exit.close
+  })
+}
+```
+
+## Managing Orders
+
+### View TP/SL Orders
+
+```typescript
+// Get all TP/SL for position
+const orders = await dex.perpetual.getTPSLOrders('pos_123')
+
+orders.forEach(order => {
+  console.log(`ID: ${order.id}`)
+  console.log(`Type: ${order.type}`)
+  console.log(`Trigger: $${order.triggerPrice}`)
+  console.log(`Trigger Type: ${order.triggerType}`)
+  console.log(`Close %: ${order.closePercent}%`)
+  console.log(`Status: ${order.status}`)
+})
+```
+
+### Order Statuses
+
+| Status | Description |
+|--------|-------------|
+| `active` | Monitoring for trigger |
+| `triggered` | Price hit, executing |
+| `filled` | Fully executed |
+| `cancelled` | Manually cancelled |
+| `expired` | Position closed |
+
+### Modify Orders
+
+```typescript
+// Update trigger price
+await dex.perpetual.updateTPSL({
+  orderId: 'tpsl_123',
+  price: '60000'          // New trigger price
+})
+
+// Update close percentage
+await dex.perpetual.updateTPSL({
+  orderId: 'tpsl_123',
+  closePercent: 75
+})
+```
+
+### Cancel Orders
+
+```typescript
+// Cancel specific order
+await dex.perpetual.cancelTPSL('tpsl_123')
+
+// Cancel all TP/SL for position
+await dex.perpetual.cancelAllTPSL('pos_123')
+
+// Cancel all TP orders
+const tpOrders = orders.filter(o => o.type === 'takeProfit')
+for (const tp of tpOrders) {
+  await dex.perpetual.cancelTPSL(tp.id)
+}
+```
+
+## Order Execution
+
+### Execution Types
+
+| Type | Description | Best For |
+|------|-------------|----------|
+| `market` | Execute immediately at market | Stop losses |
+| `limit` | Execute at trigger price | Take profits |
+
+```typescript
+// Market execution (guaranteed fill, potential slippage)
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  percent: 10,
+  orderType: 'market'     // Fills immediately when triggered
+})
+
+// Limit execution (price guaranteed, may not fill)
+const tp = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'takeProfit',
+  percent: 100,
+  orderType: 'limit'      // Placed as limit at trigger
+})
+```
+
+### Slippage Protection
+
+```typescript
+// Set max slippage for market orders
+const sl = await dex.perpetual.createTPSL({
+  positionId: 'pos_123',
+  type: 'stopLoss',
+  percent: 10,
+  orderType: 'market',
+  maxSlippage: 0.5        // Max 0.5% slippage
+})
+```
+
+## Events & Notifications
+
+### Subscribe to TP/SL Events
+
+```typescript
+// Listen for TP/SL triggers
+dex.perpetual.onTPSLTriggered((event) => {
+  console.log(`Order ${event.orderId} triggered!`)
+  console.log(`Type: ${event.type}`)
+  console.log(`Trigger Price: $${event.triggerPrice}`)
+  console.log(`Execution Price: $${event.executionPrice}`)
+  console.log(`PnL: $${event.realizedPnl}`)
+})
+
+// Listen for specific position
+dex.perpetual.onTPSLTriggered('pos_123', (event) => {
+  // Handle specific position events
+})
+```
+
+## Best Practices
+
+### Risk Management
+
+1. **Always set SL** - Never trade without a stop loss
+2. **Use mark trigger** - More reliable than last price
+3. **Account for slippage** - Use market SL for guaranteed exit
+4. **Scale out profits** - Use multiple TP levels
+
+### Position Sizing
+
+```
+Rule of 1%:
+- Risk max 1% of account per trade
+- SL distance determines position size
+
+Example:
+Account: $10,000
+Risk: 1% = $100
+SL: 5% from entry
+
+Max Position = $100 / 5% = $2,000
+```
+
+### Risk/Reward Ratios
+
+```typescript
+// Calculate R:R before placing order
+const position = await dex.perpetual.getPosition('pos_123')
+
+const tpDistance = Math.abs(tpPrice - position.entryPrice)
+const slDistance = Math.abs(position.entryPrice - slPrice)
+const riskReward = tpDistance / slDistance
+
+console.log(`Risk/Reward: ${riskReward.toFixed(2)}:1`)
+
+// Aim for minimum 2:1 R:R
+if (riskReward < 2) {
+  console.log('Consider wider TP or tighter SL')
+}
+```
+
+## API Reference
+
+### TP/SL Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/perpetual/tpsl` | POST | Create TP/SL order |
+| `/perpetual/tpsl/{id}` | GET | Get order details |
+| `/perpetual/tpsl/{id}` | PUT | Update order |
+| `/perpetual/tpsl/{id}` | DELETE | Cancel order |
+| `/perpetual/positions/{id}/tpsl` | GET | List orders for position |
+| `/perpetual/tpsl/preview` | POST | Preview TP/SL prices |
+
+### WebSocket Events
+
+| Event | Description |
+|-------|-------------|
+| `tpsl.created` | New TP/SL order created |
+| `tpsl.updated` | Order modified |
+| `tpsl.triggered` | Order hit trigger price |
+| `tpsl.filled` | Order fully executed |
+| `tpsl.cancelled` | Order cancelled |
+
+## Related Documentation
+
+- [Perpetual Trading](/docs/trading/perpetuals) - Full perpetuals guide
+- [Order Types](/docs/trading/order-types) - All order types
+- [Margin Trading](/docs/trading/margin) - Leverage and margin
+- [Risk Management](/docs/risk) - Risk controls
