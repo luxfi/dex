@@ -5,42 +5,56 @@ description: LX DEX system architecture - multi-layer design for planet-scale pe
 
 # LX DEX Architecture
 
+> **Specification**: [LP-9001 DEX Trading Engine](https://github.com/luxfi/LPs/blob/main/LPs/lp-9001-dex-trading-engine.md) | [LP-9003 High-Performance DEX](https://github.com/luxfi/LPs/blob/main/LPs/lp-9003-high-performance-dex-protocol.md) | [Discussions](https://github.com/luxfi/LPs/discussions)
+
 ## Overview
 
-The LX DEX is built on a highly scalable, modular architecture designed to achieve planet-scale performance with sub-microsecond latency. The system uses a multi-layer approach with specialized components for different aspects of trading.
+The LX DEX is built on a highly scalable, modular architecture designed to achieve planet-scale performance with sub-microsecond latency. The DEX runs as a **standalone sidecar daemon** (`lxd`) separate from the Lux blockchain node, communicating via Warp messages for settlement. This architecture enables sub-millisecond order matching while maintaining blockchain settlement guarantees.
 
 ## System Architecture
 
 ```
-+------------------------------------------------------------+
-|                    Client Layer                             |
-|  Web UI | Mobile | API Clients | Trading Bots | SDKs        |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|                    Gateway Layer                            |
-|  Load Balancer | Rate Limiter | Auth | WebSocket/gRPC      |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|                  Application Layer                          |
-|  Order Management | Risk Engine | Market Data | Admin       |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|                   Core Engine Layer                         |
-|  Matching Engine | Clearing | Settlement | Liquidation      |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|                  Consensus Layer                            |
-|  DAG Consensus | Validator Network | State Machine          |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|                   Storage Layer                             |
-|  Order DB | Trade History | State DB | Archive             |
-+------------------------------------------------------------+
+┌──────────────────────────────────────────────────────────────────────┐
+│                         DEX SIDECAR NETWORK                          │
+│                     (Standalone from Lux Node)                       │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │                    lxd (DEX Daemon)                             │ │
+│  │  ┌────────────────────────────────────────────────────────────┐ │ │
+│  │  │              TRADING ENGINE                                 │ │ │
+│  │  │  ┌──────────────────────────────────────────────────────┐  │ │ │
+│  │  │  │             ORDERBOOK BACKENDS                        │  │ │ │
+│  │  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     │  │ │ │
+│  │  │  │  │ Pure Go │ │ CGO/C++ │ │   GPU   │ │  FPGA   │     │  │ │ │
+│  │  │  │  │ 1M/sec  │ │ 500K/s  │ │ 1.6M/s  │ │ 100M/s  │     │  │ │ │
+│  │  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘     │  │ │ │
+│  │  │  └──────────────────────────────────────────────────────┘  │ │ │
+│  │  │                                                             │ │ │
+│  │  │  ┌──────────────────────────────────────────────────────┐  │ │ │
+│  │  │  │              MATCHING LOGIC                           │  │ │ │
+│  │  │  │  • Price-Time Priority (FIFO)                        │  │ │ │
+│  │  │  │  • Pro-Rata Mode (Configurable)                      │  │ │ │
+│  │  │  │  • TWAP/VWAP Execution                               │  │ │ │
+│  │  │  │  • Iceberg/Hidden Orders                             │  │ │ │
+│  │  │  └──────────────────────────────────────────────────────┘  │ │ │
+│  │  └────────────────────────────────────────────────────────────┘ │ │
+│  │                                                                  │ │
+│  │  ┌────────────────────────────────────────────────────────────┐ │ │
+│  │  │                   DAG CONSENSUS                             │ │ │
+│  │  │  • Order Sequencing                                        │ │ │
+│  │  │  • Trade Finality: 50ms                                    │ │ │
+│  │  │  • Parallel Vertex Processing                              │ │ │
+│  │  └────────────────────────────────────────────────────────────┘ │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+│                               │                                       │
+│                         Warp Messages                                 │
+│                               ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │                    Lux Blockchain Node                           │ │
+│  │       (C-Chain for EVM, B-Chain for Bridge, etc.)               │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Components
