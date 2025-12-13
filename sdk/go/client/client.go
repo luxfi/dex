@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	pb "github.com/luxfi/dex/proto"
+	pb "github.com/luxfi/dex/pkg/grpc/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -207,7 +207,7 @@ func (c *Client) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, 
 			Size:        order.Size,
 			UserId:      order.UserID,
 			ClientId:    order.ClientID,
-			TimeInForce: order.TimeInForce,
+			TimeInForce: timeInForceToProto(order.TimeInForce),
 			PostOnly:    order.PostOnly,
 			ReduceOnly:  order.ReduceOnly,
 		}
@@ -219,7 +219,7 @@ func (c *Client) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, 
 
 		return &OrderResponse{
 			OrderID: resp.OrderId,
-			Status:  resp.Status,
+			Status:  orderStatusFromProto(resp.Status),
 			Message: resp.Message,
 		}, nil
 	}
@@ -510,18 +510,18 @@ func (c *Client) StreamOrderBook(ctx context.Context, symbol string) (<-chan *Or
 			ob := &OrderBook{
 				Symbol:    update.Symbol,
 				Timestamp: update.Timestamp,
-				Bids:      make([]PriceLevel, len(update.Bids)),
-				Asks:      make([]PriceLevel, len(update.Asks)),
+				Bids:      make([]PriceLevel, len(update.GetBidUpdates())),
+				Asks:      make([]PriceLevel, len(update.GetAskUpdates())),
 			}
 
-			for i, bid := range update.Bids {
+			for i, bid := range update.GetBidUpdates() {
 				ob.Bids[i] = PriceLevel{
 					Price: bid.Price,
 					Size:  bid.Size,
 				}
 			}
 
-			for i, ask := range update.Asks {
+			for i, ask := range update.GetAskUpdates() {
 				ob.Asks[i] = PriceLevel{
 					Price: ask.Price,
 					Size:  ask.Size,
@@ -672,4 +672,38 @@ func (c *Client) GetInfo(ctx context.Context) (*NodeInfo, error) {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// timeInForceToProto converts SDK TimeInForce to proto TimeInForce
+func timeInForceToProto(tif TimeInForce) pb.TimeInForce {
+	switch tif {
+	case TimeInForceGTC:
+		return pb.TimeInForce_GTC
+	case TimeInForceIOC:
+		return pb.TimeInForce_IOC
+	case TimeInForceFOK:
+		return pb.TimeInForce_FOK
+	case TimeInForceDAY:
+		return pb.TimeInForce_DAY
+	default:
+		return pb.TimeInForce_GTC
+	}
+}
+
+// orderStatusFromProto converts proto OrderStatus to SDK string status
+func orderStatusFromProto(status pb.OrderStatus) string {
+	switch status {
+	case pb.OrderStatus_OPEN:
+		return string(OrderStatusOpen)
+	case pb.OrderStatus_PARTIAL:
+		return string(OrderStatusPartial)
+	case pb.OrderStatus_FILLED:
+		return string(OrderStatusFilled)
+	case pb.OrderStatus_CANCELLED:
+		return string(OrderStatusCancelled)
+	case pb.OrderStatus_REJECTED:
+		return string(OrderStatusRejected)
+	default:
+		return string(OrderStatusOpen)
+	}
 }
