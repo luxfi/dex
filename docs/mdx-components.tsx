@@ -10,8 +10,8 @@ import {
   Callout,
   Accordion,
   Accordions,
-  TypeTable,
-} from "@hanzo/ui/docs/components"
+} from "@hanzo/ui/content"
+import { TypeTable } from "@hanzo/ui/docs/components"
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
