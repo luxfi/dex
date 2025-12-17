@@ -1,5 +1,5 @@
 import "./global.css"
-import { RootProvider } from "@hanzo/ui/docs/provider/next"
+import { RootProvider } from "@hanzo/ui"
 import { Inter } from "next/font/google"
 import type { ReactNode } from "react"
 
