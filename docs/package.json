@@ -11,8 +11,8 @@
     "postinstall": "hanzo-mdx"
   },
   "dependencies": {
-    "@hanzo/mdx": "^14.1.0",
-    "@hanzo/ui": "^5.3.26",
+    "@hanzo/mdx": "^14.2.0",
+    "@hanzo/ui": "^5.3.28",
     "lucide-react": "^0.468.0",
     "next": "16.0.1",
     "next-themes": "^0.4.6",
