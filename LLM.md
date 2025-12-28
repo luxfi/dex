@@ -1777,3 +1777,152 @@ A comprehensive code review was conducted focusing on compound word usage, code 
 **Estimated Effort:** 2-3 sprints for high priority fixes, 1-2 quarters for complete refactoring.
 
 See CODE_REVIEW_2025-12-12.md for detailed recommendations with file:line references.
+
+---
+
+## API Gateway (2025-12-26)
+
+### Overview
+
+A new provider-based API gateway has been added to `pkg/gateway/` that aggregates multiple DEX providers (Uniswap, native Lux) with priority-based routing and fallback support.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    API GATEWAY                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  HTTP Server (pkg/gateway/server.go)                       │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  /v1/quote    /v1/pools    /v1/price    /v1/leads   │ │
+│  │  /v1/quotes   /v1/positions /v1/prices   /v1/events  │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                           ↓                                 │
+│  Router (pkg/gateway/router.go)                            │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  - Multi-provider aggregation                         │ │
+│  │  - Best quote selection (by output amount)            │ │
+│  │  - Fallback on provider failure                       │ │
+│  │  - Parallel quote fetching                            │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                           ↓                                 │
+│  Provider Registry (pkg/gateway/registry.go)              │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  Priority 10:  Lux Native  (Lux/Zoo chains)          │ │
+│  │  Priority 100: Uniswap     (All chains, fallback)     │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                           ↓                                 │
+│  Providers                                                  │
+│  ┌─────────────────────┐  ┌─────────────────────────────┐ │
+│  │ lux/provider.go     │  │ uniswap/provider.go         │ │
+│  │ - Native DEX pools  │  │ - api.uniswap.org           │ │
+│  │ - Precompile 0x0400 │  │ - liquidity.backend-prod    │ │
+│  │ - Oracle integration│  │ - entry-gateway.backend     │ │
+│  └─────────────────────┘  └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Provider Interfaces
+
+```go
+// Core interfaces in pkg/gateway/provider.go
+type QuoteProvider interface {
+    GetQuote(ctx, req QuoteRequest) (*SwapQuote, error)
+    GetQuotes(ctx, req QuoteRequest) ([]SwapQuote, error)
+}
+
+type SwapProvider interface {
+    QuoteProvider
+    BuildSwap(ctx, quote, recipient, deadline) (*SwapTransaction, error)
+}
+
+type LiquidityProvider interface {
+    GetPools(ctx, req PoolsRequest) ([]Pool, error)
+    GetPositions(ctx, req PositionsRequest) ([]Position, error)
+}
+
+type ConversionProvider interface {
+    CreateLead(ctx, lead) (*ConversionLead, error)
+    TrackEvent(ctx, event) error
+}
+```
+
+### Uniswap Provider (Fallback)
+
+Delegates to 3 Uniswap APIs:
+
+| API | Endpoint | Purpose |
+|-----|----------|---------|
+| Core API | `api.uniswap.org` | Quotes, tokens, prices |
+| Liquidity | `liquidity.backend-prod.api.uniswap.org` | Pools, positions |
+| Conversion | `entry-gateway.backend-*.api.uniswap.org` | Analytics tracking |
+
+### Lux Native Provider (Priority)
+
+Stubs ready for implementation:
+- Quote from DEX precompile (0x0400)
+- Pool queries from PoolManager
+- Native token list for Lux/Zoo chains
+- Oracle integration from `pkg/lx/oracle.go`
+
+### Supported Chains
+
+| Chain | ID | Native Provider | Uniswap Fallback |
+|-------|-----|-----------------|------------------|
+| Lux | 96369 | Yes (priority) | Yes |
+| Zoo | 200200 | Yes (priority) | Yes |
+| Ethereum | 1 | No | Yes |
+| Arbitrum | 42161 | No | Yes |
+| Optimism | 10 | No | Yes |
+| Polygon | 137 | No | Yes |
+| Base | 8453 | No | Yes |
+| BNB | 56 | No | Yes |
+
+### Usage
+
+```bash
+# Start gateway server
+go run cmd/gateway/main.go -addr :8080
+
+# Get best quote from all providers
+curl -X POST http://localhost:8080/v1/quote \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tokenIn": "0x...",
+    "tokenOut": "0x...",
+    "chainId": 96369,
+    "amount": "1000000000000000000",
+    "isExactIn": true
+  }'
+
+# Health check
+curl http://localhost:8080/health
+
+# List providers
+curl http://localhost:8080/providers
+```
+
+### Tests
+
+```bash
+# Run gateway tests (12 tests, all passing)
+go test -v ./pkg/gateway/...
+```
+
+### Future Work
+
+1. **Lux Native Implementation**
+   - Connect to DEX precompile at 0x0400
+   - Integrate with orderbook in `pkg/lx/`
+   - Add native oracle prices from Chainlink/Pyth sources
+
+2. **Caching Layer**
+   - Quote caching with TTL
+   - Pool state caching
+   - Token list caching
+
+3. **Advanced Routing**
+   - Multi-hop route optimization
+   - Split routes across providers
+   - MEV-protected execution
