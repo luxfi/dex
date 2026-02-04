@@ -15,10 +15,10 @@ import (
 func ExampleParseTradingPair() {
 	// The SDK supports multiple trading pair formats
 	pairs := []string{
-		"BTC-USDC",  // Dash separator
-		"ETH/USDT",  // Slash separator (CCXT style)
-		"LUX_USD",   // Underscore separator
-		"BTCUSDT",   // No separator (exchange native)
+		"BTC-USDC", // Dash separator
+		"ETH/USDT", // Slash separator (CCXT style)
+		"LUX_USD",  // Underscore separator
+		"BTCUSDT",  // No separator (exchange native)
 	}
 
 	for _, p := range pairs {
@@ -132,8 +132,8 @@ func ExampleNewLimitOrder() {
 // ExampleRiskManager demonstrates risk management operations.
 func ExampleRiskManager() {
 	config := trading.RiskConfig{
-		Enabled:      true,
-		MaxOrderSize: decimal.NewFromFloat(10),
+		Enabled:       true,
+		MaxOrderSize:  decimal.NewFromFloat(10),
 		MaxOpenOrders: 5,
 	}
 
@@ -250,7 +250,7 @@ func ExampleConstantProductPrice() {
 	// Pool with 1000 ETH and 2,000,000 USDC
 	reserveETH := decimal.NewFromFloat(1000)
 	reserveUSDC := decimal.NewFromFloat(2000000)
-	amountIn := decimal.NewFromFloat(10) // Swap 10 ETH
+	amountIn := decimal.NewFromFloat(10)   // Swap 10 ETH
 	feeRate := decimal.NewFromFloat(0.003) // 0.3% fee
 
 	// Swap ETH -> USDC

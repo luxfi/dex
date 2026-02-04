@@ -37,13 +37,13 @@ type MarketMaker struct {
 	config MarketMakerConfig
 
 	// State
-	mu            sync.RWMutex
-	position      decimal.Decimal
-	activeOrders  map[string]trading.Order
-	totalPnL      decimal.Decimal
-	tradesCount   int
-	lastMidPrice  decimal.Decimal
-	volatility    decimal.Decimal
+	mu           sync.RWMutex
+	position     decimal.Decimal
+	activeOrders map[string]trading.Order
+	totalPnL     decimal.Decimal
+	tradesCount  int
+	lastMidPrice decimal.Decimal
+	volatility   decimal.Decimal
 
 	// Control
 	ctx    context.Context
@@ -54,17 +54,17 @@ type MarketMaker struct {
 // MarketMakerConfig configures the market maker.
 type MarketMakerConfig struct {
 	// Trading parameters
-	Symbol           string
-	Venue            string
-	BaseSpreadBps    decimal.Decimal // Base spread in basis points
-	OrderSize        decimal.Decimal // Size per order
-	MaxPosition      decimal.Decimal // Maximum position (absolute)
-	NumLevels        int             // Number of price levels
-	LevelSpacingBps  decimal.Decimal // Spacing between levels
+	Symbol          string
+	Venue           string
+	BaseSpreadBps   decimal.Decimal // Base spread in basis points
+	OrderSize       decimal.Decimal // Size per order
+	MaxPosition     decimal.Decimal // Maximum position (absolute)
+	NumLevels       int             // Number of price levels
+	LevelSpacingBps decimal.Decimal // Spacing between levels
 
 	// Risk parameters
-	MaxDailyLoss     decimal.Decimal
-	PositionSkewBps  decimal.Decimal // Skew spread based on position
+	MaxDailyLoss    decimal.Decimal
+	PositionSkewBps decimal.Decimal // Skew spread based on position
 
 	// Timing
 	QuoteInterval    time.Duration
@@ -76,13 +76,13 @@ func DefaultMarketMakerConfig() MarketMakerConfig {
 	return MarketMakerConfig{
 		Symbol:           "BTC-USDC",
 		Venue:            "lx_dex",
-		BaseSpreadBps:    decimal.NewFromInt(10),   // 0.10%
+		BaseSpreadBps:    decimal.NewFromInt(10),     // 0.10%
 		OrderSize:        decimal.NewFromFloat(0.01), // 0.01 BTC
 		MaxPosition:      decimal.NewFromFloat(0.1),  // 0.1 BTC
 		NumLevels:        3,
-		LevelSpacingBps:  decimal.NewFromInt(5),    // 0.05%
+		LevelSpacingBps:  decimal.NewFromInt(5),     // 0.05%
 		MaxDailyLoss:     decimal.NewFromFloat(100), // $100
-		PositionSkewBps:  decimal.NewFromInt(2),    // Skew per position unit
+		PositionSkewBps:  decimal.NewFromInt(2),     // Skew per position unit
 		QuoteInterval:    time.Second,
 		CancelAgeSeconds: 30,
 	}
@@ -361,9 +361,9 @@ func main() {
 	// Risk config
 	config.Risk = trading.RiskConfig{
 		Enabled:         true,
-		MaxPositionSize: decimal.NewFromFloat(1),     // 1 BTC max position
-		MaxOrderSize:    decimal.NewFromFloat(0.1),   // 0.1 BTC max order
-		MaxDailyLoss:    decimal.NewFromFloat(500),   // $500 daily loss limit
+		MaxPositionSize: decimal.NewFromFloat(1),   // 1 BTC max position
+		MaxOrderSize:    decimal.NewFromFloat(0.1), // 0.1 BTC max order
+		MaxDailyLoss:    decimal.NewFromFloat(500), // $500 daily loss limit
 		MaxOpenOrders:   50,
 	}
 

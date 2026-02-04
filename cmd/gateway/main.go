@@ -47,7 +47,7 @@ func main() {
 		CacheEnabled:    true,
 		CacheTTLSeconds: 60,
 	}
-	
+
 	gw := gateway.New(config)
 
 	// Register Lux native provider with RPC connectivity (highest priority)
@@ -88,7 +88,7 @@ func main() {
 			gateway.ChainIDZoo,
 		},
 	})
-	
+
 	if err := gw.RegisterProvider(uniswapProvider); err != nil {
 		log.Fatalf("Failed to register Uniswap provider: %v", err)
 	}
@@ -98,7 +98,7 @@ func main() {
 	log.Printf("Gateway server starting on %s", *addr)
 	log.Println("Provider priority: lux (10) > uniswap (100)")
 	log.Println("Supported chains: Lux (96369), Zoo (200200), Ethereum (1), Arbitrum (42161), Optimism (10), Polygon (137), Base (8453), BNB (56)")
-	
+
 	if err := gw.StartWithGracefulShutdown(*addr); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}

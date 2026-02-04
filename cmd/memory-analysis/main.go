@@ -7,8 +7,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/luxfi/accel/ops/dex"
 	"github.com/luxfi/dex/pkg/lx"
-	"github.com/luxfi/dex/pkg/mlx"
 )
 
 // Memory analysis for MLX matching engine and orderbook
@@ -43,8 +43,8 @@ func main() {
 	// Test 4: 100K orderbooks (if memory allows)
 	test100KOrderbooks()
 
-	// Test 5: MLX Engine memory usage
-	testMLXEngineMemory()
+	// Test 5: Accel Engine memory usage
+	testAccelEngineMemory()
 
 	// Extrapolate to 1M markets
 	extrapolateTo1Million()
@@ -60,9 +60,9 @@ func analyzeTheoreticalMemory() {
 	fmt.Printf("Size of OrderBook struct: %d bytes\n", unsafe.Sizeof(lx.OrderBook{}))
 	fmt.Printf("Size of PriceLevel struct: %d bytes\n", unsafe.Sizeof(lx.PriceLevel{}))
 
-	// MLX structures
-	fmt.Printf("Size of MLX Order: %d bytes\n", unsafe.Sizeof(mlx.Order{}))
-	fmt.Printf("Size of MLX Trade: %d bytes\n", unsafe.Sizeof(mlx.Trade{}))
+	// Accel/dex structures
+	fmt.Printf("Size of dex.Order: %d bytes\n", unsafe.Sizeof(dex.Order{}))
+	fmt.Printf("Size of dex.Trade: %d bytes\n", unsafe.Sizeof(dex.Trade{}))
 
 	fmt.Println("\n--- Per-Market Memory Requirements ---")
 
@@ -277,52 +277,43 @@ func test100KOrderbooks() {
 		float64(used)/(100000*1024))
 }
 
-func testMLXEngineMemory() {
-	fmt.Println("\n--- MLX Engine Memory Test ---")
+func testAccelEngineMemory() {
+	fmt.Println("\n--- Accel/DEX Engine Memory Test ---")
 
 	runtime.GC()
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	before := m.Alloc
 
-	// Create MLX engine
-	engine, err := mlx.NewEngine(mlx.Config{
-		Backend:  mlx.BackendCPU,
-		MaxBatch: 10000,
-	})
-	if err != nil {
-		fmt.Printf("Failed to create MLX engine: %v\n", err)
-		return
-	}
-	defer engine.Close()
-
-	// Create batch of orders
-	bids := make([]mlx.Order, 1000)
-	asks := make([]mlx.Order, 1000)
+	// Create batch of orders using accel/ops/dex
+	bids := make([]dex.Order, 1000)
+	asks := make([]dex.Order, 1000)
 
 	for i := 0; i < 1000; i++ {
-		bids[i] = mlx.Order{
-			ID:    uint64(i),
-			Side:  0,
-			Price: 100 - float64(i%10),
-			Size:  10,
+		bids[i] = dex.Order{
+			ID:        uint64(i),
+			Side:      dex.Bid,
+			Price:     uint64(100-i%10) * 1e8,
+			Quantity:  10 * 1e8,
+			Remaining: 10 * 1e8,
 		}
-		asks[i] = mlx.Order{
-			ID:    uint64(i + 1000),
-			Side:  1,
-			Price: 101 + float64(i%10),
-			Size:  10,
+		asks[i] = dex.Order{
+			ID:        uint64(i + 1000),
+			Side:      dex.Ask,
+			Price:     uint64(101+i%10) * 1e8,
+			Quantity:  10 * 1e8,
+			Remaining: 10 * 1e8,
 		}
 	}
 
-	// Run batch matching
-	trades := engine.BatchMatch(bids, asks)
+	// Run batch matching using accel
+	trades, _, _ := dex.MatchOrders(bids, asks, nil)
 
 	runtime.ReadMemStats(&m)
 	after := m.Alloc
 	used := after - before
 
-	fmt.Printf("MLX Engine memory overhead: %d bytes (%.2f KB)\n",
+	fmt.Printf("Accel/DEX memory overhead: %d bytes (%.2f KB)\n",
 		used, float64(used)/1024)
 	fmt.Printf("Trades generated: %d\n", len(trades))
 }

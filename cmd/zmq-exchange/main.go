@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 // LX Exchange Server - Receives orders via ZMQ and processes them
 package main
 
@@ -9,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	zmq "github.com/pebbe/zmq4"
+	"github.com/luxfi/czmq/v4"
 )
 
 type Order struct {
@@ -36,21 +38,19 @@ func main() {
 	)
 	flag.Parse()
 
-	fmt.Printf("🚀 ZMQ Exchange Server\n")
+	fmt.Printf("[START] ZMQ Exchange Server\n")
 	fmt.Printf("Binding to: %s\n", *bindAddr)
 	fmt.Printf("Workers: %d\n", *workers)
 	fmt.Println("----------------------------------------")
 
 	// Create PULL socket for receiving orders
-	context, _ := zmq.NewContext()
-	socket, _ := context.NewSocket(zmq.PULL)
-	defer socket.Close()
+	socket := czmq.NewSock(czmq.Pull)
+	defer socket.Destroy()
 
 	// Set high water mark for better throughput
 	socket.SetRcvhwm(100000)
-	socket.SetRcvbuf(8 * 1024 * 1024) // 8MB buffer
 
-	if err := socket.Bind(*bindAddr); err != nil {
+	if _, err := socket.Bind(*bindAddr); err != nil {
 		log.Fatalf("Failed to bind: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func main() {
 			mbPerSec := float64(bytes) / (elapsed * 1024 * 1024)
 			gbpsUsed := (float64(bytes) * 8) / (elapsed * 1e9)
 
-			fmt.Printf("\r📊 Orders: %d | Rate: %.0f/sec | Network: %.2f MB/s (%.3f Gbps) | Avg Size: %d bytes",
+			fmt.Printf("\r[STATS] Orders: %d | Rate: %.0f/sec | Network: %.2f MB/s (%.3f Gbps) | Avg Size: %d bytes",
 				orders, ordersPerSec, mbPerSec, gbpsUsed,
 				func() uint64 {
 					if orders > 0 {
@@ -88,7 +88,7 @@ func main() {
 
 	// Main receive loop
 	for {
-		msg, err := socket.RecvBytes(0)
+		msg, _, err := socket.RecvFrame()
 		if err != nil {
 			log.Printf("Receive error: %v", err)
 			continue

@@ -214,7 +214,7 @@ func TestLendingPool_Withdraw(t *testing.T) {
 		// Set supply rate and simulate time passing
 		supplier := lp.Suppliers["user1"]
 		position := supplier.SuppliedAssets["ETH"]
-		position.SupplyRate = 0.05 // 5% annual
+		position.SupplyRate = 0.05                            // 5% annual
 		position.LastUpdate = time.Now().Add(-24 * time.Hour) // 1 day ago
 
 		err := lp.Withdraw("user1", "ETH", big.NewInt(500000))
@@ -268,8 +268,8 @@ func TestLendingPool_calculateSupplyInterest(t *testing.T) {
 		pool := lp.Pools["ETH"]
 		position := &SupplyPosition{
 			Asset:      "ETH",
-			Amount:     big.NewInt(1000000000), // 1B units
-			SupplyRate: 0.10,                   // 10% annual
+			Amount:     big.NewInt(1000000000),            // 1B units
+			SupplyRate: 0.10,                              // 10% annual
 			LastUpdate: time.Now().Add(-8760 * time.Hour), // 1 year
 		}
 

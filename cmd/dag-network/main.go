@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 package main
 
 import (
@@ -14,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/luxfi/czmq/v4"
 	"github.com/luxfi/dex/pkg/consensus"
 	"github.com/luxfi/dex/pkg/lx"
-	zmq "github.com/pebbe/zmq4"
 )
 
 // NodeConfig represents configuration for a DAG node
@@ -34,10 +36,9 @@ type NodeConfig struct {
 type DAGNode struct {
 	config     NodeConfig
 	dagBook    *consensus.LuxDAGOrderBook
-	zmqCtx     *zmq.Context
-	pubSocket  *zmq.Socket
-	subSocket  *zmq.Socket
-	repSocket  *zmq.Socket
+	pubSocket  *czmq.Sock
+	subSocket  *czmq.Sock
+	repSocket  *czmq.Sock
 	httpServer *http.Server
 	wg         sync.WaitGroup
 	ctx        context.Context
@@ -55,17 +56,9 @@ func NewDAGNode(config NodeConfig) (*DAGNode, error) {
 		return nil, fmt.Errorf("failed to create FPC DAG order book: %w", err)
 	}
 
-	// Create ZMQ context
-	zmqCtx, err := zmq.NewContext()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create ZMQ context: %w", err)
-	}
-
 	node := &DAGNode{
 		config:  config,
 		dagBook: dagBook,
-		zmqCtx:  zmqCtx,
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -84,22 +77,14 @@ func NewDAGNode(config NodeConfig) (*DAGNode, error) {
 
 // initZMQSockets initializes ZeroMQ sockets
 func (n *DAGNode) initZMQSockets() error {
-	var err error
-
 	// Publisher socket for broadcasting vertices
-	n.pubSocket, err = n.zmqCtx.NewSocket(zmq.PUB)
-	if err != nil {
-		return fmt.Errorf("failed to create PUB socket: %w", err)
-	}
-	if err := n.pubSocket.Bind(fmt.Sprintf("tcp://*:%d", n.config.ZMQPubPort)); err != nil {
+	n.pubSocket = czmq.NewSock(czmq.Pub)
+	if _, err := n.pubSocket.Bind(fmt.Sprintf("tcp://*:%d", n.config.ZMQPubPort)); err != nil {
 		return fmt.Errorf("failed to bind PUB socket: %w", err)
 	}
 
 	// Subscriber socket for receiving vertices
-	n.subSocket, err = n.zmqCtx.NewSocket(zmq.SUB)
-	if err != nil {
-		return fmt.Errorf("failed to create SUB socket: %w", err)
-	}
+	n.subSocket = czmq.NewSock(czmq.Sub)
 	n.subSocket.SetSubscribe("")
 
 	// Connect to peer publishers
@@ -110,11 +95,8 @@ func (n *DAGNode) initZMQSockets() error {
 	}
 
 	// Reply socket for handling requests
-	n.repSocket, err = n.zmqCtx.NewSocket(zmq.REP)
-	if err != nil {
-		return fmt.Errorf("failed to create REP socket: %w", err)
-	}
-	if err := n.repSocket.Bind(fmt.Sprintf("tcp://*:%d", n.config.ZMQRepPort)); err != nil {
+	n.repSocket = czmq.NewSock(czmq.Rep)
+	if _, err := n.repSocket.Bind(fmt.Sprintf("tcp://*:%d", n.config.ZMQRepPort)); err != nil {
 		return fmt.Errorf("failed to bind REP socket: %w", err)
 	}
 
@@ -242,8 +224,8 @@ func (n *DAGNode) receiveVertices() {
 		case <-n.ctx.Done():
 			return
 		default:
-			// Receive vertex from peers
-			msg, err := n.subSocket.RecvBytes(zmq.DONTWAIT)
+			// Receive vertex from peers (non-blocking poll)
+			msg, _, err := n.subSocket.RecvFrame()
 			if err != nil {
 				time.Sleep(10 * time.Millisecond)
 				continue
@@ -283,13 +265,13 @@ func (n *DAGNode) handleRequests() {
 			return
 		default:
 			// Handle request
-			msg, err := n.repSocket.RecvBytes(0)
+			msg, _, err := n.repSocket.RecvFrame()
 			if err != nil {
 				continue
 			}
 
 			// Simple echo for now
-			n.repSocket.SendBytes(msg, 0)
+			n.repSocket.SendFrame(msg, 0)
 		}
 	}
 }
@@ -303,7 +285,7 @@ func (n *DAGNode) broadcastVertex(vertex *consensus.OrderVertex) {
 	}
 
 	// Broadcast via ZMQ PUB socket
-	if _, err := n.pubSocket.SendBytes(data, zmq.DONTWAIT); err != nil {
+	if err := n.pubSocket.SendFrame(data, 0); err != nil {
 		log.Printf("Failed to broadcast vertex: %v", err)
 	}
 }
@@ -378,17 +360,16 @@ func (n *DAGNode) Stop() {
 	n.httpServer.Close()
 
 	if n.pubSocket != nil {
-		n.pubSocket.Close()
+		n.pubSocket.Destroy()
 	}
 	if n.subSocket != nil {
-		n.subSocket.Close()
+		n.subSocket.Destroy()
 	}
 	if n.repSocket != nil {
-		n.repSocket.Close()
+		n.repSocket.Destroy()
 	}
 
 	n.wg.Wait()
-	n.zmqCtx.Term()
 
 	log.Printf("DAG node %s stopped", n.config.ID)
 }

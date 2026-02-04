@@ -24,21 +24,21 @@ type Executor struct {
 	address    string
 
 	// Contract addresses
-	flashLoanPool       string
-	arbitrageContract   string
+	flashLoanPool     string
+	arbitrageContract string
 
 	// Chain clients
 	chains map[string]ChainClient
 
 	// Execution tracking
-	pendingExecutions map[string]*Execution
+	pendingExecutions   map[string]*Execution
 	completedExecutions []Execution
 
 	// Metrics
-	totalExecutions   int64
+	totalExecutions      int64
 	successfulExecutions int64
-	totalProfitUSD    decimal.Decimal
-	totalGasSpent     decimal.Decimal
+	totalProfitUSD       decimal.Decimal
+	totalGasSpent        decimal.Decimal
 
 	// Running state
 	ctx    context.Context
@@ -116,15 +116,15 @@ type Log struct {
 
 // Execution represents an arbitrage execution
 type Execution struct {
-	ID            string
-	Opportunity   ArbitrageOpportunity
-	Status        ExecutionStatus
-	StartTime     time.Time
-	EndTime       time.Time
-	Transactions  []ExecutedTx
-	ActualPnL     decimal.Decimal
-	GasSpent      decimal.Decimal
-	Error         error
+	ID           string
+	Opportunity  ArbitrageOpportunity
+	Status       ExecutionStatus
+	StartTime    time.Time
+	EndTime      time.Time
+	Transactions []ExecutedTx
+	ActualPnL    decimal.Decimal
+	GasSpent     decimal.Decimal
+	Error        error
 }
 
 // ExecutedTx represents an executed transaction
@@ -152,12 +152,12 @@ func NewExecutor(config ExecutorConfig, privateKey *ecdsa.PrivateKey) *Executor 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Executor{
-		config:             config,
-		privateKey:         privateKey,
-		chains:             make(map[string]ChainClient),
-		pendingExecutions:  make(map[string]*Execution),
-		ctx:                ctx,
-		cancel:             cancel,
+		config:            config,
+		privateKey:        privateKey,
+		chains:            make(map[string]ChainClient),
+		pendingExecutions: make(map[string]*Execution),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 }
 
@@ -476,9 +476,9 @@ type ExecutorMetrics struct {
 // DefaultExecutorConfig returns default configuration
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		MaxGasPrice:      decimal.NewFromInt(100),        // 100 gwei max
-		MaxSlippageBps:   decimal.NewFromInt(50),         // 0.5% max slippage
-		MinConfidence:    0.7,                            // 70% minimum confidence
+		MaxGasPrice:      decimal.NewFromInt(100), // 100 gwei max
+		MaxSlippageBps:   decimal.NewFromInt(50),  // 0.5% max slippage
+		MinConfidence:    0.7,                     // 70% minimum confidence
 		MaxConcurrent:    10,
 		UseFlashLoans:    true,
 		UseMEVProtection: true,

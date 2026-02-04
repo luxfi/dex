@@ -57,11 +57,11 @@ type Route struct {
 type ArbType string
 
 const (
-	ArbTypeSimple     ArbType = "simple"      // Buy A, sell B
-	ArbTypeTriangular ArbType = "triangular"  // A->B->C->A
-	ArbTypeMultiHop   ArbType = "multi_hop"   // Complex routes
-	ArbTypeCEXDEX     ArbType = "cex_dex"     // CEX<->DEX arb
-	ArbTypeFlashSwap  ArbType = "flash_swap"  // DEX flash swap
+	ArbTypeSimple     ArbType = "simple"     // Buy A, sell B
+	ArbTypeTriangular ArbType = "triangular" // A->B->C->A
+	ArbTypeMultiHop   ArbType = "multi_hop"  // Complex routes
+	ArbTypeCEXDEX     ArbType = "cex_dex"    // CEX<->DEX arb
+	ArbTypeFlashSwap  ArbType = "flash_swap" // DEX flash swap
 )
 
 // Scanner continuously scans for arbitrage opportunities
@@ -111,14 +111,14 @@ type ScannerConfig struct {
 
 // ChainConfig holds chain-specific configuration
 type ChainConfig struct {
-	ChainID        string
-	Name           string
-	GasPrice       decimal.Decimal
-	BlockTime      time.Duration
-	BridgeCost     decimal.Decimal
-	BridgeLatency  time.Duration
-	Venues         []string
-	WarpSupported  bool // Native Lux Warp
+	ChainID         string
+	Name            string
+	GasPrice        decimal.Decimal
+	BlockTime       time.Duration
+	BridgeCost      decimal.Decimal
+	BridgeLatency   time.Duration
+	Venues          []string
+	WarpSupported   bool // Native Lux Warp
 	TeleportSupport bool // EVM Teleport bridge
 }
 
@@ -329,18 +329,18 @@ func (s *Scanner) findSimpleArb(symbol string, sources []PriceSource) []Arbitrag
 			confidence := s.calculateConfidence(buySrc, sellSrc)
 
 			opp := ArbitrageOpportunity{
-				ID:           fmt.Sprintf("simple-%s-%s-%s-%d", symbol, buySrc.Venue, sellSrc.Venue, time.Now().UnixNano()),
-				Type:         ArbTypeSimple,
-				BuySource:    buySrc,
-				SellSource:   sellSrc,
-				SpreadBps:    spreadBps,
-				EstimatedPnL: grossPnL,
-				MaxSize:      maxSize,
-				GasCostUSD:   gasCost,
+				ID:            fmt.Sprintf("simple-%s-%s-%s-%d", symbol, buySrc.Venue, sellSrc.Venue, time.Now().UnixNano()),
+				Type:          ArbTypeSimple,
+				BuySource:     buySrc,
+				SellSource:    sellSrc,
+				SpreadBps:     spreadBps,
+				EstimatedPnL:  grossPnL,
+				MaxSize:       maxSize,
+				GasCostUSD:    gasCost,
 				BridgeCostUSD: bridgeCost,
-				NetPnL:       netPnL,
-				Confidence:   confidence,
-				ExpiresAt:    time.Now().Add(5 * time.Second), // Short expiry for HFT
+				NetPnL:        netPnL,
+				Confidence:    confidence,
+				ExpiresAt:     time.Now().Add(5 * time.Second), // Short expiry for HFT
 				Routes: []Route{
 					{
 						ChainID:  buySrc.ChainID,
@@ -527,10 +527,10 @@ func isCEX(venue string) bool {
 // DefaultScannerConfig returns default configuration
 func DefaultScannerConfig() ScannerConfig {
 	return ScannerConfig{
-		MinSpreadBps:   decimal.NewFromInt(10),                    // 0.1%
-		MinProfitUSD:   decimal.NewFromInt(10),                    // $10 minimum
-		MaxPriceAge:    5 * time.Second,                           // 5 second max age
-		ScanInterval:   100 * time.Millisecond,                    // 10 scans/second
+		MinSpreadBps:   decimal.NewFromInt(10), // 0.1%
+		MinProfitUSD:   decimal.NewFromInt(10), // $10 minimum
+		MaxPriceAge:    5 * time.Second,        // 5 second max age
+		ScanInterval:   100 * time.Millisecond, // 10 scans/second
 		MaxConcurrency: 50,
 		Symbols:        []string{"BTC", "ETH", "LUX", "SOL", "AVAX"},
 		ChainIDs:       []string{"lux", "ethereum", "bsc", "arbitrum", "polygon"},
@@ -540,14 +540,14 @@ func DefaultScannerConfig() ScannerConfig {
 // LuxChainConfig returns Lux-optimized chain configuration
 func LuxChainConfig() ChainConfig {
 	return ChainConfig{
-		ChainID:        "lux",
-		Name:           "Lux Network",
-		GasPrice:       decimal.NewFromFloat(0.000000025), // 25 gwei
-		BlockTime:      400 * time.Millisecond,            // Sub-second finality
-		BridgeCost:     decimal.NewFromFloat(0.01),        // Nearly free via Warp
-		BridgeLatency:  500 * time.Millisecond,            // Fast Warp messaging
-		Venues:         []string{"lx_dex", "lx_amm"},
-		WarpSupported:  true,
+		ChainID:         "lux",
+		Name:            "Lux Network",
+		GasPrice:        decimal.NewFromFloat(0.000000025), // 25 gwei
+		BlockTime:       400 * time.Millisecond,            // Sub-second finality
+		BridgeCost:      decimal.NewFromFloat(0.01),        // Nearly free via Warp
+		BridgeLatency:   500 * time.Millisecond,            // Fast Warp messaging
+		Venues:          []string{"lx_dex", "lx_amm"},
+		WarpSupported:   true,
 		TeleportSupport: true,
 	}
 }
