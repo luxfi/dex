@@ -6,7 +6,7 @@
 // - Binance, MEXC, OKX (via CCXT)
 // - Uniswap, PancakeSwap (via Hummingbot Gateway)
 //
-// NO SMART CONTRACTS - just coordinated trades through unified API
+// # NO SMART CONTRACTS - just coordinated trades through unified API
 //
 // Cross-chain transport:
 // - Warp: For Lux subnet communication (instant)
@@ -76,10 +76,10 @@ func main() {
 
 	// Risk management
 	config.Risk = trading.RiskConfig{
-		Enabled:          true,
-		MaxPositionSize:  decimal.NewFromInt(10000),  // $10k max per trade
-		MaxOrderSize:     decimal.NewFromInt(5000),   // $5k max order
-		MaxDailyLoss:     decimal.NewFromInt(500),    // $500 daily loss limit
+		Enabled:           true,
+		MaxPositionSize:   decimal.NewFromInt(10000), // $10k max per trade
+		MaxOrderSize:      decimal.NewFromInt(5000),  // $5k max order
+		MaxDailyLoss:      decimal.NewFromInt(500),   // $500 daily loss limit
 		KillSwitchEnabled: true,
 	}
 
@@ -100,10 +100,10 @@ func main() {
 
 	// Create arbitrage system
 	arbConfig := arbitrage.UnifiedArbConfig{
-		MinSpreadBps:     decimal.NewFromInt(15),   // 0.15% minimum spread
-		MinProfit:        decimal.NewFromInt(10),   // $10 minimum profit
-		MaxPositionSize:  decimal.NewFromInt(5000), // $5k max per arb
-		MaxTotalExposure: decimal.NewFromInt(50000),// $50k max total
+		MinSpreadBps:     decimal.NewFromInt(15),    // 0.15% minimum spread
+		MinProfit:        decimal.NewFromInt(10),    // $10 minimum profit
+		MaxPositionSize:  decimal.NewFromInt(5000),  // $5k max per arb
+		MaxTotalExposure: decimal.NewFromInt(50000), // $50k max total
 		Symbols: []string{
 			"BTC-USDC",
 			"ETH-USDC",
@@ -111,8 +111,8 @@ func main() {
 			"SOL-USDC",
 		},
 		VenuePriority: []string{
-			"lx_dex",   // Fastest (native)
-			"binance",  // High liquidity
+			"lx_dex",  // Fastest (native)
+			"binance", // High liquidity
 			"mexc",
 			"lx_amm",
 		},
