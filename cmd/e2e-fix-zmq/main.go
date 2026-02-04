@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 // E2E FIX over ZeroMQ Benchmark against LX Cluster
 package main
 
@@ -17,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	zmq "github.com/pebbe/zmq4"
+	"github.com/luxfi/czmq/v4"
 )
 
 // FIX Message Types
@@ -147,7 +149,7 @@ func min(a, b int) int {
 
 // Test 1: Direct HTTP API Test
 func testHTTPAPI(nodeURL string, messageCount int) TestResult {
-	fmt.Printf("\n📡 Testing HTTP API: %s\n", nodeURL)
+	fmt.Printf("\n[HTTP] Testing HTTP API: %s\n", nodeURL)
 
 	var processed int64
 	var errors int64
@@ -210,15 +212,7 @@ func testHTTPAPI(nodeURL string, messageCount int) TestResult {
 
 // Test 2: Binary FIX over ZeroMQ
 func testFIXOverZMQ(zmqEndpoint string, messageCount int) TestResult {
-	fmt.Printf("\n⚡ Testing Binary FIX over ZeroMQ: %s\n", zmqEndpoint)
-
-	// Create ZMQ context
-	context, err := zmq.NewContext()
-	if err != nil {
-		log.Printf("Failed to create ZMQ context: %v", err)
-		return TestResult{TestName: "FIX/ZMQ", ErrorCount: int64(messageCount)}
-	}
-	defer context.Term()
+	fmt.Printf("\n[ZMQ] Testing Binary FIX over ZeroMQ: %s\n", zmqEndpoint)
 
 	var processed int64
 	var errors int64
@@ -237,19 +231,13 @@ func testFIXOverZMQ(zmqEndpoint string, messageCount int) TestResult {
 			defer wg.Done()
 
 			// Create DEALER socket for async req/rep
-			socket, err := context.NewSocket(zmq.DEALER)
-			if err != nil {
-				atomic.AddInt64(&errors, int64(count))
-				return
-			}
-			defer socket.Close()
+			socket := czmq.NewSock(czmq.Dealer)
+			defer socket.Destroy()
 
 			// Set socket options for low latency
 			socket.SetSndhwm(10000)
 			socket.SetRcvhwm(10000)
 			socket.SetLinger(0)
-			socket.SetTcpKeepalive(1)
-			socket.SetTcpKeepaliveIdle(30)
 
 			// Connect to endpoint
 			if err := socket.Connect(zmqEndpoint); err != nil {
@@ -266,7 +254,7 @@ func testFIXOverZMQ(zmqEndpoint string, messageCount int) TestResult {
 				orderStart := time.Now()
 
 				// Send binary FIX message
-				if _, err := socket.SendBytes(data, zmq.DONTWAIT); err != nil {
+				if err := socket.SendFrame(data, 0); err != nil {
 					atomic.AddInt64(&errors, 1)
 					continue
 				}
@@ -307,29 +295,18 @@ func testFIXOverZMQ(zmqEndpoint string, messageCount int) TestResult {
 
 // Test 3: Batched Binary FIX over ZMQ
 func testBatchedFIXOverZMQ(zmqEndpoint string, messageCount int, batchSize int) TestResult {
-	fmt.Printf("\n🚀 Testing Batched FIX over ZeroMQ (batch=%d): %s\n", batchSize, zmqEndpoint)
-
-	context, err := zmq.NewContext()
-	if err != nil {
-		log.Printf("Failed to create ZMQ context: %v", err)
-		return TestResult{TestName: "Batched FIX/ZMQ", ErrorCount: int64(messageCount)}
-	}
-	defer context.Term()
+	fmt.Printf("\n[ZMQ] Testing Batched FIX over ZeroMQ (batch=%d): %s\n", batchSize, zmqEndpoint)
 
 	var processed int64
 	var errors int64
 	latencies := make([]int64, 0, messageCount/batchSize)
 
 	// Create PUSH socket for one-way high throughput
-	socket, err := context.NewSocket(zmq.PUSH)
-	if err != nil {
-		return TestResult{TestName: "Batched FIX/ZMQ", ErrorCount: int64(messageCount)}
-	}
-	defer socket.Close()
+	socket := czmq.NewSock(czmq.Push)
+	defer socket.Destroy()
 
 	// Optimize for throughput
 	socket.SetSndhwm(100000)
-	socket.SetSndtimeo(1000) // 1 second timeout
 
 	if err := socket.Connect(zmqEndpoint); err != nil {
 		return TestResult{TestName: "Batched FIX/ZMQ", ErrorCount: int64(messageCount)}
@@ -352,7 +329,7 @@ func testBatchedFIXOverZMQ(zmqEndpoint string, messageCount int, batchSize int) 
 		}
 
 		// Send entire batch
-		if _, err := socket.SendBytes(batchBuf.Bytes(), 0); err != nil {
+		if err := socket.SendFrame(batchBuf.Bytes(), 0); err != nil {
 			atomic.AddInt64(&errors, int64(batchSize))
 		} else {
 			atomic.AddInt64(&processed, int64(batchSize))
@@ -379,7 +356,7 @@ func testBatchedFIXOverZMQ(zmqEndpoint string, messageCount int, batchSize int) 
 
 // Test 4: E2E Cluster Test - Submit to all nodes
 func testClusterE2E(nodeURLs []string, messageCount int) TestResult {
-	fmt.Printf("\n🌐 Testing E2E Cluster (K=3): %v\n", nodeURLs)
+	fmt.Printf("\n[CLUSTER] Testing E2E Cluster (K=3): %v\n", nodeURLs)
 
 	var processed int64
 	var errors int64
@@ -510,7 +487,7 @@ func main() {
 	fmt.Println(string(bytes.Repeat([]byte("-"), 100)))
 
 	for _, r := range results {
-		fmt.Printf("%-30s | %10.0f/s | %8.2f μs | %8.2f μs | %7.1f%% | %6d\n",
+		fmt.Printf("%-30s | %10.0f/s | %8.2f us | %8.2f us | %7.1f%% | %6d\n",
 			r.TestName,
 			r.Throughput,
 			r.LatencyStats.Avg,
@@ -528,7 +505,7 @@ func main() {
 			}
 		}
 
-		fmt.Printf("\n🏆 Best Throughput: %s (%.0f msgs/sec)\n", best.TestName, best.Throughput)
+		fmt.Printf("\n[BEST] Best Throughput: %s (%.0f msgs/sec)\n", best.TestName, best.Throughput)
 
 		// Find lowest latency
 		bestLatency := results[0]
@@ -537,7 +514,7 @@ func main() {
 				bestLatency = r
 			}
 		}
-		fmt.Printf("⚡ Lowest P99 Latency: %s (%d μs)\n", bestLatency.TestName, bestLatency.LatencyStats.P99)
+		fmt.Printf("[FAST] Lowest P99 Latency: %s (%d us)\n", bestLatency.TestName, bestLatency.LatencyStats.P99)
 	}
 
 	// Save results
@@ -549,7 +526,7 @@ func main() {
 		if err := os.WriteFile(filename, data, 0644); err != nil {
 			log.Printf("Failed to save results: %v", err)
 		} else {
-			fmt.Printf("\n📊 Results saved to: %s\n", filename)
+			fmt.Printf("\n[SAVE] Results saved to: %s\n", filename)
 		}
 	}
 
@@ -565,24 +542,24 @@ func main() {
 		}
 		avgThroughput /= float64(len(results))
 
-		fmt.Printf("\n📈 Average Throughput: %.0f msgs/sec\n", avgThroughput)
+		fmt.Printf("\n[AVG] Average Throughput: %.0f msgs/sec\n", avgThroughput)
 
 		if avgThroughput < 100000 {
-			fmt.Println("\n⚠️  Performance is below 100K msgs/sec. Consider:")
-			fmt.Println("   • Enable kernel bypass (DPDK)")
-			fmt.Println("   • Use RDMA for node communication")
-			fmt.Println("   • Increase batch sizes")
-			fmt.Println("   • Optimize network buffers")
+			fmt.Println("\n[WARN] Performance is below 100K msgs/sec. Consider:")
+			fmt.Println("   - Enable kernel bypass (DPDK)")
+			fmt.Println("   - Use RDMA for node communication")
+			fmt.Println("   - Increase batch sizes")
+			fmt.Println("   - Optimize network buffers")
 		} else if avgThroughput < 1000000 {
-			fmt.Println("\n✅ Good performance! To reach 1M+ msgs/sec:")
-			fmt.Println("   • Use binary protocols exclusively")
-			fmt.Println("   • Enable GPU acceleration for matching")
-			fmt.Println("   • Implement lock-free data structures")
+			fmt.Println("\n[OK] Good performance! To reach 1M+ msgs/sec:")
+			fmt.Println("   - Use binary protocols exclusively")
+			fmt.Println("   - Enable GPU acceleration for matching")
+			fmt.Println("   - Implement lock-free data structures")
 		} else {
-			fmt.Println("\n🎯 Excellent performance! You're achieving:")
-			fmt.Printf("   • %.2fM messages/second\n", avgThroughput/1000000)
-			fmt.Println("   • Near-hardware limits")
-			fmt.Println("   • Ready for production deployment")
+			fmt.Println("\n[EXCELLENT] Excellent performance! You're achieving:")
+			fmt.Printf("   - %.2fM messages/second\n", avgThroughput/1000000)
+			fmt.Println("   - Near-hardware limits")
+			fmt.Println("   - Ready for production deployment")
 		}
 	}
 }

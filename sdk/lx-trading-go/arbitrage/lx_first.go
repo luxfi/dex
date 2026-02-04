@@ -111,13 +111,13 @@ type LxFirstOpportunity struct {
 	LxPrice LxPrice
 
 	// Stale venue to exploit
-	StaleVenue  string
-	StalePrice  VenuePrice
-	Staleness   time.Duration
+	StaleVenue string
+	StalePrice VenuePrice
+	Staleness  time.Duration
 
 	// Trade direction
-	Side       string // "buy" or "sell" on stale venue
-	Divergence decimal.Decimal
+	Side          string // "buy" or "sell" on stale venue
+	Divergence    decimal.Decimal
 	DivergenceBps decimal.Decimal
 
 	// Expected profit
@@ -207,19 +207,19 @@ func (lf *LxFirstArbitrage) checkOpportunities(symbol string) {
 
 			if divergenceBps.GreaterThanOrEqual(lf.config.MinDivergenceBps) {
 				opp := &LxFirstOpportunity{
-					ID:            generateOpportunityID(symbol, vp.Venue, "buy"),
-					Symbol:        symbol,
-					Timestamp:     now,
-					LxPrice:       lxPrice,
-					StaleVenue:    vp.Venue,
-					StalePrice:    vp,
-					Staleness:     staleness,
-					Side:          "buy",
-					Divergence:    divergence,
-					DivergenceBps: divergenceBps,
+					ID:             generateOpportunityID(symbol, vp.Venue, "buy"),
+					Symbol:         symbol,
+					Timestamp:      now,
+					LxPrice:        lxPrice,
+					StaleVenue:     vp.Venue,
+					StalePrice:     vp,
+					Staleness:      staleness,
+					Side:           "buy",
+					Divergence:     divergence,
+					DivergenceBps:  divergenceBps,
 					ExpectedProfit: divergence.Mul(lf.config.MaxPositionSize),
-					MaxSize:       lf.config.MaxPositionSize,
-					Confidence:    calculateConfidence(staleness, divergenceBps),
+					MaxSize:        lf.config.MaxPositionSize,
+					Confidence:     calculateConfidence(staleness, divergenceBps),
 				}
 
 				if opp.ExpectedProfit.GreaterThanOrEqual(lf.config.MinProfit) {
@@ -239,19 +239,19 @@ func (lf *LxFirstArbitrage) checkOpportunities(symbol string) {
 
 			if divergenceBps.GreaterThanOrEqual(lf.config.MinDivergenceBps) {
 				opp := &LxFirstOpportunity{
-					ID:            generateOpportunityID(symbol, vp.Venue, "sell"),
-					Symbol:        symbol,
-					Timestamp:     now,
-					LxPrice:       lxPrice,
-					StaleVenue:    vp.Venue,
-					StalePrice:    vp,
-					Staleness:     staleness,
-					Side:          "sell",
-					Divergence:    divergence,
-					DivergenceBps: divergenceBps,
+					ID:             generateOpportunityID(symbol, vp.Venue, "sell"),
+					Symbol:         symbol,
+					Timestamp:      now,
+					LxPrice:        lxPrice,
+					StaleVenue:     vp.Venue,
+					StalePrice:     vp,
+					Staleness:      staleness,
+					Side:           "sell",
+					Divergence:     divergence,
+					DivergenceBps:  divergenceBps,
 					ExpectedProfit: divergence.Mul(lf.config.MaxPositionSize),
-					MaxSize:       lf.config.MaxPositionSize,
-					Confidence:    calculateConfidence(staleness, divergenceBps),
+					MaxSize:        lf.config.MaxPositionSize,
+					Confidence:     calculateConfidence(staleness, divergenceBps),
 				}
 
 				if opp.ExpectedProfit.GreaterThanOrEqual(lf.config.MinProfit) {
@@ -302,9 +302,9 @@ func calculateConfidence(staleness time.Duration, divergenceBps decimal.Decimal)
 // DefaultLxFirstConfig returns default configuration
 func DefaultLxFirstConfig() LxFirstConfig {
 	return LxFirstConfig{
-		MaxStaleness:     2 * time.Second, // Only trade if venue is <2s stale
-		MinDivergenceBps: decimal.NewFromInt(10), // 0.1% minimum divergence
-		MinProfit:        decimal.NewFromInt(5),  // $5 minimum profit
+		MaxStaleness:     2 * time.Second,          // Only trade if venue is <2s stale
+		MinDivergenceBps: decimal.NewFromInt(10),   // 0.1% minimum divergence
+		MinProfit:        decimal.NewFromInt(5),    // $5 minimum profit
 		MaxPositionSize:  decimal.NewFromInt(1000), // $1k max per trade
 		Symbols:          []string{"BTC-USDC", "ETH-USDC", "LUX-USDC"},
 		VenueLatencies: map[string]time.Duration{

@@ -252,16 +252,16 @@ func (t Trade) Value() decimal.Decimal {
 
 // Ticker represents market ticker data.
 type Ticker struct {
-	Symbol     string
-	Venue      string
-	Bid        *decimal.Decimal
-	Ask        *decimal.Decimal
-	Last       *decimal.Decimal
-	Volume24H  *decimal.Decimal
-	High24H    *decimal.Decimal
-	Low24H     *decimal.Decimal
-	Change24H  *decimal.Decimal
-	Timestamp  time.Time
+	Symbol    string
+	Venue     string
+	Bid       *decimal.Decimal
+	Ask       *decimal.Decimal
+	Last      *decimal.Decimal
+	Volume24H *decimal.Decimal
+	High24H   *decimal.Decimal
+	Low24H    *decimal.Decimal
+	Change24H *decimal.Decimal
+	Timestamp time.Time
 }
 
 // MidPrice returns (bid + ask) / 2.

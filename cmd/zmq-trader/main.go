@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 // LX Trader - Sends orders to exchange via ZMQ
 package main
 
@@ -11,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	zmq "github.com/pebbe/zmq4"
+	"github.com/luxfi/czmq/v4"
 )
 
 type Order struct {
@@ -33,13 +35,11 @@ type TraderStats struct {
 func runTrader(id int, serverAddr string, ordersPerSec int, stats *TraderStats, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	context, _ := zmq.NewContext()
-	socket, _ := context.NewSocket(zmq.PUSH)
-	defer socket.Close()
+	socket := czmq.NewSock(czmq.Push)
+	defer socket.Destroy()
 
 	// Set high water mark
 	socket.SetSndhwm(100000)
-	socket.SetSndbuf(8 * 1024 * 1024) // 8MB buffer
 
 	if err := socket.Connect(serverAddr); err != nil {
 		log.Printf("Trader %d failed to connect: %v", id, err)
@@ -70,7 +70,7 @@ func runTrader(id int, serverAddr string, ordersPerSec int, stats *TraderStats, 
 			continue
 		}
 
-		if _, err := socket.SendBytes(data, zmq.DONTWAIT); err != nil {
+		if err := socket.SendFrame(data, 0); err != nil {
 			atomic.AddUint64(&stats.Errors, 1)
 		} else {
 			atomic.AddUint64(&stats.OrdersSent, 1)
@@ -91,7 +91,7 @@ func main() {
 
 	totalRate := *traders * *ordersPerSec
 
-	fmt.Printf("🚀 ZMQ Trader Client\n")
+	fmt.Printf("[START] ZMQ Trader Client\n")
 	fmt.Printf("Server: %s\n", *serverAddr)
 	fmt.Printf("Traders: %d\n", *traders)
 	fmt.Printf("Rate per trader: %d orders/sec\n", *ordersPerSec)
@@ -128,7 +128,7 @@ func main() {
 				gbpsUsed := (float64(bytes) * 8) / (elapsed * 1e9)
 				efficiency := (ordersPerSec / float64(totalRate)) * 100
 
-				fmt.Printf("\r📈 Sent: %d | Rate: %.0f/sec (%.1f%% efficiency) | Network: %.2f MB/s (%.3f Gbps) | Errors: %d",
+				fmt.Printf("\r[STATS] Sent: %d | Rate: %.0f/sec (%.1f%% efficiency) | Network: %.2f MB/s (%.3f Gbps) | Errors: %d",
 					sent, ordersPerSec, efficiency, mbPerSec, gbpsUsed, errors)
 
 				if *verbose && sent%10000 == 0 {
