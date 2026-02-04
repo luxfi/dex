@@ -33,16 +33,16 @@ func NewRegistry() *Registry {
 func (r *Registry) RegisterProvider(provider Provider) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	info := provider.Info()
 	if _, exists := r.providers[info.Name]; exists {
 		return ErrProviderExists
 	}
-	
+
 	r.providers[info.Name] = provider
 	r.order = append(r.order, info.Name)
 	r.sortByPriority()
-	
+
 	return nil
 }
 
@@ -50,13 +50,13 @@ func (r *Registry) RegisterProvider(provider Provider) error {
 func (r *Registry) UnregisterProvider(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.providers[name]; !exists {
 		return ErrProviderNotFound
 	}
-	
+
 	delete(r.providers, name)
-	
+
 	// Remove from order slice
 	newOrder := make([]string, 0, len(r.order)-1)
 	for _, n := range r.order {
@@ -65,7 +65,7 @@ func (r *Registry) UnregisterProvider(name string) error {
 		}
 	}
 	r.order = newOrder
-	
+
 	return nil
 }
 
@@ -73,12 +73,12 @@ func (r *Registry) UnregisterProvider(name string) error {
 func (r *Registry) GetProvider(name string) (Provider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	provider, exists := r.providers[name]
 	if !exists {
 		return nil, ErrProviderNotFound
 	}
-	
+
 	return provider, nil
 }
 
@@ -86,14 +86,14 @@ func (r *Registry) GetProvider(name string) (Provider, error) {
 func (r *Registry) ListProviders() []ProviderInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	infos := make([]ProviderInfo, 0, len(r.providers))
 	for _, name := range r.order {
 		if provider, exists := r.providers[name]; exists {
 			infos = append(infos, provider.Info())
 		}
 	}
-	
+
 	return infos
 }
 
@@ -101,7 +101,7 @@ func (r *Registry) ListProviders() []ProviderInfo {
 func (r *Registry) GetQuoteProviders() []QuoteProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	providers := make([]QuoteProvider, 0)
 	for _, name := range r.order {
 		if provider, exists := r.providers[name]; exists {
@@ -110,7 +110,7 @@ func (r *Registry) GetQuoteProviders() []QuoteProvider {
 			}
 		}
 	}
-	
+
 	return providers
 }
 
@@ -118,7 +118,7 @@ func (r *Registry) GetQuoteProviders() []QuoteProvider {
 func (r *Registry) GetLiquidityProviders() []LiquidityProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	providers := make([]LiquidityProvider, 0)
 	for _, name := range r.order {
 		if provider, exists := r.providers[name]; exists {
@@ -127,7 +127,7 @@ func (r *Registry) GetLiquidityProviders() []LiquidityProvider {
 			}
 		}
 	}
-	
+
 	return providers
 }
 
@@ -135,7 +135,7 @@ func (r *Registry) GetLiquidityProviders() []LiquidityProvider {
 func (r *Registry) GetPriceProviders() []PriceProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	providers := make([]PriceProvider, 0)
 	for _, name := range r.order {
 		if provider, exists := r.providers[name]; exists {
@@ -144,7 +144,7 @@ func (r *Registry) GetPriceProviders() []PriceProvider {
 			}
 		}
 	}
-	
+
 	return providers
 }
 
@@ -152,7 +152,7 @@ func (r *Registry) GetPriceProviders() []PriceProvider {
 func (r *Registry) GetConversionProviders() []ConversionProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	providers := make([]ConversionProvider, 0)
 	for _, name := range r.order {
 		if provider, exists := r.providers[name]; exists {
@@ -161,7 +161,7 @@ func (r *Registry) GetConversionProviders() []ConversionProvider {
 			}
 		}
 	}
-	
+
 	return providers
 }
 
@@ -199,10 +199,10 @@ func (r *Registry) HealthCheckAll(ctx context.Context) []HealthCheck {
 		providers = append(providers, r.providers[name])
 	}
 	r.mu.RUnlock()
-	
+
 	results := make([]HealthCheck, len(providers))
 	var wg sync.WaitGroup
-	
+
 	for i, provider := range providers {
 		wg.Add(1)
 		go func(idx int, p Provider) {
@@ -210,7 +210,7 @@ func (r *Registry) HealthCheckAll(ctx context.Context) []HealthCheck {
 			results[idx] = p.HealthCheck(ctx)
 		}(i, provider)
 	}
-	
+
 	wg.Wait()
 	return results
 }
@@ -219,16 +219,16 @@ func (r *Registry) HealthCheckAll(ctx context.Context) []HealthCheck {
 func (r *Registry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	var lastErr error
 	for _, provider := range r.providers {
 		if err := provider.Close(); err != nil {
 			lastErr = err
 		}
 	}
-	
+
 	r.providers = make(map[string]Provider)
 	r.order = make([]string, 0)
-	
+
 	return lastErr
 }

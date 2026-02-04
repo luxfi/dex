@@ -83,17 +83,17 @@ type SwapTransaction struct {
 
 // Pool represents a liquidity pool
 type Pool struct {
-	Address    string      `json:"address"`
-	ChainID    ChainID     `json:"chainId"`
-	Protocol   string      `json:"protocol"` // "uniswap_v2", "uniswap_v3", "lux_amm"
-	Token0     Token       `json:"token0"`
-	Token1     Token       `json:"token1"`
-	Fee        int         `json:"fee,omitempty"`
-	TVL        *big.Int    `json:"tvl,omitempty"`
-	Volume24h  *big.Int    `json:"volume24h,omitempty"`
-	APR        float64     `json:"apr,omitempty"`
-	TickData   []TickRange `json:"tickData,omitempty"` // For V3/V4 pools
-	Reserves   *Reserves   `json:"reserves,omitempty"` // For V2 pools
+	Address   string      `json:"address"`
+	ChainID   ChainID     `json:"chainId"`
+	Protocol  string      `json:"protocol"` // "uniswap_v2", "uniswap_v3", "lux_amm"
+	Token0    Token       `json:"token0"`
+	Token1    Token       `json:"token1"`
+	Fee       int         `json:"fee,omitempty"`
+	TVL       *big.Int    `json:"tvl,omitempty"`
+	Volume24h *big.Int    `json:"volume24h,omitempty"`
+	APR       float64     `json:"apr,omitempty"`
+	TickData  []TickRange `json:"tickData,omitempty"` // For V3/V4 pools
+	Reserves  *Reserves   `json:"reserves,omitempty"` // For V2 pools
 }
 
 // Reserves represents V2 pool reserves
@@ -111,15 +111,15 @@ type TickRange struct {
 
 // Position represents a liquidity position
 type Position struct {
-	ID          string      `json:"id"`
-	Owner       string      `json:"owner"`
-	Pool        Pool        `json:"pool"`
-	Liquidity   *big.Int    `json:"liquidity"`
-	Token0Owed  *big.Int    `json:"token0Owed"`
-	Token1Owed  *big.Int    `json:"token1Owed"`
-	TickLower   int         `json:"tickLower,omitempty"`
-	TickUpper   int         `json:"tickUpper,omitempty"`
-	FeesEarned  *FeesEarned `json:"feesEarned,omitempty"`
+	ID         string      `json:"id"`
+	Owner      string      `json:"owner"`
+	Pool       Pool        `json:"pool"`
+	Liquidity  *big.Int    `json:"liquidity"`
+	Token0Owed *big.Int    `json:"token0Owed"`
+	Token1Owed *big.Int    `json:"token1Owed"`
+	TickLower  int         `json:"tickLower,omitempty"`
+	TickUpper  int         `json:"tickUpper,omitempty"`
+	FeesEarned *FeesEarned `json:"feesEarned,omitempty"`
 }
 
 // FeesEarned represents fees earned from a position
@@ -130,13 +130,13 @@ type FeesEarned struct {
 
 // ConversionLead represents a conversion tracking lead
 type ConversionLead struct {
-	ID           string            `json:"id"`
-	Source       string            `json:"source"`
-	Medium       string            `json:"medium,omitempty"`
-	Campaign     string            `json:"campaign,omitempty"`
-	WalletAddr   string            `json:"walletAddr,omitempty"`
-	Timestamp    time.Time         `json:"timestamp"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	ID         string            `json:"id"`
+	Source     string            `json:"source"`
+	Medium     string            `json:"medium,omitempty"`
+	Campaign   string            `json:"campaign,omitempty"`
+	WalletAddr string            `json:"walletAddr,omitempty"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 // ConversionEvent represents a conversion event
@@ -162,12 +162,12 @@ type TokenPrice struct {
 
 // ProviderInfo contains information about a provider
 type ProviderInfo struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
+	Name            string    `json:"name"`
+	Version         string    `json:"version"`
+	Description     string    `json:"description"`
 	SupportedChains []ChainID `json:"supportedChains"`
-	Priority    int      `json:"priority"` // Lower = higher priority
-	Healthy     bool     `json:"healthy"`
+	Priority        int       `json:"priority"` // Lower = higher priority
+	Healthy         bool      `json:"healthy"`
 }
 
 // HealthCheck represents health check result
@@ -191,13 +191,13 @@ type QuoteRequest struct {
 
 // PoolsRequest for querying pools
 type PoolsRequest struct {
-	ChainID   ChainID `json:"chainId"`
-	Token0    string  `json:"token0,omitempty"`
-	Token1    string  `json:"token1,omitempty"`
-	Protocol  string  `json:"protocol,omitempty"`
-	MinTVL    *big.Int `json:"minTvl,omitempty"`
-	Limit     int     `json:"limit,omitempty"`
-	Offset    int     `json:"offset,omitempty"`
+	ChainID  ChainID  `json:"chainId"`
+	Token0   string   `json:"token0,omitempty"`
+	Token1   string   `json:"token1,omitempty"`
+	Protocol string   `json:"protocol,omitempty"`
+	MinTVL   *big.Int `json:"minTvl,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
+	Offset   int      `json:"offset,omitempty"`
 }
 
 // PositionsRequest for querying positions

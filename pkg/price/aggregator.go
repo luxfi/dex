@@ -329,7 +329,6 @@ func sourceToChain(source string) string {
 	}
 }
 
-
 func (o *Oracle) alert(symbol string, t AlertType, sev Severity, msg string) {
 	select {
 	case o.alerts <- &Alert{

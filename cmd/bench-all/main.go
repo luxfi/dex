@@ -12,8 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/luxfi/accel"
+	"github.com/luxfi/accel/ops/dex"
 	"github.com/luxfi/dex/pkg/lx"
-	"github.com/luxfi/dex/pkg/mlx"
 )
 
 type BenchResult struct {
@@ -56,16 +57,17 @@ func main() {
 			result.Name, result.Throughput, float64(result.Latency.Nanoseconds()))
 	}
 
-	// 3. MLX GPU acceleration (if available)
-	fmt.Println("📊 Testing MLX GPU Acceleration...")
-	mlxEngine, err := mlx.NewEngine(mlx.Config{Backend: mlx.BackendAuto})
-	if err == nil && mlxEngine.IsGPUAvailable() {
-		result = benchmarkMLX(*numOrders, *parallel)
+	// 3. Accel GPU acceleration (if available)
+	fmt.Println("📊 Testing Accel GPU Acceleration...")
+	sess, err := accel.NewSession()
+	if err == nil {
+		defer sess.Close()
+		result = benchmarkAccel(*numOrders, *parallel)
 		results = append(results, result)
 		fmt.Printf("   ✅ %s: %.0f orders/sec on %s\n\n",
-			result.Name, result.Throughput, mlxEngine.Device())
+			result.Name, result.Throughput, sess.Backend())
 	} else {
-		fmt.Println("   ⚠️  MLX GPU not available on this platform")
+		fmt.Println("   ⚠️  Accel GPU not available on this platform")
 	}
 
 	// 4. Kernel-bypass networking
@@ -137,25 +139,41 @@ func benchmarkCGO(numOrders, workers int) BenchResult {
 	}
 }
 
-func benchmarkMLX(numOrders, workers int) BenchResult {
-	engine, err := mlx.NewEngine(mlx.Config{Backend: mlx.BackendAuto})
-	if err != nil || !engine.IsGPUAvailable() {
-		return BenchResult{Name: "MLX (N/A)"}
+func benchmarkAccel(numOrders, workers int) BenchResult {
+	// Create test orders
+	bids := make([]dex.Order, numOrders/2)
+	asks := make([]dex.Order, numOrders/2)
+
+	for i := range bids {
+		bids[i] = dex.Order{
+			ID:        uint64(i),
+			Side:      dex.Bid,
+			Price:     uint64(50000-(i%100)) * 1e8,
+			Quantity:  1e8,
+			Remaining: 1e8,
+		}
+	}
+	for i := range asks {
+		asks[i] = dex.Order{
+			ID:        uint64(i + numOrders/2),
+			Side:      dex.Ask,
+			Price:     uint64(50001+(i%100)) * 1e8,
+			Quantity:  1e8,
+			Remaining: 1e8,
+		}
 	}
 
-	// Benchmark GPU matching using the engine's benchmark method
-	throughput := engine.Benchmark(numOrders)
+	start := time.Now()
+	trades, _, _ := dex.MatchOrders(bids, asks, nil)
+	duration := time.Since(start)
 
-	// Calculate values from throughput
-	duration := time.Duration(float64(time.Second) * float64(numOrders) / throughput)
-	latency := time.Duration(float64(time.Second) / throughput)
-
-	engine.Close()
+	throughput := float64(numOrders) / duration.Seconds()
+	latency := duration / time.Duration(len(trades)+1)
 
 	return BenchResult{
-		Name:       "MLX GPU",
+		Name:       "Accel GPU",
 		Orders:     numOrders,
-		Trades:     0, // Not tracked in benchmark
+		Trades:     len(trades),
 		Duration:   duration,
 		Throughput: throughput,
 		Latency:    latency,

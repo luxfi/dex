@@ -22,7 +22,7 @@ type Gateway struct {
 func New(config GatewayConfig) *Gateway {
 	registry := NewRegistry()
 	router := NewRouter(registry, config.EnableFallback)
-	
+
 	return &Gateway{
 		registry: registry,
 		router:   router,
@@ -54,15 +54,15 @@ func (g *Gateway) GetRegistry() *Registry {
 func (g *Gateway) Start(addr string) error {
 	cfg := DefaultServerConfig()
 	cfg.Addr = addr
-	
+
 	g.server = NewServer(g.router, cfg)
-	
+
 	log.Printf("Starting gateway server on %s", addr)
 	log.Printf("Registered providers: %d", len(g.registry.ListProviders()))
 	for _, info := range g.registry.ListProviders() {
 		log.Printf("  - %s (priority: %d, chains: %v)", info.Name, info.Priority, info.SupportedChains)
 	}
-	
+
 	return g.server.Start()
 }
 
@@ -70,41 +70,41 @@ func (g *Gateway) Start(addr string) error {
 func (g *Gateway) StartWithGracefulShutdown(addr string) error {
 	cfg := DefaultServerConfig()
 	cfg.Addr = addr
-	
+
 	g.server = NewServer(g.router, cfg)
-	
+
 	// Channel to receive OS signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	// Channel to receive server errors
 	errChan := make(chan error, 1)
-	
+
 	go func() {
 		log.Printf("Starting gateway server on %s", addr)
 		log.Printf("Registered providers: %d", len(g.registry.ListProviders()))
 		for _, info := range g.registry.ListProviders() {
 			log.Printf("  - %s (priority: %d, chains: %v)", info.Name, info.Priority, info.SupportedChains)
 		}
-		
+
 		if err := g.server.Start(); err != nil {
 			errChan <- err
 		}
 	}()
-	
+
 	select {
 	case err := <-errChan:
 		return err
 	case sig := <-quit:
 		log.Printf("Received signal %v, shutting down...", sig)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		
+
 		if err := g.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shutdown error: %w", err)
 		}
-		
+
 		log.Println("Server gracefully stopped")
 		return nil
 	}
@@ -113,23 +113,23 @@ func (g *Gateway) StartWithGracefulShutdown(addr string) error {
 // Shutdown gracefully shuts down the gateway
 func (g *Gateway) Shutdown(ctx context.Context) error {
 	var errs []error
-	
+
 	// Shutdown HTTP server
 	if g.server != nil {
 		if err := g.server.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("server shutdown: %w", err))
 		}
 	}
-	
+
 	// Close all providers
 	if err := g.registry.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("registry close: %w", err))
 	}
-	
+
 	if len(errs) > 0 {
 		return fmt.Errorf("shutdown errors: %v", errs)
 	}
-	
+
 	return nil
 }
 

@@ -1164,8 +1164,8 @@ func TestCheckDailyLimit(t *testing.T) {
 	t.Run("ExceedsDailyLimit", func(t *testing.T) {
 		asset := &BridgeAsset{
 			Symbol:      "USDC",
-			DailyLimit:  big.NewInt(100000000000),   // 100k USDC
-			DailyVolume: big.NewInt(99000000000),    // 99k already used
+			DailyLimit:  big.NewInt(100000000000), // 100k USDC
+			DailyVolume: big.NewInt(99000000000),  // 99k already used
 			LastReset:   time.Now(),
 		}
 
@@ -1193,8 +1193,8 @@ func TestCheckDailyLimit(t *testing.T) {
 	t.Run("DailyVolumeReset", func(t *testing.T) {
 		asset := &BridgeAsset{
 			Symbol:      "USDC",
-			DailyLimit:  big.NewInt(100000000000),  // 100k USDC
-			DailyVolume: big.NewInt(100000000000),  // At limit
+			DailyLimit:  big.NewInt(100000000000),        // 100k USDC
+			DailyVolume: big.NewInt(100000000000),        // At limit
 			LastReset:   time.Now().Add(-25 * time.Hour), // More than 24h ago
 		}
 
