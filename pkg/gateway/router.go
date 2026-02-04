@@ -26,16 +26,16 @@ func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	// Get quotes from all providers in parallel
 	type result struct {
 		quote *SwapQuote
 		err   error
 	}
-	
+
 	results := make(chan result, len(providers))
 	var wg sync.WaitGroup
-	
+
 	for _, provider := range providers {
 		wg.Add(1)
 		go func(p QuoteProvider) {
@@ -44,16 +44,16 @@ func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote
 			results <- result{quote: quote, err: err}
 		}(provider)
 	}
-	
+
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
-	
+
 	// Collect quotes
 	var quotes []SwapQuote
 	var lastErr error
-	
+
 	for res := range results {
 		if res.err != nil {
 			lastErr = res.err
@@ -61,14 +61,14 @@ func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote
 		}
 		quotes = append(quotes, *res.quote)
 	}
-	
+
 	if len(quotes) == 0 {
 		if lastErr != nil {
 			return nil, lastErr
 		}
 		return nil, ErrAllProvidersFailed
 	}
-	
+
 	// Sort by output amount (descending) for EXACT_INPUT
 	// or input amount (ascending) for EXACT_OUTPUT
 	sort.Slice(quotes, func(i, j int) bool {
@@ -77,7 +77,7 @@ func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote
 		}
 		return quotes[i].TokenIn.Amount.Cmp(quotes[j].TokenIn.Amount) < 0
 	})
-	
+
 	return &quotes[0], nil
 }
 
@@ -87,15 +87,15 @@ func (r *Router) GetAllQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuot
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	type result struct {
 		quotes []SwapQuote
 		err    error
 	}
-	
+
 	results := make(chan result, len(providers))
 	var wg sync.WaitGroup
-	
+
 	for _, provider := range providers {
 		wg.Add(1)
 		go func(p QuoteProvider) {
@@ -104,12 +104,12 @@ func (r *Router) GetAllQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuot
 			results <- result{quotes: quotes, err: err}
 		}(provider)
 	}
-	
+
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
-	
+
 	var allQuotes []SwapQuote
 	for res := range results {
 		if res.err != nil {
@@ -117,11 +117,11 @@ func (r *Router) GetAllQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuot
 		}
 		allQuotes = append(allQuotes, res.quotes...)
 	}
-	
+
 	if len(allQuotes) == 0 {
 		return nil, ErrAllProvidersFailed
 	}
-	
+
 	// Sort by output amount
 	sort.Slice(allQuotes, func(i, j int) bool {
 		if req.IsExactIn {
@@ -129,7 +129,7 @@ func (r *Router) GetAllQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuot
 		}
 		return allQuotes[i].TokenIn.Amount.Cmp(allQuotes[j].TokenIn.Amount) < 0
 	})
-	
+
 	return allQuotes, nil
 }
 
@@ -139,18 +139,18 @@ func (r *Router) GetPools(ctx context.Context, req PoolsRequest) ([]Pool, error)
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	for _, provider := range providers {
 		pools, err := provider.GetPools(ctx, req)
 		if err == nil && len(pools) > 0 {
 			return pools, nil
 		}
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, ErrAllProvidersFailed
 }
 
@@ -160,7 +160,7 @@ func (r *Router) GetPool(ctx context.Context, chainID ChainID, address string) (
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	var lastErr error
 	for _, provider := range providers {
 		pool, err := provider.GetPool(ctx, chainID, address)
@@ -168,12 +168,12 @@ func (r *Router) GetPool(ctx context.Context, chainID ChainID, address string) (
 			return pool, nil
 		}
 		lastErr = err
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, lastErr
 }
 
@@ -183,7 +183,7 @@ func (r *Router) GetPositions(ctx context.Context, req PositionsRequest) ([]Posi
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	var lastErr error
 	for _, provider := range providers {
 		positions, err := provider.GetPositions(ctx, req)
@@ -191,12 +191,12 @@ func (r *Router) GetPositions(ctx context.Context, req PositionsRequest) ([]Posi
 			return positions, nil
 		}
 		lastErr = err
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, lastErr
 }
 
@@ -206,7 +206,7 @@ func (r *Router) GetTokenPrice(ctx context.Context, token Token) (*TokenPrice, e
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	var lastErr error
 	for _, provider := range providers {
 		price, err := provider.GetTokenPrice(ctx, token)
@@ -214,12 +214,12 @@ func (r *Router) GetTokenPrice(ctx context.Context, token Token) (*TokenPrice, e
 			return price, nil
 		}
 		lastErr = err
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, lastErr
 }
 
@@ -229,19 +229,19 @@ func (r *Router) GetTokenPrices(ctx context.Context, tokens []Token) ([]TokenPri
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	// Try first provider
 	for _, provider := range providers {
 		prices, err := provider.GetTokenPrices(ctx, tokens)
 		if err == nil && len(prices) > 0 {
 			return prices, nil
 		}
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, ErrAllProvidersFailed
 }
 
@@ -251,7 +251,7 @@ func (r *Router) CreateLead(ctx context.Context, lead ConversionLead) (*Conversi
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
-	
+
 	var lastErr error
 	for _, provider := range providers {
 		created, err := provider.CreateLead(ctx, lead)
@@ -259,12 +259,12 @@ func (r *Router) CreateLead(ctx context.Context, lead ConversionLead) (*Conversi
 			return created, nil
 		}
 		lastErr = err
-		
+
 		if !r.enableFallback {
 			return nil, err
 		}
 	}
-	
+
 	return nil, lastErr
 }
 
@@ -274,7 +274,7 @@ func (r *Router) TrackEvent(ctx context.Context, event ConversionEvent) error {
 	if len(providers) == 0 {
 		return ErrNoProvidersAvailable
 	}
-	
+
 	// Track to all providers (don't fail if one fails)
 	var lastErr error
 	for _, provider := range providers {
@@ -282,7 +282,7 @@ func (r *Router) TrackEvent(ctx context.Context, event ConversionEvent) error {
 			lastErr = err
 		}
 	}
-	
+
 	return lastErr
 }
 

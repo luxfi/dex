@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 package main
 
 import (
@@ -14,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/luxfi/czmq/v4"
 	"github.com/luxfi/dex/pkg/lx"
-	zmq "github.com/pebbe/zmq4"
 )
 
 // NodeConfig represents configuration for a single node
@@ -33,10 +35,10 @@ type NodeConfig struct {
 type MultiNode struct {
 	config       *NodeConfig
 	orderBook    *lx.OrderBook
-	pubSocket    *zmq.Socket
-	subSocket    *zmq.Socket
-	routerSocket *zmq.Socket
-	dealerSocket *zmq.Socket
+	pubSocket    *czmq.Sock
+	subSocket    *czmq.Sock
+	routerSocket *czmq.Sock
+	dealerSocket *czmq.Sock
 
 	// Metrics
 	ordersProcessed  uint64
@@ -82,48 +84,32 @@ func NewMultiNode(config *NodeConfig) (*MultiNode, error) {
 	}
 
 	// Initialize ZMQ sockets
-	var err error
 
 	// Publisher socket for broadcasting events
-	node.pubSocket, err = zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PUB socket: %w", err)
-	}
-	err = node.pubSocket.Bind(fmt.Sprintf("tcp://*:%d", config.PubPort))
-	if err != nil {
+	node.pubSocket = czmq.NewSock(czmq.Pub)
+	if _, err := node.pubSocket.Bind(fmt.Sprintf("tcp://*:%d", config.PubPort)); err != nil {
 		return nil, fmt.Errorf("failed to bind PUB socket: %w", err)
 	}
 
 	// Subscriber socket for receiving events from peers
-	node.subSocket, err = zmq.NewSocket(zmq.SUB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SUB socket: %w", err)
-	}
+	node.subSocket = czmq.NewSock(czmq.Sub)
 	node.subSocket.SetSubscribe("")
 
 	// Connect to peer publishers
 	for _, peer := range config.Peers {
-		err = node.subSocket.Connect(peer)
-		if err != nil {
+		if err := node.subSocket.Connect(peer); err != nil {
 			log.Printf("Failed to connect to peer %s: %v", peer, err)
 		}
 	}
 
 	// Router socket for receiving orders (server mode)
-	node.routerSocket, err = zmq.NewSocket(zmq.ROUTER)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ROUTER socket: %w", err)
-	}
-	err = node.routerSocket.Bind(fmt.Sprintf("tcp://*:%d", config.RouterPort))
-	if err != nil {
+	node.routerSocket = czmq.NewSock(czmq.Router)
+	if _, err := node.routerSocket.Bind(fmt.Sprintf("tcp://*:%d", config.RouterPort)); err != nil {
 		return nil, fmt.Errorf("failed to bind ROUTER socket: %w", err)
 	}
 
 	// Dealer socket for load balancing (client mode)
-	node.dealerSocket, err = zmq.NewSocket(zmq.DEALER)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create DEALER socket: %w", err)
-	}
+	node.dealerSocket = czmq.NewSock(czmq.Dealer)
 	node.dealerSocket.SetIdentity(config.NodeID)
 
 	return node, nil
@@ -150,30 +136,19 @@ func (n *MultiNode) Start() {
 
 // handleSubscriptions processes messages from peer nodes
 func (n *MultiNode) handleSubscriptions() {
-	poller := zmq.NewPoller()
-	poller.Add(n.subSocket, zmq.POLLIN)
-
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
 		default:
-			sockets, err := poller.Poll(100 * time.Millisecond)
+			msg, _, err := n.subSocket.RecvFrame()
 			if err != nil {
-				log.Printf("Poller error: %v", err)
+				time.Sleep(10 * time.Millisecond)
 				continue
 			}
 
-			for _, socket := range sockets {
-				msg, err := socket.Socket.RecvBytes(0)
-				if err != nil {
-					log.Printf("Receive error: %v", err)
-					continue
-				}
-
-				atomic.AddUint64(&n.messagesReceived, 1)
-				n.processMessage(msg)
-			}
+			atomic.AddUint64(&n.messagesReceived, 1)
+			n.processMessage(msg)
 		}
 	}
 }
@@ -186,20 +161,20 @@ func (n *MultiNode) handleRouterRequests() {
 			return
 		default:
 			// Receive multi-part message [identity, empty, data]
-			identity, err := n.routerSocket.Recv(0)
+			identity, _, err := n.routerSocket.RecvFrame()
 			if err != nil {
 				log.Printf("Router receive error: %v", err)
 				continue
 			}
 
 			// Empty delimiter
-			_, err = n.routerSocket.Recv(0)
+			_, _, err = n.routerSocket.RecvFrame()
 			if err != nil {
 				continue
 			}
 
 			// Actual message
-			data, err := n.routerSocket.RecvBytes(0)
+			data, _, err := n.routerSocket.RecvFrame()
 			if err != nil {
 				continue
 			}
@@ -208,9 +183,9 @@ func (n *MultiNode) handleRouterRequests() {
 			response := n.processOrderRequest(data)
 
 			// Send response back [identity, empty, response]
-			n.routerSocket.Send(identity, zmq.SNDMORE)
-			n.routerSocket.Send("", zmq.SNDMORE)
-			n.routerSocket.SendBytes(response, 0)
+			n.routerSocket.SendFrame(identity, czmq.FlagMore)
+			n.routerSocket.SendFrame([]byte(""), czmq.FlagMore)
+			n.routerSocket.SendFrame(response, 0)
 
 			atomic.AddUint64(&n.ordersProcessed, 1)
 		}
@@ -292,7 +267,7 @@ func (n *MultiNode) broadcastTrades(trades []lx.Trade) {
 		return
 	}
 
-	n.pubSocket.SendBytes(data, zmq.DONTWAIT)
+	n.pubSocket.SendFrame(data, 0)
 	atomic.AddUint64(&n.messagesSent, 1)
 }
 
@@ -317,7 +292,7 @@ func (n *MultiNode) heartbeatLoop() {
 			}
 
 			data, _ := json.Marshal(msg)
-			n.pubSocket.SendBytes(data, zmq.DONTWAIT)
+			n.pubSocket.SendFrame(data, 0)
 		}
 	}
 }
@@ -352,7 +327,7 @@ func (n *MultiNode) broadcastStateSync() {
 	}
 
 	data, _ := json.Marshal(msg)
-	n.pubSocket.SendBytes(data, zmq.DONTWAIT)
+	n.pubSocket.SendFrame(data, 0)
 	atomic.AddUint64(&n.messagesSent, 1)
 }
 
@@ -404,16 +379,16 @@ func (n *MultiNode) cleanup() {
 	log.Printf("Node %s shutting down...", n.config.NodeID)
 
 	if n.pubSocket != nil {
-		n.pubSocket.Close()
+		n.pubSocket.Destroy()
 	}
 	if n.subSocket != nil {
-		n.subSocket.Close()
+		n.subSocket.Destroy()
 	}
 	if n.routerSocket != nil {
-		n.routerSocket.Close()
+		n.routerSocket.Destroy()
 	}
 	if n.dealerSocket != nil {
-		n.dealerSocket.Close()
+		n.dealerSocket.Destroy()
 	}
 }
 

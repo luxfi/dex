@@ -470,11 +470,11 @@ func TestDAGOrderBookAddOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	order := &lx.Order{
-		ID:       1,
-		Side:     lx.Buy,
-		Type:     lx.Limit,
-		Price:    50000.0,
-		Size: 1.0,
+		ID:    1,
+		Side:  lx.Buy,
+		Type:  lx.Limit,
+		Price: 50000.0,
+		Size:  1.0,
 	}
 
 	vertex, err := dob.AddOrder(order)
@@ -491,11 +491,11 @@ func TestDAGOrderBookAddMultipleOrders(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		order := &lx.Order{
-			ID:       uint64(i),
-			Side:     lx.Buy,
-			Type:     lx.Limit,
-			Price:    50000.0 + float64(i*100),
-			Size: 1.0,
+			ID:    uint64(i),
+			Side:  lx.Buy,
+			Type:  lx.Limit,
+			Price: 50000.0 + float64(i*100),
+			Size:  1.0,
 		}
 		vertex, err := dob.AddOrder(order)
 		require.NoError(t, err)
@@ -526,11 +526,11 @@ func TestLuxDAGOrderBookAddOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	order := &lx.Order{
-		ID:       1,
-		Side:     lx.Buy,
-		Type:     lx.Limit,
-		Price:    50000.0,
-		Size: 1.0,
+		ID:    1,
+		Side:  lx.Buy,
+		Type:  lx.Limit,
+		Price: 50000.0,
+		Size:  1.0,
 	}
 
 	vertex, err := lux.AddOrder(order)
@@ -564,11 +564,11 @@ func TestLuxDAGOrderBookRunFPCRound(t *testing.T) {
 
 	// Add an order
 	order := &lx.Order{
-		ID:       1,
-		Side:     lx.Buy,
-		Type:     lx.Limit,
-		Price:    50000.0,
-		Size: 1.0,
+		ID:    1,
+		Side:  lx.Buy,
+		Type:  lx.Limit,
+		Price: 50000.0,
+		Size:  1.0,
 	}
 	_, err = lux.AddOrder(order)
 	require.NoError(t, err)
@@ -671,11 +671,11 @@ func TestLuxDAGOrderBookGenerateQuantumCertificate(t *testing.T) {
 	require.NoError(t, err)
 
 	order := &lx.Order{
-		ID:       1,
-		Side:     lx.Buy,
-		Type:     lx.Limit,
-		Price:    50000.0,
-		Size: 1.0,
+		ID:    1,
+		Side:  lx.Buy,
+		Type:  lx.Limit,
+		Price: 50000.0,
+		Size:  1.0,
 	}
 
 	vertex, err := lux.AddOrder(order)
@@ -715,11 +715,11 @@ func TestLuxDAGOrderBookProcessQuasarCertificates(t *testing.T) {
 
 	// Add an order which tracks in quasar
 	order := &lx.Order{
-		ID:       1,
-		Side:     lx.Buy,
-		Type:     lx.Limit,
-		Price:    50000.0,
-		Size: 1.0,
+		ID:    1,
+		Side:  lx.Buy,
+		Type:  lx.Limit,
+		Price: 50000.0,
+		Size:  1.0,
 	}
 	vertex, err := lux.AddOrder(order)
 	require.NoError(t, err)
@@ -912,11 +912,11 @@ func BenchmarkDAGOrderBookAddOrder(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		order := &lx.Order{
-			ID:       uint64(i),
-			Side:     lx.Buy,
-			Type:     lx.Limit,
-			Price:    50000.0,
-			Size: 1.0,
+			ID:    uint64(i),
+			Side:  lx.Buy,
+			Type:  lx.Limit,
+			Price: 50000.0,
+			Size:  1.0,
 		}
 		_, _ = dob.AddOrder(order)
 	}
@@ -928,11 +928,11 @@ func BenchmarkLuxDAGOrderBookAddOrder(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		order := &lx.Order{
-			ID:       uint64(i),
-			Side:     lx.Buy,
-			Type:     lx.Limit,
-			Price:    50000.0,
-			Size: 1.0,
+			ID:    uint64(i),
+			Side:  lx.Buy,
+			Type:  lx.Limit,
+			Price: 50000.0,
+			Size:  1.0,
 		}
 		_, _ = lux.AddOrder(order)
 	}

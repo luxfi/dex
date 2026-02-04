@@ -33,8 +33,8 @@ type Trade struct {
 }
 
 type OrderRequest struct {
-	Type  string  `json:"type"`  // "limit" or "market"
-	Side  string  `json:"side"`  // "buy" or "sell"
+	Type  string  `json:"type"` // "limit" or "market"
+	Side  string  `json:"side"` // "buy" or "sell"
 	Price float64 `json:"price"`
 	Size  float64 `json:"size"`
 }
@@ -73,7 +73,7 @@ func main() {
 	log.Println("  GET  /api/stats     - Get market stats")
 	log.Println("  POST /api/order     - Place order")
 	log.Println("  WS   /ws            - WebSocket connection")
-	
+
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
 	}
@@ -133,14 +133,14 @@ func (s *Server) handleOrderBook(w http.ResponseWriter, r *http.Request) {
 	snapshot := s.orderBook.GetOrderBookSnapshot()
 	bids := snapshot.Bids
 	asks := snapshot.Asks
-	
+
 	data := map[string]interface{}{
-		"symbol": "BTC-USD",
-		"bids":   bids,
-		"asks":   asks,
+		"symbol":    "BTC-USD",
+		"bids":      bids,
+		"asks":      asks,
 		"timestamp": time.Now(),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{
 		Success: true,
@@ -153,7 +153,7 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	var req OrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -163,7 +163,7 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Create order
 	s.orderID++
 	order := &lx.Order{
@@ -175,14 +175,14 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		User:      "api-user",
 		Timestamp: time.Now(),
 	}
-	
+
 	if req.Type == "market" {
 		order.Type = lx.Market
 	}
 	if req.Side == "sell" {
 		order.Side = lx.Sell
 	}
-	
+
 	// Add to order book
 	orderID := s.orderBook.AddOrder(order)
 	if orderID == 0 {
@@ -193,7 +193,7 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Simulate trade execution
 	if req.Type == "market" || (s.orderID%3 == 0) {
 		s.trades = append(s.trades, Trade{
@@ -204,7 +204,7 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{
 		Success: true,
@@ -222,7 +222,7 @@ func (s *Server) handleTrades(w http.ResponseWriter, r *http.Request) {
 	if len(s.trades) > 20 {
 		start = len(s.trades) - 20
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{
 		Success: true,
@@ -239,7 +239,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if len(snapshot.Asks) > 0 {
 		bestAskPrice = snapshot.Asks[0].Price
 	}
-	
+
 	stats := map[string]interface{}{
 		"symbol":        "BTC-USD",
 		"best_bid":      bestBidPrice,
@@ -250,11 +250,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"engine_status": "operational",
 		"performance":   "13M+ orders/sec",
 	}
-	
+
 	if len(s.trades) > 0 {
 		stats["last_trade"] = s.trades[len(s.trades)-1]
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{
 		Success: true,
@@ -269,9 +269,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	
+
 	log.Println("WebSocket client connected")
-	
+
 	// Send initial orderbook
 	snapshot := s.orderBook.GetOrderBookSnapshot()
 	conn.WriteJSON(map[string]interface{}{
@@ -281,11 +281,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			"asks": snapshot.Asks,
 		},
 	})
-	
+
 	// Send updates every second
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -298,16 +298,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if len(snapshot.Asks) > 0 {
 				bestAskPrice = snapshot.Asks[0].Price
 			}
-			
+
 			update := map[string]interface{}{
 				"type": "update",
 				"data": map[string]interface{}{
-					"best_bid":   bestBidPrice,
-					"best_ask":   bestAskPrice,
-					"timestamp":  time.Now(),
+					"best_bid":  bestBidPrice,
+					"best_ask":  bestAskPrice,
+					"timestamp": time.Now(),
 				},
 			}
-			
+
 			if err := conn.WriteJSON(update); err != nil {
 				log.Println("WebSocket write error:", err)
 				return
@@ -331,7 +331,7 @@ func (s *Server) seedOrderBook() {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	// Add some initial sell orders
 	sellPrices := []float64{50100, 50200, 50300, 50400, 50500}
 	for i, price := range sellPrices {
@@ -346,6 +346,6 @@ func (s *Server) seedOrderBook() {
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	log.Printf("📊 Seeded order book with %d initial orders", s.orderID)
 }
