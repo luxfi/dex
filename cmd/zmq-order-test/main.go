@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 package main
 
 import (
@@ -7,7 +9,7 @@ import (
 	"math/rand"
 	"time"
 
-	zmq "github.com/pebbe/zmq4"
+	"github.com/luxfi/czmq/v4"
 )
 
 func main() {
@@ -16,13 +18,10 @@ func main() {
 	flag.Parse()
 
 	// Connect to X-Chain order processor
-	socket, err := zmq.NewSocket(zmq.PUSH)
-	if err != nil {
-		log.Fatalf("Failed to create socket: %v", err)
-	}
-	defer socket.Close()
+	socket := czmq.NewSock(czmq.Push)
+	defer socket.Destroy()
 
-	err = socket.Connect(*endpoint)
+	err := socket.Connect(*endpoint)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
@@ -73,7 +72,7 @@ func main() {
 		// Remaining bytes are padding
 
 		// Send the order
-		_, err := socket.SendBytes(order, 0)
+		err := socket.SendFrame(order, 0)
 		if err != nil {
 			log.Printf("Failed to send order %d: %v", i, err)
 			continue

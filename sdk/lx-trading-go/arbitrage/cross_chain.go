@@ -57,9 +57,9 @@ const (
 // CrossChainConfig holds cross-chain transport configuration
 type CrossChainConfig struct {
 	// Warp configuration (Lux internal)
-	WarpEnabled   bool
-	WarpEndpoint  string
-	WarpTimeout   time.Duration
+	WarpEnabled  bool
+	WarpEndpoint string
+	WarpTimeout  time.Duration
 
 	// Teleport configuration (EVM bridging)
 	TeleportEnabled    bool
@@ -73,20 +73,20 @@ type CrossChainConfig struct {
 
 // CrossChainInfo holds information about a chain
 type CrossChainInfo struct {
-	ChainID       string
-	Name          string
-	ChainType     ChainType
-	BlockTime     time.Duration
-	Finality      time.Duration
-	WarpSupported bool     // Can use Warp (Lux subnets only)
-	TeleportSupported bool // Can use Teleport (EVM chains)
-	Venues        []string // Trading venues on this chain
+	ChainID           string
+	Name              string
+	ChainType         ChainType
+	BlockTime         time.Duration
+	Finality          time.Duration
+	WarpSupported     bool     // Can use Warp (Lux subnets only)
+	TeleportSupported bool     // Can use Teleport (EVM chains)
+	Venues            []string // Trading venues on this chain
 }
 
 // CrossChainRouter routes messages between chains
 type CrossChainRouter struct {
-	config CrossChainConfig
-	warp   WarpClient
+	config   CrossChainConfig
+	warp     WarpClient
 	teleport TeleportClient
 }
 
@@ -328,9 +328,9 @@ type ArbitrageOpportunityWithRouting struct {
 	UnifiedOpportunity
 
 	// Routing information
-	Transport       CrossChainTransport
+	Transport        CrossChainTransport
 	EstimatedLatency time.Duration
-	BridgeCost      decimal.Decimal
+	BridgeCost       decimal.Decimal
 
 	// Adjusted profitability
 	AdjustedNetProfit decimal.Decimal

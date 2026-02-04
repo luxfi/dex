@@ -55,13 +55,13 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	if len(cfg.Chains) == 0 {
 		cfg.Chains = DefaultConfig().Chains
 	}
-	
+
 	client := NewClient(ClientConfig{
 		Endpoints: cfg.Endpoints,
 		APIKey:    cfg.APIKey,
 		Timeout:   cfg.Timeout,
 	})
-	
+
 	return &Provider{
 		client:   client,
 		name:     cfg.Name,
@@ -87,18 +87,18 @@ func (p *Provider) HealthCheck(ctx context.Context) gateway.HealthCheck {
 	start := time.Now()
 	err := p.client.HealthCheck(ctx)
 	latency := time.Since(start).Milliseconds()
-	
+
 	result := gateway.HealthCheck{
 		Provider:  p.name,
 		Healthy:   err == nil,
 		Latency:   latency,
 		LastCheck: time.Now(),
 	}
-	
+
 	if err != nil {
 		result.Error = err.Error()
 	}
-	
+
 	return result
 }
 
@@ -113,7 +113,7 @@ func (p *Provider) GetQuote(ctx context.Context, req gateway.QuoteRequest) (*gat
 	if !req.IsExactIn {
 		quoteType = "EXACT_OUTPUT"
 	}
-	
+
 	apiReq := QuoteAPIRequest{
 		TokenIn:         req.TokenIn.Address,
 		TokenInChainID:  uint64(req.TokenIn.ChainID),
@@ -122,16 +122,16 @@ func (p *Provider) GetQuote(ctx context.Context, req gateway.QuoteRequest) (*gat
 		Amount:          req.Amount.String(),
 		Type:            quoteType,
 	}
-	
+
 	if req.Slippage > 0 {
 		apiReq.Slippage = int(req.Slippage * 10000) // Convert to bps
 	}
-	
+
 	apiResp, err := p.client.GetQuote(ctx, apiReq)
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	return p.convertQuoteResponse(req, apiResp), nil
 }
 
@@ -147,7 +147,7 @@ func (p *Provider) GetQuotes(ctx context.Context, req gateway.QuoteRequest) ([]g
 // BuildSwap builds a swap transaction
 func (p *Provider) BuildSwap(ctx context.Context, quote gateway.SwapQuote, recipient string, deadline int64) (*gateway.SwapTransaction, error) {
 	quoteType := "EXACT_INPUT"
-	
+
 	apiReq := QuoteAPIRequest{
 		TokenIn:         quote.TokenIn.Token.Address,
 		TokenInChainID:  uint64(quote.TokenIn.Token.ChainID),
@@ -157,24 +157,24 @@ func (p *Provider) BuildSwap(ctx context.Context, quote gateway.SwapQuote, recip
 		Type:            quoteType,
 		Recipient:       recipient,
 	}
-	
+
 	apiResp, err := p.client.GetQuote(ctx, apiReq)
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	if apiResp.MethodParameters == nil {
 		return nil, &gateway.ProviderError{
 			Provider: p.name,
 			Err:      ErrNoMethodParameters,
 		}
 	}
-	
+
 	value := new(big.Int)
 	if apiResp.MethodParameters.Value != "" {
 		value.SetString(apiResp.MethodParameters.Value, 10)
 	}
-	
+
 	gasLimit := new(big.Int)
 	if apiResp.GasUseEstimate != "" {
 		gasLimit.SetString(apiResp.GasUseEstimate, 10)
@@ -182,7 +182,7 @@ func (p *Provider) BuildSwap(ctx context.Context, quote gateway.SwapQuote, recip
 		gasLimit.Mul(gasLimit, big.NewInt(120))
 		gasLimit.Div(gasLimit, big.NewInt(100))
 	}
-	
+
 	return &gateway.SwapTransaction{
 		To:       apiResp.MethodParameters.To,
 		Data:     apiResp.MethodParameters.Calldata,
@@ -209,22 +209,22 @@ func (p *Provider) GetPools(ctx context.Context, req gateway.PoolsRequest) ([]ga
 		Limit:   req.Limit,
 		Offset:  req.Offset,
 	}
-	
+
 	if req.MinTVL != nil {
 		tvl, _ := req.MinTVL.Float64()
 		apiReq.MinTVL = tvl
 	}
-	
+
 	apiPools, err := p.client.GetPools(ctx, apiReq)
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	pools := make([]gateway.Pool, len(apiPools))
 	for i, ap := range apiPools {
 		pools[i] = p.convertPoolData(ap)
 	}
-	
+
 	return pools, nil
 }
 
@@ -238,11 +238,11 @@ func (p *Provider) GetPool(ctx context.Context, chainID gateway.ChainID, address
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(pools) == 0 {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: ErrPoolNotFound}
 	}
-	
+
 	return &pools[0], nil
 }
 
@@ -253,17 +253,17 @@ func (p *Provider) GetPositions(ctx context.Context, req gateway.PositionsReques
 		Owner:   req.Owner,
 		PoolID:  req.PoolID,
 	}
-	
+
 	apiPositions, err := p.client.GetPositions(ctx, apiReq)
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	positions := make([]gateway.Position, len(apiPositions))
 	for i, ap := range apiPositions {
 		positions[i] = p.convertPositionData(ap)
 	}
-	
+
 	return positions, nil
 }
 
@@ -276,13 +276,13 @@ func (p *Provider) GetPosition(ctx context.Context, chainID gateway.ChainID, pos
 	if err != nil {
 		return nil, err
 	}
-	
+
 	for _, pos := range positions {
 		if pos.ID == positionID {
 			return &pos, nil
 		}
 	}
-	
+
 	return nil, &gateway.ProviderError{Provider: p.name, Err: ErrPositionNotFound}
 }
 
@@ -307,7 +307,7 @@ func (p *Provider) GetTokenPrice(ctx context.Context, token gateway.Token) (*gat
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	return &gateway.TokenPrice{
 		Token:       token,
 		PriceUSD:    apiPrice.PriceUSD,
@@ -340,12 +340,12 @@ func (p *Provider) CreateLead(ctx context.Context, lead gateway.ConversionLead) 
 		WalletAddr: lead.WalletAddr,
 		Metadata:   lead.Metadata,
 	}
-	
+
 	created, err := p.client.CreateLead(ctx, apiLead)
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	return p.convertLeadData(*created), nil
 }
 
@@ -365,15 +365,15 @@ func (p *Provider) TrackEvent(ctx context.Context, event gateway.ConversionEvent
 		Timestamp: event.Timestamp.Format(time.RFC3339),
 		Metadata:  event.Metadata,
 	}
-	
+
 	if event.Value != nil {
 		apiEvent.Value = event.Value.String()
 	}
-	
+
 	if err := p.client.TrackEvent(ctx, apiEvent); err != nil {
 		return &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	return nil
 }
 
@@ -383,12 +383,12 @@ func (p *Provider) GetLeadEvents(ctx context.Context, leadID string) ([]gateway.
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	events := make([]gateway.ConversionEvent, len(apiEvents))
 	for i, ae := range apiEvents {
 		events[i] = p.convertEventData(ae)
 	}
-	
+
 	return events, nil
 }
 
@@ -398,12 +398,12 @@ func (p *Provider) GetTokenList(ctx context.Context, chainID gateway.ChainID) ([
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	tokens := make([]gateway.Token, len(apiTokens))
 	for i, at := range apiTokens {
 		tokens[i] = p.convertTokenData(at)
 	}
-	
+
 	return tokens, nil
 }
 
@@ -413,12 +413,12 @@ func (p *Provider) SearchTokens(ctx context.Context, chainID gateway.ChainID, qu
 	if err != nil {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: err}
 	}
-	
+
 	tokens := make([]gateway.Token, len(apiTokens))
 	for i, at := range apiTokens {
 		tokens[i] = p.convertTokenData(at)
 	}
-	
+
 	return tokens, nil
 }
 
@@ -428,13 +428,13 @@ func (p *Provider) GetToken(ctx context.Context, chainID gateway.ChainID, addres
 	if err != nil {
 		return nil, err
 	}
-	
+
 	for _, token := range tokens {
 		if token.Address == address {
 			return &token, nil
 		}
 	}
-	
+
 	return nil, &gateway.ProviderError{Provider: p.name, Err: ErrTokenNotFound}
 }
 
@@ -443,7 +443,7 @@ func (p *Provider) GetToken(ctx context.Context, chainID gateway.ChainID, addres
 func (p *Provider) convertQuoteResponse(req gateway.QuoteRequest, resp *QuoteAPIResponse) *gateway.SwapQuote {
 	amountOut, _ := new(big.Int).SetString(resp.Quote, 10)
 	gasEstimate, _ := new(big.Int).SetString(resp.GasUseEstimate, 10)
-	
+
 	route := make([]gateway.PoolHop, len(resp.Route))
 	for i, r := range resp.Route {
 		fee := 0
@@ -458,12 +458,12 @@ func (p *Provider) convertQuoteResponse(req gateway.QuoteRequest, resp *QuoteAPI
 			Fee:         fee,
 		}
 	}
-	
+
 	priceImpact := 0.0
 	if resp.PriceImpact != "" {
 		priceImpact, _ = strconv.ParseFloat(resp.PriceImpact, 64)
 	}
-	
+
 	return &gateway.SwapQuote{
 		TokenIn: gateway.TokenAmount{
 			Token:  req.TokenIn,
@@ -483,7 +483,7 @@ func (p *Provider) convertQuoteResponse(req gateway.QuoteRequest, resp *QuoteAPI
 func (p *Provider) convertPoolData(ap PoolAPIData) gateway.Pool {
 	tvl, _ := new(big.Int).SetString(ap.TVL, 10)
 	volume, _ := new(big.Int).SetString(ap.Volume24h, 10)
-	
+
 	return gateway.Pool{
 		Address:   ap.Address,
 		ChainID:   gateway.ChainID(ap.ChainID),
@@ -501,7 +501,7 @@ func (p *Provider) convertPositionData(ap PositionAPIData) gateway.Position {
 	liquidity, _ := new(big.Int).SetString(ap.Liquidity, 10)
 	token0Owed, _ := new(big.Int).SetString(ap.Token0Owed, 10)
 	token1Owed, _ := new(big.Int).SetString(ap.Token1Owed, 10)
-	
+
 	var feesEarned *gateway.FeesEarned
 	if ap.Fees0 != "" || ap.Fees1 != "" {
 		fees0, _ := new(big.Int).SetString(ap.Fees0, 10)
@@ -511,7 +511,7 @@ func (p *Provider) convertPositionData(ap PositionAPIData) gateway.Position {
 			Token1Fees: fees1,
 		}
 	}
-	
+
 	return gateway.Position{
 		ID:         ap.ID,
 		Owner:      ap.Owner,
@@ -551,7 +551,7 @@ func (p *Provider) convertLeadData(al LeadAPIData) *gateway.ConversionLead {
 func (p *Provider) convertEventData(ae EventAPIData) gateway.ConversionEvent {
 	ts, _ := time.Parse(time.RFC3339, ae.Timestamp)
 	value, _ := new(big.Int).SetString(ae.Value, 10)
-	
+
 	return gateway.ConversionEvent{
 		LeadID:    ae.LeadID,
 		EventType: ae.EventType,

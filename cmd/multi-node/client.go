@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 package main
 
 import (
@@ -10,13 +12,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/luxfi/czmq/v4"
 	"github.com/luxfi/dex/pkg/lx"
-	zmq "github.com/pebbe/zmq4"
 )
 
 // TestClient represents a client that sends orders to the multi-node cluster
 type TestClient struct {
-	dealers      []*zmq.Socket
+	dealers      []*czmq.Sock
 	nodeAddrs    []string
 	ordersent    uint64
 	responsesRcv uint64
@@ -27,15 +29,12 @@ type TestClient struct {
 func NewTestClient(nodeAddrs []string) (*TestClient, error) {
 	client := &TestClient{
 		nodeAddrs: nodeAddrs,
-		dealers:   make([]*zmq.Socket, len(nodeAddrs)),
+		dealers:   make([]*czmq.Sock, len(nodeAddrs)),
 	}
 
 	// Create DEALER socket for each node
 	for i, addr := range nodeAddrs {
-		dealer, err := zmq.NewSocket(zmq.DEALER)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create dealer socket: %w", err)
-		}
+		dealer := czmq.NewSock(czmq.Dealer)
 
 		// Set identity for the dealer
 		dealer.SetIdentity(fmt.Sprintf("client-%d-%d", time.Now().Unix(), i))
@@ -64,8 +63,8 @@ func (c *TestClient) SendOrder(order *lx.Order) error {
 	}
 
 	// Send to dealer (no identity needed, DEALER handles it)
-	dealer.Send("", zmq.SNDMORE)
-	if _, err := dealer.SendBytes(data, 0); err != nil {
+	dealer.SendFrame([]byte(""), czmq.FlagMore)
+	if err := dealer.SendFrame(data, 0); err != nil {
 		return fmt.Errorf("failed to send order: %w", err)
 	}
 
@@ -78,14 +77,15 @@ func (c *TestClient) SendOrder(order *lx.Order) error {
 }
 
 // receiveResponse receives response from node
-func (c *TestClient) receiveResponse(dealer *zmq.Socket) {
+func (c *TestClient) receiveResponse(dealer *czmq.Sock) {
 	// Empty delimiter
-	if _, err := dealer.Recv(zmq.DONTWAIT); err != nil {
+	_, _, err := dealer.RecvFrame()
+	if err != nil {
 		return
 	}
 
 	// Response data
-	data, err := dealer.RecvBytes(zmq.DONTWAIT)
+	data, _, err := dealer.RecvFrame()
 	if err != nil {
 		return
 	}
@@ -141,7 +141,7 @@ func (c *TestClient) RunLoadTest(duration time.Duration, ordersPerSec int) {
 func (c *TestClient) Close() {
 	for _, dealer := range c.dealers {
 		if dealer != nil {
-			dealer.Close()
+			dealer.Destroy()
 		}
 	}
 }

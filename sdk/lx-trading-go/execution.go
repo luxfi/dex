@@ -112,10 +112,10 @@ type VwapExecutor struct {
 
 // VwapConfig configures VWAP execution.
 type VwapConfig struct {
-	Symbol            string
-	Side              Side
-	TotalQuantity     decimal.Decimal
-	ParticipationRate decimal.Decimal // e.g., 0.1 = 10% of volume
+	Symbol             string
+	Side               Side
+	TotalQuantity      decimal.Decimal
+	ParticipationRate  decimal.Decimal // e.g., 0.1 = 10% of volume
 	MaxDurationSeconds int
 }
 
@@ -397,12 +397,12 @@ type PovExecutor struct {
 
 // PovConfig configures POV execution.
 type PovConfig struct {
-	Symbol            string
-	Side              Side
-	TotalQuantity     decimal.Decimal
-	ParticipationRate decimal.Decimal // e.g., 0.05 = 5% of volume
+	Symbol             string
+	Side               Side
+	TotalQuantity      decimal.Decimal
+	ParticipationRate  decimal.Decimal // e.g., 0.05 = 5% of volume
 	MaxDurationSeconds int
-	MinOrderSize      decimal.Decimal
+	MinOrderSize       decimal.Decimal
 }
 
 // NewPovExecutor creates a POV executor.

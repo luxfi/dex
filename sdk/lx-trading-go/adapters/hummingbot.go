@@ -395,11 +395,11 @@ func (a *HummingbotAdapter) ExecuteSwap(ctx context.Context, baseToken, quoteTok
 	}
 
 	data, err := a.doRequest(ctx, http.MethodPost, "/amm/trade", map[string]interface{}{
-		"base":           baseToken,
-		"quote":          quoteToken,
-		"amount":         amount.String(),
-		"side":           side,
-		"limitPrice":     "",
+		"base":            baseToken,
+		"quote":           quoteToken,
+		"amount":          amount.String(),
+		"side":            side,
+		"limitPrice":      "",
 		"allowedSlippage": fmt.Sprintf("%s/100", slippage.String()),
 	})
 	if err != nil {

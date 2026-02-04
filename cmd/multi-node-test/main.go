@@ -1,3 +1,5 @@
+//go:build zmqtest
+
 // Multi-node DEX deployment test with 3+ nodes
 package main
 
@@ -10,16 +12,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/luxfi/czmq/v4"
 	"github.com/nats-io/nats.go"
-	zmq "github.com/pebbe/zmq4"
 )
 
 type Node struct {
 	ID            string
 	Type          NodeType
 	NatsConn      *nats.Conn
-	ZmqPub        *zmq.Socket
-	ZmqSub        *zmq.Socket
+	ZmqPub        *czmq.Sock
+	ZmqSub        *czmq.Sock
 	Orders        int64
 	Trades        int64
 	IsLeader      bool
@@ -50,8 +52,8 @@ func main() {
 	duration := flag.Duration("duration", 30*time.Second, "Test duration")
 	flag.Parse()
 
-	log.Printf("🚀 Multi-Node DEX Test")
-	log.Printf("📊 Nodes: %d | Duration: %v", *numNodes, *duration)
+	log.Printf("[START] Multi-Node DEX Test")
+	log.Printf("[CONFIG] Nodes: %d | Duration: %v", *numNodes, *duration)
 
 	cm := &ClusterManager{
 		nodes:      make(map[string]*Node),
@@ -110,7 +112,7 @@ func (cm *ClusterManager) startNode(nodeID string, nodeType NodeType, nodeNum in
 	// Connect to NATS
 	nc, err := nats.Connect(cm.natsURL)
 	if err != nil {
-		log.Printf("❌ Node %s: Failed to connect to NATS: %v", nodeID, err)
+		log.Printf("[ERROR] Node %s: Failed to connect to NATS: %v", nodeID, err)
 		return
 	}
 	node.NatsConn = nc
@@ -120,20 +122,12 @@ func (cm *ClusterManager) startNode(nodeID string, nodeType NodeType, nodeNum in
 	subPort := cm.zmqSubPort + nodeNum
 
 	// Publisher socket for market data
-	pub, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		log.Printf("❌ Node %s: Failed to create ZMQ PUB: %v", nodeID, err)
-		return
-	}
+	pub := czmq.NewSock(czmq.Pub)
 	pub.Bind(fmt.Sprintf("tcp://*:%d", pubPort))
 	node.ZmqPub = pub
 
 	// Subscriber socket for receiving data
-	sub, err := zmq.NewSocket(zmq.SUB)
-	if err != nil {
-		log.Printf("❌ Node %s: Failed to create ZMQ SUB: %v", nodeID, err)
-		return
-	}
+	sub := czmq.NewSock(czmq.Sub)
 
 	// Subscribe to other nodes
 	for i := 0; i < 10; i++ {
@@ -158,7 +152,7 @@ func (cm *ClusterManager) startNode(nodeID string, nodeType NodeType, nodeNum in
 	cm.nodes[nodeID] = node
 	cm.mu.Unlock()
 
-	log.Printf("✅ Node %s started (Type: %v, ZMQ Pub: %d, Sub: %d)",
+	log.Printf("[OK] Node %s started (Type: %v, ZMQ Pub: %d, Sub: %d)",
 		nodeID, nodeType, pubPort, subPort)
 
 	// Start node operations
@@ -188,7 +182,7 @@ func (node *Node) processOrders() {
 					// Publish trade via ZeroMQ
 					trade := fmt.Sprintf(`{"type":"trade","id":%d,"price":50000,"qty":1}`,
 						atomic.LoadInt64(&node.Trades))
-					node.ZmqPub.Send(trade, 0)
+					node.ZmqPub.SendFrame([]byte(trade), 0)
 				}
 			}
 
@@ -212,21 +206,21 @@ func (node *Node) publishMarketData() {
 				atomic.LoadInt64(&node.Trades),
 				time.Now().UnixNano())
 
-			node.ZmqPub.Send(snapshot, zmq.DONTWAIT)
+			node.ZmqPub.SendFrame([]byte(snapshot), 0)
 		}
 	}
 }
 
 func (node *Node) subscribeToMarketData() {
 	for {
-		msg, err := node.ZmqSub.Recv(0)
+		msg, _, err := node.ZmqSub.RecvFrame()
 		if err != nil {
 			continue
 		}
 
 		// Process market data from other nodes
 		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(msg), &data); err == nil {
+		if err := json.Unmarshal(msg, &data); err == nil {
 			if data["type"] == "trade" && !node.IsLeader {
 				// Replicas track trades from leader
 				atomic.AddInt64(&node.Trades, 1)
@@ -257,7 +251,7 @@ func (cm *ClusterManager) monitorCluster() {
 	for range ticker.C {
 		cm.mu.RLock()
 
-		log.Println("\n📊 Cluster Status:")
+		log.Println("\n[CLUSTER] Cluster Status:")
 		log.Println("================")
 
 		totalOrders := int64(0)
@@ -270,9 +264,9 @@ func (cm *ClusterManager) monitorCluster() {
 			totalOrders += orders
 			totalTrades += trades
 
-			status := "✅"
+			status := "[OK]"
 			if time.Since(node.LastHeartbeat) > 5*time.Second {
-				status = "⚠️"
+				status = "[WARN]"
 			} else {
 				activeNodes++
 			}
@@ -286,11 +280,11 @@ func (cm *ClusterManager) monitorCluster() {
 				status, node.ID, role, orders, trades)
 		}
 
-		log.Printf("\n📈 Total: %d orders, %d trades across %d active nodes",
+		log.Printf("\n[TOTAL] Total: %d orders, %d trades across %d active nodes",
 			totalOrders, totalTrades, activeNodes)
 
 		if totalOrders > 0 {
-			log.Printf("💹 Trade Rate: %.2f%%",
+			log.Printf("[RATE] Trade Rate: %.2f%%",
 				float64(totalTrades)/float64(totalOrders)*100)
 		}
 
@@ -302,7 +296,7 @@ func (cm *ClusterManager) runWorkload(duration time.Duration) {
 	// Connect as client
 	nc, err := nats.Connect(cm.natsURL)
 	if err != nil {
-		log.Printf("❌ Failed to connect workload generator: %v", err)
+		log.Printf("[ERROR] Failed to connect workload generator: %v", err)
 		return
 	}
 	defer nc.Close()
@@ -336,7 +330,7 @@ func (cm *ClusterManager) printResults() {
 	defer cm.mu.RUnlock()
 
 	fmt.Println("\n" + strings.Repeat("=", 60))
-	fmt.Println("📊 MULTI-NODE TEST RESULTS")
+	fmt.Println("[RESULTS] MULTI-NODE TEST RESULTS")
 	fmt.Println(strings.Repeat("=", 60))
 
 	totalOrders := int64(0)
@@ -379,10 +373,10 @@ func (cm *ClusterManager) shutdown() {
 			node.NatsConn.Close()
 		}
 		if node.ZmqPub != nil {
-			node.ZmqPub.Close()
+			node.ZmqPub.Destroy()
 		}
 		if node.ZmqSub != nil {
-			node.ZmqSub.Close()
+			node.ZmqSub.Destroy()
 		}
 	}
 }

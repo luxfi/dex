@@ -22,8 +22,8 @@ func TestModifyLeverage_Comprehensive(t *testing.T) {
 		account, _ := engine.CreateMarginAccount("user1", CrossMargin)
 
 		// Initialize account with sufficient margin
-		account.Balance = big.NewInt(100000000)     // 100M units
-		account.FreeMargin = big.NewInt(100000000)  // 100M units free
+		account.Balance = big.NewInt(100000000)    // 100M units
+		account.FreeMargin = big.NewInt(100000000) // 100M units free
 		account.MarginUsed = big.NewInt(0)
 
 		// Create position directly (bypassing OpenPosition which needs lending pool)
@@ -179,7 +179,7 @@ func TestModifyLeverage_Comprehensive(t *testing.T) {
 		engine, _, position := setupEngineWithPosition(10.0)
 
 		// Verify initial margin is correct: positionValue / leverage = 5000 / 10 = 500
-		positionValue := position.EntryPrice * position.Size // 50000 * 0.1 = 5000
+		positionValue := position.EntryPrice * position.Size       // 50000 * 0.1 = 5000
 		expectedMargin := int64(positionValue / position.Leverage) // 5000 / 10 = 500
 		assert.Equal(t, expectedMargin, position.Margin.Int64())
 
@@ -391,34 +391,34 @@ func TestModifyLeverage_Comprehensive(t *testing.T) {
 
 		// Create two positions
 		pos1 := &MarginPosition{
-			ID:              "pos1",
-			Symbol:          "BTC-USDT",
-			Side:            Buy,
-			Size:            0.1,
-			EntryPrice:      50000.0,
-			Leverage:        10.0,
-			Margin:          big.NewInt(500),
-			UnrealizedPnL:   big.NewInt(0),
-			RealizedPnL:     big.NewInt(0),
-			Fees:            big.NewInt(0),
-			OpenTime:        time.Now(),
-			LastUpdate:      time.Now(),
-			FundingPaid:     big.NewInt(0),
+			ID:            "pos1",
+			Symbol:        "BTC-USDT",
+			Side:          Buy,
+			Size:          0.1,
+			EntryPrice:    50000.0,
+			Leverage:      10.0,
+			Margin:        big.NewInt(500),
+			UnrealizedPnL: big.NewInt(0),
+			RealizedPnL:   big.NewInt(0),
+			Fees:          big.NewInt(0),
+			OpenTime:      time.Now(),
+			LastUpdate:    time.Now(),
+			FundingPaid:   big.NewInt(0),
 		}
 		pos2 := &MarginPosition{
-			ID:              "pos2",
-			Symbol:          "ETH-USDT",
-			Side:            Sell,
-			Size:            1.0,
-			EntryPrice:      3000.0,
-			Leverage:        10.0,
-			Margin:          big.NewInt(300),
-			UnrealizedPnL:   big.NewInt(0),
-			RealizedPnL:     big.NewInt(0),
-			Fees:            big.NewInt(0),
-			OpenTime:        time.Now(),
-			LastUpdate:      time.Now(),
-			FundingPaid:     big.NewInt(0),
+			ID:            "pos2",
+			Symbol:        "ETH-USDT",
+			Side:          Sell,
+			Size:          1.0,
+			EntryPrice:    3000.0,
+			Leverage:      10.0,
+			Margin:        big.NewInt(300),
+			UnrealizedPnL: big.NewInt(0),
+			RealizedPnL:   big.NewInt(0),
+			Fees:          big.NewInt(0),
+			OpenTime:      time.Now(),
+			LastUpdate:    time.Now(),
+			FundingPaid:   big.NewInt(0),
 		}
 		account.Positions["pos1"] = pos1
 		account.Positions["pos2"] = pos2
@@ -472,20 +472,20 @@ func TestModifyLeverage_ConcurrentAccess(t *testing.T) {
 	account.FreeMargin = big.NewInt(1000000000)
 
 	position := &MarginPosition{
-		ID:              "test_pos_1",
-		Symbol:          "BTC-USDT",
-		Side:            Buy,
-		Size:            0.1,
-		EntryPrice:      50000.0,
-		MarkPrice:       50000.0,
-		Leverage:        10.0,
-		Margin:          big.NewInt(500),
-		UnrealizedPnL:   big.NewInt(0),
-		RealizedPnL:     big.NewInt(0),
-		Fees:            big.NewInt(0),
-		OpenTime:        time.Now(),
-		LastUpdate:      time.Now(),
-		FundingPaid:     big.NewInt(0),
+		ID:            "test_pos_1",
+		Symbol:        "BTC-USDT",
+		Side:          Buy,
+		Size:          0.1,
+		EntryPrice:    50000.0,
+		MarkPrice:     50000.0,
+		Leverage:      10.0,
+		Margin:        big.NewInt(500),
+		UnrealizedPnL: big.NewInt(0),
+		RealizedPnL:   big.NewInt(0),
+		Fees:          big.NewInt(0),
+		OpenTime:      time.Now(),
+		LastUpdate:    time.Now(),
+		FundingPaid:   big.NewInt(0),
 	}
 	account.Positions[position.ID] = position
 	account.MarginUsed = new(big.Int).Set(position.Margin)

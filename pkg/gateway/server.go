@@ -41,7 +41,7 @@ func DefaultServerConfig() ServerConfig {
 // NewServer creates a new gateway server
 func NewServer(router *Router, cfg ServerConfig) *Server {
 	mux := http.NewServeMux()
-	
+
 	s := &Server{
 		router: router,
 		mux:    mux,
@@ -53,7 +53,7 @@ func NewServer(router *Router, cfg ServerConfig) *Server {
 			MaxHeaderBytes: cfg.MaxHeaderBytes,
 		},
 	}
-	
+
 	s.registerRoutes()
 	return s
 }
@@ -73,25 +73,25 @@ func (s *Server) registerRoutes() {
 	// Health and info
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/providers", s.handleProviders)
-	
+
 	// Quote API
 	s.mux.HandleFunc("/v1/quote", s.handleQuote)
 	s.mux.HandleFunc("/v1/quotes", s.handleQuotes)
 	s.mux.HandleFunc("/v1/swap", s.handleSwap)
-	
+
 	// Liquidity API
 	s.mux.HandleFunc("/v1/pools", s.handlePools)
 	s.mux.HandleFunc("/v1/pool/", s.handlePool)
 	s.mux.HandleFunc("/v1/positions", s.handlePositions)
-	
+
 	// Price API
 	s.mux.HandleFunc("/v1/price", s.handlePrice)
 	s.mux.HandleFunc("/v1/prices", s.handlePrices)
-	
+
 	// Token API
 	s.mux.HandleFunc("/v1/tokens", s.handleTokens)
 	s.mux.HandleFunc("/v1/tokens/search", s.handleTokenSearch)
-	
+
 	// Conversion tracking API
 	s.mux.HandleFunc("/v1/leads", s.handleLeads)
 	s.mux.HandleFunc("/v1/events", s.handleEvents)
@@ -139,10 +139,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	checks := s.router.HealthCheck(ctx)
-	
+
 	healthy := true
 	for _, check := range checks {
 		if !check.Healthy {
@@ -150,12 +150,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	status := http.StatusOK
 	if !healthy {
 		status = http.StatusServiceUnavailable
 	}
-	
+
 	s.writeJSON(w, status, map[string]interface{}{
 		"status":    map[bool]string{true: "healthy", false: "unhealthy"}[healthy],
 		"providers": checks,
@@ -167,7 +167,7 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	providers := s.router.ListProviders()
 	s.writeJSON(w, http.StatusOK, providers)
 }
@@ -188,20 +188,20 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	var req quoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	quote, err := s.router.GetBestQuote(ctx, s.convertQuoteRequest(req))
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, quote)
 }
 
@@ -210,20 +210,20 @@ func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	var req quoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	quotes, err := s.router.GetAllQuotes(ctx, s.convertQuoteRequest(req))
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, quotes)
 }
 
@@ -232,14 +232,14 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	// TODO: Implement swap transaction building
 	s.writeError(w, http.StatusNotImplemented, fmt.Errorf("swap building not yet implemented"))
 }
 
 func (s *Server) convertQuoteRequest(req quoteRequest) QuoteRequest {
 	amount := parseBigIntStr(req.Amount)
-	
+
 	return QuoteRequest{
 		TokenIn: Token{
 			Address: req.TokenIn,
@@ -263,9 +263,9 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
-	
+
 	var req PoolsRequest
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -277,7 +277,7 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 		chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-		
+
 		req = PoolsRequest{
 			ChainID:  ChainID(chainID),
 			Token0:   r.URL.Query().Get("token0"),
@@ -287,13 +287,13 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 			Offset:   offset,
 		}
 	}
-	
+
 	pools, err := s.router.GetPools(ctx, req)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, pools)
 }
 
@@ -302,7 +302,7 @@ func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	// Extract pool address from path: /v1/pool/{chainId}/{address}
 	path := strings.TrimPrefix(r.URL.Path, "/v1/pool/")
 	parts := strings.Split(path, "/")
@@ -310,20 +310,20 @@ func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid pool path"))
 		return
 	}
-	
+
 	chainID, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid chain ID"))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	pool, err := s.router.GetPool(ctx, ChainID(chainID), parts[1])
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, pool)
 }
 
@@ -332,9 +332,9 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
-	
+
 	var req PositionsRequest
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -349,13 +349,13 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 			PoolID:  r.URL.Query().Get("poolId"),
 		}
 	}
-	
+
 	positions, err := s.router.GetPositions(ctx, req)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, positions)
 }
 
@@ -366,15 +366,15 @@ func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
 	address := r.URL.Query().Get("address")
-	
+
 	if address == "" {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("address is required"))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	price, err := s.router.GetTokenPrice(ctx, Token{
 		Address: address,
@@ -384,7 +384,7 @@ func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, price)
 }
 
@@ -393,20 +393,20 @@ func (s *Server) handlePrices(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	var tokens []Token
 	if err := json.NewDecoder(r.Body).Decode(&tokens); err != nil {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	prices, err := s.router.GetTokenPrices(ctx, tokens)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusOK, prices)
 }
 
@@ -443,7 +443,7 @@ func (s *Server) handleTokenSearch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 	ctx := s.requestContext(r)
-	
+
 	switch r.Method {
 	case http.MethodPost:
 		var lead ConversionLead
@@ -451,15 +451,15 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 			return
 		}
-		
+
 		created, err := s.router.CreateLead(ctx, lead)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		
+
 		s.writeJSON(w, http.StatusCreated, created)
-		
+
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
@@ -470,19 +470,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	
+
 	var event ConversionEvent
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	
+
 	ctx := s.requestContext(r)
 	if err := s.router.TrackEvent(ctx, event); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	
+
 	s.writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
