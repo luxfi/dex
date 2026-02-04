@@ -214,7 +214,7 @@ func TestOrderSides(t *testing.T) {
 
 func TestOrderTypes(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		orderType string
 	}{
 		{"Market", "market"},

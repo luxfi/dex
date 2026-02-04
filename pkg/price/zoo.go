@@ -218,10 +218,10 @@ func (s *ZooChainSource) simulate(symbol string) float64 {
 	// Simulated prices for Zoo Chain DEX
 	base := map[string]float64{
 		// ZOO native pairs
-		"ZOO-USDC":  0.00015,  // ZOO token price
-		"ZOO-USDT":  0.00015,
-		"ZOO-ETH":   0.0000000375, // ZOO/ETH ratio
-		"ZOO-LUX":   0.0647,       // ZOO/LUX ratio
+		"ZOO-USDC": 0.00015, // ZOO token price
+		"ZOO-USDT": 0.00015,
+		"ZOO-ETH":  0.0000000375, // ZOO/ETH ratio
+		"ZOO-LUX":  0.0647,       // ZOO/LUX ratio
 
 		// Wrapped ZOO
 		"WZOO-USDC": 0.00015,

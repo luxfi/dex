@@ -3039,7 +3039,7 @@ func TestHandleVaultDepositInvalidDepositData(t *testing.T) {
 	}
 }
 
-// Tests for handleVaultWithdraw additional coverage  
+// Tests for handleVaultWithdraw additional coverage
 func TestHandleVaultWithdrawNotAuthenticated(t *testing.T) {
 	server := newTestWebSocketServer()
 	client := &Client{

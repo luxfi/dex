@@ -17,10 +17,10 @@ import (
 type APIEndpoints struct {
 	// Core API for quotes, tokens, and general data
 	CoreAPI string
-	
+
 	// Liquidity backend for pool and position data
 	LiquidityAPI string
-	
+
 	// Conversion tracking/entry gateway
 	ConversionAPI string
 }
@@ -44,10 +44,10 @@ type Client struct {
 
 // ClientConfig holds client configuration
 type ClientConfig struct {
-	Endpoints  APIEndpoints
-	APIKey     string
-	Timeout    time.Duration
-	UserAgent  string
+	Endpoints APIEndpoints
+	APIKey    string
+	Timeout   time.Duration
+	UserAgent string
 }
 
 // NewClient creates a new Uniswap API client
@@ -61,7 +61,7 @@ func NewClient(cfg ClientConfig) *Client {
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = "Lux-DEX-Gateway/1.0"
 	}
-	
+
 	return &Client{
 		endpoints: cfg.Endpoints,
 		httpClient: &http.Client{
@@ -82,42 +82,42 @@ func (c *Client) request(ctx context.Context, method, url string, body interface
 		}
 		bodyReader = bytes.NewReader(data)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
 	}
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	if resp.StatusCode >= 400 {
 		return &APIError{
 			StatusCode: resp.StatusCode,
 			Message:    string(respBody),
 		}
 	}
-	
+
 	if result != nil {
 		if err := json.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -139,17 +139,17 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
 	}
-	
+
 	return nil
 }
 
@@ -157,37 +157,37 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 // QuoteRequest for the Uniswap API
 type QuoteAPIRequest struct {
-	TokenIn          string `json:"tokenIn"`
-	TokenInChainID   uint64 `json:"tokenInChainId"`
-	TokenOut         string `json:"tokenOut"`
-	TokenOutChainID  uint64 `json:"tokenOutChainId"`
-	Amount           string `json:"amount"`
-	Type             string `json:"type"` // "EXACT_INPUT" or "EXACT_OUTPUT"
-	Slippage         int    `json:"slippageTolerance,omitempty"` // in bps
-	Protocols        string `json:"protocols,omitempty"`
-	Recipient        string `json:"recipient,omitempty"`
+	TokenIn         string `json:"tokenIn"`
+	TokenInChainID  uint64 `json:"tokenInChainId"`
+	TokenOut        string `json:"tokenOut"`
+	TokenOutChainID uint64 `json:"tokenOutChainId"`
+	Amount          string `json:"amount"`
+	Type            string `json:"type"`                        // "EXACT_INPUT" or "EXACT_OUTPUT"
+	Slippage        int    `json:"slippageTolerance,omitempty"` // in bps
+	Protocols       string `json:"protocols,omitempty"`
+	Recipient       string `json:"recipient,omitempty"`
 }
 
 // QuoteAPIResponse from the Uniswap API
 type QuoteAPIResponse struct {
-	Quote            string          `json:"quote"`
-	QuoteGasAdjusted string          `json:"quoteGasAdjusted"`
-	GasUseEstimate   string          `json:"gasUseEstimate"`
-	GasUseEstimateQuote string       `json:"gasUseEstimateQuote"`
-	Route            []RouteAPIData  `json:"route"`
-	PriceImpact      string          `json:"priceImpact,omitempty"`
-	MethodParameters *MethodParams   `json:"methodParameters,omitempty"`
+	Quote               string         `json:"quote"`
+	QuoteGasAdjusted    string         `json:"quoteGasAdjusted"`
+	GasUseEstimate      string         `json:"gasUseEstimate"`
+	GasUseEstimateQuote string         `json:"gasUseEstimateQuote"`
+	Route               []RouteAPIData `json:"route"`
+	PriceImpact         string         `json:"priceImpact,omitempty"`
+	MethodParameters    *MethodParams  `json:"methodParameters,omitempty"`
 }
 
 // RouteAPIData represents a route from the API
 type RouteAPIData struct {
-	Type       string           `json:"type"`
-	Address    string           `json:"address"`
-	TokenIn    TokenAPIData     `json:"tokenIn"`
-	TokenOut   TokenAPIData     `json:"tokenOut"`
-	Fee        string           `json:"fee,omitempty"`
-	AmountIn   string           `json:"amountIn,omitempty"`
-	AmountOut  string           `json:"amountOut,omitempty"`
+	Type      string       `json:"type"`
+	Address   string       `json:"address"`
+	TokenIn   TokenAPIData `json:"tokenIn"`
+	TokenOut  TokenAPIData `json:"tokenOut"`
+	Fee       string       `json:"fee,omitempty"`
+	AmountIn  string       `json:"amountIn,omitempty"`
+	AmountOut string       `json:"amountOut,omitempty"`
 }
 
 // TokenAPIData represents token data from the API
@@ -209,12 +209,12 @@ type MethodParams struct {
 // GetQuote gets a swap quote from the Core API
 func (c *Client) GetQuote(ctx context.Context, req QuoteAPIRequest) (*QuoteAPIResponse, error) {
 	url := fmt.Sprintf("%s/v2/quote", c.endpoints.CoreAPI)
-	
+
 	var resp QuoteAPIResponse
 	if err := c.request(ctx, "POST", url, req, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return &resp, nil
 }
 
@@ -222,40 +222,40 @@ func (c *Client) GetQuote(ctx context.Context, req QuoteAPIRequest) (*QuoteAPIRe
 
 // PoolsAPIRequest for querying pools
 type PoolsAPIRequest struct {
-	ChainID     uint64  `json:"chainId"`
-	TokenA      string  `json:"tokenA,omitempty"`
-	TokenB      string  `json:"tokenB,omitempty"`
-	PoolType    string  `json:"poolType,omitempty"`
-	MinTVL      float64 `json:"minTvl,omitempty"`
-	Limit       int     `json:"limit,omitempty"`
-	Offset      int     `json:"offset,omitempty"`
+	ChainID  uint64  `json:"chainId"`
+	TokenA   string  `json:"tokenA,omitempty"`
+	TokenB   string  `json:"tokenB,omitempty"`
+	PoolType string  `json:"poolType,omitempty"`
+	MinTVL   float64 `json:"minTvl,omitempty"`
+	Limit    int     `json:"limit,omitempty"`
+	Offset   int     `json:"offset,omitempty"`
 }
 
 // PoolAPIData represents pool data from the API
 type PoolAPIData struct {
-	ID          string       `json:"id"`
-	Address     string       `json:"address"`
-	ChainID     uint64       `json:"chainId"`
-	Protocol    string       `json:"protocol"`
-	Token0      TokenAPIData `json:"token0"`
-	Token1      TokenAPIData `json:"token1"`
-	FeeTier     int          `json:"feeTier,omitempty"`
-	TVL         string       `json:"tvl"`
-	Volume24h   string       `json:"volume24h"`
-	APR         float64      `json:"apr,omitempty"`
+	ID        string       `json:"id"`
+	Address   string       `json:"address"`
+	ChainID   uint64       `json:"chainId"`
+	Protocol  string       `json:"protocol"`
+	Token0    TokenAPIData `json:"token0"`
+	Token1    TokenAPIData `json:"token1"`
+	FeeTier   int          `json:"feeTier,omitempty"`
+	TVL       string       `json:"tvl"`
+	Volume24h string       `json:"volume24h"`
+	APR       float64      `json:"apr,omitempty"`
 }
 
 // GetPools queries pools from the Liquidity API
 func (c *Client) GetPools(ctx context.Context, req PoolsAPIRequest) ([]PoolAPIData, error) {
 	url := fmt.Sprintf("%s/v1/pools", c.endpoints.LiquidityAPI)
-	
+
 	var resp struct {
 		Pools []PoolAPIData `json:"pools"`
 	}
 	if err := c.request(ctx, "POST", url, req, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp.Pools, nil
 }
 
@@ -268,29 +268,29 @@ type PositionsAPIRequest struct {
 
 // PositionAPIData represents position data from the API
 type PositionAPIData struct {
-	ID         string       `json:"id"`
-	Owner      string       `json:"owner"`
-	Pool       PoolAPIData  `json:"pool"`
-	Liquidity  string       `json:"liquidity"`
-	Token0Owed string       `json:"token0Owed"`
-	Token1Owed string       `json:"token1Owed"`
-	TickLower  int          `json:"tickLower,omitempty"`
-	TickUpper  int          `json:"tickUpper,omitempty"`
-	Fees0      string       `json:"fees0,omitempty"`
-	Fees1      string       `json:"fees1,omitempty"`
+	ID         string      `json:"id"`
+	Owner      string      `json:"owner"`
+	Pool       PoolAPIData `json:"pool"`
+	Liquidity  string      `json:"liquidity"`
+	Token0Owed string      `json:"token0Owed"`
+	Token1Owed string      `json:"token1Owed"`
+	TickLower  int         `json:"tickLower,omitempty"`
+	TickUpper  int         `json:"tickUpper,omitempty"`
+	Fees0      string      `json:"fees0,omitempty"`
+	Fees1      string      `json:"fees1,omitempty"`
 }
 
 // GetPositions queries positions from the Liquidity API
 func (c *Client) GetPositions(ctx context.Context, req PositionsAPIRequest) ([]PositionAPIData, error) {
 	url := fmt.Sprintf("%s/v1/positions", c.endpoints.LiquidityAPI)
-	
+
 	var resp struct {
 		Positions []PositionAPIData `json:"positions"`
 	}
 	if err := c.request(ctx, "POST", url, req, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp.Positions, nil
 }
 
@@ -310,12 +310,12 @@ type LeadAPIData struct {
 // CreateLead creates a conversion lead
 func (c *Client) CreateLead(ctx context.Context, lead LeadAPIData) (*LeadAPIData, error) {
 	url := fmt.Sprintf("%s/v1/leads", c.endpoints.ConversionAPI)
-	
+
 	var resp LeadAPIData
 	if err := c.request(ctx, "POST", url, lead, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return &resp, nil
 }
 
@@ -339,14 +339,14 @@ func (c *Client) TrackEvent(ctx context.Context, event EventAPIData) error {
 // GetLeadEvents gets events for a lead
 func (c *Client) GetLeadEvents(ctx context.Context, leadID string) ([]EventAPIData, error) {
 	url := fmt.Sprintf("%s/v1/leads/%s/events", c.endpoints.ConversionAPI, leadID)
-	
+
 	var resp struct {
 		Events []EventAPIData `json:"events"`
 	}
 	if err := c.request(ctx, "GET", url, nil, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp.Events, nil
 }
 
@@ -355,40 +355,40 @@ func (c *Client) GetLeadEvents(ctx context.Context, leadID string) ([]EventAPIDa
 // GetTokenList gets the token list for a chain
 func (c *Client) GetTokenList(ctx context.Context, chainID uint64) ([]TokenAPIData, error) {
 	url := fmt.Sprintf("%s/v1/tokens?chainId=%d", c.endpoints.CoreAPI, chainID)
-	
+
 	var resp struct {
 		Tokens []TokenAPIData `json:"tokens"`
 	}
 	if err := c.request(ctx, "GET", url, nil, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp.Tokens, nil
 }
 
 // SearchTokens searches for tokens
 func (c *Client) SearchTokens(ctx context.Context, chainID uint64, query string) ([]TokenAPIData, error) {
 	url := fmt.Sprintf("%s/v1/tokens/search?chainId=%d&query=%s", c.endpoints.CoreAPI, chainID, query)
-	
+
 	var resp struct {
 		Tokens []TokenAPIData `json:"tokens"`
 	}
 	if err := c.request(ctx, "GET", url, nil, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp.Tokens, nil
 }
 
 // GetTokenPrice gets token price
 func (c *Client) GetTokenPrice(ctx context.Context, chainID uint64, address string) (*TokenPriceAPIData, error) {
 	url := fmt.Sprintf("%s/v1/price?chainId=%d&address=%s", c.endpoints.CoreAPI, chainID, address)
-	
+
 	var resp TokenPriceAPIData
 	if err := c.request(ctx, "GET", url, nil, &resp); err != nil {
 		return nil, err
 	}
-	
+
 	return &resp, nil
 }
 
