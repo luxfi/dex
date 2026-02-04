@@ -132,15 +132,15 @@ type Execution struct {
 // DefaultArbConfig returns sensible defaults.
 func DefaultArbConfig() ArbConfig {
 	return ArbConfig{
-		Symbols:          []string{"BTC-USDC", "ETH-USDC", "LUX-USDC"},
-		MinSpreadBps:     decimal.NewFromInt(15),
-		MinProfit:        decimal.NewFromFloat(5),
-		MaxPosition:      decimal.NewFromFloat(10000),
+		Symbols:      []string{"BTC-USDC", "ETH-USDC", "LUX-USDC"},
+		MinSpreadBps: decimal.NewFromInt(15),
+		MinProfit:    decimal.NewFromFloat(5),
+		MaxPosition:  decimal.NewFromFloat(10000),
 		VenueFees: map[string]decimal.Decimal{
-			"lx_dex":  decimal.NewFromFloat(0.001),  // 0.1%
-			"lx_amm":  decimal.NewFromFloat(0.003),  // 0.3%
-			"binance": decimal.NewFromFloat(0.001),  // 0.1%
-			"mexc":    decimal.NewFromFloat(0.002),  // 0.2%
+			"lx_dex":  decimal.NewFromFloat(0.001), // 0.1%
+			"lx_amm":  decimal.NewFromFloat(0.003), // 0.3%
+			"binance": decimal.NewFromFloat(0.001), // 0.1%
+			"mexc":    decimal.NewFromFloat(0.002), // 0.2%
 		},
 		VenuePriority:     []string{"lx_dex", "binance", "mexc", "lx_amm"},
 		ScanInterval:      50 * time.Millisecond,

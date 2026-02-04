@@ -57,9 +57,9 @@ type RiskConfig struct {
 	MaxPositionAsset map[string]decimal.Decimal
 
 	// PnL limits
-	MaxDailyLoss   decimal.Decimal
-	MaxDrawdown    decimal.Decimal
-	ProfitTarget   decimal.Decimal
+	MaxDailyLoss decimal.Decimal
+	MaxDrawdown  decimal.Decimal
+	ProfitTarget decimal.Decimal
 
 	// Alert thresholds
 	AlertPositionPct decimal.Decimal // Alert when position > X% of limit

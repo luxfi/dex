@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/luxfi/dex/pkg/gateway"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/geth/ethclient"
-	"github.com/luxfi/dex/pkg/gateway"
 )
 
 var (
@@ -44,9 +44,9 @@ type Provider struct {
 
 // ProviderConfig holds provider configuration
 type ProviderConfig struct {
-	Name        string
-	Priority    int
-	Chains      []gateway.ChainID
+	Name         string
+	Priority     int
+	Chains       []gateway.ChainID
 	RPCEndpoints map[gateway.ChainID]string // Map of chainID to RPC endpoint URL
 }
 
@@ -60,7 +60,7 @@ func DefaultConfig() ProviderConfig {
 			gateway.ChainIDZoo,
 		},
 		RPCEndpoints: map[gateway.ChainID]string{
-			gateway.ChainIDLux: "http://127.0.0.1:9630/ext/bc/C/rpc", // Lux mainnet C-Chain
+			gateway.ChainIDLux: "http://127.0.0.1:9630/ext/bc/C/rpc",                                                  // Lux mainnet C-Chain
 			gateway.ChainIDZoo: "http://127.0.0.1:9630/ext/bc/2iJykKjE7gpWNjGUvGG6fVtj7u5Tbvo89CVCu6gjNPCnEdCVpY/rpc", // Zoo chain
 		},
 	}

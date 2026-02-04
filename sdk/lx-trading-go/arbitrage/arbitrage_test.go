@@ -105,18 +105,18 @@ func TestArbitrageOpportunity(t *testing.T) {
 	spreadBps := spread.Div(buySource.Ask).Mul(decimal.NewFromInt(10000))
 
 	opp := ArbitrageOpportunity{
-		ID:           "test-opp-1",
-		Type:         ArbTypeSimple,
-		BuySource:    buySource,
-		SellSource:   sellSource,
-		SpreadBps:    spreadBps,
-		EstimatedPnL: decimal.NewFromInt(200),
-		MaxSize:      decimal.NewFromInt(10),
-		GasCostUSD:   decimal.NewFromFloat(0.50),
+		ID:            "test-opp-1",
+		Type:          ArbTypeSimple,
+		BuySource:     buySource,
+		SellSource:    sellSource,
+		SpreadBps:     spreadBps,
+		EstimatedPnL:  decimal.NewFromInt(200),
+		MaxSize:       decimal.NewFromInt(10),
+		GasCostUSD:    decimal.NewFromFloat(0.50),
 		BridgeCostUSD: decimal.NewFromInt(0),
-		NetPnL:       decimal.NewFromFloat(199.50),
-		Confidence:   0.9,
-		ExpiresAt:    now.Add(5 * time.Second),
+		NetPnL:        decimal.NewFromFloat(199.50),
+		Confidence:    0.9,
+		ExpiresAt:     now.Add(5 * time.Second),
 	}
 
 	if opp.Type != ArbTypeSimple {

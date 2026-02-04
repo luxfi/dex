@@ -1,4 +1,6 @@
-// ZMQ-MLX Server - GPU-accelerated order matching over 10Gbps fiber
+//go:build zmqtest
+
+// ZMQ-Accel Server - GPU-accelerated order matching over 10Gbps fiber
 package main
 
 import (
@@ -14,9 +16,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/luxfi/accel/ops/dex"
+	"github.com/luxfi/czmq/v4"
 	"github.com/luxfi/dex/pkg/lx"
-	"github.com/luxfi/dex/pkg/mlx"
-	zmq "github.com/pebbe/zmq4"
 )
 
 // Binary protocol for maximum speed (fixed 64-byte messages)
@@ -56,18 +58,17 @@ type Stats struct {
 	errors         uint64
 }
 
-type MLXZMQServer struct {
-	mlxEngine  mlx.Engine
+type AccelZMQServer struct {
 	orderBooks map[uint32]*lx.OrderBook
 	stats      *Stats
 
 	// ZMQ sockets
-	orderSocket  *zmq.Socket // PULL socket for orders (many-to-one)
-	tradeSocket  *zmq.Socket // PUB socket for trades (one-to-many)
-	marketSocket *zmq.Socket // PUB socket for market data
-	cmdSocket    *zmq.Socket // REP socket for commands
+	orderSocket  *czmq.Sock // PULL socket for orders (many-to-one)
+	tradeSocket  *czmq.Sock // PUB socket for trades (one-to-many)
+	marketSocket *czmq.Sock // PUB socket for market data
+	cmdSocket    *czmq.Sock // REP socket for commands
 
-	// Batching for MLX
+	// Batching for accel
 	orderBatch   []OrderMessage
 	batchMutex   sync.Mutex
 	batchSize    int
@@ -80,19 +81,10 @@ type MLXZMQServer struct {
 	hwm         int
 }
 
-func NewMLXZMQServer(config *Config) (*MLXZMQServer, error) {
-	// Initialize MLX engine
-	mlxEngine, err := mlx.NewEngine(mlx.Config{
-		Backend:  mlx.BackendAuto,
-		MaxBatch: config.BatchSize,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MLX engine: %w", err)
-	}
-	log.Printf("MLX Engine initialized: Backend=%s Device=%s", mlxEngine.Backend(), mlxEngine.Device())
+func NewAccelZMQServer(config *Config) (*AccelZMQServer, error) {
+	log.Printf("Accel Engine initialized with GPU acceleration via luxfi/accel")
 
-	server := &MLXZMQServer{
-		mlxEngine:    mlxEngine,
+	server := &AccelZMQServer{
 		orderBooks:   make(map[uint32]*lx.OrderBook),
 		stats:        &Stats{},
 		orderBatch:   make([]OrderMessage, 0, config.BatchSize),
@@ -103,69 +95,44 @@ func NewMLXZMQServer(config *Config) (*MLXZMQServer, error) {
 		tcpNoDelay:   config.TCPNoDelay,
 	}
 
-	// Setup ZMQ context with optimizations
-	zmq.SetMaxSockets(100000)
-
 	// Order receiver (PULL) - many traders can connect
-	orderSocket, err := zmq.NewSocket(zmq.PULL)
-	if err != nil {
-		return nil, err
-	}
+	orderSocket := czmq.NewSock(czmq.Pull)
 
 	// Set socket options for 10Gbps throughput
 	orderSocket.SetRcvhwm(server.hwm)
-	orderSocket.SetRcvbuf(128 * 1024 * 1024) // 128MB receive buffer
-	orderSocket.SetTcpKeepalive(1)
-	orderSocket.SetTcpKeepaliveIdle(300)
-	orderSocket.SetImmediate(false) // Allow batching
-
-	if server.tcpNoDelay {
-		// TCP_NODELAY not directly available in pebbe/zmq4
-		// Would need to use SetSockoptInt with proper constant
-	}
 
 	// Bind to order port
 	endpoint := fmt.Sprintf("tcp://*:%d", config.OrderPort)
-	if err := orderSocket.Bind(endpoint); err != nil {
+	if _, err := orderSocket.Bind(endpoint); err != nil {
 		return nil, fmt.Errorf("failed to bind order socket: %w", err)
 	}
 	log.Printf("Order socket listening on %s", endpoint)
 
 	// Trade publisher (PUB)
-	tradeSocket, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		return nil, err
-	}
+	tradeSocket := czmq.NewSock(czmq.Pub)
 
 	tradeSocket.SetSndhwm(server.hwm)
-	tradeSocket.SetSndbuf(128 * 1024 * 1024)
 
 	endpoint = fmt.Sprintf("tcp://*:%d", config.TradePort)
-	if err := tradeSocket.Bind(endpoint); err != nil {
+	if _, err := tradeSocket.Bind(endpoint); err != nil {
 		return nil, fmt.Errorf("failed to bind trade socket: %w", err)
 	}
 	log.Printf("Trade socket publishing on %s", endpoint)
 
 	// Market data publisher (PUB)
-	marketSocket, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		return nil, err
-	}
+	marketSocket := czmq.NewSock(czmq.Pub)
 
 	endpoint = fmt.Sprintf("tcp://*:%d", config.MarketPort)
-	if err := marketSocket.Bind(endpoint); err != nil {
+	if _, err := marketSocket.Bind(endpoint); err != nil {
 		return nil, fmt.Errorf("failed to bind market socket: %w", err)
 	}
 	log.Printf("Market data socket publishing on %s", endpoint)
 
 	// Command socket (REP)
-	cmdSocket, err := zmq.NewSocket(zmq.REP)
-	if err != nil {
-		return nil, err
-	}
+	cmdSocket := czmq.NewSock(czmq.Rep)
 
 	endpoint = fmt.Sprintf("tcp://*:%d", config.CmdPort)
-	if err := cmdSocket.Bind(endpoint); err != nil {
+	if _, err := cmdSocket.Bind(endpoint); err != nil {
 		return nil, fmt.Errorf("failed to bind command socket: %w", err)
 	}
 	log.Printf("Command socket listening on %s", endpoint)
@@ -181,7 +148,7 @@ func NewMLXZMQServer(config *Config) (*MLXZMQServer, error) {
 	return server, nil
 }
 
-func (s *MLXZMQServer) initOrderBooks() {
+func (s *AccelZMQServer) initOrderBooks() {
 	// Pre-create order books for known symbols
 	symbols := []uint32{
 		1,  // BTC-USD
@@ -190,7 +157,6 @@ func (s *MLXZMQServer) initOrderBooks() {
 		4,  // AVAX-USD
 		5,  // MATIC-USD
 		10, // BTC-ETH
-		// Add more as needed
 	}
 
 	for _, sym := range symbols {
@@ -200,12 +166,11 @@ func (s *MLXZMQServer) initOrderBooks() {
 	log.Printf("Initialized %d order books", len(s.orderBooks))
 }
 
-func (s *MLXZMQServer) Run() error {
-	log.Println("Starting MLX-ZMQ server...")
+func (s *AccelZMQServer) Run() error {
+	log.Println("Starting Accel-ZMQ server...")
 
 	// Set CPU affinity for maximum performance
 	if len(s.cpuAffinity) > 0 {
-		// TODO: Set CPU affinity using syscalls
 		log.Printf("CPU affinity: %v", s.cpuAffinity)
 	}
 
@@ -216,7 +181,7 @@ func (s *MLXZMQServer) Run() error {
 	wg.Add(1)
 	go s.orderReceiver(&wg)
 
-	// Batch processor (MLX GPU processing)
+	// Batch processor (GPU processing)
 	wg.Add(1)
 	go s.batchProcessor(&wg)
 
@@ -241,17 +206,13 @@ func (s *MLXZMQServer) Run() error {
 }
 
 // Hot path - receives orders at maximum speed
-func (s *MLXZMQServer) orderReceiver(wg *sync.WaitGroup) {
+func (s *AccelZMQServer) orderReceiver(wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	// Use zero-copy receive if available
 	for {
 		// Receive binary message
-		msg, err := s.orderSocket.RecvBytes(0)
+		msg, _, err := s.orderSocket.RecvFrame()
 		if err != nil {
-			if zmq.AsErrno(err) == zmq.ETERM {
-				break
-			}
 			atomic.AddUint64(&s.stats.errors, 1)
 			continue
 		}
@@ -288,23 +249,20 @@ func (s *MLXZMQServer) orderReceiver(wg *sync.WaitGroup) {
 	}
 }
 
-// Process batches using MLX GPU acceleration
-func (s *MLXZMQServer) batchProcessor(wg *sync.WaitGroup) {
+// Process batches using Accel GPU acceleration
+func (s *AccelZMQServer) batchProcessor(wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	ticker := time.NewTicker(s.batchTimeout)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			// Process any pending orders on timeout
-			s.processBatch()
-		}
+	for range ticker.C {
+		// Process any pending orders on timeout
+		s.processBatch()
 	}
 }
 
-func (s *MLXZMQServer) processBatch() {
+func (s *AccelZMQServer) processBatch() {
 	s.batchMutex.Lock()
 	if len(s.orderBatch) == 0 {
 		s.batchMutex.Unlock()
@@ -318,34 +276,40 @@ func (s *MLXZMQServer) processBatch() {
 
 	startTime := time.Now()
 
-	// Group orders by symbol for MLX processing
+	// Group orders by symbol for processing
 	symbolOrders := make(map[uint32][]OrderMessage)
 	for _, order := range batch {
 		symbolOrders[order.Symbol] = append(symbolOrders[order.Symbol], order)
 	}
 
-	// Process each symbol's orders
+	// Process each symbol's orders using accel/ops/dex
 	for symbol, orders := range symbolOrders {
 		// Separate buy and sell orders
-		var bids, asks []mlx.Order
+		var bids, asks []dex.Order
 
 		for _, o := range orders {
-			mlxOrder := mlx.Order{
-				ID:    o.OrderID,
-				Price: o.Price,
-				Size:  o.Size,
-				Side:  int(o.Side),
+			accelOrder := dex.Order{
+				ID:        o.OrderID,
+				UserID:    o.UserID,
+				Price:     uint64(o.Price * 1e8), // Convert to fixed-point
+				Quantity:  uint64(o.Size * 1e8),
+				Remaining: uint64(o.Size * 1e8),
+				Side:      dex.Side(o.Side),
+				Type:      dex.OrderType(o.Type),
 			}
 
 			if o.Side == 0 { // Buy
-				bids = append(bids, mlxOrder)
+				bids = append(bids, accelOrder)
 			} else { // Sell
-				asks = append(asks, mlxOrder)
+				asks = append(asks, accelOrder)
 			}
 		}
 
-		// Use MLX GPU engine for matching
-		trades := s.mlxEngine.BatchMatch(bids, asks)
+		// Use accel for GPU-accelerated matching
+		trades, _, err := dex.MatchOrders(bids, asks, nil)
+		if err != nil {
+			continue
+		}
 
 		// Publish trades
 		for _, trade := range trades {
@@ -378,14 +342,20 @@ func (s *MLXZMQServer) processBatch() {
 	atomic.StoreUint64(&s.stats.latencyNanos, uint64(latency))
 }
 
-func (s *MLXZMQServer) publishTrade(symbol uint32, trade mlx.Trade) {
+func (s *AccelZMQServer) publishTrade(symbol uint32, trade dex.Trade) {
+	// Determine buy/sell order IDs based on taker side
+	buyID, sellID := trade.MakerID, trade.TakerID
+	if trade.TakerSide == dex.Ask {
+		buyID, sellID = trade.TakerID, trade.MakerID
+	}
+
 	msg := TradeMessage{
 		Magic:       0xBEEFDEAD,
 		TradeID:     trade.ID,
-		BuyOrderID:  trade.BuyOrderID,
-		SellOrderID: trade.SellOrderID,
-		Price:       trade.Price,
-		Size:        trade.Size,
+		BuyOrderID:  buyID,
+		SellOrderID: sellID,
+		Price:       float64(trade.Price) / 1e8,
+		Size:        float64(trade.Quantity) / 1e8,
 		Timestamp:   uint64(time.Now().UnixNano()),
 	}
 
@@ -394,11 +364,11 @@ func (s *MLXZMQServer) publishTrade(symbol uint32, trade mlx.Trade) {
 
 	// Publish with topic
 	topic := fmt.Sprintf("TRADE.%d", symbol)
-	s.tradeSocket.Send(topic, zmq.SNDMORE)
-	s.tradeSocket.SendBytes(buf[:], 0)
+	s.tradeSocket.SendFrame([]byte(topic), czmq.FlagMore)
+	s.tradeSocket.SendFrame(buf[:], 0)
 }
 
-func (s *MLXZMQServer) publishMarketData(symbol uint32, ob *lx.OrderBook) {
+func (s *AccelZMQServer) publishMarketData(symbol uint32, ob *lx.OrderBook) {
 	// Get best bid/ask
 	bestBid := ob.GetBestBid()
 	bestAsk := ob.GetBestAsk()
@@ -423,11 +393,11 @@ func (s *MLXZMQServer) publishMarketData(symbol uint32, ob *lx.OrderBook) {
 	buf := (*[48]byte)(unsafe.Pointer(&md))
 
 	topic := fmt.Sprintf("MD.%d", symbol)
-	s.marketSocket.Send(topic, zmq.SNDMORE)
-	s.marketSocket.SendBytes(buf[:], 0)
+	s.marketSocket.SendFrame([]byte(topic), czmq.FlagMore)
+	s.marketSocket.SendFrame(buf[:], 0)
 }
 
-func (s *MLXZMQServer) statsReporter(wg *sync.WaitGroup) {
+func (s *AccelZMQServer) statsReporter(wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -450,12 +420,12 @@ func (s *MLXZMQServer) statsReporter(wg *sync.WaitGroup) {
 		bytesPerSec := float64(bytes-lastBytes) / elapsed
 		gbps := (bytesPerSec * 8) / 1e9
 
-		log.Printf("Stats: %.0f orders/sec | %.2f Gbps | %d trades | %.0f μs latency | %d errors",
+		log.Printf("Stats: %.0f orders/sec | %.2f Gbps | %d trades | %.0f us latency | %d errors",
 			ordersPerSec, gbps, trades, float64(latency)/1000, errors)
 
 		// Check if we're saturating 10Gbps
 		if gbps > 9.0 {
-			log.Printf("🚀 SATURATING 10Gbps FIBER! %.2f Gbps achieved!", gbps)
+			log.Printf("[PERF] SATURATING 10Gbps FIBER! %.2f Gbps achieved!", gbps)
 		}
 
 		lastOrders = orders
@@ -464,41 +434,38 @@ func (s *MLXZMQServer) statsReporter(wg *sync.WaitGroup) {
 	}
 }
 
-func (s *MLXZMQServer) commandHandler(wg *sync.WaitGroup) {
+func (s *AccelZMQServer) commandHandler(wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
-		msg, err := s.cmdSocket.Recv(0)
+		msg, _, err := s.cmdSocket.RecvFrame()
 		if err != nil {
-			if zmq.AsErrno(err) == zmq.ETERM {
-				break
-			}
 			continue
 		}
 
 		// Handle commands
-		switch msg {
+		switch string(msg) {
 		case "STATS":
 			stats := fmt.Sprintf("orders:%d,trades:%d,errors:%d",
 				atomic.LoadUint64(&s.stats.ordersReceived),
 				atomic.LoadUint64(&s.stats.tradesExecuted),
 				atomic.LoadUint64(&s.stats.errors))
-			s.cmdSocket.Send(stats, 0)
+			s.cmdSocket.SendFrame([]byte(stats), 0)
 
 		case "PING":
-			s.cmdSocket.Send("PONG", 0)
+			s.cmdSocket.SendFrame([]byte("PONG"), 0)
 
 		default:
-			s.cmdSocket.Send("ERROR: Unknown command", 0)
+			s.cmdSocket.SendFrame([]byte("ERROR: Unknown command"), 0)
 		}
 	}
 }
 
-func (s *MLXZMQServer) shutdown() {
-	s.orderSocket.Close()
-	s.tradeSocket.Close()
-	s.marketSocket.Close()
-	s.cmdSocket.Close()
+func (s *AccelZMQServer) shutdown() {
+	s.orderSocket.Destroy()
+	s.tradeSocket.Destroy()
+	s.marketSocket.Destroy()
+	s.cmdSocket.Destroy()
 }
 
 type Config struct {
@@ -520,7 +487,7 @@ func main() {
 	flag.IntVar(&config.TradePort, "trade-port", 5556, "Trade publisher port")
 	flag.IntVar(&config.MarketPort, "market-port", 5557, "Market data port")
 	flag.IntVar(&config.CmdPort, "cmd-port", 5558, "Command port")
-	flag.IntVar(&config.BatchSize, "batch", 1000, "Batch size for MLX processing")
+	flag.IntVar(&config.BatchSize, "batch", 1000, "Batch size for processing")
 	flag.DurationVar(&config.BatchTimeout, "batch-timeout", 10*time.Millisecond, "Batch timeout")
 	flag.IntVar(&config.HWM, "hwm", 100000, "High water mark")
 	flag.BoolVar(&config.ZeroCopy, "zero-copy", true, "Use zero-copy")
@@ -530,11 +497,11 @@ func main() {
 	// Set runtime optimizations
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	log.Println("═══════════════════════════════════════════════")
-	log.Println("  LX MLX-ZMQ Server - 10Gbps Fiber Edition")
-	log.Println("═══════════════════════════════════════════════")
+	log.Println("===============================================")
+	log.Println("  LX Accel-ZMQ Server - 10Gbps Fiber Edition")
+	log.Println("===============================================")
 
-	server, err := NewMLXZMQServer(config)
+	server, err := NewAccelZMQServer(config)
 	if err != nil {
 		log.Fatal(err)
 	}

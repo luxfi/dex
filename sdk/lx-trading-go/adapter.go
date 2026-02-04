@@ -113,13 +113,13 @@ var ErrNotSupported = NewTradingError("NOT_SUPPORTED", "operation not supported 
 
 // BaseAdapter provides common functionality for adapters.
 type BaseAdapter struct {
-	name        string
-	venueType   VenueType
+	name         string
+	venueType    VenueType
 	capabilities VenueCapabilities
-	connected   bool
-	latency     *int64
-	makerFee    decimal.Decimal
-	takerFee    decimal.Decimal
+	connected    bool
+	latency      *int64
+	makerFee     decimal.Decimal
+	takerFee     decimal.Decimal
 }
 
 // Name returns the venue name.
