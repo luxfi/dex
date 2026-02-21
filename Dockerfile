@@ -1,5 +1,5 @@
-# Build stage
-FROM golang:1.24.6-alpine AS builder
+# Build stage - use BUILDPLATFORM for native compilation, cross-compile via GOOS/GOARCH
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make gcc musl-dev
@@ -17,11 +17,10 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o dex-server ./cmd/dex-server/main.go || \
-    go build -o dex-server ./examples/performance_demo.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dex-server ./cmd/dex-server/main.go
 
-# Final stage
-FROM alpine:latest
+# Final stage - target platform is linux/amd64
+FROM --platform=linux/amd64 alpine:latest
 
 # Install runtime dependencies
 RUN apk --no-cache add ca-certificates
