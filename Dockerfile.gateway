@@ -1,0 +1,39 @@
+# Build stage - use BUILDPLATFORM for native compilation, cross-compile via TARGETOS/TARGETARCH
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN apk add --no-cache git make gcc musl-dev
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o gateway ./cmd/gateway/
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+RUN addgroup -g 1000 -S gateway && \
+    adduser -u 1000 -S gateway -G gateway
+
+WORKDIR /home/gateway
+
+COPY --from=builder /app/gateway .
+
+RUN chown -R gateway:gateway /home/gateway
+
+USER gateway
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["./gateway"]
