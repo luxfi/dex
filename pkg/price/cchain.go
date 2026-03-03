@@ -62,116 +62,61 @@ func NewCChainSource(rpcURL, wsURL string) *CChainSource {
 
 func cchainRouters() map[string]string {
 	return map[string]string{
-		"lux_amm":    "0x1234567890123456789012345678901234567890", // Lux AMM router
-		"trader_joe": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
-		"pangolin":   "0xE54Ca86531e17Ef3616d22Ca28b0D458b6C89106",
+		"v3_swap_router": "0xE8fb25086C8652c92f5AF90D730Bac7C63Fc9A58", // Lux V3 SwapRouter
+		"v3_factory":     "0x80bBc7C4C7a59C899D1B37BC14539A22D5830a84", // Lux V3 Factory
+		"v2_router":      "0xAe2cf1E403aAFE6C05A5b8Ef63EB19ba591d8511", // Lux V2 Router
 	}
 }
 
 func cchainTokens() map[string]TokenPair {
-	// Lux C-Chain AMM pairs with liquid tokens
-	// Based on actual market data: LUX, LZOO, LETH, LSOL, LUSD, LBTC, LTON, LAVAX, LBNB, LBLAST, LPOL
+	// Lux C-Chain V3 pool pairs — real on-chain addresses verified 2026-03-05
 	return map[string]TokenPair{
-		// Native LUX pairs
-		"LUX-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000001", // LUX native
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", // USDC
-			Decimals: [2]uint8{18, 6},
-		},
-		"LUX-USDT": {
-			Token0:   "0x0000000000000000000000000000000000000001",
-			Token1:   "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7", // USDT
-			Decimals: [2]uint8{18, 6},
-		},
-
-		// Liquid ZOO (LZOO)
-		"LZOO-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000002", // LZOO
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
-		},
-		"LZOO-LUX": {
-			Token0:   "0x0000000000000000000000000000000000000002",
-			Token1:   "0x0000000000000000000000000000000000000001",
+		"WLUX-LUSD": {
+			Token0:   "0x4888e4a2ee0f03051c72d2bd3acf755ed3498b3e", // WLUX
+			Token1:   "0x848Cff46eb323f323b6Bbe1Df274E40793d7f2c2", // LUSD
 			Decimals: [2]uint8{18, 18},
+			Pool:     "0x37011bb281676f85962fb35c674f7e9eb7584452", // V3 3000 fee
 		},
-
-		// Liquid ETH (LETH)
-		"LETH-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000003", // LETH
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
-		},
-		"LETH-LUX": {
-			Token0:   "0x0000000000000000000000000000000000000003",
-			Token1:   "0x0000000000000000000000000000000000000001",
-			Decimals: [2]uint8{18, 18},
-		},
-
-		// Liquid SOL (LSOL)
-		"LSOL-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000004", // LSOL
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
-		},
-
-		// Liquid USD (LUSD) - stablecoin
-		"LUSD-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000005", // LUSD
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
-		},
-
-		// Liquid BTC (LBTC)
-		"LBTC-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000006", // LBTC
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{8, 6},
-		},
-		"LBTC-LUX": {
-			Token0:   "0x0000000000000000000000000000000000000006",
-			Token1:   "0x0000000000000000000000000000000000000001",
+		"LBTC-WLUX": {
+			Token0:   "0x1E48D32a4F5e9f08DB9aE4959163300FaF8A6C8e", // LBTC
+			Token1:   "0x4888e4a2ee0f03051c72d2bd3acf755ed3498b3e", // WLUX
 			Decimals: [2]uint8{8, 18},
+			Pool:     "0xa06e94ed014034e804c674f64c6f4c9313f2a6d7",
 		},
-
-		// Liquid TON (LTON)
-		"LTON-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000007", // LTON
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{9, 6},
-		},
-
-		// Liquid AVAX (LAVAX)
-		"LAVAX-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000008", // LAVAX
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
-		},
-		"LAVAX-LUX": {
-			Token0:   "0x0000000000000000000000000000000000000008",
-			Token1:   "0x0000000000000000000000000000000000000001",
+		"WLUX-LETH": {
+			Token0:   "0x4888e4a2ee0f03051c72d2bd3acf755ed3498b3e", // WLUX
+			Token1:   "0x60E0a8167FC13dE89348978860466C9ceC24B9ba", // LETH
 			Decimals: [2]uint8{18, 18},
+			Pool:     "0xfafbf1a0c5d6604f48378872c534545612a17aec",
 		},
-
-		// Liquid BNB (LBNB)
-		"LBNB-USDC": {
-			Token0:   "0x0000000000000000000000000000000000000009", // LBNB
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
+		"LSOL-WLUX": {
+			Token0:   "0x26B40f650156C7EbF9e087Dd0dca181Fe87625B7", // LSOL
+			Token1:   "0x4888e4a2ee0f03051c72d2bd3acf755ed3498b3e", // WLUX
+			Decimals: [2]uint8{18, 18},
+			Pool:     "0xa9330ee37bba7139c7697d82253b3d5fbb430004",
 		},
-
-		// Liquid BLAST (LBLAST)
-		"LBLAST-USDC": {
-			Token0:   "0x000000000000000000000000000000000000000a", // LBLAST
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
+		"LBTC-LUSD": {
+			Token0:   "0x1E48D32a4F5e9f08DB9aE4959163300FaF8A6C8e", // LBTC
+			Token1:   "0x848Cff46eb323f323b6Bbe1Df274E40793d7f2c2", // LUSD
+			Decimals: [2]uint8{8, 18},
+			Pool:     "0x328229d8872d04c8383edbced3e89c0ec5d63a9b",
 		},
-
-		// Liquid POL (LPOL)
-		"LPOL-USDC": {
-			Token0:   "0x000000000000000000000000000000000000000b", // LPOL
-			Token1:   "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-			Decimals: [2]uint8{18, 6},
+		"LETH-LUSD": {
+			Token0:   "0x60E0a8167FC13dE89348978860466C9ceC24B9ba", // LETH
+			Token1:   "0x848Cff46eb323f323b6Bbe1Df274E40793d7f2c2", // LUSD
+			Decimals: [2]uint8{18, 18},
+			Pool:     "0x1f997d4b8a9be816e3009bdbc1c7062ab4271268",
+		},
+		"LBTC-LETH": {
+			Token0:   "0x1E48D32a4F5e9f08DB9aE4959163300FaF8A6C8e", // LBTC
+			Token1:   "0x60E0a8167FC13dE89348978860466C9ceC24B9ba", // LETH
+			Decimals: [2]uint8{8, 18},
+			Pool:     "0x6521618978f083e83e912aab242ca8fc11493349",
+		},
+		"LSOL-LUSD": {
+			Token0:   "0x26B40f650156C7EbF9e087Dd0dca181Fe87625B7", // LSOL
+			Token1:   "0x848Cff46eb323f323b6Bbe1Df274E40793d7f2c2", // LUSD
+			Decimals: [2]uint8{18, 18},
 		},
 	}
 }
