@@ -26,7 +26,43 @@ type MarketConfig struct {
 	// Compliance hooks (nil = no checks)
 	EligibilityChecker EligibilityChecker
 	SettlementHandler  SettlementHandler
+
+	// Offering / Issuer metadata — populated for exempt securities
+	OfferingType string // reg_cf, reg_d_506c, reg_a, reg_s, public
+	IssuerID     string
+	IssuerName   string
+
+	// Structured product metadata — credit, real estate, private offerings
+	ProductType       string  // abs, mbs, cdo, clo, reit, cdp, pe_fund, vc_fund
+	CreditRating      string  // AAA, AA, A, BBB, BB, B, CCC, NR
+	CollateralType    string  // residential, commercial, auto, student, mixed
+	MaturityDate      string  // ISO 8601 date
+	CouponRate        float64 // Annual coupon rate as decimal
+	YieldToMaturity   float64 // Current YTM
+	Leverage          float64 // Max leverage for the product
+	CollateralRatio   float64 // Min collateral ratio (e.g. 1.50 = 150%)
+	LiquidationRatio  float64 // Ratio below which liquidation triggers
+	MinInvestment     float64 // Minimum investment amount
+	LockupPeriod      string  // e.g. "180d", "1y"
+	AccreditedOnly    bool    // Requires accredited/professional investor
+	InstitutionalOnly bool    // Institutions only (QIB, etc.)
+
+	// CEX reconciliation — links this DEX market to a CEX venue
+	CEXSymbol         string // Corresponding CEX symbol (if reconciled)
+	CEXVenue          string // CEX venue identifier (e.g. "lux-cex")
+	ReconciliationMode ReconciliationMode // How cross-venue settlement works
 }
+
+// ReconciliationMode determines how assets are settled across CEX and DEX.
+type ReconciliationMode uint8
+
+const (
+	ReconciliationNone       ReconciliationMode = iota // No cross-venue reconciliation
+	ReconciliationAtomicSwap                           // On-chain atomic swap between venues
+	ReconciliationBridge                               // Bridge-based transfer (lock/mint)
+	ReconciliationCustodial                            // Custodial settlement via broker
+	ReconciliationHybrid                               // On-chain proof + off-chain settlement
+)
 
 // DefaultMarketConfig returns a config for an unregulated crypto market.
 func DefaultMarketConfig() MarketConfig {
@@ -35,6 +71,95 @@ func DefaultMarketConfig() MarketConfig {
 		Exemption:  ExemptionNone,
 		TickSize:   0.01,
 		LotSize:    0.001,
+	}
+}
+
+// FixedIncomeMarketConfig returns a config for bond/note markets.
+func FixedIncomeMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:     symbol,
+		AssetClass: AssetClassFixedIncome,
+		TickSize:   0.001,
+		LotSize:    1000, // Standard bond lot
+		MinNotional: 1000,
+	}
+}
+
+// StructuredProductMarketConfig returns a config for ABS/MBS/CDO markets.
+func StructuredProductMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:         symbol,
+		AssetClass:     AssetClassStructured,
+		TickSize:       0.01,
+		LotSize:        10000,
+		MinNotional:    25000,
+		AccreditedOnly: true,
+		Restrictions: &TransferRestriction{
+			MinInvestorStatus: InvestorAccredited,
+		},
+	}
+}
+
+// PreciousMetalsMarketConfig returns a config for XAU/XAG/XPT/XPD spot.
+func PreciousMetalsMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:     symbol,
+		AssetClass: AssetClassPreciousMetals,
+		TickSize:   0.01,
+		LotSize:    0.001,
+	}
+}
+
+// RealEstateMarketConfig returns a config for tokenized real estate.
+func RealEstateMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:         symbol,
+		AssetClass:     AssetClassRealEstate,
+		TickSize:       0.01,
+		LotSize:        1,
+		AccreditedOnly: true,
+		Restrictions: &TransferRestriction{
+			MinInvestorStatus: InvestorAccredited,
+			HoldingPeriod:     365 * 24 * 3600000000000, // 1 year in nanoseconds
+		},
+	}
+}
+
+// PrivateEquityMarketConfig returns a config for PE/VC fund tokens.
+func PrivateEquityMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:            symbol,
+		AssetClass:        AssetClassPrivateEquity,
+		TickSize:          0.01,
+		LotSize:           1,
+		AccreditedOnly:    true,
+		InstitutionalOnly: false,
+		SingleMatchMode:   true, // Private secondaries
+		Restrictions: &TransferRestriction{
+			MinInvestorStatus: InvestorQualifiedPurchaser,
+			ROFRRequired:      true,
+			BoardApprovalRequired: true,
+		},
+	}
+}
+
+// CDPMarketConfig returns a config for collateralized debt positions.
+func CDPMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:     symbol,
+		AssetClass: AssetClassCDP,
+		TickSize:   0.01,
+		LotSize:    0.001,
+	}
+}
+
+// LPTokenMarketConfig returns a config for liquidity pool tokens.
+func LPTokenMarketConfig(symbol string) MarketConfig {
+	return MarketConfig{
+		Symbol:     symbol,
+		AssetClass: AssetClassLP,
+		TickSize:   0.000001,
+		LotSize:    0.000001,
 	}
 }
 
