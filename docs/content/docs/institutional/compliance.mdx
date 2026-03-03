@@ -1,0 +1,449 @@
+---
+title: Securities Compliance
+description: Built-in regulatory compliance for operating LX as a registered ATS, MTF, or RMO across US, UK, and Singapore jurisdictions
+---
+
+# Securities Compliance
+
+LX includes a native compliance layer that enables operators to run a regulated securities venue — whether a US Alternative Trading System (ATS), UK Multilateral Trading Facility (MTF), or Singapore Recognised Market Operator (RMO) — without modifying the core matching engine.
+
+## Architecture
+
+The compliance layer sits between the API and the matching engine as two interface hooks:
+
+```
+  Client Request
+       |
+       v
+  ┌─────────────────────┐
+  │  EligibilityChecker  │  Pre-trade: KYC, accreditation, jurisdiction,
+  │  (your impl)         │  holding period, max holders, ROFR
+  └──────────┬──────────┘
+             v
+  ┌─────────────────────┐
+  │  AdvancedOrderBook   │  Matching engine (unchanged)
+  │  Price-time priority │
+  └──────────┬──────────┘
+             v
+  ┌─────────────────────┐
+  │  SettlementHandler   │  Post-trade: transfer agent, cap table,
+  │  (your impl)         │  on-chain token transfer, escrow
+  └─────────────────────┘
+```
+
+The matching engine itself is completely asset-agnostic. All regulatory logic lives in the operator-provided implementations of `EligibilityChecker` and `SettlementHandler`.
+
+## Quick Start
+
+### 1. Define Your Market
+
+```go
+import "github.com/luxfi/dex/pkg/lx"
+
+market := lx.NewSecuritiesMarket(lx.MarketConfig{
+    Symbol:     "ACME-USD",
+    AssetClass: lx.AssetClassEquity,
+    Exemption:  lx.ExemptionRegD506c,
+    ShareClass: "Series A Preferred",
+
+    // Trading constraints
+    MinNotional: 25000.0,  // $25K minimum trade value
+    MinSize:     1.0,      // Whole shares only
+    TickSize:    0.01,
+    LotSize:     1.0,
+
+    // Transfer restrictions
+    Restrictions: &lx.TransferRestriction{
+        HoldingPeriod:     365 * 24 * time.Hour, // 12-month Rule 144
+        MaxHolders:        2000,                  // Section 12(g) limit
+        MinInvestorStatus: lx.InvestorAccredited, // Accredited only
+        JurisdictionWhitelist: []string{"US", "CA"},
+    },
+
+    // Plug in your compliance backend
+    EligibilityChecker: &myEligibilityChecker{},
+    SettlementHandler:  &mySettlementHandler{},
+})
+```
+
+### 2. Implement the Eligibility Checker
+
+The `EligibilityChecker` interface has a single method:
+
+```go
+type EligibilityChecker interface {
+    CanTrade(userID string, symbol string, side lx.Side, size float64, price float64) error
+}
+```
+
+Return `nil` to allow the trade, or a `*lx.ComplianceError` to reject it.
+
+LX provides `StandardEligibilityChecker` that handles common patterns out of the box:
+
+```go
+checker := &lx.StandardEligibilityChecker{
+    // Connect to your KYC/investor database
+    GetProfile: func(userID string) (*lx.InvestorProfile, error) {
+        investor, err := db.GetInvestor(userID)
+        if err != nil {
+            return nil, err
+        }
+        return &lx.InvestorProfile{
+            UserID:       investor.ID,
+            Status:       mapStatus(investor.AccreditationLevel),
+            Jurisdiction: investor.CountryCode, // ISO 3166-1 alpha-2
+            KYCVerified:  investor.KYCComplete,
+            AMLCleared:   investor.AMLCleared,
+            Holdings:     getHoldings(investor.ID),
+        }, nil
+    },
+
+    // Connect to your cap table
+    GetHolderCount: func(symbol string) (int, error) {
+        return capTable.CountHolders(symbol)
+    },
+
+    Restrictions: market.Config.Restrictions,
+}
+```
+
+### 3. Implement the Settlement Handler
+
+```go
+type SettlementHandler interface {
+    OnTrade(trade *lx.Trade, market *lx.MarketConfig) error
+}
+```
+
+This is called after each match. Example implementations:
+
+**Off-chain (transfer agent):**
+```go
+func (h *cartaHandler) OnTrade(trade *lx.Trade, mc *lx.MarketConfig) error {
+    return h.client.RecordTransfer(carta.Transfer{
+        SecurityID: mc.Symbol,
+        FromHolder: trade.Seller,
+        ToHolder:   trade.Buyer,
+        Shares:     trade.Size,
+        PricePerShare: trade.Price,
+    })
+}
+```
+
+**On-chain (ERC-1400 security token):**
+```go
+func (h *onChainHandler) OnTrade(trade *lx.Trade, mc *lx.MarketConfig) error {
+    tx, err := h.token.TransferByPartition(
+        []byte(mc.ShareClass),
+        common.HexToAddress(trade.Seller),
+        common.HexToAddress(trade.Buyer),
+        big.NewInt(int64(trade.Size)),
+        nil,
+    )
+    return err
+}
+```
+
+### 4. Place Orders
+
+Orders go through the compliance layer automatically:
+
+```go
+order := &lx.AdvancedOrder{
+    ID:     1,
+    UserID: "investor-123",
+    Symbol: "ACME-USD",
+    Side:   lx.Buy,
+    Type:   lx.Limit,
+    Price:  50.00,
+    Size:   500.0, // 500 shares at $50 = $25,000 notional
+}
+
+trades, err := market.AddOrder(order)
+if err != nil {
+    // err is *lx.ComplianceError with Code, Message, Detail
+    var ce *lx.ComplianceError
+    if errors.As(err, &ce) {
+        switch ce.Code {
+        case lx.ErrNotAccredited:
+            // Investor not accredited
+        case lx.ErrJurisdiction:
+            // Blocked jurisdiction
+        case lx.ErrMinNotional:
+            // Below $25K minimum
+        }
+    }
+}
+```
+
+## Supported Jurisdictions
+
+### United States (SEC)
+
+| Exemption | Constant | Description | Investor Requirement |
+|-----------|----------|-------------|---------------------|
+| Reg D 506(b) | `ExemptionRegD506b` | Private placement, up to 35 non-accredited | Accredited (mostly) |
+| Reg D 506(c) | `ExemptionRegD506c` | Private placement, general solicitation OK | Accredited only |
+| Reg A Tier 1 | `ExemptionRegA1` | Mini-IPO up to $20M/year | Retail OK |
+| Reg A Tier 2 | `ExemptionRegA2` | Mini-IPO up to $75M/year | Retail with limits |
+| Reg CF | `ExemptionRegCF` | Crowdfunding up to $5M/year | Retail with limits |
+| Reg S | `ExemptionRegS` | Offshore offering | Non-US only |
+| Rule 144 | `ExemptionRule144` | Resale of restricted securities | Holding period required |
+| Section 4(a)(7) | `ExemptionSection4a7` | Private resale | Accredited only |
+
+**Key US constraints enforced:**
+- Accredited investor verification (SEC Rule 506(c))
+- Maximum holder limits (Section 12(g): 2,000 total / 500 non-accredited)
+- Holding periods (Rule 144: 6 or 12 months)
+- Blue sky law jurisdiction filtering
+
+### United Kingdom (FCA)
+
+| Exemption | Constant | Description | Investor Requirement |
+|-----------|----------|-------------|---------------------|
+| Private Placement | `ExemptionFCAPrivate` | No prospectus required | Professional / Sophisticated |
+| Prospectus Exempt | `ExemptionFCAProspectus` | Qualified investors only | Professional only |
+
+**Key UK constraints:**
+- FCA client categorisation: Retail, Elective Professional, Per Se Professional
+- Use `InvestorSophisticated` for certified sophisticated investors
+- Use `InvestorProfessional` for professional clients
+- Jurisdiction whitelist: `["GB", "GG", "JE", "IM"]` for UK + Crown Dependencies
+
+### Singapore (MAS)
+
+| Exemption | Constant | Description | Investor Requirement |
+|-----------|----------|-------------|---------------------|
+| Small Offers | `ExemptionMASSIP` | Up to S$5M in 12 months, max 50 persons | Retail OK |
+| Private Placement | `ExemptionMASPrivate` | Max 50 persons in 12 months | Any |
+| Institutional | `ExemptionMASInstitutional` | Institutional investors only | Institutional |
+
+**Key Singapore constraints:**
+- MAS accredited investor maps to `InvestorProfessional`
+- Use `MaxHolders: 50` for private placement and small offer exemptions
+- Jurisdiction whitelist: `["SG"]` or broader APAC as needed
+
+## Investor Classification
+
+Investor statuses are ordered by privilege level (higher = more access):
+
+| Status | Constant | US Equivalent | UK Equivalent | SG Equivalent |
+|--------|----------|---------------|---------------|---------------|
+| Retail | `InvestorRetail` | Non-accredited | Retail client | Retail |
+| Accredited | `InvestorAccredited` | SEC accredited | -- | -- |
+| Sophisticated | `InvestorSophisticated` | -- | Certified sophisticated | -- |
+| Professional | `InvestorProfessional` | -- | Professional client | MAS accredited |
+| Qualified Purchaser | `InvestorQualifiedPurchaser` | $5M+ investments | -- | -- |
+| Qualified Client | `InvestorQualifiedClient` | $1.1M+ net worth | -- | -- |
+| Institutional | `InvestorInstitutional` | Bank, fund, etc. | Per se professional | Institutional |
+
+The `MinInvestorStatus` on `TransferRestriction` uses `>=` comparison, so setting it to `InvestorAccredited` allows accredited, sophisticated, professional, and institutional investors.
+
+## Transfer Restrictions
+
+```go
+type TransferRestriction struct {
+    HoldingPeriod         time.Duration  // Minimum hold before resale
+    MaxHolders            int            // Maximum beneficial owners (0 = unlimited)
+    MinInvestorStatus     InvestorStatus // Minimum investor classification
+    JurisdictionWhitelist []string       // Allowed jurisdictions (empty = all)
+    JurisdictionBlacklist []string       // Blocked jurisdictions
+    ROFRRequired          bool           // Right of first refusal
+    BoardApprovalRequired bool           // Board/GP approval for transfers
+}
+```
+
+### Common Configurations
+
+**US Reg D 506(c) — Startup equity:**
+```go
+&lx.TransferRestriction{
+    MinInvestorStatus:     lx.InvestorAccredited,
+    MaxHolders:            2000,
+    HoldingPeriod:         365 * 24 * time.Hour, // 12 months
+    JurisdictionWhitelist: []string{"US"},
+    ROFRRequired:          true, // Company ROFR
+}
+```
+
+**UK FCA Private Placement:**
+```go
+&lx.TransferRestriction{
+    MinInvestorStatus:     lx.InvestorSophisticated,
+    JurisdictionWhitelist: []string{"GB", "GG", "JE", "IM"},
+}
+```
+
+**Singapore MAS Private Placement:**
+```go
+&lx.TransferRestriction{
+    MaxHolders:            50,
+    JurisdictionWhitelist: []string{"SG"},
+}
+```
+
+**Public equity (Reg A Tier 2 — minimal restrictions):**
+```go
+&lx.TransferRestriction{
+    JurisdictionBlacklist: []string{"KP", "IR", "CU", "SY"}, // OFAC
+}
+```
+
+## Market Configuration
+
+### SingleMatchMode
+
+For private securities markets where each order should match at most once (similar to traditional block trading), enable `SingleMatchMode`:
+
+```go
+config := lx.MarketConfig{
+    // ...
+    SingleMatchMode: true, // Cancel remaining qty after first fill
+}
+```
+
+This uses IOC (Immediate-or-Cancel) semantics internally — the order matches against available liquidity once, and any unfilled remainder is automatically cancelled.
+
+### Asset Classes
+
+| Class | Constant | Examples |
+|-------|----------|---------|
+| Crypto | `AssetClassCrypto` | BTC, ETH, tokens |
+| Equity | `AssetClassEquity` | Common stock, preferred stock |
+| Debt | `AssetClassDebt` | Bonds, convertible notes |
+| Fund | `AssetClassFund` | LP interests, fund shares |
+| SAFE | `AssetClassSAFE` | Simple Agreement for Future Equity |
+| Commodity | `AssetClassCommodity` | Gold, carbon credits |
+| Derivative | `AssetClassDerivative` | Options, futures |
+
+## Compliance Error Handling
+
+All compliance rejections return `*lx.ComplianceError` with structured error codes:
+
+| Code | Constant | Meaning |
+|------|----------|---------|
+| 1 | `ErrNotAccredited` | Investor does not meet accreditation requirement |
+| 2 | `ErrJurisdiction` | Investor jurisdiction blocked |
+| 3 | `ErrHoldingPeriod` | Holding period has not elapsed |
+| 4 | `ErrMaxHolders` | Trade would exceed maximum holder count |
+| 5 | `ErrKYCRequired` | KYC verification not completed |
+| 6 | `ErrAMLRequired` | AML clearance not completed |
+| 7 | `ErrMinNotional` | Order value below minimum trade size |
+| 8 | `ErrMinSize` | Order quantity below minimum |
+| 9 | `ErrMaxSize` | Order quantity exceeds maximum |
+| 10 | `ErrROFRPending` | Right of first refusal review pending |
+| 11 | `ErrBoardApproval` | Board approval required for this transfer |
+| 12 | `ErrTransferRestricted` | Generic transfer restriction |
+
+## Running as a Regulated Venue
+
+### US ATS Deployment
+
+1. Register with SEC as ATS (Form ATS / ATS-N)
+2. Register with FINRA as broker-dealer
+3. Configure `EligibilityChecker` with accredited investor verification
+4. Configure `SettlementHandler` with your transfer agent (Carta, Securitize, etc.)
+5. Set `MarketConfig` per security with appropriate Reg D/A/CF exemption
+6. Enable trade surveillance and regulatory reporting
+
+### UK MTF Deployment
+
+1. Obtain FCA authorization as MTF operator
+2. Configure `EligibilityChecker` with FCA client categorisation
+3. Set `MinInvestorStatus` to `InvestorSophisticated` or `InvestorProfessional`
+4. Jurisdiction whitelist to UK + Crown Dependencies
+5. Configure `SettlementHandler` with CREST or your settlement system
+
+### Singapore RMO Deployment
+
+1. Obtain MAS recognition as RMO
+2. Configure `EligibilityChecker` with MAS investor categorisation
+3. Set `MaxHolders: 50` for private placement exemptions
+4. Jurisdiction whitelist to `SG` or APAC as permitted
+5. Configure `SettlementHandler` with CDP or your settlement system
+
+## Integration with Existing Infrastructure
+
+The compliance layer is designed as a clean interface boundary. LX does not mandate any specific KYC provider, transfer agent, or custody solution. You bring your own:
+
+| Component | Interface | You Provide |
+|-----------|-----------|-------------|
+| Investor verification | `EligibilityChecker` | KYC/AML provider (Jumio, Onfido, Alloy, etc.) |
+| Cap table management | `GetHolderCount` callback | Carta, Pulley, Shareworks, or on-chain registry |
+| Settlement | `SettlementHandler` | Transfer agent, blockchain, or internal ledger |
+| Custody | (separate) | MPC wallet, HSM, or qualified custodian |
+
+## Example: Full Private Securities Market
+
+```go
+package main
+
+import (
+    "log"
+    "time"
+
+    "github.com/luxfi/dex/pkg/lx"
+)
+
+func main() {
+    // Configure a Reg D 506(c) market for startup equity
+    market := lx.NewSecuritiesMarket(lx.MarketConfig{
+        Symbol:      "STARTUP-USD",
+        AssetClass:  lx.AssetClassEquity,
+        Exemption:   lx.ExemptionRegD506c,
+        ShareClass:  "Class B Common",
+        MinNotional: 10000.0,
+        MinSize:     1.0,
+        TickSize:    0.01,
+        LotSize:     1.0,
+
+        Restrictions: &lx.TransferRestriction{
+            MinInvestorStatus:     lx.InvestorAccredited,
+            MaxHolders:            500,
+            HoldingPeriod:         365 * 24 * time.Hour,
+            JurisdictionWhitelist: []string{"US"},
+            ROFRRequired:          true,
+        },
+
+        EligibilityChecker: newMyChecker(),
+        SettlementHandler:  newMySettlement(),
+    })
+
+    // Place a sell order (existing shareholder)
+    sell := &lx.AdvancedOrder{
+        ID: 1, UserID: "seller-001", Symbol: "STARTUP-USD",
+        Side: lx.Sell, Type: lx.Limit, Price: 25.00, Size: 1000.0,
+    }
+    if _, err := market.AddOrder(sell); err != nil {
+        log.Printf("Sell rejected: %v", err)
+        return
+    }
+
+    // Place a buy order (accredited investor)
+    buy := &lx.AdvancedOrder{
+        ID: 2, UserID: "buyer-001", Symbol: "STARTUP-USD",
+        Side: lx.Buy, Type: lx.Limit, Price: 25.00, Size: 400.0,
+    }
+    trades, err := market.AddOrder(buy)
+    if err != nil {
+        log.Printf("Buy rejected: %v", err)
+        return
+    }
+
+    for _, t := range trades {
+        log.Printf("Trade: %d shares @ $%.2f", int(t.Size), t.Price)
+    }
+}
+```
+
+## API Reference
+
+See the Go package documentation:
+
+```bash
+go doc github.com/luxfi/dex/pkg/lx SecuritiesMarket
+go doc github.com/luxfi/dex/pkg/lx MarketConfig
+go doc github.com/luxfi/dex/pkg/lx StandardEligibilityChecker
+go doc github.com/luxfi/dex/pkg/lx TransferRestriction
+go doc github.com/luxfi/dex/pkg/lx ComplianceError
+```
