@@ -207,6 +207,30 @@ type PositionsRequest struct {
 	PoolID  string  `json:"poolId,omitempty"`
 }
 
+// PricePoint represents a single price data point for charts
+type PricePoint struct {
+	Timestamp int64   `json:"timestamp"`
+	Open      float64 `json:"open"`
+	High      float64 `json:"high"`
+	Low       float64 `json:"low"`
+	Close     float64 `json:"close"`
+	Volume    float64 `json:"volume"`
+}
+
+// PoolStats represents aggregated pool statistics
+type PoolStats struct {
+	TotalTVL       float64 `json:"totalTvl"`
+	TotalVolume24h float64 `json:"totalVolume24h"`
+	PoolCount      int     `json:"poolCount"`
+	TxCount24h     int     `json:"txCount24h"`
+}
+
+// TVLPoint represents a TVL data point for charts
+type TVLPoint struct {
+	Timestamp int64   `json:"timestamp"`
+	TVL       float64 `json:"tvl"`
+}
+
 // Error types
 type ProviderError struct {
 	Provider string
