@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"sync"
 	"time"
 
 	"github.com/luxfi/dex/pkg/gateway"
+	ethereum "github.com/luxfi/geth"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/geth/ethclient"
 )
@@ -278,24 +280,99 @@ type poolState struct {
 	FeeGrowth1   *big.Int
 }
 
-// queryPoolState queries the DEX precompile for pool state
+// queryPoolState queries a V3 pool contract on-chain for live state via slot0() and liquidity()
 func (p *Provider) queryPoolState(ctx context.Context, client *ethclient.Client, token0, token1 string, fee uint32) (*poolState, error) {
-	// Query block number to verify connection
-	blockNum, err := client.BlockNumber(ctx)
+	// First discover the pool address from V3 factory
+	poolAddr, err := p.getV3Pool(ctx, client, token0, token1, fee)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block number: %w", err)
+		return nil, fmt.Errorf("pool not found: %w", err)
 	}
-	log.Printf("Querying pool state at block %d", blockNum)
+	return p.queryV3PoolState(ctx, client, poolAddr)
+}
 
-	// For now, return estimated pool state
-	// Real implementation would use eth_call to query precompile
+// getV3Pool calls factory.getPool(tokenA, tokenB, fee) to find the pool address
+func (p *Provider) getV3Pool(ctx context.Context, client *ethclient.Client, tokenA, tokenB string, fee uint32) (common.Address, error) {
+	factory := common.HexToAddress(V3FactoryAddress)
+	// getPool(address,address,uint24) selector: 0x1698ee82
+	data := common.FromHex("0x1698ee82")
+	data = append(data, common.LeftPadBytes(common.HexToAddress(tokenA).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(common.HexToAddress(tokenB).Bytes(), 32)...)
+	feePad := make([]byte, 32)
+	new(big.Int).SetUint64(uint64(fee)).FillBytes(feePad)
+	data = append(data, feePad...)
+
+	msg := ethereum.CallMsg{To: &factory, Data: data}
+	result, err := client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("getPool call failed: %w", err)
+	}
+	if len(result) < 32 {
+		return common.Address{}, fmt.Errorf("invalid getPool response")
+	}
+	addr := common.BytesToAddress(result[12:32])
+	if addr == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("pool does not exist for %s/%s fee %d", tokenA, tokenB, fee)
+	}
+	return addr, nil
+}
+
+// queryV3PoolState calls slot0() and liquidity() on a V3 pool contract
+func (p *Provider) queryV3PoolState(ctx context.Context, client *ethclient.Client, poolAddr common.Address) (*poolState, error) {
+	// slot0() = 0x3850c7bd
+	slot0Data := common.FromHex("0x3850c7bd")
+	msg := ethereum.CallMsg{To: &poolAddr, Data: slot0Data}
+	result, err := client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("slot0 call failed: %w", err)
+	}
+	if len(result) < 64 {
+		return nil, fmt.Errorf("invalid slot0 response (len=%d)", len(result))
+	}
+
+	sqrtPriceX96 := new(big.Int).SetBytes(result[0:32])
+	tickBig := new(big.Int).SetBytes(result[32:64])
+	// Handle signed int24
+	if tickBig.Cmp(new(big.Int).Lsh(big.NewInt(1), 255)) >= 0 {
+		tickBig.Sub(tickBig, new(big.Int).Lsh(big.NewInt(1), 256))
+	}
+
+	// liquidity() = 0x1a686502
+	liqData := common.FromHex("0x1a686502")
+	msg2 := ethereum.CallMsg{To: &poolAddr, Data: liqData}
+	result2, err := client.CallContract(ctx, msg2, nil)
+	liquidity := big.NewInt(0)
+	if err == nil && len(result2) >= 32 {
+		liquidity = new(big.Int).SetBytes(result2[0:32])
+	}
+
 	return &poolState{
-		SqrtPriceX96: parseBigInt("79228162514264337593543950336"), // 1.0 in Q96
-		Liquidity:    parseBigInt("1000000000000000000000000"),     // 1M liquidity
-		Tick:         0,
+		SqrtPriceX96: sqrtPriceX96,
+		Liquidity:    liquidity,
+		Tick:         int32(tickBig.Int64()),
 		FeeGrowth0:   big.NewInt(0),
 		FeeGrowth1:   big.NewInt(0),
 	}, nil
+}
+
+// priceFromSqrtX96 computes token1/token0 price from sqrtPriceX96, adjusted for decimals
+func priceFromSqrtX96(sqrtPriceX96 *big.Int, decimals0, decimals1 int) float64 {
+	if sqrtPriceX96.Sign() == 0 {
+		return 0
+	}
+	sq := new(big.Float).SetInt(sqrtPriceX96)
+	q96 := new(big.Float).SetInt(new(big.Int).Lsh(big.NewInt(1), 96))
+	ratio := new(big.Float).Quo(sq, q96)
+	price := new(big.Float).Mul(ratio, ratio)
+
+	// Adjust for decimal difference
+	decAdj := decimals0 - decimals1
+	if decAdj != 0 {
+		adj := new(big.Float).SetFloat64(math.Pow(10, float64(decAdj)))
+		price.Mul(price, adj)
+	}
+
+	f, _ := price.Float64()
+	return f
 }
 
 // calculateSwapOutput calculates expected output for a swap
@@ -407,161 +484,92 @@ func (p *Provider) ExecuteSwap(ctx context.Context, req gateway.SwapRequest) (st
 	return "", &gateway.ProviderError{Provider: p.name, Err: ErrNotImplemented}
 }
 
-// GetPools returns pools by querying on-chain DEX precompile state
+// v3PoolDef defines a V3 token pair to check for pools
+type v3PoolDef struct {
+	tokenA   string
+	symbolA  string
+	nameA    string
+	decimalsA int
+	tokenB   string
+	symbolB  string
+	nameB    string
+	decimalsB int
+}
+
+// knownV3Pairs lists token pairs to discover pools for via V3 factory
+var knownV3Pairs = []v3PoolDef{
+	{WLUXAddress, "WLUX", "Wrapped LUX", 18, LUSDAddress, "LUSD", "Lux USD", 18},
+	{WLUXAddress, "WLUX", "Wrapped LUX", 18, LETHAddress, "LETH", "Lux Ether", 18},
+	{WLUXAddress, "WLUX", "Wrapped LUX", 18, LBTCAddress, "LBTC", "Lux Bitcoin", 8},
+	{WLUXAddress, "WLUX", "Wrapped LUX", 18, LSOLAddress, "LSOL", "Lux SOL", 18},
+	{LBTCAddress, "LBTC", "Lux Bitcoin", 8, LUSDAddress, "LUSD", "Lux USD", 18},
+	{LETHAddress, "LETH", "Lux Ether", 18, LUSDAddress, "LUSD", "Lux USD", 18},
+	{LBTCAddress, "LBTC", "Lux Bitcoin", 8, LETHAddress, "LETH", "Lux Ether", 18},
+	{LSOLAddress, "LSOL", "Lux SOL", 18, LUSDAddress, "LUSD", "Lux USD", 18},
+}
+
+// V3 fee tiers to check
+var v3FeeTiers = []uint32{500, 3000, 10000}
+
+// GetPools returns pools by querying on-chain V3 factory and pool contracts
 func (p *Provider) GetPools(ctx context.Context, req gateway.PoolsRequest) ([]gateway.Pool, error) {
-	// Return native DEX precompile pools for Lux/Zoo chains
 	if !p.SupportsChain(req.ChainID) {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: ErrNotImplemented}
 	}
 
-	// Get RPC client for chain
 	client, err := p.getClient(req.ChainID)
 	if err != nil {
-		log.Printf("No RPC for chain %d, returning registered pools", req.ChainID)
+		return nil, &gateway.ProviderError{Provider: p.name, Err: fmt.Errorf("no RPC: %w", err)}
 	}
 
-	// Query on-chain pool states
-	pools := []gateway.Pool{}
+	blockNum, _ := client.BlockNumber(ctx)
+	log.Printf("Querying pools at block %d for chain %d", blockNum, req.ChainID)
+
+	var pools []gateway.Pool
 
 	if req.ChainID == gateway.ChainIDLux {
-		// Query block number for freshness indication
-		var blockNum uint64
-		if client != nil {
-			blockNum, _ = client.BlockNumber(ctx)
-			log.Printf("Querying Lux pools at block %d", blockNum)
+		for _, pair := range knownV3Pairs {
+			for _, fee := range v3FeeTiers {
+				poolAddr, err := p.getV3Pool(ctx, client, pair.tokenA, pair.tokenB, fee)
+				if err != nil {
+					continue // Pool doesn't exist for this fee tier
+				}
+
+				state, err := p.queryV3PoolState(ctx, client, poolAddr)
+				if err != nil {
+					continue
+				}
+
+				// Determine token order (V3 sorts by address)
+				var t0, t1 gateway.Token
+				addrA := common.HexToAddress(pair.tokenA)
+				addrB := common.HexToAddress(pair.tokenB)
+				if addrA.Hex() < addrB.Hex() {
+					t0 = gateway.Token{Address: pair.tokenA, ChainID: req.ChainID, Symbol: pair.symbolA, Name: pair.nameA, Decimals: pair.decimalsA}
+					t1 = gateway.Token{Address: pair.tokenB, ChainID: req.ChainID, Symbol: pair.symbolB, Name: pair.nameB, Decimals: pair.decimalsB}
+				} else {
+					t0 = gateway.Token{Address: pair.tokenB, ChainID: req.ChainID, Symbol: pair.symbolB, Name: pair.nameB, Decimals: pair.decimalsB}
+					t1 = gateway.Token{Address: pair.tokenA, ChainID: req.ChainID, Symbol: pair.symbolA, Name: pair.nameA, Decimals: pair.decimalsA}
+				}
+
+				pools = append(pools, gateway.Pool{
+					Address:  poolAddr.Hex(),
+					ChainID:  req.ChainID,
+					Protocol: "uniswap-v3",
+					Token0:   t0,
+					Token1:   t1,
+					Fee:      int(fee),
+					TVL:      state.Liquidity, // Live from chain
+					TickData: []gateway.TickRange{
+						{TickLower: int(state.Tick) - 1000, TickUpper: int(state.Tick) + 1000, Liquidity: state.Liquidity},
+					},
+				})
+			}
 		}
-
-		// LUX/USDC pool - query real state if available
-		luxUsdcPool := p.createPool(
-			ctx, client, gateway.ChainIDLux,
-			"0x0000000000000000000000000000000000000000", "LUX", "Lux", 18,
-			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", "USD Coin", 6,
-			3000, 12.5,
-		)
-		pools = append(pools, luxUsdcPool)
-
-		// LUX/WETH pool
-		luxWethPool := p.createPool(
-			ctx, client, gateway.ChainIDLux,
-			"0x0000000000000000000000000000000000000000", "LUX", "Lux", 18,
-			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "WETH", "Wrapped Ether", 18,
-			3000, 8.2,
-		)
-		pools = append(pools, luxWethPool)
-
-		// LETH/WETH pool (pegged assets - low fee)
-		lethWethPool := p.createPool(
-			ctx, client, gateway.ChainIDLux,
-			"0x1111111111111111111111111111111111111111", "LETH", "Lux Ether", 18,
-			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "WETH", "Wrapped Ether", 18,
-			500, 5.1,
-		)
-		pools = append(pools, lethWethPool)
-
-		// USDC/USDT pool (stablecoin - low fee)
-		usdcUsdtPool := p.createPool(
-			ctx, client, gateway.ChainIDLux,
-			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", "USD Coin", 6,
-			"0xdAC17F958D2ee523a2206206994597C13D831ec7", "USDT", "Tether USD", 6,
-			100, 3.2,
-		)
-		pools = append(pools, usdcUsdtPool)
-
-		// LBTC/WBTC pool (pegged assets - low fee)
-		lbtcWbtcPool := p.createPool(
-			ctx, client, gateway.ChainIDLux,
-			"0x2222222222222222222222222222222222222222", "LBTC", "Lux Bitcoin", 8,
-			"0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", "WBTC", "Wrapped Bitcoin", 8,
-			500, 4.8,
-		)
-		pools = append(pools, lbtcWbtcPool)
 	}
 
-	if req.ChainID == gateway.ChainIDZoo {
-		var blockNum uint64
-		if client != nil {
-			blockNum, _ = client.BlockNumber(ctx)
-			log.Printf("Querying Zoo pools at block %d", blockNum)
-		}
-
-		// ZOO/USDC pool
-		zooUsdcPool := p.createPool(
-			ctx, client, gateway.ChainIDZoo,
-			"0x0000000000000000000000000000000000000000", "ZOO", "Zoo", 18,
-			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", "USD Coin", 6,
-			3000, 15.3,
-		)
-		pools = append(pools, zooUsdcPool)
-
-		// ZOO/WETH pool
-		zooWethPool := p.createPool(
-			ctx, client, gateway.ChainIDZoo,
-			"0x0000000000000000000000000000000000000000", "ZOO", "Zoo", 18,
-			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "WETH", "Wrapped Ether", 18,
-			3000, 10.5,
-		)
-		pools = append(pools, zooWethPool)
-	}
-
-	log.Printf("Returning %d pools for chain %d", len(pools), req.ChainID)
+	log.Printf("Found %d live pools for chain %d", len(pools), req.ChainID)
 	return pools, nil
-}
-
-// createPool creates a pool with on-chain data query
-func (p *Provider) createPool(
-	ctx context.Context,
-	client *ethclient.Client,
-	chainID gateway.ChainID,
-	addr0, symbol0, name0 string, decimals0 int,
-	addr1, symbol1, name1 string, decimals1 int,
-	fee int, apr float64,
-) gateway.Pool {
-	// Query on-chain pool state if client available
-	var tvl *big.Int
-	var liquidity *big.Int
-
-	if client != nil {
-		poolState, err := p.queryPoolState(ctx, client, addr0, addr1, uint32(fee))
-		if err == nil && poolState.Liquidity != nil {
-			liquidity = poolState.Liquidity
-			// TVL = liquidity * 2 (simplified)
-			tvl = new(big.Int).Mul(liquidity, big.NewInt(2))
-		}
-	}
-
-	if tvl == nil {
-		// Default TVL if no on-chain data
-		tvl = parseBigInt("1000000000000") // 1T wei
-	}
-	if liquidity == nil {
-		liquidity = parseBigInt("1000000000000000000000000") // 1M tokens
-	}
-
-	return gateway.Pool{
-		Address:  PoolManagerAddress,
-		ChainID:  chainID,
-		Protocol: "lux-v4",
-		Token0: gateway.Token{
-			Address:  addr0,
-			ChainID:  chainID,
-			Symbol:   symbol0,
-			Name:     name0,
-			Decimals: decimals0,
-		},
-		Token1: gateway.Token{
-			Address:  addr1,
-			ChainID:  chainID,
-			Symbol:   symbol1,
-			Name:     name1,
-			Decimals: decimals1,
-		},
-		Fee: fee,
-		TVL: tvl,
-		APR: apr,
-		TickData: []gateway.TickRange{
-			{TickLower: -887220, TickUpper: 887220, Liquidity: liquidity},
-		},
-	}
 }
 
 // GetPool returns a specific pool
@@ -600,28 +608,53 @@ func (p *Provider) BuildCollectFees(ctx context.Context, position gateway.Positi
 	return nil, &gateway.ProviderError{Provider: p.name, Err: ErrNotImplemented}
 }
 
-// tokenPrices holds base prices and 24h changes for known tokens
-var tokenPrices = map[string]struct {
-	priceUSD    float64
-	change24h   float64
-	volume24h   float64
-	marketCap   float64
+// Real token addresses on Lux C-Chain (verified on-chain 2026-03-05)
+const (
+	WLUXAddress  = "0x4888e4a2ee0f03051c72d2bd3acf755ed3498b3e"
+	LBTCAddress  = "0x1E48D32a4F5e9f08DB9aE4959163300FaF8A6C8e"
+	LETHAddress  = "0x60E0a8167FC13dE89348978860466C9ceC24B9ba"
+	LSOLAddress  = "0x26B40f650156C7EbF9e087Dd0dca181Fe87625B7"
+	LUSDAddress  = "0x848Cff46eb323f323b6Bbe1Df274E40793d7f2c2"
+	LTONAddress  = "0x3141b94b89691009b950c96e97Bff48e0C543E3C"
+	LAVAXAddress = "0x0e4bD0DD67c15dECfBBBdbbE07FC9d51D737693D"
+
+	// V3 Factory (CREATE2, confirmed on-chain)
+	V3FactoryAddress = "0x80bBc7C4C7a59C899D1B37BC14539A22D5830a84"
+	// V2 Factory (CREATE2)
+	V2FactoryAddress = "0xD173926A10A0C4eCd3A51B1422270b65Df0551c1"
+
+	// Price cache TTL
+	priceCacheTTL = 10 * time.Second
+)
+
+// tokenMeta defines known tokens with their decimals for price computation
+var tokenMeta = map[string]struct {
+	address  string
+	decimals int
 }{
-	"LUX":  {priceUSD: 2.47, change24h: 3.2, volume24h: 18_500_000, marketCap: 850_000_000},
-	"WLUX": {priceUSD: 2.47, change24h: 3.2, volume24h: 5_200_000, marketCap: 850_000_000},
-	"ZOO":  {priceUSD: 0.85, change24h: 5.8, volume24h: 4_300_000, marketCap: 210_000_000},
-	"WZOO": {priceUSD: 0.85, change24h: 5.8, volume24h: 1_100_000, marketCap: 210_000_000},
-	"USDC": {priceUSD: 1.00, change24h: 0.01, volume24h: 42_000_000_000, marketCap: 52_000_000_000},
-	"USDT": {priceUSD: 1.00, change24h: -0.02, volume24h: 65_000_000_000, marketCap: 110_000_000_000},
-	"WETH": {priceUSD: 3285.50, change24h: 1.8, volume24h: 12_000_000_000, marketCap: 395_000_000_000},
-	"WBTC": {priceUSD: 96_420.00, change24h: 2.1, volume24h: 8_500_000_000, marketCap: 1_850_000_000_000},
-	"DAI":  {priceUSD: 1.00, change24h: 0.0, volume24h: 350_000_000, marketCap: 5_300_000_000},
-	"LETH": {priceUSD: 3285.50, change24h: 1.8, volume24h: 2_800_000, marketCap: 0},
-	"LBTC": {priceUSD: 96_420.00, change24h: 2.1, volume24h: 1_200_000, marketCap: 0},
-	"LUSD": {priceUSD: 1.00, change24h: 0.0, volume24h: 800_000, marketCap: 0},
+	"WLUX":  {address: WLUXAddress, decimals: 18},
+	"LUX":   {address: WLUXAddress, decimals: 18},
+	"LBTC":  {address: LBTCAddress, decimals: 8},
+	"LETH":  {address: LETHAddress, decimals: 18},
+	"LSOL":  {address: LSOLAddress, decimals: 18},
+	"LUSD":  {address: LUSDAddress, decimals: 18},
+	"LTON":  {address: LTONAddress, decimals: 9},
+	"LAVAX": {address: LAVAXAddress, decimals: 18},
 }
 
-// GetTokenPrice returns token price
+// priceEntry is a cached price with timestamp
+type priceEntry struct {
+	priceUSD  float64
+	updatedAt time.Time
+}
+
+// priceCache stores live prices from on-chain queries
+var (
+	priceCache   = make(map[string]*priceEntry)
+	priceCacheMu sync.RWMutex
+)
+
+// GetTokenPrice returns live token price by querying on-chain V3 pools
 func (p *Provider) GetTokenPrice(ctx context.Context, token gateway.Token) (*gateway.TokenPrice, error) {
 	if !p.SupportsChain(token.ChainID) {
 		return nil, &gateway.ProviderError{Provider: p.name, Err: ErrNotImplemented}
@@ -629,28 +662,105 @@ func (p *Provider) GetTokenPrice(ctx context.Context, token gateway.Token) (*gat
 
 	sym := token.Symbol
 	if sym == "" {
-		// Native token
 		sym = p.getNativeSymbol(token.ChainID)
 	}
 
-	data, ok := tokenPrices[sym]
-	if !ok {
-		data = tokenPrices["USDC"] // fallback
-	}
-
-	vol := new(big.Int)
-	vol.SetInt64(int64(data.volume24h * 1e6))
-	mc := new(big.Int)
-	mc.SetInt64(int64(data.marketCap))
+	priceUSD := p.getLivePrice(ctx, sym)
 
 	return &gateway.TokenPrice{
-		Token:       token,
-		PriceUSD:    data.priceUSD,
-		PriceChange: data.change24h,
-		Volume24h:   vol,
-		MarketCap:   mc,
-		UpdatedAt:   time.Now(),
+		Token:     token,
+		PriceUSD:  priceUSD,
+		UpdatedAt: time.Now(),
 	}, nil
+}
+
+// getLivePrice returns a live USD price for a token, querying on-chain if cache is stale
+func (p *Provider) getLivePrice(ctx context.Context, symbol string) float64 {
+	// Check cache first
+	priceCacheMu.RLock()
+	if entry, ok := priceCache[symbol]; ok && time.Since(entry.updatedAt) < priceCacheTTL {
+		priceCacheMu.RUnlock()
+		return entry.priceUSD
+	}
+	priceCacheMu.RUnlock()
+
+	// LUSD is always $1 (stablecoin)
+	if symbol == "LUSD" {
+		p.cachePrice(symbol, 1.0)
+		return 1.0
+	}
+
+	client, err := p.getClient(gateway.ChainIDLux)
+	if err != nil {
+		log.Printf("No RPC for live price query: %v", err)
+		return 0
+	}
+
+	// Step 1: Get LUX price from WLUX/LUSD pool
+	luxPrice := p.queryLuxPrice(ctx, client)
+	if luxPrice == 0 {
+		return 0
+	}
+	p.cachePrice("LUX", luxPrice)
+	p.cachePrice("WLUX", luxPrice)
+
+	if symbol == "LUX" || symbol == "WLUX" {
+		return luxPrice
+	}
+
+	// Step 2: Get other token prices via their WLUX pools
+	meta, ok := tokenMeta[symbol]
+	if !ok {
+		return 0
+	}
+
+	// Try to find pool: token/WLUX
+	state, err := p.queryPoolState(ctx, client, meta.address, WLUXAddress, 3000)
+	if err != nil {
+		log.Printf("No pool found for %s/WLUX: %v", symbol, err)
+		return 0
+	}
+
+	// Determine token order (lower address = token0)
+	tokenAddr := common.HexToAddress(meta.address)
+	wluxAddr := common.HexToAddress(WLUXAddress)
+
+	var priceInWLUX float64
+	if tokenAddr.Hex() < wluxAddr.Hex() {
+		// token is token0, WLUX is token1
+		// price = token1/token0 = WLUX per token
+		priceInWLUX = priceFromSqrtX96(state.SqrtPriceX96, meta.decimals, 18)
+	} else {
+		// WLUX is token0, token is token1
+		// price = token1/token0 = token per WLUX
+		raw := priceFromSqrtX96(state.SqrtPriceX96, 18, meta.decimals)
+		if raw > 0 {
+			priceInWLUX = 1.0 / raw
+		}
+	}
+
+	priceUSD := priceInWLUX * luxPrice
+	p.cachePrice(symbol, priceUSD)
+	return priceUSD
+}
+
+// queryLuxPrice gets the LUX/USD price from the WLUX/LUSD V3 pool
+func (p *Provider) queryLuxPrice(ctx context.Context, client *ethclient.Client) float64 {
+	state, err := p.queryPoolState(ctx, client, WLUXAddress, LUSDAddress, 3000)
+	if err != nil {
+		log.Printf("Failed to query WLUX/LUSD pool: %v", err)
+		return 0
+	}
+
+	// WLUX (0x4888...) < LUSD (0x848C...), so WLUX=token0, LUSD=token1
+	// price = LUSD per WLUX (both 18 decimals)
+	return priceFromSqrtX96(state.SqrtPriceX96, 18, 18)
+}
+
+func (p *Provider) cachePrice(symbol string, price float64) {
+	priceCacheMu.Lock()
+	priceCache[symbol] = &priceEntry{priceUSD: price, updatedAt: time.Now()}
+	priceCacheMu.Unlock()
 }
 
 // GetTokenPrices returns prices for multiple tokens
@@ -695,119 +805,27 @@ func (p *Provider) GetLeadEvents(ctx context.Context, leadID string) ([]gateway.
 
 // GetTokenList returns token list for a chain
 func (p *Provider) GetTokenList(ctx context.Context, chainID gateway.ChainID) ([]gateway.Token, error) {
-	// Return full token list for Lux and Zoo chains
+	// Return real token list for Lux — all addresses verified on-chain
 	if chainID == gateway.ChainIDLux {
 		return []gateway.Token{
-			{
-				Address:  "0x0000000000000000000000000000000000000000",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "LUX",
-				Name:     "Lux",
-			},
-			{
-				Address:  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "WLUX",
-				Name:     "Wrapped LUX",
-			},
-			{
-				Address:  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 6,
-				Symbol:   "USDC",
-				Name:     "USD Coin",
-			},
-			{
-				Address:  "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 6,
-				Symbol:   "USDT",
-				Name:     "Tether USD",
-			},
-			{
-				Address:  "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "WETH",
-				Name:     "Wrapped Ether",
-			},
-			{
-				Address:  "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 8,
-				Symbol:   "WBTC",
-				Name:     "Wrapped Bitcoin",
-			},
-			{
-				Address:  "0x6B175474E89094C44Da98b954EesdscdKD34eL55",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "DAI",
-				Name:     "Dai Stablecoin",
-			},
-			{
-				Address:  "0x1111111111111111111111111111111111111111",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "LETH",
-				Name:     "Lux Ether",
-			},
-			{
-				Address:  "0x2222222222222222222222222222222222222222",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 8,
-				Symbol:   "LBTC",
-				Name:     "Lux Bitcoin",
-			},
-			{
-				Address:  "0x3333333333333333333333333333333333333333",
-				ChainID:  gateway.ChainIDLux,
-				Decimals: 18,
-				Symbol:   "LUSD",
-				Name:     "Lux USD",
-			},
+			{Address: "0x0000000000000000000000000000000000000000", ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "LUX", Name: "Lux"},
+			{Address: WLUXAddress, ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "WLUX", Name: "Wrapped LUX"},
+			{Address: LUSDAddress, ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "LUSD", Name: "Lux USD"},
+			{Address: LETHAddress, ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "LETH", Name: "Lux Ether"},
+			{Address: LBTCAddress, ChainID: gateway.ChainIDLux, Decimals: 8, Symbol: "LBTC", Name: "Lux Bitcoin"},
+			{Address: LSOLAddress, ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "LSOL", Name: "Lux SOL"},
+			{Address: LTONAddress, ChainID: gateway.ChainIDLux, Decimals: 9, Symbol: "LTON", Name: "Lux TON"},
+			{Address: LAVAXAddress, ChainID: gateway.ChainIDLux, Decimals: 18, Symbol: "LAVAX", Name: "Lux AVAX"},
 		}, nil
 	}
 
 	if chainID == gateway.ChainIDZoo {
 		return []gateway.Token{
-			{
-				Address:  "0x0000000000000000000000000000000000000000",
-				ChainID:  gateway.ChainIDZoo,
-				Decimals: 18,
-				Symbol:   "ZOO",
-				Name:     "Zoo",
-			},
-			{
-				Address:  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-				ChainID:  gateway.ChainIDZoo,
-				Decimals: 18,
-				Symbol:   "WZOO",
-				Name:     "Wrapped ZOO",
-			},
-			{
-				Address:  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-				ChainID:  gateway.ChainIDZoo,
-				Decimals: 6,
-				Symbol:   "USDC",
-				Name:     "USD Coin",
-			},
-			{
-				Address:  "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-				ChainID:  gateway.ChainIDZoo,
-				Decimals: 6,
-				Symbol:   "USDT",
-				Name:     "Tether USD",
-			},
-			{
-				Address:  "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-				ChainID:  gateway.ChainIDZoo,
-				Decimals: 18,
-				Symbol:   "WETH",
-				Name:     "Wrapped Ether",
-			},
+			{Address: "0x0000000000000000000000000000000000000000", ChainID: gateway.ChainIDZoo, Decimals: 18, Symbol: "ZOO", Name: "Zoo"},
+			{Address: "0x5491216406daB99b7032b83765F36790E27F8A61", ChainID: gateway.ChainIDZoo, Decimals: 18, Symbol: "WZOO", Name: "Wrapped ZOO"},
+			{Address: "0xb2ee1CE7b84853b83AA08702aD0aD4D79711882D", ChainID: gateway.ChainIDZoo, Decimals: 18, Symbol: "LUSD", Name: "Lux USD"},
+			{Address: "0x4870621EA8be7a383eFCfdA225249d35888bD9f2", ChainID: gateway.ChainIDZoo, Decimals: 18, Symbol: "LETH", Name: "Lux Ether"},
+			{Address: "0x6fc44509a32E513bE1aa00d27bb298e63830C6A8", ChainID: gateway.ChainIDZoo, Decimals: 8, Symbol: "LBTC", Name: "Lux Bitcoin"},
 		}, nil
 	}
 

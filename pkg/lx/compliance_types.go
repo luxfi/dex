@@ -7,12 +7,42 @@ type AssetClass uint8
 
 const (
 	AssetClassCrypto    AssetClass = iota // Unregulated digital asset
-	AssetClassEquity                      // Common/preferred stock
+	AssetClassEquity                      // Common/preferred stock (domestic)
 	AssetClassDebt                        // Bonds, notes, convertible notes
 	AssetClassFund                        // LP interests, fund shares
 	AssetClassSAFE                        // Simple Agreement for Future Equity
 	AssetClassCommodity                   // Physical or digital commodity
 	AssetClassDerivative                  // Options, futures, swaps
+
+	// Equities — granular
+	AssetClassIntlEquity // International equity (non-US)
+
+	// FX
+	AssetClassForex // Foreign exchange pairs
+
+	// Derivatives — granular
+	AssetClassOptions // Options contracts
+	AssetClassFutures // Futures contracts
+
+	// Fixed income / credit
+	AssetClassFixedIncome   // Bonds, notes, treasuries
+	AssetClassMunicipal     // Municipal bonds
+	AssetClassStructured    // ABS, MBS, CDO, CLO
+	AssetClassCorporateDebt // Corporate loans, credit facilities
+	AssetClassConsumerDebt  // Personal loans, credit card ABS
+
+	// Real assets
+	AssetClassRealEstate     // REIT, fractional RE, RE tokens
+	AssetClassPreciousMetals // XAU, XAG, XPT, XPD spot
+
+	// Alternative investments
+	AssetClassPrivateEquity // PE fund tokens, SPV shares
+	AssetClassVenture       // VC fund shares, SAFE tokens
+	AssetClassPrivateCredit // Direct lending, mezzanine
+
+	// DeFi-native (bridged)
+	AssetClassCDP // Collateralized debt positions
+	AssetClassLP  // Liquidity pool tokens
 )
 
 // ExemptionType identifies the registration exemption or regulatory framework
@@ -40,6 +70,29 @@ const (
 	ExemptionMASSIP                       // MAS Small Offers (S$5M/12 months, <=50 persons)
 	ExemptionMASPrivate                   // MAS Private Placement (<=50 persons in 12 months)
 	ExemptionMASInstitutional             // MAS Institutional Investor exemption
+
+	// European Union (MiFID II / Prospectus Regulation)
+	ExemptionEUQualifiedInvestor          // Qualified investor exemption (Art 1(4)(a))
+	ExemptionEUSmallOffering              // < EUR 8M (Art 3(2))
+	ExemptionEUCrowdfunding               // ECSP Regulation
+
+	// Hong Kong (SFO)
+	ExemptionHKProfessionalInvestor       // Professional investor (Cap 571D)
+	ExemptionHKSmallOffering              // Offers to <50 persons
+
+	// Japan (FIEA)
+	ExemptionJPQII                        // Qualified Institutional Investor
+
+	// Australia (Corporations Act)
+	ExemptionAUSophisticated              // Sophisticated investor (s708(8))
+	ExemptionAUSmallScale                 // Small scale offering (s708(1))
+
+	// UAE (DFSA / ADGM)
+	ExemptionUAEExemptOffer               // Exempt offer under DFSA Rules
+	ExemptionUAEQualifiedInvestor         // Qualified investor under ADGM
+
+	// Switzerland (FinSA)
+	ExemptionCHQualifiedInvestor          // Qualified investor exemption
 )
 
 // InvestorStatus represents the regulatory classification of an investor.
@@ -83,6 +136,16 @@ type TransferRestriction struct {
 	BoardApprovalRequired bool
 }
 
+// PEPStatus indicates politically exposed person classification.
+type PEPStatus uint8
+
+const (
+	PEPNone     PEPStatus = iota // Not a PEP
+	PEPDirect                    // Directly a PEP (head of state, senior official, etc.)
+	PEPRelated                   // Close associate or family member of a PEP
+	PEPFormer                    // Former PEP (cooling-off period)
+)
+
 // InvestorProfile holds the compliance-relevant attributes of a trader.
 // Provided by the EligibilityChecker implementation, not stored in the DEX.
 type InvestorProfile struct {
@@ -96,4 +159,14 @@ type InvestorProfile struct {
 	// Holdings tracks current share count per symbol for max-holder checks.
 	// The checker implementation is responsible for populating this.
 	Holdings map[string]float64
+
+	// PEP / EDD (Enhanced Due Diligence)
+	PEP             PEPStatus // Politically exposed person status
+	EDDCompleted    bool      // Enhanced due diligence completed
+	SourceOfFunds   string    // Declared source of funds
+	SOFVerified     bool      // Source of funds verified
+	AdverseMedia    bool      // Adverse media screening flagged
+	HighRiskCountry bool      // Jurisdiction is FATF high-risk
+	TaxResidency    string    // Tax residency country code
+	EntityID        string    // Legal entity identifier (LEI for institutions)
 }
