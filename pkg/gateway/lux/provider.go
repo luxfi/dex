@@ -1,5 +1,5 @@
-// Package lux provides native Lux DEX provider implementations.
-// This is where native liquidity, AMM, and conversion APIs will be implemented.
+// Package lux provides a native EVM DEX provider that queries on-chain
+// pool data via LX-series precompiles (0x9010-0x9060).
 package lux
 
 import (
@@ -23,16 +23,22 @@ var (
 	ErrNoRPCEndpoint  = errors.New("no RPC endpoint configured")
 )
 
-// DEX precompile addresses on Lux
+// DEX precompile addresses (LX-series, activated at genesis via dexConfig)
 const (
-	PoolManagerAddress = "0x0000000000000000000000000000000000000400"
-	SwapRouterAddress  = "0x0000000000000000000000000000000000000401"
-	HooksRegistryAddr  = "0x0000000000000000000000000000000000000402"
-	FlashLoanAddress   = "0x0000000000000000000000000000000000000403"
+	PoolManagerAddress = "0x0000000000000000000000000000000000009010" // LXPool — singleton AMM pool manager
+	OracleAddress      = "0x0000000000000000000000000000000000009011" // LXOracle — multi-source price aggregation
+	SwapRouterAddress  = "0x0000000000000000000000000000000000009012" // LXRouter — swap router
+	HooksRegistryAddr  = "0x0000000000000000000000000000000000009013" // LXHooks — pool hooks registry
+	FlashLoanAddress   = "0x0000000000000000000000000000000000009014" // LXFlash — flash loans
+	CLOBAddress        = "0x0000000000000000000000000000000000009020" // LXBook — central limit order book
+	VaultAddress       = "0x0000000000000000000000000000000000009030" // LXVault — clearinghouse, margin, positions
+	FeedAddress        = "0x0000000000000000000000000000000000009040" // LXFeed — computed price feeds
+	LendAddress        = "0x0000000000000000000000000000000000009050" // LXLend — lending pool
+	LiquidAddress      = "0x0000000000000000000000000000000000009060" // LXLiquid — self-repaying loans
 )
 
-// Provider implements native Lux DEX functionality.
-// Connects to real Lux nodes to query on-chain pool data from DEX precompiles.
+// Provider implements native DEX functionality via LX precompiles.
+// Connects to EVM nodes to query on-chain pool data.
 type Provider struct {
 	name     string
 	priority int
@@ -52,35 +58,24 @@ type ProviderConfig struct {
 	RPCEndpoints map[gateway.ChainID]string // Map of chainID to RPC endpoint URL
 }
 
-// DefaultConfig returns default configuration with RPC endpoints
+// DefaultConfig returns a minimal config — caller must provide chains and RPC endpoints.
 func DefaultConfig() ProviderConfig {
 	return ProviderConfig{
-		Name:     "lux",
-		Priority: 10, // Higher priority than Uniswap (lower number = higher priority)
-		Chains: []gateway.ChainID{
-			gateway.ChainIDLux,
-			gateway.ChainIDZoo,
-		},
-		RPCEndpoints: map[gateway.ChainID]string{
-			gateway.ChainIDLux: "http://127.0.0.1:9630/ext/bc/C/rpc",                                                  // Lux mainnet C-Chain
-			gateway.ChainIDZoo: "http://127.0.0.1:9630/ext/bc/2iJykKjE7gpWNjGUvGG6fVtj7u5Tbvo89CVCu6gjNPCnEdCVpY/rpc", // Zoo chain
-		},
+		Name:         "native",
+		Priority:     10,
+		Chains:       nil,
+		RPCEndpoints: nil,
 	}
 }
 
-// NewProvider creates a new Lux native provider with RPC connectivity
+// NewProvider creates a native DEX provider with RPC connectivity.
+// Chains and RPCEndpoints must be provided by the caller.
 func NewProvider(cfg ProviderConfig) *Provider {
 	if cfg.Name == "" {
-		cfg.Name = "lux"
+		cfg.Name = "native"
 	}
 	if cfg.Priority == 0 {
 		cfg.Priority = 10
-	}
-	if len(cfg.Chains) == 0 {
-		cfg.Chains = DefaultConfig().Chains
-	}
-	if cfg.RPCEndpoints == nil {
-		cfg.RPCEndpoints = DefaultConfig().RPCEndpoints
 	}
 
 	p := &Provider{
