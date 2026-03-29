@@ -91,11 +91,11 @@ func NewProvider(cfg ProviderConfig) *Provider {
 		if endpoint != "" {
 			client, err := ethclient.Dial(endpoint)
 			if err != nil {
-				log.Printf("Warning: Failed to connect to %s RPC at %s: %v", chainID, endpoint, err)
+				log.Printf("Warning: Failed to connect to %d RPC at %s: %v", chainID, endpoint, err)
 				continue
 			}
 			p.clients[chainID] = client
-			log.Printf("Connected to %s RPC at %s", chainID, endpoint)
+			log.Printf("Connected to %d RPC at %s", chainID, endpoint)
 		}
 	}
 
