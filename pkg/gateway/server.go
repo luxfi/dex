@@ -18,6 +18,8 @@ type Server struct {
 	router     *Router
 	httpServer *http.Server
 	mux        *http.ServeMux
+	orders     *orderManager
+	venues     *VenueRouter // optional venue-based quoting engine
 }
 
 // ServerConfig holds server configuration
@@ -43,7 +45,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-API-Key, X-Universal-Router-Version, X-Permit2-Disabled")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == http.MethodOptions {
@@ -55,13 +57,24 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// ServerOption configures optional Server features.
+type ServerOption func(*Server)
+
+// WithVenues attaches a VenueRouter for venue-based multi-source quoting.
+func WithVenues(vr *VenueRouter) ServerOption {
+	return func(s *Server) {
+		s.venues = vr
+	}
+}
+
 // NewServer creates a new gateway server
-func NewServer(router *Router, cfg ServerConfig) *Server {
+func NewServer(router *Router, cfg ServerConfig, opts ...ServerOption) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
 		router: router,
 		mux:    mux,
+		orders: newOrderManager(ChainIDLux),
 		httpServer: &http.Server{
 			Addr:           cfg.Addr,
 			Handler:        corsMiddleware(mux),
@@ -69,6 +82,10 @@ func NewServer(router *Router, cfg ServerConfig) *Server {
 			WriteTimeout:   cfg.WriteTimeout,
 			MaxHeaderBytes: cfg.MaxHeaderBytes,
 		},
+	}
+
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	s.registerRoutes()
@@ -117,6 +134,24 @@ func (s *Server) registerRoutes() {
 	// Conversion tracking API
 	s.mux.HandleFunc("/v1/leads", s.handleLeads)
 	s.mux.HandleFunc("/v1/events", s.handleEvents)
+
+	// Order lifecycle API (limit + dutch auction)
+	s.registerOrderRoutes()
+
+	// LP Position Management API (V4 modifyLiquidity calldata builders)
+	s.registerLPRoutes()
+
+	// Uniswap Trading API-compatible routes (/trading/*)
+	s.registerTradingRoutes()
+
+	// Approval & Permit2 routes
+	s.registerApprovalRoutes()
+
+	// Multihop routing routes
+	s.registerMultihopRoutes()
+
+	// Admin pause/freeze routes
+	RegisterAdminRoutes(s.mux)
 }
 
 // Response helpers
@@ -255,8 +290,40 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement swap transaction building
-	s.writeError(w, http.StatusNotImplemented, fmt.Errorf("swap building not yet implemented"))
+	var req swapRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	if req.TokenIn == "" || req.TokenOut == "" {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("tokenIn and tokenOut are required"))
+		return
+	}
+	if req.Amount == "" {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("amount is required"))
+		return
+	}
+	if req.Recipient == "" {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("recipient is required"))
+		return
+	}
+
+	ctx := s.requestContext(r)
+	quote, err := s.router.GetBestQuote(ctx, QuoteRequest{
+		TokenIn:   Token{Address: req.TokenIn, ChainID: ChainID(req.ChainID)},
+		TokenOut:  Token{Address: req.TokenOut, ChainID: ChainID(req.ChainID)},
+		Amount:    parseBigIntStr(req.Amount),
+		IsExactIn: req.IsExactIn,
+		ChainID:   ChainID(req.ChainID),
+		Slippage:  req.Slippage,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("quote failed: %w", err))
+		return
+	}
+
+	resp := buildSwapFromQuote(req, quote)
+	s.writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) convertQuoteRequest(req quoteRequest) QuoteRequest {
