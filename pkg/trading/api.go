@@ -305,6 +305,12 @@ func isPositiveDecimal(s string) bool {
 	if s == "" || s == "0" {
 		return false
 	}
+	// Cap at 78 digits (uint256 max is 78 decimal digits: 2^256-1).
+	// Longer strings are either invalid or would cause computational overhead
+	// in big.Int arithmetic with no valid EVM use case.
+	if len(s) > 78 {
+		return false
+	}
 	for _, c := range s {
 		if c < '0' || c > '9' {
 			return false

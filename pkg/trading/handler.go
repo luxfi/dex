@@ -107,10 +107,11 @@ func (api *TradingAPI) handleSwap(w http.ResponseWriter, r *http.Request) {
 
 	from := req.Swapper
 	if from == "" {
-		from = route[0].TokenIn
+		writeError(w, http.StatusBadRequest, "swapper address is required")
+		return
 	}
-	if from == "" {
-		writeError(w, http.StatusBadRequest, "cannot determine swapper address; set swapper field")
+	if !isValidAddress(from) {
+		writeError(w, http.StatusBadRequest, "invalid swapper address")
 		return
 	}
 
@@ -125,7 +126,8 @@ func (api *TradingAPI) handleSwap(w http.ResponseWriter, r *http.Request) {
 	// Dispatch calldata building based on venue type.
 	to, calldata, err := api.buildSwapCalldata(route, amountIn, amountOut)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to build calldata: "+err.Error())
+		// Do not leak internal error details (router addresses, venue config) to client.
+		writeError(w, http.StatusInternalServerError, "failed to build swap transaction")
 		return
 	}
 
@@ -147,11 +149,8 @@ func (api *TradingAPI) handleSwap(w http.ResponseWriter, r *http.Request) {
 func (api *TradingAPI) buildSwapCalldata(route []Hop, amountIn, amountOut *big.Int) (string, string, error) {
 	venue := route[0].Venue
 
-	// Check for off-chain venues (broker, SOR) — these can't produce calldata.
-	if strings.HasPrefix(venue, "broker") || strings.HasPrefix(venue, "alpaca") ||
-		strings.HasPrefix(venue, "binance") || strings.HasPrefix(venue, "kraken") ||
-		strings.HasPrefix(venue, "coinbase") || strings.HasPrefix(venue, "gemini") ||
-		strings.HasPrefix(venue, "hyperliquid") {
+	// Check if venue is executable (can produce on-chain calldata).
+	if !api.isVenueExecutable(venue) {
 		return "", "", fmt.Errorf("venue %q is off-chain only — use /v1/trade/order for broker execution", venue)
 	}
 
@@ -169,6 +168,19 @@ func (api *TradingAPI) buildSwapCalldata(route []Hop, amountIn, amountOut *big.I
 		// Default to V4 native for unknown on-chain venues.
 		return api.buildV4Calldata(route, amountIn, amountOut)
 	}
+}
+
+// isVenueExecutable checks whether the named venue can produce on-chain calldata.
+// Looks up the venue in api.venues and delegates to Venue.IsExecutable().
+// Unknown venues (not registered) default to executable (on-chain).
+func (api *TradingAPI) isVenueExecutable(name string) bool {
+	for _, v := range api.venues {
+		if v.Name() == name {
+			return v.IsExecutable()
+		}
+	}
+	// Unknown venues default to executable (on-chain).
+	return true
 }
 
 func isV4Venue(name string) bool {
@@ -284,6 +296,17 @@ func (api *TradingAPI) handleOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.mu.Lock()
+	// Evict oldest orders if store exceeds 10k entries to prevent unbounded growth.
+	// Production should use a database; this bounds the in-memory store.
+	const maxOrders = 10_000
+	if len(api.orders) >= maxOrders {
+		// Delete the first key found — map iteration is random, which approximates
+		// random eviction. Good enough for a bounded in-memory store.
+		for k := range api.orders {
+			delete(api.orders, k)
+			break
+		}
+	}
 	api.orders[orderID] = order
 	api.mu.Unlock()
 
@@ -434,7 +457,7 @@ func (api *TradingAPI) validateQuoteRequest(req QuoteRequest) error {
 	if !isValidAddress(req.TokenOut) {
 		return fmt.Errorf("invalid tokenOut address")
 	}
-	if req.TokenIn == req.TokenOut {
+	if strings.EqualFold(req.TokenIn, req.TokenOut) {
 		return fmt.Errorf("tokenIn and tokenOut must be different")
 	}
 	if !isPositiveDecimal(req.Amount) {
@@ -462,7 +485,7 @@ func (api *TradingAPI) validateOrderRequest(req OrderRequest) error {
 	if !isValidAddress(req.TokenOut) {
 		return fmt.Errorf("invalid tokenOut address")
 	}
-	if req.TokenIn == req.TokenOut {
+	if strings.EqualFold(req.TokenIn, req.TokenOut) {
 		return fmt.Errorf("tokenIn and tokenOut must be different")
 	}
 	if !isPositiveDecimal(req.Amount) {
