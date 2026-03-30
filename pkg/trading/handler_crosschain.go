@@ -1,6 +1,7 @@
 package trading
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,6 +31,7 @@ func (api *TradingAPI) handleCrossChainQuote(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req CrossChainQuoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -45,9 +47,13 @@ func (api *TradingAPI) handleCrossChainQuote(w http.ResponseWriter, r *http.Requ
 		req.Type = QuoteTypeExactInput
 	}
 
-	routes, err := api.crossChainRouter.FindRoutes(r.Context(), req)
+	// Enforce a 10-second deadline for cross-chain route finding.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	routes, err := api.crossChainRouter.FindRoutes(ctx, req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusBadRequest, "cross-chain routing failed for the given parameters")
 		return
 	}
 	if len(routes) == 0 {
@@ -89,6 +95,7 @@ func (api *TradingAPI) handleArbScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req ArbScanRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -98,6 +105,26 @@ func (api *TradingAPI) handleArbScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "need at least 3 tokens")
 		return
 	}
+	// Cap tokens to prevent O(n^3) goroutine explosion in triangular scan.
+	// 20 tokens = 6,840 permutations — reasonable. 100 tokens = 970,200 — not.
+	const maxTokens = 20
+	if len(req.Tokens) > maxTokens {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many tokens: max %d, got %d", maxTokens, len(req.Tokens)))
+		return
+	}
+	// Cap chains to bound cross-chain scan work.
+	const maxChains = 10
+	if len(req.ChainIDs) > maxChains {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many chains: max %d, got %d", maxChains, len(req.ChainIDs)))
+		return
+	}
+	// Validate all token addresses.
+	for i, tok := range req.Tokens {
+		if !isValidAddress(tok) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid token address at index %d", i))
+			return
+		}
+	}
 	if req.InputAmount == "" || !isPositiveDecimal(req.InputAmount) {
 		writeError(w, http.StatusBadRequest, "inputAmount must be a positive integer")
 		return
@@ -106,13 +133,17 @@ func (api *TradingAPI) handleArbScan(w http.ResponseWriter, r *http.Request) {
 		req.MinProfitBPS = 10
 	}
 
+	// Enforce a 30-second deadline for arb scanning (computationally intensive).
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
 	start := time.Now()
 	var allOpps []ArbOpportunity
 	scannedPairs := 0
 
 	// Triangular scan per chain.
 	for _, chainID := range req.ChainIDs {
-		opps, err := api.arbScanner.ScanTriangular(r.Context(), chainID, req.Tokens, req.InputAmount)
+		opps, err := api.arbScanner.ScanTriangular(ctx, chainID, req.Tokens, req.InputAmount)
 		if err != nil {
 			continue
 		}
@@ -125,7 +156,7 @@ func (api *TradingAPI) handleArbScan(w http.ResponseWriter, r *http.Request) {
 	if len(req.ChainIDs) >= 2 && len(req.Tokens) >= 2 {
 		for i := 0; i < len(req.Tokens); i++ {
 			for j := i + 1; j < len(req.Tokens); j++ {
-				opps, _ := api.arbScanner.ScanCrossChain(r.Context(), req.Tokens[i], req.Tokens[j], req.ChainIDs, req.InputAmount)
+				opps, _ := api.arbScanner.ScanCrossChain(ctx, req.Tokens[i], req.Tokens[j], req.ChainIDs, req.InputAmount)
 				allOpps = append(allOpps, opps...)
 				scannedPairs += len(req.ChainIDs) * (len(req.ChainIDs) - 1) / 2
 			}

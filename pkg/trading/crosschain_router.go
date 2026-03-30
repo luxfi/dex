@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+// maxQueueSize bounds BFS exploration to prevent unbounded memory growth
+// when there are many chains and bridges.
+const maxQueueSize = 1000
+
 // CrossChainRouter finds optimal paths across chains using BFS.
 type CrossChainRouter struct {
 	chains  map[int]*Chain
@@ -46,6 +50,12 @@ func (r *CrossChainRouter) FindRoutes(ctx context.Context, req CrossChainQuoteRe
 	maxHops := req.MaxHops
 	if maxHops <= 0 {
 		maxHops = 4
+	}
+	// Hard cap to prevent BFS explosion — even trusted callers shouldn't
+	// request more than 6 hops (swap+bridge+swap+bridge+swap+bridge is extreme).
+	const maxAllowedHops = 6
+	if maxHops > maxAllowedHops {
+		maxHops = maxAllowedHops
 	}
 
 	if req.SourceChain == req.DestChain {
@@ -114,6 +124,15 @@ func (r *CrossChainRouter) bfsRoutes(ctx context.Context, req CrossChainQuoteReq
 	queue := []*bfsNode{start}
 
 	for len(queue) > 0 && len(results) < 10 {
+		// Respect context cancellation — stop exploring if caller disconnected.
+		if ctx.Err() != nil {
+			break
+		}
+		// Enforce queue size bound to prevent unbounded memory growth.
+		if len(queue) > maxQueueSize {
+			break
+		}
+
 		node := queue[0]
 		queue = queue[1:]
 
@@ -147,12 +166,23 @@ func (r *CrossChainRouter) bfsRoutes(ctx context.Context, req CrossChainQuoteReq
 				if len(supported) > 0 && !tokenInList(node.token, supported) {
 					// Swap to a bridgeable token first.
 					for _, tok := range supported {
-						queue = append(queue, r.trySwapAndBridge(ctx, node, tok, bridge, destChain, maxHops)...)
+						if len(queue) >= maxQueueSize {
+							break
+						}
+						candidates := r.trySwapAndBridge(ctx, node, tok, bridge, destChain, maxHops)
+						remaining := maxQueueSize - len(queue)
+						if len(candidates) > remaining {
+							candidates = candidates[:remaining]
+						}
+						queue = append(queue, candidates...)
 					}
 					continue
 				}
 
 				// Bridge directly.
+				if len(queue) >= maxQueueSize {
+					continue
+				}
 				bridged := r.tryDirectBridge(ctx, node, bridge, destChain, req)
 				if bridged != nil {
 					queue = append(queue, bridged)

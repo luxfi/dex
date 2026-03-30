@@ -249,7 +249,7 @@ func TestSwapSingleHopV4(t *testing.T) {
 		t.Fatal("expected quote")
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: qr.Quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: qr.Quote, Swapper: testUser})
 	if sw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", sw.Code, sw.Body.String())
 	}
@@ -298,7 +298,7 @@ func TestSwapMultiHopV4(t *testing.T) {
 		Fee: "35", ExecutionPrice: "16000000000000000000",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", sw.Code, sw.Body.String())
 	}
@@ -341,7 +341,7 @@ func TestSwapV2Dispatch(t *testing.T) {
 		Fee: "30", ExecutionPrice: "500000000000000000",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", sw.Code, sw.Body.String())
 	}
@@ -378,7 +378,7 @@ func TestSwapV2MissingRouter(t *testing.T) {
 		Fee: "30", ExecutionPrice: "500",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500 for missing V2 router, got %d", sw.Code)
 	}
@@ -408,7 +408,7 @@ func TestSwapV3Dispatch(t *testing.T) {
 		Fee: "30", ExecutionPrice: "500000000000000000",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", sw.Code, sw.Body.String())
 	}
@@ -445,7 +445,7 @@ func TestSwapBrokerVenueRejected(t *testing.T) {
 		Fee: "25", ExecutionPrice: "500",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500 for off-chain venue swap, got %d", sw.Code)
 	}
@@ -891,7 +891,7 @@ func TestSwapUsesDefaultChainID(t *testing.T) {
 		Fee: "30", ExecutionPrice: "500",
 	}
 
-	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote})
+	sw := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
 	if sw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", sw.Code)
 	}
@@ -1099,11 +1099,7 @@ func TestBrokerHTTPVenueQuote(t *testing.T) {
 
 	// Register symbol mapping.
 	RegisterSymbol(testLUSD, testWBTC, "BTC-USD")
-	defer func() {
-		symbolRegistryMu.Lock()
-		delete(symbolRegistry, testLUSD+":"+testWBTC)
-		symbolRegistryMu.Unlock()
-	}()
+	defer DefaultRegistry.Delete(testLUSD, testWBTC)
 
 	venue := NewBrokerHTTPVenue(BrokerHTTPConfig{
 		BrokerURL: srv.URL,
