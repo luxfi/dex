@@ -26,6 +26,11 @@ func BuildExactInputSingleCalldata(tokenIn, tokenOut string, amountIn, amountOut
 	if err != nil {
 		return "", fmt.Errorf("tokenOut: %w", err)
 	}
+	for name, val := range map[string]*big.Int{"amountIn": amountIn, "amountOutMin": amountOutMin, "sqrtPriceLimitX96": sqrtPriceLimitX96} {
+		if err := validateUint256(val); err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+	}
 
 	var poolBytes [32]byte
 	if poolID != "" {
@@ -51,6 +56,11 @@ func BuildExactInputSingleCalldata(tokenIn, tokenOut string, amountIn, amountOut
 func BuildExactInputCalldata(path []string, amountIn, amountOutMin, sqrtPriceLimitX96 *big.Int) (string, error) {
 	if len(path) < 2 {
 		return "", fmt.Errorf("path must have at least 2 tokens, got %d", len(path))
+	}
+	for name, val := range map[string]*big.Int{"amountIn": amountIn, "amountOutMin": amountOutMin, "sqrtPriceLimitX96": sqrtPriceLimitX96} {
+		if err := validateUint256(val); err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
 	}
 
 	packedPath := make([]byte, 0, len(path)*20)
@@ -85,6 +95,11 @@ func BuildExactOutputSingleCalldata(tokenIn, tokenOut string, amountOut, amountI
 	if err != nil {
 		return "", fmt.Errorf("tokenOut: %w", err)
 	}
+	for name, val := range map[string]*big.Int{"amountOut": amountOut, "amountInMax": amountInMax, "sqrtPriceLimitX96": sqrtPriceLimitX96} {
+		if err := validateUint256(val); err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+	}
 
 	var poolBytes [32]byte
 	if poolID != "" {
@@ -110,6 +125,11 @@ func BuildExactOutputSingleCalldata(tokenIn, tokenOut string, amountOut, amountI
 func BuildExactOutputCalldata(path []string, amountOut, amountInMax, sqrtPriceLimitX96 *big.Int) (string, error) {
 	if len(path) < 2 {
 		return "", fmt.Errorf("path must have at least 2 tokens, got %d", len(path))
+	}
+	for name, val := range map[string]*big.Int{"amountOut": amountOut, "amountInMax": amountInMax, "sqrtPriceLimitX96": sqrtPriceLimitX96} {
+		if err := validateUint256(val); err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
 	}
 
 	packedPath := make([]byte, 0, len(path)*20)
@@ -172,12 +192,36 @@ func padAddress(addr [20]byte) []byte {
 	return word[:]
 }
 
+// maxUint256 is 2^256 - 1.
+var maxUint256 = func() *big.Int {
+	n := new(big.Int).Lsh(big.NewInt(1), 256)
+	return n.Sub(n, big.NewInt(1))
+}()
+
+// validateUint256 checks that n fits in a 256-bit unsigned integer.
+// Returns an error instead of panicking — financial APIs must never crash on input.
+func validateUint256(n *big.Int) error {
+	if n == nil {
+		return nil
+	}
+	if n.Sign() < 0 {
+		return fmt.Errorf("negative value %s cannot be encoded as uint256", n)
+	}
+	if n.Cmp(maxUint256) > 0 {
+		return fmt.Errorf("value %s overflows uint256 (max 2^256-1)", n)
+	}
+	return nil
+}
+
 func padUint256(n *big.Int) []byte {
 	var word [32]byte
 	if n != nil && n.Sign() > 0 {
 		b := n.Bytes()
 		if len(b) > 32 {
-			panic("uint256 overflow")
+			// Saturate to max uint256 rather than panicking.
+			// Callers should validate with validateUint256 before encoding.
+			copy(word[:], maxUint256.Bytes())
+			return word[:]
 		}
 		copy(word[32-len(b):], b)
 	}

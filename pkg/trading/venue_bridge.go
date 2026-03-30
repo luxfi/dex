@@ -7,17 +7,47 @@ import (
 	"time"
 )
 
+// percentageFeeBridge implements flat-fee bridging math shared by all bridge types.
+type percentageFeeBridge struct {
+	bridgeType  BridgeType
+	routes      [][2]int
+	tokens      map[int][]string
+	feeBPS      int
+	gasEstimate string
+	duration    time.Duration
+}
+
+func (b *percentageFeeBridge) BridgeType() BridgeType   { return b.bridgeType }
+func (b *percentageFeeBridge) SupportedRoutes() [][2]int { return b.routes }
+func (b *percentageFeeBridge) SupportedTokens(src, _ int) []string {
+	return b.tokens[src]
+}
+
+func (b *percentageFeeBridge) QuoteBridge(_ context.Context, req BridgeQuoteRequest) (*BridgeQuote, error) {
+	if !bridgeSupportsRoute(b.routes, req.SourceChain, req.DestChain) {
+		return nil, nil
+	}
+	amountIn, ok := new(big.Int).SetString(req.Amount, 10)
+	if !ok || amountIn.Sign() <= 0 {
+		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
+	}
+	fee := new(big.Int).Mul(amountIn, big.NewInt(int64(b.feeBPS)))
+	fee.Div(fee, big.NewInt(10000))
+	amountOut := new(big.Int).Sub(amountIn, fee)
+	return &BridgeQuote{
+		Bridge: b.bridgeType, AmountOut: amountOut.String(),
+		Fee: fee.String(), GasEstimate: b.gasEstimate,
+		Duration: b.duration,
+	}, nil
+}
+
 // --- Warp Bridge (Lux AWM) ---
 // Native cross-subnet messaging via precompile 0x0200000000000000000000000000000000000005.
-// Near-instant finality between Lux subnets (e.g. Lux↔Zoo).
+// Near-instant finality between Lux subnets (e.g. Lux<>Zoo).
 
 const WarpPrecompile = "0x0200000000000000000000000000000000000005"
 
-type WarpBridge struct {
-	routes [][2]int
-	tokens map[int][]string
-	feeBPS int
-}
+type WarpBridge struct{ *percentageFeeBridge }
 
 type WarpBridgeConfig struct {
 	Routes [][2]int
@@ -30,43 +60,18 @@ func NewWarpBridge(cfg WarpBridgeConfig) *WarpBridge {
 	if feeBPS == 0 {
 		feeBPS = 5
 	}
-	return &WarpBridge{routes: cfg.Routes, tokens: cfg.Tokens, feeBPS: feeBPS}
-}
-
-func (b *WarpBridge) BridgeType() BridgeType   { return BridgeWarp }
-func (b *WarpBridge) SupportedRoutes() [][2]int { return b.routes }
-func (b *WarpBridge) SupportedTokens(src, _ int) []string {
-	return b.tokens[src]
-}
-
-func (b *WarpBridge) QuoteBridge(_ context.Context, req BridgeQuoteRequest) (*BridgeQuote, error) {
-	if !bridgeSupportsRoute(b.routes, req.SourceChain, req.DestChain) {
-		return nil, nil
-	}
-	amountIn, ok := new(big.Int).SetString(req.Amount, 10)
-	if !ok || amountIn.Sign() <= 0 {
-		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
-	}
-	fee := new(big.Int).Mul(amountIn, big.NewInt(int64(b.feeBPS)))
-	fee.Div(fee, big.NewInt(10000))
-	amountOut := new(big.Int).Sub(amountIn, fee)
-	return &BridgeQuote{
-		Bridge: BridgeWarp, AmountOut: amountOut.String(),
-		Fee: fee.String(), GasEstimate: "100000",
-		Duration: 2 * time.Second,
-	}, nil
+	return &WarpBridge{&percentageFeeBridge{
+		bridgeType: BridgeWarp, routes: cfg.Routes, tokens: cfg.Tokens,
+		feeBPS: feeBPS, gasEstimate: "100000", duration: 2 * time.Second,
+	}}
 }
 
 // --- Teleport Bridge (EIP-712 + MPC Oracles) ---
-// Cross-L1 bridge for Ethereum↔Lux, Base↔Lux via precompile 0x6010.
+// Cross-L1 bridge for Ethereum<>Lux, Base<>Lux via precompile 0x6010.
 
 const TeleportPrecompile = "0x0000000000000000000000000000000000006010"
 
-type TeleportBridge struct {
-	routes [][2]int
-	tokens map[int][]string
-	feeBPS int
-}
+type TeleportBridge struct{ *percentageFeeBridge }
 
 type TeleportBridgeConfig struct {
 	Routes [][2]int
@@ -79,42 +84,17 @@ func NewTeleportBridge(cfg TeleportBridgeConfig) *TeleportBridge {
 	if feeBPS == 0 {
 		feeBPS = 15
 	}
-	return &TeleportBridge{routes: cfg.Routes, tokens: cfg.Tokens, feeBPS: feeBPS}
-}
-
-func (b *TeleportBridge) BridgeType() BridgeType   { return BridgeTeleport }
-func (b *TeleportBridge) SupportedRoutes() [][2]int { return b.routes }
-func (b *TeleportBridge) SupportedTokens(src, _ int) []string {
-	return b.tokens[src]
-}
-
-func (b *TeleportBridge) QuoteBridge(_ context.Context, req BridgeQuoteRequest) (*BridgeQuote, error) {
-	if !bridgeSupportsRoute(b.routes, req.SourceChain, req.DestChain) {
-		return nil, nil
-	}
-	amountIn, ok := new(big.Int).SetString(req.Amount, 10)
-	if !ok || amountIn.Sign() <= 0 {
-		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
-	}
-	fee := new(big.Int).Mul(amountIn, big.NewInt(int64(b.feeBPS)))
-	fee.Div(fee, big.NewInt(10000))
-	amountOut := new(big.Int).Sub(amountIn, fee)
-	return &BridgeQuote{
-		Bridge: BridgeTeleport, AmountOut: amountOut.String(),
-		Fee: fee.String(), GasEstimate: "200000",
-		Duration: 15 * time.Minute,
-	}, nil
+	return &TeleportBridge{&percentageFeeBridge{
+		bridgeType: BridgeTeleport, routes: cfg.Routes, tokens: cfg.Tokens,
+		feeBPS: feeBPS, gasEstimate: "200000", duration: 15 * time.Minute,
+	}}
 }
 
 // --- CCTP Bridge (Circle USDC) ---
 // Domains: Ethereum=0, Base=6, Arbitrum=3, Optimism=2, Polygon=7.
 // USDC only, no bridge fee (gas only).
 
-type CCTPBridge struct {
-	routes [][2]int
-	tokens map[int][]string
-	feeBPS int
-}
+type CCTPBridge struct{ *percentageFeeBridge }
 
 type CCTPBridgeConfig struct {
 	Routes [][2]int
@@ -123,31 +103,10 @@ type CCTPBridgeConfig struct {
 }
 
 func NewCCTPBridge(cfg CCTPBridgeConfig) *CCTPBridge {
-	return &CCTPBridge{routes: cfg.Routes, tokens: cfg.Tokens, feeBPS: cfg.FeeBPS}
-}
-
-func (b *CCTPBridge) BridgeType() BridgeType   { return BridgeCCTP }
-func (b *CCTPBridge) SupportedRoutes() [][2]int { return b.routes }
-func (b *CCTPBridge) SupportedTokens(src, _ int) []string {
-	return b.tokens[src]
-}
-
-func (b *CCTPBridge) QuoteBridge(_ context.Context, req BridgeQuoteRequest) (*BridgeQuote, error) {
-	if !bridgeSupportsRoute(b.routes, req.SourceChain, req.DestChain) {
-		return nil, nil
-	}
-	amountIn, ok := new(big.Int).SetString(req.Amount, 10)
-	if !ok || amountIn.Sign() <= 0 {
-		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
-	}
-	fee := new(big.Int).Mul(amountIn, big.NewInt(int64(b.feeBPS)))
-	fee.Div(fee, big.NewInt(10000))
-	amountOut := new(big.Int).Sub(amountIn, fee)
-	return &BridgeQuote{
-		Bridge: BridgeCCTP, AmountOut: amountOut.String(),
-		Fee: fee.String(), GasEstimate: "65000",
-		Duration: 20 * time.Minute,
-	}, nil
+	return &CCTPBridge{&percentageFeeBridge{
+		bridgeType: BridgeCCTP, routes: cfg.Routes, tokens: cfg.Tokens,
+		feeBPS: cfg.FeeBPS, gasEstimate: "65000", duration: 20 * time.Minute,
+	}}
 }
 
 // --- Lux Bridge (Precompiles 0x0440-0x0445) ---
@@ -160,11 +119,7 @@ const (
 	LuxBridgeVerifier = "0x0000000000000000000000000000000000000442"
 )
 
-type LuxBridgeVenue struct {
-	routes [][2]int
-	tokens map[int][]string
-	feeBPS int
-}
+type LuxBridgeVenue struct{ *percentageFeeBridge }
 
 type LuxBridgeConfig struct {
 	Routes [][2]int
@@ -177,31 +132,10 @@ func NewLuxBridge(cfg LuxBridgeConfig) *LuxBridgeVenue {
 	if feeBPS == 0 {
 		feeBPS = 10
 	}
-	return &LuxBridgeVenue{routes: cfg.Routes, tokens: cfg.Tokens, feeBPS: feeBPS}
-}
-
-func (b *LuxBridgeVenue) BridgeType() BridgeType   { return BridgeLux }
-func (b *LuxBridgeVenue) SupportedRoutes() [][2]int { return b.routes }
-func (b *LuxBridgeVenue) SupportedTokens(src, _ int) []string {
-	return b.tokens[src]
-}
-
-func (b *LuxBridgeVenue) QuoteBridge(_ context.Context, req BridgeQuoteRequest) (*BridgeQuote, error) {
-	if !bridgeSupportsRoute(b.routes, req.SourceChain, req.DestChain) {
-		return nil, nil
-	}
-	amountIn, ok := new(big.Int).SetString(req.Amount, 10)
-	if !ok || amountIn.Sign() <= 0 {
-		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
-	}
-	fee := new(big.Int).Mul(amountIn, big.NewInt(int64(b.feeBPS)))
-	fee.Div(fee, big.NewInt(10000))
-	amountOut := new(big.Int).Sub(amountIn, fee)
-	return &BridgeQuote{
-		Bridge: BridgeLux, AmountOut: amountOut.String(),
-		Fee: fee.String(), GasEstimate: "150000",
-		Duration: 5 * time.Minute,
-	}, nil
+	return &LuxBridgeVenue{&percentageFeeBridge{
+		bridgeType: BridgeLux, routes: cfg.Routes, tokens: cfg.Tokens,
+		feeBPS: feeBPS, gasEstimate: "150000", duration: 5 * time.Minute,
+	}}
 }
 
 // --- Shared ---
