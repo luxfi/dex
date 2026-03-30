@@ -7,9 +7,56 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
+
+// SymbolRegistry maps token-pair addresses to broker trading symbols.
+// It is safe for concurrent use.
+type SymbolRegistry struct {
+	mu sync.RWMutex
+	m  map[string]string
+}
+
+// NewSymbolRegistry creates an empty symbol registry.
+func NewSymbolRegistry() *SymbolRegistry {
+	return &SymbolRegistry{m: make(map[string]string)}
+}
+
+// Register maps a token pair to a broker symbol (e.g. "BTC-USD").
+// Addresses are lowercased for case-insensitive lookup.
+func (r *SymbolRegistry) Register(tokenIn, tokenOut, symbol string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.m[strings.ToLower(tokenIn)+":"+strings.ToLower(tokenOut)] = symbol
+}
+
+// Lookup returns the broker symbol for a token pair, checking both directions.
+// Address comparison is case-insensitive (EVM addresses are hex, case does not matter).
+func (r *SymbolRegistry) Lookup(tokenIn, tokenOut string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	inLower, outLower := strings.ToLower(tokenIn), strings.ToLower(tokenOut)
+	if sym, ok := r.m[inLower+":"+outLower]; ok {
+		return sym, true
+	}
+	if sym, ok := r.m[outLower+":"+inLower]; ok {
+		return sym, true
+	}
+	return "", false
+}
+
+// Delete removes a token pair mapping. Used in tests for cleanup.
+func (r *SymbolRegistry) Delete(tokenIn, tokenOut string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.m, strings.ToLower(tokenIn)+":"+strings.ToLower(tokenOut))
+}
+
+// DefaultRegistry is the package-level registry used when venues are
+// constructed without an explicit registry. Retained for backward compat.
+var DefaultRegistry = NewSymbolRegistry()
 
 // BrokerHTTPVenue queries the Lux Broker REST API for off-chain CEX quotes.
 // The broker federates across 16 providers: Alpaca, IBKR, Binance, Kraken,
@@ -20,12 +67,14 @@ type BrokerHTTPVenue struct {
 	provider   string
 	apiKey     string
 	httpClient *http.Client
+	registry   *SymbolRegistry
 }
 
 type BrokerHTTPConfig struct {
 	BrokerURL string
 	Provider  string
 	APIKey    string
+	Registry  *SymbolRegistry
 }
 
 func NewBrokerHTTPVenue(cfg BrokerHTTPConfig) *BrokerHTTPVenue {
@@ -33,10 +82,15 @@ func NewBrokerHTTPVenue(cfg BrokerHTTPConfig) *BrokerHTTPVenue {
 	if name == "" {
 		name = "broker"
 	}
+	reg := cfg.Registry
+	if reg == nil {
+		reg = DefaultRegistry
+	}
 	return &BrokerHTTPVenue{
 		brokerURL: cfg.BrokerURL,
 		provider:  name,
 		apiKey:    cfg.APIKey,
+		registry:  reg,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -47,8 +101,8 @@ func (v *BrokerHTTPVenue) Name() string      { return v.provider }
 func (v *BrokerHTTPVenue) IsExecutable() bool { return false }
 
 func (v *BrokerHTTPVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {
-	symbol := resolveSymbol(req.TokenIn, req.TokenOut)
-	if symbol == "" {
+	symbol, ok := v.registry.Lookup(req.TokenIn, req.TokenOut)
+	if !ok {
 		return nil, nil
 	}
 
@@ -126,12 +180,18 @@ type BrokerSORVenue struct {
 	brokerURL  string
 	apiKey     string
 	httpClient *http.Client
+	registry   *SymbolRegistry
 }
 
-func NewBrokerSORVenue(brokerURL, apiKey string) *BrokerSORVenue {
+// NewBrokerSORVenue creates a SOR venue. If registry is nil, DefaultRegistry is used.
+func NewBrokerSORVenue(brokerURL, apiKey string, registry *SymbolRegistry) *BrokerSORVenue {
+	if registry == nil {
+		registry = DefaultRegistry
+	}
 	return &BrokerSORVenue{
 		brokerURL: brokerURL,
 		apiKey:    apiKey,
+		registry:  registry,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -142,8 +202,8 @@ func (v *BrokerSORVenue) Name() string      { return "broker_sor" }
 func (v *BrokerSORVenue) IsExecutable() bool { return false }
 
 func (v *BrokerSORVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {
-	symbol := resolveSymbol(req.TokenIn, req.TokenOut)
-	if symbol == "" {
+	symbol, ok := v.registry.Lookup(req.TokenIn, req.TokenOut)
+	if !ok {
 		return nil, nil
 	}
 
@@ -222,31 +282,10 @@ type brokerRouteResponse struct {
 	SpreadBPS float64 `json:"spread_bps"`
 }
 
-// --- Symbol registry ---
-
-var (
-	symbolRegistry   = make(map[string]string)
-	symbolRegistryMu sync.RWMutex
-)
-
-func resolveSymbol(tokenIn, tokenOut string) string {
-	symbolRegistryMu.RLock()
-	defer symbolRegistryMu.RUnlock()
-
-	if sym, ok := symbolRegistry[tokenIn+":"+tokenOut]; ok {
-		return sym
-	}
-	if sym, ok := symbolRegistry[tokenOut+":"+tokenIn]; ok {
-		return sym
-	}
-	return ""
-}
-
-// RegisterSymbol maps a token pair to a broker symbol.
+// RegisterSymbol maps a token pair to a broker symbol on the DefaultRegistry.
+// Convenience wrapper for backward compatibility.
 func RegisterSymbol(tokenIn, tokenOut, symbol string) {
-	symbolRegistryMu.Lock()
-	defer symbolRegistryMu.Unlock()
-	symbolRegistry[tokenIn+":"+tokenOut] = symbol
+	DefaultRegistry.Register(tokenIn, tokenOut, symbol)
 }
 
 func floatToBigInt(f float64, decimals int) *big.Int {

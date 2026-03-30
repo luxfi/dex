@@ -64,7 +64,9 @@ func (c *EVMClient) CallContract(ctx context.Context, to string, data []byte) ([
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	// 64 KiB is enough for any eth_call response (quotes, balances, allowances).
+	// If a response exceeds this, the RPC endpoint is misbehaving.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
 		return nil, fmt.Errorf("read rpc response: %w", err)
 	}
