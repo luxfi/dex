@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strconv"
 	"sync"
 )
 
@@ -18,13 +19,15 @@ const (
 
 // ArbOpportunity describes a detected arbitrage opportunity.
 type ArbOpportunity struct {
-	Type        ArbType   `json:"type"`
-	Path        []ArbStep `json:"path"`
-	ProfitBPS   int       `json:"profitBps"`
-	Confidence  float64   `json:"confidence"`
-	GasCost     string    `json:"gasCost"`
-	NetProfit   string    `json:"netProfit"`
-	InputAmount string    `json:"inputAmount"`
+	Type      ArbType   `json:"type"`
+	Path      []ArbStep `json:"path"`
+	ProfitBPS int       `json:"profitBps"`
+	// ProfitScore: normalized profit indicator. 0.0 = break-even, 0.5 = 50 bps, 1.0 = 100+ bps.
+	// NOT a probability — purely a function of spread.
+	ProfitScore float64 `json:"profitScore"`
+	GasCost     string  `json:"gasCost"`
+	NetProfit   string  `json:"netProfit"`
+	InputAmount string  `json:"inputAmount"`
 }
 
 // ArbStep is one leg of an arbitrage path.
@@ -89,6 +92,11 @@ func (s *ArbScanner) ScanTriangular(ctx context.Context, chainID int, tokens []s
 		wg   sync.WaitGroup
 	)
 
+	// Semaphore limits concurrent goroutines to prevent resource exhaustion.
+	// With 20 tokens max the permutation count is 6,840 — sem of 64 keeps
+	// it bounded while still parallelizing across CPU cores.
+	sem := make(chan struct{}, 64)
+
 	for i := 0; i < len(tokens); i++ {
 		for j := 0; j < len(tokens); j++ {
 			if j == i {
@@ -100,8 +108,10 @@ func (s *ArbScanner) ScanTriangular(ctx context.Context, chainID int, tokens []s
 				}
 				wg.Add(1)
 				a, b, c := tokens[i], tokens[j], tokens[k]
+				sem <- struct{}{} // acquire
 				go func() {
 					defer wg.Done()
+					defer func() { <-sem }() // release
 					opp := s.evaluateTriangle(ctx, chain, a, b, c, inputAmount, amount)
 					if opp != nil && opp.ProfitBPS >= s.minProfitBPS {
 						mu.Lock()
@@ -147,10 +157,12 @@ func (s *ArbScanner) evaluateTriangle(ctx context.Context, chain *Chain, tokenA,
 	profitBPS := new(big.Int).Mul(profit, big.NewInt(10000))
 	profitBPS.Div(profitBPS, amount)
 
-	confidence := float64(profitBPS.Int64()) / 100.0
-	if confidence > 1.0 {
-		confidence = 1.0
+	profitScore := float64(profitBPS.Int64()) / 100.0
+	if profitScore > 1.0 {
+		profitScore = 1.0
 	}
+
+	gasCost := sumVenueGas([]*VenueQuote{leg1, leg2, leg3})
 
 	return &ArbOpportunity{
 		Type: ArbTriangular,
@@ -160,8 +172,8 @@ func (s *ArbScanner) evaluateTriangle(ctx context.Context, chain *Chain, tokenA,
 			{ChainID: chain.ChainID, TokenIn: tokenC, TokenOut: tokenA, Venue: leg3.Venue, AmountIn: leg2.AmountOut, AmountOut: leg3.AmountOut},
 		},
 		ProfitBPS:   int(profitBPS.Int64()),
-		Confidence:  confidence,
-		GasCost:     "450000",
+		ProfitScore: profitScore,
+		GasCost:     strconv.Itoa(gasCost),
 		NetProfit:   profit.String(),
 		InputAmount: inputAmount,
 	}
@@ -228,6 +240,13 @@ func (s *ArbScanner) ScanCrossChain(ctx context.Context, baseToken, quoteToken s
 				continue
 			}
 
+			profitScore := float64(spreadBPS.Int64()) / 100.0
+			if profitScore > 1.0 {
+				profitScore = 1.0
+			}
+
+			gasCost := sumVenueGas([]*VenueQuote{buyChain.quote, sellChain.quote})
+
 			opps = append(opps, ArbOpportunity{
 				Type: ArbCrossChain,
 				Path: []ArbStep{
@@ -235,10 +254,10 @@ func (s *ArbScanner) ScanCrossChain(ctx context.Context, baseToken, quoteToken s
 					{ChainID: sellChain.chainID, TokenIn: baseToken, TokenOut: quoteToken, Venue: sellChain.quote.Venue, AmountIn: inputAmount, AmountOut: sellOut.String()},
 				},
 				ProfitBPS:   int(spreadBPS.Int64()),
+				ProfitScore: profitScore,
 				NetProfit:   spread.String(),
 				InputAmount: inputAmount,
-				GasCost:     "500000",
-				Confidence:  0.7,
+				GasCost:     strconv.Itoa(gasCost),
 			})
 		}
 	}
@@ -247,6 +266,20 @@ func (s *ArbScanner) ScanCrossChain(ctx context.Context, baseToken, quoteToken s
 		return opps[i].ProfitBPS > opps[j].ProfitBPS
 	})
 	return opps, nil
+}
+
+// sumVenueGas sums the GasEstimate fields from venue quotes.
+// Falls back to 450000 if the total is zero (e.g. off-chain venues report "0").
+func sumVenueGas(quotes []*VenueQuote) int {
+	total := 0
+	for _, q := range quotes {
+		g, _ := strconv.Atoi(q.GasEstimate)
+		total += g
+	}
+	if total == 0 {
+		total = 450000
+	}
+	return total
 }
 
 func bestQuoteOnChain(ctx context.Context, chain *Chain, tokenIn, tokenOut, amount string) *VenueQuote {
