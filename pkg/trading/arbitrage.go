@@ -228,7 +228,6 @@ func (s *ArbScanner) ScanCrossChain(ctx context.Context, baseToken, quoteToken s
 				continue
 			}
 
-			_ = amount // validated above
 			opps = append(opps, ArbOpportunity{
 				Type: ArbCrossChain,
 				Path: []ArbStep{
