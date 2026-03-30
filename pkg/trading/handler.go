@@ -14,6 +14,7 @@ import (
 
 // handleQuote queries all venues and returns the best price.
 func (api *TradingAPI) handleQuote(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req QuoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -78,6 +79,7 @@ func (api *TradingAPI) handleQuote(w http.ResponseWriter, r *http.Request) {
 // handleSwap converts a quote into unsigned transaction calldata.
 // Dispatches to the correct router based on the venue type in the route.
 func (api *TradingAPI) handleSwap(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req SwapRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -103,9 +105,12 @@ func (api *TradingAPI) handleSwap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from := route[0].TokenIn
+	from := req.Swapper
 	if from == "" {
-		writeError(w, http.StatusBadRequest, "cannot determine swapper address from route")
+		from = route[0].TokenIn
+	}
+	if from == "" {
+		writeError(w, http.StatusBadRequest, "cannot determine swapper address; set swapper field")
 		return
 	}
 
@@ -242,7 +247,8 @@ func (api *TradingAPI) buildV3Calldata(route []Hop, amountIn, amountOut *big.Int
 	}
 
 	hop := route[0]
-	fee := uint32(hop.Fee * 100) // convert bps to V3 fee units (hundredths of bip)
+	// Hop.Fee is in BPS. V3 fee = BPS * 100 (hundredths of bip). 30 BPS -> 3000.
+	fee := uint32(hop.Fee * 100)
 	if fee == 0 {
 		fee = 3000 // default V3 fee tier
 	}
@@ -255,6 +261,7 @@ func (api *TradingAPI) buildV3Calldata(route []Hop, amountIn, amountOut *big.Int
 
 // handleOrder submits an order for off-chain routing via Broker.
 func (api *TradingAPI) handleOrder(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req OrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -286,6 +293,7 @@ func (api *TradingAPI) handleOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Stub — returns mock pending status. Production: query EVMClient for tx receipt.
 func (api *TradingAPI) handleSwapStatus(w http.ResponseWriter, r *http.Request) {
 	txHash := r.PathValue("txHash")
 	if txHash == "" {
@@ -317,7 +325,9 @@ func (api *TradingAPI) handleOrderStatus(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, order)
 }
 
+// Stub — always approves. Production: call ERC20.allowance(owner, permit2) via EVMClient.
 func (api *TradingAPI) handleCheckApproval(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req ApprovalCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -335,7 +345,6 @@ func (api *TradingAPI) handleCheckApproval(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "unsupported chainId")
 		return
 	}
-	// Production: call EVM to check allowance(owner, permit2).
 	writeJSON(w, http.StatusOK, ApprovalCheckResponse{
 		Approved: true, Allowance: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
 		NeedsApproval: false,
