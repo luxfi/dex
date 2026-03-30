@@ -90,6 +90,7 @@ type QuoteRequest struct {
 // SwapRequest is the input for POST /v1/trade/swap.
 type SwapRequest struct {
 	Quote     *Quote `json:"quote"`
+	Swapper   string `json:"swapper"`
 	Signature string `json:"signature,omitempty"`
 }
 
@@ -279,7 +280,8 @@ func (api *TradingAPI) RegisterRoutes(mux *http.ServeMux) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	// Error ignored: response is already partially written at this point.
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
