@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -1261,6 +1260,3 @@ func TestIsPositiveDecimal(t *testing.T) {
 		}
 	}
 }
-
-// Suppress unused import warning.
-var _ = fmt.Sprintf

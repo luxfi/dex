@@ -4,15 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strings"
 )
 
-// Lux DEX precompile addresses.
-const (
-	NativePoolManager = "0x0000000000000000000000000000000000009010"
-	NativeSwapRouter  = "0x0000000000000000000000000000000000009012"
-	NativeCLOB        = "0x0000000000000000000000000000000000009020"
-)
+// NativeCLOB is the V4 CLOB precompile address.
+const NativeCLOB = "0x0000000000000000000000000000000000009020"
 
 // quoteExactInputSingle(address,address,uint256,uint24)
 var selectorNativeQuote = mustDecodeHex("30d07f21")
@@ -74,7 +69,7 @@ func (v *NativeDEXVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuo
 	calldata = append(calldata, padUint256(amountIn)...)
 	calldata = append(calldata, padUint256(big.NewInt(int64(v.feeBPS)))...)
 
-	result, err := v.evm.CallContract(ctx, NativePoolManager, calldata)
+	result, err := v.evm.CallContract(ctx, PoolManagerAddress, calldata)
 	if err != nil {
 		return nil, nil
 	}
@@ -144,7 +139,3 @@ func (v *NativeDEXVenue) queryCLOB(ctx context.Context, req QuoteRequest, amount
 	}, nil
 }
 
-// isNativeVenue checks if a venue name maps to the Lux native DEX.
-func isNativeVenue(name string) bool {
-	return name == VenueTypeV4Native || strings.HasSuffix(name, "_clob") || strings.HasPrefix(name, "lux_")
-}
