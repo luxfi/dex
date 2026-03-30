@@ -1974,3 +1974,129 @@ go test -v ./pkg/gateway/...
    - Multi-hop route optimization
    - Split routes across providers
    - MEV-protected execution
+
+## Trading API Package (`pkg/trading/`)
+
+### Overview
+
+Unified swap routing across on-chain V4 pools and off-chain broker venues. This package implements a Uniswap-style Trading API that aggregates liquidity from multiple sources — native DEX precompiles, V2/V3 AMM routers, and the Lux Broker REST API — returning the best-price quote to the caller. All endpoints are `net/http` handlers mounted on a standard `http.ServeMux` (Go 1.22+ method routing).
+
+The package is consumed directly by the Liquidity ATS (`~/work/liquidity/ats/`) for its exchange trading API.
+
+### Constructor
+
+```go
+api := trading.New(trading.Config{
+    ChainIDs:       []int{8675311},
+    DefaultChainID: 8675311,
+    VenueRouters:   map[string]string{
+        "uniswap_v2": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+        "uniswap_v3": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+    },
+}, v4Venue, brokerVenue)
+
+api.RegisterRoutes(mux)
+```
+
+**Config fields:**
+- `ChainIDs` — accepted chain IDs; requests for other chains are rejected with 400.
+- `DefaultChainID` — used when building swap transactions if the request omits chain.
+- `VenueRouters` — maps venue type names to on-chain router addresses. V4 native routes always target `LXRouterAddress` (`0x0000000000000000000000000000000000009012`).
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/trade/quote` | Best-price quote across all registered venues. Queries venues in parallel, returns the highest `amountOut`. |
+| `POST` | `/v1/trade/swap` | Builds an unsigned EVM transaction from a previously obtained quote. Returns `{to, from, data, value, chainId, gasLimit}`. |
+| `POST` | `/v1/trade/order` | Submits an order for off-chain routing (market or limit, buy or sell). Returns `orderId` + status. |
+| `GET` | `/v1/trade/swaps/{txHash}` | On-chain swap status lookup by transaction hash. |
+| `GET` | `/v1/trade/orders/{orderId}` | Order status (pending, filled, partially filled, cancelled). |
+| `POST` | `/v1/trade/check-approval` | Checks ERC-20 token approval for Permit2/router spend. Returns `{approved, allowance, needsApproval}`. |
+| `GET` | `/v1/trade/venues` | Lists all registered venues with name, status, type, and executability. |
+
+### Venue Interface
+
+```go
+type Venue interface {
+    Name() string
+    Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error)
+    IsExecutable() bool
+}
+```
+
+A `Venue` is any liquidity source. `IsExecutable() == true` means the venue can produce on-chain calldata (swap tx). `IsExecutable() == false` means it provides quote-only off-chain prices (broker).
+
+**Implementations:**
+
+| Venue | File | Type | Description |
+|-------|------|------|-------------|
+| `V4Venue` | `venue.go` | Mock | Constant-product AMM with configurable pools. For testing. |
+| `BrokerVenue` | `venue.go` | Mock | Mock off-chain broker with configurable price/spread. For testing. |
+| `NativeDEXVenue` | `venue_native.go` | Production | Queries Lux V4 precompiles via `eth_call`. Calls PoolManager (0x9010) for AMM quotes, optionally CLOB (0x9020). |
+| `UniswapV2Venue` | `venue_v2.go` | Production | Calls `getAmountsOut` on any V2-compatible Router02 (Uniswap V2, SushiSwap, PancakeSwap V2, TraderJoe). |
+| `UniswapV3Venue` | `venue_v3.go` | Production | Calls `quoteExactInputSingle` on any V3-compatible Quoter (Uniswap V3, PancakeSwap V3). Configurable fee tier (100/500/3000/10000). |
+| `BrokerHTTPVenue` | `venue_broker.go` | Production | Queries Lux Broker REST API (`/v1/market/{provider}/{symbol}/snapshot`). Federates across 16 providers (Alpaca, IBKR, Binance, Kraken, etc). Not executable — quote only. |
+| `BrokerSORVenue` | `venue_broker.go` | Production | Uses broker Smart Order Router (`/v1/route/{symbol}`) for best-execution across all 16 providers. Not executable — quote only. |
+
+### Chain IDs
+
+| Network | Chain ID |
+|---------|----------|
+| Devnet | 8675311 |
+| Testnet | 8675310 |
+| Mainnet | 8675309 |
+
+### Calldata Encoding (`calldata.go`)
+
+ABI encoding for the LXRouter precompile at `0x0000000000000000000000000000000000009012`. Pure Go, zero external dependencies.
+
+**Function selectors:**
+
+| Function | Selector | Parameters |
+|----------|----------|------------|
+| `ExactInputSingle` | `04e45aaf` | tokenIn, tokenOut, amountIn, amountOutMin, sqrtPriceLimitX96, poolId |
+| `ExactInput` | `b858183f` | path (packed addresses), amountIn, amountOutMin, sqrtPriceLimitX96 |
+| `ExactOutputSingle` | `5023b4df` | tokenIn, tokenOut, amountOut, amountInMax, sqrtPriceLimitX96, poolId |
+| `ExactOutput` | `09b81346` | path (packed addresses), amountOut, amountInMax, sqrtPriceLimitX96 |
+
+**Decoding helpers:** `DecodeCalldata` (split selector + params), `DecodeUint256`, `DecodeAddress` — used by tests and downstream consumers to verify built calldata.
+
+### Usage by ATS
+
+The Liquidity ATS imports the trading package and wires it with venue instances:
+
+```go
+import "github.com/luxfi/dex/pkg/trading"
+
+v4 := trading.NewNativeDEXVenue(trading.NativeDEXConfig{
+    RPCURL: "https://rpc.next.satschel.com",
+    UseCLOB: true,
+})
+
+broker := trading.NewBrokerHTTPVenue(trading.BrokerHTTPConfig{
+    BrokerURL: "http://broker:8090",
+    Provider:  "alpaca",
+    APIKey:    os.Getenv("ALPACA_API_KEY"),
+})
+
+api := trading.New(trading.Config{
+    ChainIDs:       []int{8675311},
+    DefaultChainID: 8675311,
+}, v4, broker)
+
+api.RegisterRoutes(mux)
+```
+
+### Routing Constants
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `RoutingV4Native` | `V4_NATIVE` | Best quote from native DEX precompile |
+| `RoutingBroker` | `BROKER` | Best quote from off-chain broker |
+| `RoutingMultiHop` | `MULTI_HOP` | Multi-hop path through multiple pools |
+| `RoutingSplit` | `SPLIT` | Split across multiple venues |
+
+### Test Coverage
+
+43 tests in `trading_test.go` + 29 tests in `crosschain_test.go` (72 total) covering all endpoints, calldata encoding/decoding, constant-product math, config validation, venue selection, and cross-chain routing.
