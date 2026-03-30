@@ -177,7 +177,7 @@ func padUint256(n *big.Int) []byte {
 	if n != nil && n.Sign() > 0 {
 		b := n.Bytes()
 		if len(b) > 32 {
-			b = b[:32]
+			panic("uint256 overflow")
 		}
 		copy(word[32-len(b):], b)
 	}

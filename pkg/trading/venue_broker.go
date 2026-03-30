@@ -77,7 +77,7 @@ func (v *BrokerHTTPVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQu
 		return nil, nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, nil
 	}
@@ -167,7 +167,7 @@ func (v *BrokerSORVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuo
 		return nil, nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, nil
 	}
