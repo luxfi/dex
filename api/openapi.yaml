@@ -1,28 +1,708 @@
 openapi: 3.0.3
 info:
-  title: LX Trading API
-  version: 1.0.0
+  title: Lux DEX Trading API
+  description: |
+    Unified swap routing across on-chain pools (V2, V3, V4/Native DEX) and
+    off-chain venues (Broker providers: Alpaca, Binance, Kraken, Coinbase, etc).
+  version: 2.0.0
+  contact:
+    name: Lux Industries
+    url: https://lux.exchange
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://dex.lux.network
+    description: Production
+
 paths:
-  /orders:
+  /v1/trade/quote:
     post:
-      summary: Submit order
+      operationId: getQuote
+      summary: Get best-price quote across all venues
+      description: |
+        Returns the best execution path for a swap across all registered
+        liquidity venues (V4 native pools, Uniswap V2/V3, SushiSwap,
+        PancakeSwap, TraderJoe, and Broker providers). Supports exact-input
+        and exact-output quoting with optional venue preference.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                symbol:
-                  type: string
-                side:
-                  type: string
-                  enum: [buy, sell]
-                quantity:
-                  type: number
-                price:
-                  type: number
+              $ref: '#/components/schemas/QuoteRequest'
       responses:
-        '201':
-          description: Order created
+        '200':
+          description: Quote returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteResponse'
+        '400':
+          description: Invalid request (bad address, missing field, unsupported chain)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/swap:
+    post:
+      operationId: buildSwap
+      summary: Build unsigned transaction for on-chain execution
+      description: |
+        Accepts a quote (from /v1/trade/quote) and returns an unsigned EVM
+        transaction with calldata targeting the appropriate router contract.
+        V4 native routes target the LXRouter precompile (0x9012). Other venue
+        routes target the router address from the deployment config.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwapRequest'
+      responses:
+        '200':
+          description: Unsigned transaction returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapResponse'
+        '400':
+          description: Invalid request or quote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/order:
+    post:
+      operationId: submitOrder
+      summary: Submit an off-chain order
+      description: |
+        Submits a market or limit order for off-chain routing through Broker
+        providers. Orders are tracked in-memory and can be queried via
+        GET /v1/trade/orders/{orderId}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/swaps/{txHash}:
+    get:
+      operationId: getSwapStatus
+      summary: Get on-chain swap status by transaction hash
+      description: |
+        Returns the current status of an on-chain swap transaction including
+        block number and gas used once confirmed.
+      parameters:
+        - name: txHash
+          in: path
+          required: true
+          description: EVM transaction hash (0x-prefixed, 66 characters)
+          schema:
+            type: string
+            pattern: '^0x[0-9a-fA-F]{64}$'
+            example: '0xabc123def456789012345678901234567890123456789012345678901234abcd'
+      responses:
+        '200':
+          description: Swap status returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapStatusResponse'
+        '400':
+          description: Invalid transaction hash
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/orders/{orderId}:
+    get:
+      operationId: getOrderStatus
+      summary: Get order status by order ID
+      description: |
+        Returns the current status of a previously submitted order including
+        fill quantity, average price, and routing venue.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Order identifier returned by POST /v1/trade/order
+          schema:
+            type: string
+            example: 'ord_abc123'
+      responses:
+        '200':
+          description: Order status returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/check-approval:
+    post:
+      operationId: checkApproval
+      summary: Check token approval for Permit2
+      description: |
+        Checks whether the given owner has sufficient ERC-20 allowance for
+        the router to execute a swap. Returns current allowance and whether
+        an approval transaction is needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalCheckRequest'
+      responses:
+        '200':
+          description: Approval status returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalCheckResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/trade/venues:
+    get:
+      operationId: listVenues
+      summary: List available liquidity venues and their status
+      description: |
+        Returns all registered liquidity venues with their current health
+        status and whether they can execute swaps.
+      responses:
+        '200':
+          description: Venue list returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VenueInfo'
+
+components:
+  schemas:
+    # --- Request schemas ---
+
+    QuoteRequest:
+      type: object
+      required:
+        - tokenIn
+        - tokenOut
+        - amount
+        - type
+        - chainId
+        - swapper
+        - slippageTolerance
+      properties:
+        tokenIn:
+          type: string
+          description: Input token contract address (0x-prefixed, 42 chars). Use 0x0000...0000 for native token.
+          example: '0x0000000000000000000000000000000000000000'
+        tokenOut:
+          type: string
+          description: Output token contract address (0x-prefixed, 42 chars)
+          example: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        amount:
+          type: string
+          description: Token amount in smallest unit (wei). Must be a positive integer.
+          example: '1000000000000000000'
+        type:
+          type: string
+          description: Quote type — exact input amount or exact output amount
+          enum:
+            - EXACT_INPUT
+            - EXACT_OUTPUT
+        chainId:
+          type: integer
+          description: EVM chain ID
+          example: 96369
+        swapper:
+          type: string
+          description: Address of the account executing the swap (0x-prefixed, 42 chars)
+          example: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+        slippageTolerance:
+          type: number
+          format: double
+          description: Maximum acceptable slippage as a decimal (e.g. 0.005 for 0.5%)
+          example: 0.005
+        deadline:
+          type: integer
+          format: int64
+          description: Unix timestamp after which the quote expires. Optional.
+          example: 1711756800
+        preferredVenue:
+          type: string
+          description: Preferred venue to route through. Optional — omit for best-price routing.
+          enum:
+            - v4_native
+            - uniswap_v2
+            - uniswap_v3
+            - sushiswap
+            - pancakeswap_v2
+            - pancakeswap_v3
+            - traderjoe
+
+    SwapRequest:
+      type: object
+      required:
+        - quote
+      properties:
+        quote:
+          $ref: '#/components/schemas/Quote'
+        signature:
+          type: string
+          description: Optional Permit2 signature for gasless approval
+
+    OrderRequest:
+      type: object
+      required:
+        - tokenIn
+        - tokenOut
+        - amount
+        - type
+        - side
+        - orderType
+        - swapper
+        - chainId
+        - slippageTolerance
+      properties:
+        tokenIn:
+          type: string
+          description: Input token contract address (0x-prefixed, 42 chars)
+          example: '0x0000000000000000000000000000000000000000'
+        tokenOut:
+          type: string
+          description: Output token contract address (0x-prefixed, 42 chars)
+          example: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        amount:
+          type: string
+          description: Token amount in smallest unit (wei). Must be a positive integer.
+          example: '1000000000000000000'
+        type:
+          type: string
+          description: Quote type — exact input or exact output
+          enum:
+            - EXACT_INPUT
+            - EXACT_OUTPUT
+        side:
+          type: string
+          description: Order side
+          enum:
+            - BUY
+            - SELL
+        orderType:
+          type: string
+          description: Order type — market executes immediately, limit waits for target price
+          enum:
+            - MARKET
+            - LIMIT
+        price:
+          type: string
+          description: Limit price. Required when orderType is LIMIT, ignored for MARKET.
+          example: '2500.00'
+        swapper:
+          type: string
+          description: Address of the account placing the order (0x-prefixed, 42 chars)
+          example: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+        chainId:
+          type: integer
+          description: EVM chain ID
+          example: 96369
+        slippageTolerance:
+          type: number
+          format: double
+          description: Maximum acceptable slippage as a decimal (e.g. 0.005 for 0.5%)
+          example: 0.005
+
+    ApprovalCheckRequest:
+      type: object
+      required:
+        - tokenAddress
+        - owner
+        - chainId
+      properties:
+        tokenAddress:
+          type: string
+          description: ERC-20 token contract address (0x-prefixed, 42 chars)
+          example: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        owner:
+          type: string
+          description: Token owner address (0x-prefixed, 42 chars)
+          example: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+        chainId:
+          type: integer
+          description: EVM chain ID
+          example: 96369
+
+    # --- Response schemas ---
+
+    QuoteResponse:
+      type: object
+      required:
+        - quote
+        - routing
+        - venues
+        - gasEstimate
+        - priceImpact
+        - permitData
+      properties:
+        quote:
+          $ref: '#/components/schemas/Quote'
+        routing:
+          type: string
+          description: Routing strategy selected for this quote
+          enum:
+            - V4_NATIVE
+            - BROKER
+            - MULTI_HOP
+            - SPLIT
+        venues:
+          type: array
+          description: Individual quotes from each venue for transparency
+          items:
+            $ref: '#/components/schemas/VenueQuote'
+        gasEstimate:
+          type: string
+          description: Estimated gas cost in wei
+          example: '150000'
+        priceImpact:
+          type: string
+          description: Price impact as a decimal string (e.g. "0.003" for 0.3%)
+          example: '0.003'
+        permitData:
+          description: Permit2 data for gasless approval, or null if not applicable
+          nullable: true
+
+    Quote:
+      type: object
+      required:
+        - amountIn
+        - amountOut
+        - route
+        - fee
+        - executionPrice
+      properties:
+        amountIn:
+          type: string
+          description: Total input amount in smallest unit (wei)
+          example: '1000000000000000000'
+        amountOut:
+          type: string
+          description: Total output amount in smallest unit (wei)
+          example: '2500000000'
+        route:
+          type: array
+          description: Ordered list of hops in the swap route
+          items:
+            $ref: '#/components/schemas/Hop'
+        fee:
+          type: string
+          description: Total fee in smallest unit of input token
+          example: '3000000000000000'
+        executionPrice:
+          type: string
+          description: Effective execution price (output per input)
+          example: '2500.00'
+
+    Hop:
+      type: object
+      required:
+        - tokenIn
+        - tokenOut
+        - venue
+        - fee
+        - amountIn
+        - amountOut
+      properties:
+        tokenIn:
+          type: string
+          description: Input token address for this hop
+          example: '0x0000000000000000000000000000000000000000'
+        tokenOut:
+          type: string
+          description: Output token address for this hop
+          example: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        venue:
+          type: string
+          description: Liquidity venue used for this hop
+          enum:
+            - v4_native
+            - uniswap_v2
+            - uniswap_v3
+            - sushiswap
+            - pancakeswap_v2
+            - pancakeswap_v3
+            - traderjoe
+        fee:
+          type: integer
+          description: Pool fee tier in basis points (e.g. 3000 = 0.3%)
+          example: 3000
+        poolId:
+          type: string
+          description: On-chain pool identifier. Present for on-chain venues, absent for broker routes.
+          example: '0x1234abcd'
+        amountIn:
+          type: string
+          description: Input amount for this hop in smallest unit
+          example: '1000000000000000000'
+        amountOut:
+          type: string
+          description: Output amount for this hop in smallest unit
+          example: '2500000000'
+
+    VenueQuote:
+      type: object
+      required:
+        - venue
+        - amountOut
+        - fee
+        - gasEstimate
+        - executable
+      properties:
+        venue:
+          type: string
+          description: Venue name
+          example: 'v4_native'
+        amountOut:
+          type: string
+          description: Output amount quoted by this venue
+          example: '2500000000'
+        fee:
+          type: string
+          description: Fee charged by this venue in smallest unit
+          example: '3000000000000000'
+        gasEstimate:
+          type: string
+          description: Estimated gas for executing via this venue
+          example: '150000'
+        executable:
+          type: boolean
+          description: Whether this venue can currently execute the swap
+          example: true
+
+    SwapResponse:
+      type: object
+      required:
+        - swap
+      properties:
+        swap:
+          $ref: '#/components/schemas/TransactionRequest'
+
+    TransactionRequest:
+      type: object
+      required:
+        - to
+        - from
+        - data
+        - value
+        - chainId
+        - gasLimit
+      properties:
+        to:
+          type: string
+          description: Target contract address (router)
+          example: '0x0000000000000000000000000000000000009012'
+        from:
+          type: string
+          description: Sender address (swapper)
+          example: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+        data:
+          type: string
+          description: ABI-encoded calldata (0x-prefixed hex)
+          example: '0xabcdef...'
+        value:
+          type: string
+          description: Native token value to send (wei). "0" for ERC-20 only swaps.
+          example: '1000000000000000000'
+        chainId:
+          type: integer
+          description: EVM chain ID for the transaction
+          example: 96369
+        gasLimit:
+          type: string
+          description: Gas limit for the transaction
+          example: '300000'
+
+    OrderResponse:
+      type: object
+      required:
+        - orderId
+        - status
+        - createdAt
+        - route
+      properties:
+        orderId:
+          type: string
+          description: Unique order identifier
+          example: 'ord_abc123'
+        status:
+          type: string
+          description: Current order status
+          enum:
+            - PENDING
+            - FILLED
+            - PARTIALLY_FILLED
+            - CANCELLED
+        createdAt:
+          type: string
+          description: ISO 8601 timestamp of order creation
+          example: '2026-03-29T12:00:00Z'
+        route:
+          type: string
+          description: Routing strategy used for the order
+          example: 'BROKER'
+
+    SwapStatusResponse:
+      type: object
+      required:
+        - txHash
+        - status
+      properties:
+        txHash:
+          type: string
+          description: Transaction hash
+          example: '0xabc123def456789012345678901234567890123456789012345678901234abcd'
+        status:
+          type: string
+          description: Transaction status
+          example: 'confirmed'
+        blockNumber:
+          type: string
+          description: Block number where the transaction was included. Present only when confirmed.
+          example: '12345678'
+        gasUsed:
+          type: string
+          description: Actual gas consumed. Present only when confirmed.
+          example: '145000'
+
+    OrderStatusResponse:
+      type: object
+      required:
+        - orderId
+        - status
+        - filledQty
+        - avgPrice
+        - createdAt
+        - updatedAt
+        - venue
+      properties:
+        orderId:
+          type: string
+          description: Unique order identifier
+          example: 'ord_abc123'
+        status:
+          type: string
+          description: Current order status
+          enum:
+            - PENDING
+            - FILLED
+            - PARTIALLY_FILLED
+            - CANCELLED
+        filledQty:
+          type: string
+          description: Quantity filled so far in smallest unit
+          example: '500000000'
+        avgPrice:
+          type: string
+          description: Volume-weighted average fill price
+          example: '2501.50'
+        createdAt:
+          type: string
+          description: ISO 8601 timestamp of order creation
+          example: '2026-03-29T12:00:00Z'
+        updatedAt:
+          type: string
+          description: ISO 8601 timestamp of last status change
+          example: '2026-03-29T12:00:05Z'
+        venue:
+          type: string
+          description: Venue that handled the order
+          example: 'v4_native'
+
+    ApprovalCheckResponse:
+      type: object
+      required:
+        - approved
+        - allowance
+        - needsApproval
+      properties:
+        approved:
+          type: boolean
+          description: Whether the current allowance is sufficient
+          example: false
+        allowance:
+          type: string
+          description: Current ERC-20 allowance in smallest unit
+          example: '0'
+        needsApproval:
+          type: boolean
+          description: Whether an approval transaction must be sent before swapping
+          example: true
+
+    VenueInfo:
+      type: object
+      required:
+        - name
+        - status
+        - executable
+        - type
+      properties:
+        name:
+          type: string
+          description: Venue identifier
+          example: 'v4_native'
+        status:
+          type: string
+          description: Current health status
+          example: 'healthy'
+        executable:
+          type: boolean
+          description: Whether the venue can currently execute swaps
+          example: true
+        type:
+          type: string
+          description: Venue type classification
+          enum:
+            - v4_native
+            - uniswap_v2
+            - uniswap_v3
+            - sushiswap
+            - pancakeswap_v2
+            - pancakeswap_v3
+            - traderjoe
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: 'invalid tokenIn address'
