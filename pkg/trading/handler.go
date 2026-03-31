@@ -327,6 +327,13 @@ func (api *TradingAPI) handleSwapStatus(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid transaction hash format")
 		return
 	}
+	// Validate hex characters after 0x prefix.
+	for _, c := range txHash[2:] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			writeError(w, http.StatusBadRequest, "invalid transaction hash: non-hex characters")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, SwapStatusResponse{TxHash: txHash, Status: "pending"})
 }
 
