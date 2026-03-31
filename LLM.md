@@ -1987,8 +1987,8 @@ The package is consumed directly by the Liquidity ATS (`~/work/liquidity/ats/`) 
 
 ```go
 api := trading.New(trading.Config{
-    ChainIDs:       []int{1000003},
-    DefaultChainID: 1000003,
+    ChainIDs:       []int{96369},
+    DefaultChainID: 96369,
     VenueRouters:   map[string]string{
         "uniswap_v2": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
         "uniswap_v3": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
@@ -2043,9 +2043,9 @@ A `Venue` is any liquidity source. `IsExecutable() == true` means the venue can 
 
 | Network | Chain ID |
 |---------|----------|
-| Devnet | 1000003 |
-| Testnet | 1000002 |
-| Mainnet | 1000001 |
+| Devnet | 96369 |
+| Testnet | 96368 |
+| Mainnet | 96369 |
 
 ### Calldata Encoding (`calldata.go`)
 
@@ -2081,8 +2081,8 @@ broker := trading.NewBrokerHTTPVenue(trading.BrokerHTTPConfig{
 })
 
 api := trading.New(trading.Config{
-    ChainIDs:       []int{1000003},
-    DefaultChainID: 1000003,
+    ChainIDs:       []int{96369},
+    DefaultChainID: 96369,
 }, v4, broker)
 
 api.RegisterRoutes(mux)
