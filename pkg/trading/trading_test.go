@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -1254,5 +1255,184 @@ func TestIsPositiveDecimal(t *testing.T) {
 		if got := isPositiveDecimal(tt.s); got != tt.want {
 			t.Errorf("isPositiveDecimal(%q) = %v, want %v", tt.s, got, tt.want)
 		}
+	}
+}
+
+// ==========================================================================
+// Security-specific tests
+// ==========================================================================
+
+func TestSecurityAmountOverflow(t *testing.T) {
+	// 79-digit number exceeds uint256 max (78 digits). Should be rejected.
+	huge := strings.Repeat("9", 79)
+	if isPositiveDecimal(huge) {
+		t.Error("79-digit amount should be rejected by isPositiveDecimal")
+	}
+	// 78-digit number is valid (could be up to uint256 max).
+	max78 := strings.Repeat("9", 78)
+	if !isPositiveDecimal(max78) {
+		t.Error("78-digit amount should be accepted by isPositiveDecimal")
+	}
+}
+
+func TestSecurityUint256Validation(t *testing.T) {
+	// Value larger than 2^256-1 should fail validation.
+	overflow := new(big.Int).Add(maxUint256, big.NewInt(1))
+	if err := validateUint256(overflow); err == nil {
+		t.Error("expected error for value > max uint256")
+	}
+
+	// Negative value should fail.
+	neg := big.NewInt(-1)
+	if err := validateUint256(neg); err == nil {
+		t.Error("expected error for negative value")
+	}
+
+	// Max uint256 should pass.
+	if err := validateUint256(maxUint256); err != nil {
+		t.Errorf("max uint256 should pass validation: %v", err)
+	}
+
+	// Nil should pass (treated as zero).
+	if err := validateUint256(nil); err != nil {
+		t.Errorf("nil should pass validation: %v", err)
+	}
+}
+
+func TestSecurityPadUint256NoPanic(t *testing.T) {
+	// Ensure padUint256 does not panic on overflow — saturates instead.
+	overflow := new(big.Int).Add(maxUint256, big.NewInt(1))
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("padUint256 panicked on overflow: %v", r)
+		}
+	}()
+	result := padUint256(overflow)
+	if len(result) != 32 {
+		t.Errorf("expected 32 bytes, got %d", len(result))
+	}
+}
+
+func TestSecuritySwapRequiresValidSwapper(t *testing.T) {
+	_, mux := newTestAPI()
+
+	// Swap with empty swapper should be rejected.
+	quote := &Quote{
+		AmountIn: "1000", AmountOut: "500",
+		Route: []Hop{{TokenIn: testLUSD, TokenOut: testWBTC, Venue: "v4_native",
+			Fee: 30, AmountIn: "1000", AmountOut: "500"}},
+		Fee: "30", ExecutionPrice: "500",
+	}
+
+	w := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: ""})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("empty swapper: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: "not-an-address"})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid swapper: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSecurityCaseInsensitiveSameTokenReject(t *testing.T) {
+	_, mux := newTestAPI()
+
+	// Same address with different casing should still be rejected.
+	lower := strings.ToLower(testLUSD)
+	upper := strings.ToUpper(strings.TrimPrefix(testLUSD, "0x"))
+	upper = "0x" + upper
+
+	w := postJSON(mux, "/v1/trade/quote", QuoteRequest{
+		TokenIn: lower, TokenOut: upper, Amount: "1000",
+		Type: QuoteTypeExactInput, ChainID: testChainID, Swapper: testUser,
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("case-insensitive same token: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSecurityArbScanTokenLimit(t *testing.T) {
+	router := buildTestChainGraph()
+	scanner := NewArbScanner(router, 1)
+	api := New(Config{ChainIDs: []int{ChainBase, ChainEthereum}, DefaultChainID: ChainBase})
+	api.SetCrossChainRouter(router)
+	api.SetArbScanner(scanner)
+	mux := http.NewServeMux()
+	api.RegisterCrossChainRoutes(mux)
+
+	// 21 tokens should be rejected (max is 20).
+	tokens := make([]string, 21)
+	for i := range tokens {
+		tokens[i] = "0x" + strings.Repeat(hex.EncodeToString([]byte{byte(i + 1)}), 20)
+	}
+	// Fix: ensure each token is exactly 42 chars (0x + 40 hex).
+	for i := range tokens {
+		addr := fmt.Sprintf("0x%040x", i+1)
+		tokens[i] = addr
+	}
+
+	w := postJSON(mux, "/v1/trade/arbitrage/scan", ArbScanRequest{
+		Tokens:      tokens,
+		ChainIDs:    []int{ChainBase},
+		InputAmount: "1000000000000000000",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("too many tokens: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSecuritySwapStatusNonHexHash(t *testing.T) {
+	_, mux := newTestAPI()
+	// Valid length (66) but contains non-hex characters.
+	badHash := "0x" + strings.Repeat("zz", 32)
+	w := getPath(mux, "/v1/trade/swaps/"+badHash)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("non-hex hash: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSecurityInfoLeakSwapError(t *testing.T) {
+	// Swap with a V2 venue but no router configured should return a generic error.
+	cfg := Config{ChainIDs: []int{testChainID}, DefaultChainID: testChainID}
+	api := New(cfg, NewV4Venue(""))
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+
+	quote := &Quote{
+		AmountIn: "1000", AmountOut: "500",
+		Route: []Hop{{TokenIn: testLUSD, TokenOut: testWBTC, Venue: "uniswap_v2",
+			Fee: 30, AmountIn: "1000", AmountOut: "500"}},
+	}
+
+	w := postJSON(mux, "/v1/trade/swap", SwapRequest{Quote: quote, Swapper: testUser})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	errMsg := resp["error"]
+
+	// Error should NOT contain internal details like router addresses or venue config.
+	if strings.Contains(errMsg, "uniswap_v2") || strings.Contains(errMsg, "router") {
+		t.Errorf("error message leaks internal details: %q", errMsg)
+	}
+}
+
+func TestSecuritySymbolRegistryCaseInsensitive(t *testing.T) {
+	reg := NewSymbolRegistry()
+	reg.Register("0xAAAA", "0xBBBB", "ETH-USD")
+
+	// Lookup with different casing should work.
+	sym, ok := reg.Lookup("0xaaaa", "0xbbbb")
+	if !ok || sym != "ETH-USD" {
+		t.Errorf("case-insensitive lookup failed: ok=%v, sym=%q", ok, sym)
+	}
+
+	// Reverse direction with mixed case.
+	sym, ok = reg.Lookup("0xBBBB", "0xAAAA")
+	if !ok || sym != "ETH-USD" {
+		t.Errorf("reverse case-insensitive lookup failed: ok=%v, sym=%q", ok, sym)
 	}
 }
