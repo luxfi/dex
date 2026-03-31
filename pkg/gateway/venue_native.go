@@ -33,7 +33,7 @@ type NativeDEXVenue struct {
 
 // NativeDEXConfig configures a NativeDEXVenue.
 type NativeDEXConfig struct {
-	// RPCURL is the Lux EVM RPC endpoint (e.g. https://rpc.dev.satschel.com/rpc).
+	// RPCURL is the Lux EVM RPC endpoint (e.g. https://rpc.dev.lux.network/rpc).
 	RPCURL string
 	// FeeBPS is the default fee tier in basis points for pool discovery.
 	// Common values: 1 (0.01%), 5 (0.05%), 30 (0.30%), 100 (1%).
