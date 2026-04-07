@@ -285,7 +285,6 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 	// Auto-assign ID if not set
 	if order.ID == 0 {
 		order.ID = atomic.AddUint64(&ob.LastOrderID, 1)
-		ob.LastOrderID = order.ID // Keep synchronized
 	}
 
 	// Set status if not set
