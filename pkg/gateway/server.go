@@ -105,7 +105,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // registerRoutes registers all HTTP routes
 func (s *Server) registerRoutes() {
 	// Health and info — /healthz is the platform standard, /health kept for backwards compat
-	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/providers", s.handleProviders)
 
