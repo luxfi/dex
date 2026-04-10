@@ -115,7 +115,6 @@ func (n *DAGNode) initHTTPServer() {
 			"node":   n.config.ID,
 		})
 	}
-	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/healthz", healthHandler)
 
 	// Submit order
