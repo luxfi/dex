@@ -107,14 +107,16 @@ func (n *DAGNode) initZMQSockets() error {
 func (n *DAGNode) initHTTPServer() {
 	mux := http.NewServeMux()
 
-	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check — /healthz is the platform standard, /health kept for backwards compat
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status": "healthy",
 			"node":   n.config.ID,
 		})
-	})
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
 
 	// Submit order
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
