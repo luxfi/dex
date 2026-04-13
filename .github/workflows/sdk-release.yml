@@ -114,10 +114,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: lux-amd64
             goos: linux
             goarch: amd64
-          - os: ubuntu-latest
+          - os: lux-amd64
             goos: linux
             goarch: arm64
           - os: macos-13
@@ -126,7 +126,7 @@ jobs:
           - os: macos-14
             goos: darwin
             goarch: arm64
-          - os: ubuntu-latest
+          - os: lux-amd64
             goos: windows
             goarch: amd64
 
@@ -240,9 +240,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: lux-amd64
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: lux-amd64
             target: aarch64-unknown-linux-gnu
           - os: macos-13
             target: x86_64-apple-darwin
@@ -304,7 +304,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: lux-amd64
             platform: linux-amd64
           - os: macos-13
             platform: darwin-amd64
