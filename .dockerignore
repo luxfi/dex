@@ -1,0 +1,54 @@
+# VCS / CI
+.git
+.github/
+
+# Editor / IDE
+.claude/
+.vscode/
+.idea/
+
+# Build artifacts
+bin/
+dex-server-linux
+gateway
+lx.test
+lxd
+price.test
+
+# Not needed for server binary
+client/
+contracts/
+docker/
+docs/
+ext/
+helm/
+k8s/
+monitoring/
+paper/
+proto/
+scripts/
+sdk/
+test/
+tests/
+
+# Alternate Dockerfiles (not needed in context)
+Dockerfile.devnet
+Dockerfile.gateway
+Dockerfile.minimal
+
+# Test / coverage
+testdata/
+*_test.go
+coverage/
+
+# Vendored deps (go mod download in Dockerfile)
+vendor/
+
+# Config / secrets
+.env*
+compose.yml
+Makefile
+
+# Docs
+*.md
+LICENSE
