@@ -1,0 +1,26 @@
+name: Docker
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, dev, test]
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ghcr.io/luxfi/dex
+            dockerfile: Dockerfile
+          - image: ghcr.io/luxfi/dex-gateway
+            dockerfile: Dockerfile.gateway
+    uses: hanzoai/.github/.github/workflows/docker-build.yml@main
+    with:
+      image: ${{ matrix.image }}
+      dockerfile: ${{ matrix.dockerfile }}
+    secrets: inherit
