@@ -11,7 +11,7 @@ require (
 	github.com/luxfi/database v1.17.44
 	github.com/luxfi/geth v1.16.85
 	github.com/luxfi/log v1.4.1
-	github.com/luxfi/rpc v1.0.0
+	github.com/luxfi/rpc v1.0.2
 	github.com/nats-io/nats.go v1.48.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
