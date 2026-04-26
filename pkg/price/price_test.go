@@ -124,6 +124,7 @@ func TestAChainSource(t *testing.T) {
 }
 
 func TestCChainSource(t *testing.T) {
+	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
 	if err := src.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
