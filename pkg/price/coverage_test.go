@@ -1,9 +1,23 @@
 package price
 
 import (
+	"net"
 	"testing"
 	"time"
 )
+
+// requireLuxd skips the test when no luxd C-chain RPC is reachable on the
+// expected localhost port. The CChainSource tests below talk to a real
+// node; gating prevents CI machines without a node from reporting these
+// as failures.
+func requireLuxd(t *testing.T) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", "localhost:9650", 100*time.Millisecond)
+	if err != nil {
+		t.Skipf("luxd not reachable on localhost:9650 (%v); skipping integration test", err)
+	}
+	conn.Close()
+}
 
 // =============================================================================
 // OrderbookSource Tests
@@ -654,6 +668,7 @@ func TestCChainSourceStartIdempotent(t *testing.T) {
 }
 
 func TestCChainSourcePrices(t *testing.T) {
+	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
 	src.Start()
 	defer src.Close()
@@ -671,6 +686,7 @@ func TestCChainSourcePrices(t *testing.T) {
 }
 
 func TestCChainSourceStalePrice(t *testing.T) {
+	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
 	src.Start()
 	time.Sleep(200 * time.Millisecond)
