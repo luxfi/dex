@@ -93,44 +93,11 @@ func BenchmarkClearinghouseMargin(b *testing.B) {
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "positions/sec")
 }
 
-// BenchmarkFPGAAcceleration tests FPGA processing pipeline
-func BenchmarkFPGAAcceleration(b *testing.B) {
-	if testing.Short() {
-		b.Skip("Skipping FPGA acceleration test in short mode")
-	}
-
-	fpga := NewFPGAAccelerator()
-	if fpga == nil {
-		b.Skip("FPGA accelerator not available")
-	}
-
-	// Create test orders
-	orders := make([]*Order, 1000)
-	for i := range orders {
-		orders[i] = &Order{
-			ID:        uint64(i),
-			Type:      Limit,
-			Side:      Side(i % 2),
-			Price:     100 + float64(i%20-10)/10,
-			Size:      100,
-			User:      "fpga_test",
-			Timestamp: time.Now(),
-		}
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		order := orders[i%len(orders)]
-		fpga.ProcessOrder(order)
-	}
-
-	metrics := fpga.GetMetrics()
-	if metrics.LatencyNanos > 0 {
-		b.ReportMetric(float64(metrics.LatencyNanos), "ns/order")
-	}
-}
+// LP-108: BenchmarkFPGAAcceleration removed alongside the FPGAAccelerator
+// stub (archive/lp108-2026-05-04/fpga_accelerator.go). The accelerator was
+// interface-only — no bitstream, no driver, no real FPGA dispatch. Real
+// FPGA matching belongs as a separate project with a working hardware
+// driver and a parity test against the CPU path.
 
 // BenchmarkConsensusFinalization tests block finalization speed
 func BenchmarkConsensusFinalization(b *testing.B) {

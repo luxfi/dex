@@ -111,122 +111,12 @@ func TestAlpacaSourceGetLatestPrice(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Tests for FPGAAccelerator - Coverage target: 20% -> 80%+
-// ============================================================================
-
-func TestFPGAAcceleratorProcessOrder(t *testing.T) {
-	t.Run("DisabledFPGA", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = false
-
-		order := &Order{
-			ID:    1,
-			Type:  Limit,
-			Side:  Buy,
-			Price: 100.0,
-			Size:  10.0,
-		}
-
-		result, err := fa.ProcessOrder(order)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "FPGA not available")
-		assert.Nil(t, result)
-	})
-
-	// Note: Enabled FPGA tests require actual hardware.
-	// The simulation's receiveDMA returns nil which causes decode to fail.
-	// Testing encoding path which doesn't require hardware response.
-	t.Run("EnabledFPGA_EncodePath", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = true
-		fa.initializePipelines()
-		fa.startDMAChannels() // Initialize DMA channels
-
-		order := &Order{
-			ID:    1,
-			Type:  Limit,
-			Side:  Buy,
-			Price: 100.0,
-			Size:  10.0,
-		}
-
-		// Test encoding which doesn't depend on hardware response
-		encoded := fa.encodeOrder(order)
-		assert.Len(t, encoded, 64)
-	})
-}
-
-func TestFPGAAcceleratorProcessOrderBatch(t *testing.T) {
-	t.Run("DisabledFPGA", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = false
-
-		orders := []*Order{
-			{ID: 1, Type: Limit, Side: Buy, Price: 100.0, Size: 10.0},
-			{ID: 2, Type: Limit, Side: Sell, Price: 101.0, Size: 5.0},
-		}
-
-		results, err := fa.ProcessOrderBatch(orders)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "FPGA not available")
-		assert.Nil(t, results)
-	})
-
-	// Empty batch doesn't call ProcessOrder, so it works
-	t.Run("EnabledFPGA_EmptyBatch", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = true
-		fa.initializePipelines()
-		fa.startDMAChannels() // Initialize DMA channels
-
-		orders := []*Order{}
-
-		results, err := fa.ProcessOrderBatch(orders)
-		assert.NoError(t, err)
-		assert.Empty(t, results)
-	})
-
-	// Test DMA channel selection and init separately
-	t.Run("DMAChannelInit", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.startDMAChannels()
-		assert.Len(t, fa.dmaChannels, 4)
-		channel := fa.selectDMAChannel()
-		assert.NotNil(t, channel)
-	})
-}
-
-func TestFPGAAcceleratorWireToWireLatency(t *testing.T) {
-	t.Run("DisabledFPGA", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = false
-
-		packet := []byte{0x01, 0x02, 0x03, 0x04}
-
-		response, latency, err := fa.WireToWireLatency(packet)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "FPGA not available")
-		assert.Nil(t, response)
-		assert.Equal(t, uint64(0), latency)
-	})
-
-	t.Run("EnabledFPGA_ValidPacket", func(t *testing.T) {
-		fa := NewFPGAAccelerator()
-		fa.enabled = true
-		fa.initializePipelines()
-		fa.startDMAChannels() // Initialize DMA channels
-
-		// Create a simple packet
-		packet := make([]byte, 64)
-
-		response, latency, err := fa.WireToWireLatency(packet)
-		// The response depends on implementation
-		_ = response
-		_ = latency
-		_ = err
-	})
-}
+// LP-108: TestFPGAAcceleratorProcessOrder/Batch/WireToWireLatency removed
+// alongside the FPGAAccelerator stub
+// (archive/lp108-2026-05-04/fpga_accelerator.go). The accelerator was
+// interface-only; the "tests" exercised the stub itself, not any real
+// hardware. Real FPGA matching belongs as a separate project with a
+// working hardware driver and a parity test against the CPU path.
 
 // ============================================================================
 // Tests for FundingEngine.runFundingLoop - Coverage target: 38.5% -> 80%+
