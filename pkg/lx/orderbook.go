@@ -4,8 +4,6 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
-	"os"
-	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -41,19 +39,25 @@ const (
 	OrderFlagSTP        OrderFlags = 1 << 2 // Self-trade prevention
 )
 
-// Backend represents the available acceleration backend
+// Backend represents the available acceleration backend.
+//
+// LP-108: collapsed to BackendGo only. The BackendCUDA / BackendMLX /
+// BackendCGO branches in detectBestBackend used to set the enum but
+// no code path branched on it — the matching engine ran the Go path
+// regardless. The MLX engine (archive/lp108-2026-05-04/mlx_engine.go)
+// was a time.Sleep stub. Removed to avoid pretending acceleration
+// exists when it doesn't.
+//
+// When real GPU/FPGA matching ships, add the variants back AND wire
+// them through the match path with a parity test against BackendGo.
 type Backend int
 
 const (
 	BackendGo Backend = iota
-	BackendCGO
-	BackendMLX
-	BackendCUDA
 )
 
 var (
-	// AutoDetect the best available backend at runtime
-	currentBackend Backend
+	currentBackend = BackendGo
 
 	// Global memory pools for zero-allocation
 	orderPool = &sync.Pool{
@@ -67,33 +71,6 @@ var (
 		},
 	}
 )
-
-func init() {
-	// Automatically detect and use the best available backend
-	currentBackend = detectBestBackend()
-}
-
-func detectBestBackend() Backend {
-	// Check for CUDA support
-	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
-		return BackendCUDA
-	}
-
-	// Check for MLX support (Apple Silicon)
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		if _, err := os.Stat("/System/Library/Frameworks/Metal.framework"); err == nil {
-			return BackendMLX
-		}
-	}
-
-	// Check if CGO is enabled
-	if os.Getenv("CGO_ENABLED") == "1" {
-		return BackendCGO
-	}
-
-	// Default to pure Go
-	return BackendGo
-}
 
 // Errors
 var (
