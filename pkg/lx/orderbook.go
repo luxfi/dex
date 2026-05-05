@@ -54,6 +54,11 @@ type Backend int
 
 const (
 	BackendGo Backend = iota
+	// BackendGPU opt-in flag for the GPU acceleration paths in
+	// signed_order_gpu.go (batch ecrecover) and amm_gpu.go (batch xy=k).
+	// The matching engine still runs the Go path; selecting BackendGPU
+	// only affects calls that explicitly check `currentBackend`.
+	BackendGPU
 )
 
 var (
