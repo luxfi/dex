@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/luxfi/crypto/mldsa"
+	"github.com/luxfi/pq"
 )
 
 // signingMaterial produces a fresh ML-DSA-65 keypair, the derived
@@ -69,7 +70,7 @@ func TestVerifyOrderPQ_AddressMismatch(t *testing.T) {
 	pqOrder := SignedOrderPQ{
 		Order:  order,
 		Sig:    sig,
-		PubKey: attackerPub,                                 // attacker substitutes their pubkey
+		PubKey: attackerPub,                                    // attacker substitutes their pubkey
 		Sender: AddressFromMLDSAPubKey(priv.PublicKey.Bytes()), // but keeps original sender
 	}
 	if err := VerifyOrderPQ(&pqOrder); err == nil {
@@ -94,42 +95,46 @@ func TestVerifyOrderPQ_WrongPubkeySize(t *testing.T) {
 	}
 }
 
-func TestVerifyOrderForProfile_StrictPQRefusesClassical(t *testing.T) {
-	order := SignedOrder{Order: Order{ID: 1}, Sig: [65]byte{}}
-	err := VerifyOrderForProfile(ProfileStrictPQ, &order)
-	if !errors.Is(err, ErrClassicalAuthForbidden) {
-		t.Fatalf("VerifyOrderForProfile(StrictPQ, *SignedOrder) = %v, want ErrClassicalAuthForbidden", err)
+// TestSignedOrderPQ_HasPQEvidence pins the PQEvidencer contract:
+// non-nil PubKey + Sig ⇒ has evidence. The strict-PQ gate
+// dispatches on this single predicate.
+func TestSignedOrderPQ_HasPQEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		o    *SignedOrderPQ
+		want bool
+	}{
+		{"nil", nil, false},
+		{"empty", &SignedOrderPQ{}, false},
+		{"pub-only", &SignedOrderPQ{PubKey: []byte{0x01}}, false},
+		{"sig-only", &SignedOrderPQ{Sig: []byte{0x01}}, false},
+		{"both", &SignedOrderPQ{PubKey: []byte{0x01}, Sig: []byte{0x02}}, true},
+	} {
+		got := tc.o.HasPQEvidence()
+		if got != tc.want {
+			t.Errorf("%s: HasPQEvidence() = %t, want %t", tc.name, got, tc.want)
+		}
 	}
 }
 
-func TestVerifyOrderForProfile_StrictPQAcceptsPQ(t *testing.T) {
+// TestVerifyOrderForMode_StrictPQRefusesClassical pins the canonical
+// strict-PQ gate: a classical SignedOrder routed through the
+// pq.Mode gate returns pq.ErrClassicalAuthForbidden.
+func TestVerifyOrderForMode_StrictPQRefusesClassical(t *testing.T) {
+	order := SignedOrder{Order: Order{ID: 1}, Sig: [65]byte{}}
+	err := VerifyOrderForMode(pq.ModeStrictPQ, &order)
+	if !errors.Is(err, pq.ErrClassicalAuthForbidden) {
+		t.Fatalf("VerifyOrderForMode(StrictPQ, *SignedOrder) = %v, want pq.ErrClassicalAuthForbidden", err)
+	}
+}
+
+func TestVerifyOrderForMode_StrictPQAcceptsPQ(t *testing.T) {
 	priv, pubBytes, order := signingMaterial(t)
 	sender := AddressFromMLDSAPubKey(pubBytes)
 	hash, _ := (&SignedOrder{Order: order, Sender: sender}).SigningHash()
 	sig, _ := priv.Sign(rand.Reader, hash[:], nil)
 	pqOrder := SignedOrderPQ{Order: order, Sig: sig, PubKey: pubBytes, Sender: sender}
-	if err := VerifyOrderForProfile(ProfileStrictPQ, &pqOrder); err != nil {
-		t.Fatalf("VerifyOrderForProfile(StrictPQ, *SignedOrderPQ): %v", err)
-	}
-}
-
-func TestSecurityProfile_String(t *testing.T) {
-	if ProfileClassical.String() != "classical" {
-		t.Errorf("ProfileClassical.String() = %q", ProfileClassical.String())
-	}
-	if ProfileStrictPQ.String() != "strict-pq" {
-		t.Errorf("ProfileStrictPQ.String() = %q", ProfileStrictPQ.String())
-	}
-	if !ProfileStrictPQ.IsPostQuantum() {
-		t.Error("ProfileStrictPQ.IsPostQuantum() = false")
-	}
-	if ProfileClassical.IsPostQuantum() {
-		t.Error("ProfileClassical.IsPostQuantum() = true")
-	}
-	if ProfileFromPQFlag(true) != ProfileStrictPQ {
-		t.Error("ProfileFromPQFlag(true) != StrictPQ")
-	}
-	if ProfileFromPQFlag(false) != ProfileClassical {
-		t.Error("ProfileFromPQFlag(false) != Classical")
+	if err := VerifyOrderForMode(pq.ModeStrictPQ, &pqOrder); err != nil {
+		t.Fatalf("VerifyOrderForMode(StrictPQ, *SignedOrderPQ): %v", err)
 	}
 }
