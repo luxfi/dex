@@ -11,6 +11,7 @@ require (
 	github.com/luxfi/database v1.17.44
 	github.com/luxfi/geth v1.16.85
 	github.com/luxfi/log v1.4.1
+	github.com/luxfi/pq v1.0.3
 	github.com/luxfi/rpc v1.0.2
 	github.com/nats-io/nats.go v1.48.0
 	github.com/shopspring/decimal v1.4.0
@@ -23,6 +24,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20260311194731-d5b7577c683d // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/consensys/gnark-crypto v0.20.1 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect

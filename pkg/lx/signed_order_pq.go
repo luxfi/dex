@@ -10,6 +10,7 @@ import (
 
 	"github.com/luxfi/crypto/mldsa"
 	"github.com/luxfi/geth/common"
+	"github.com/luxfi/pq"
 )
 
 // SignedOrderPQ is the strict-PQ variant of SignedOrder. The
@@ -51,6 +52,14 @@ type SignedOrderPQ struct {
 	Sender common.Address
 }
 
+// HasPQEvidence implements pq.PQEvidencer. A non-nil order with a
+// non-empty PubKey + Sig counts as PQ evidence; pq.ValidateMode
+// then dispatches to VerifyOrderPQ via the verify closure, which
+// actually checks the ML-DSA-65 signature.
+func (o *SignedOrderPQ) HasPQEvidence() bool {
+	return o != nil && len(o.PubKey) > 0 && len(o.Sig) > 0
+}
+
 // AddressFromMLDSAPubKey derives the 20-byte address that the DEX
 // uses as the strict-PQ trader identifier. Single canonical
 // derivation: address = sha256(mldsa-pub-key)[:20]. Distinct from
@@ -63,13 +72,6 @@ func AddressFromMLDSAPubKey(pubKey []byte) common.Address {
 	copy(a[:], h[:20])
 	return a
 }
-
-// ErrClassicalAuthForbidden is returned when a strict-PQ chain is
-// asked to verify a classical (secp256k1) SignedOrder. The error
-// message + name match the EVM precompile refusal so audit
-// pipelines can grep one identifier across all three chain layers.
-var ErrClassicalAuthForbidden = errors.New(
-	"lx/dex: classical authentication forbidden under strict-PQ profile (use SignedOrderPQ with ML-DSA-65)")
 
 // VerifyOrderPQ verifies one ML-DSA-65 signed order. Returns nil
 // iff the signature is valid and the pubkey/sig sizes match the
@@ -131,26 +133,36 @@ func BatchVerifyOrdersPQ(orders []SignedOrderPQ) ([]bool, error) {
 	return out, nil
 }
 
-// VerifyOrderForProfile dispatches between classical and strict-PQ
-// verification based on the active SecurityProfile. This is the
+// VerifyOrderForMode dispatches between classical and strict-PQ
+// verification using the canonical pq.Mode gate. This is the
 // single seam every DEX VM verification path should route through;
-// direct calls to BatchVerifyOrders (classical) bypass the strict-PQ
-// gate and silently accept secp256k1 signatures on a PQ chain.
+// direct calls to BatchVerifyOrders (classical) bypass the
+// strict-PQ gate and silently accept secp256k1 signatures on a PQ
+// chain.
 //
-// The signature accepts an interface so a caller can pass either
-// SignedOrder (classical) or SignedOrderPQ (strict-PQ); the
-// dispatch picks the right verifier and refuses the wrong shape
-// for the active profile.
+// Routing rules:
 //
-//   - profile == ProfileClassical: SignedOrder ok, SignedOrderPQ
-//     also ok (a permissive chain accepts both during a migration).
-//   - profile == ProfileStrictPQ:  SignedOrderPQ ok, SignedOrder
-//     refused with ErrClassicalAuthForbidden.
-func VerifyOrderForProfile(profile SecurityProfile, order any) error {
+//   - ModeClassical:  classical SignedOrder verified via ecrecover;
+//     SignedOrderPQ verified via ML-DSA-65. Both lanes open.
+//   - ModeHybrid:     same dual-lane shape — strict-PQ refusal is
+//     a no-op for classical orders, PQ orders verified normally.
+//   - ModeStrictPQ:   *SignedOrder refused with
+//     pq.ErrClassicalAuthForbidden via the canonical gate; only
+//     *SignedOrderPQ accepted (verified with ML-DSA-65).
+//
+// Strict-PQ refusal of classical orders runs THROUGH
+// pq.ValidateMode so the sentinel matches the rest of the stack
+// (errors.Is(err, pq.ErrClassicalAuthForbidden) works across warp,
+// evm, fhe, zap, dex with a single import).
+func VerifyOrderForMode(mode pq.Mode, order any) error {
 	switch o := order.(type) {
 	case *SignedOrder:
-		if profile.IsPostQuantum() {
-			return ErrClassicalAuthForbidden
+		// nil evidence ⇒ ValidateMode short-circuits to
+		// ErrClassicalAuthForbidden under strict-PQ and returns
+		// nil under classical / hybrid (where classical lanes
+		// remain open).
+		if err := pq.ValidateMode(mode, nil, nil); err != nil {
+			return err
 		}
 		results, err := BatchVerifyOrders([]SignedOrder{*o})
 		if err != nil {
