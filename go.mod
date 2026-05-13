@@ -1,12 +1,12 @@
 module github.com/luxfi/dex
 
-go 1.26.1
+go 1.26.3
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/luxfi/accel v1.0.7
-	github.com/luxfi/crypto v1.17.55
+	github.com/luxfi/crypto v1.19.0
 	github.com/luxfi/czmq/v4 v4.2.2
 	github.com/luxfi/database v1.17.44
 	github.com/luxfi/geth v1.16.85
