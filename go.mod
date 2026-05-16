@@ -10,6 +10,7 @@ require (
 	github.com/luxfi/czmq/v4 v4.2.2
 	github.com/luxfi/database v1.17.44
 	github.com/luxfi/geth v1.16.85
+	github.com/luxfi/license v0.1.0
 	github.com/luxfi/log v1.4.1
 	github.com/luxfi/pq v1.0.3
 	github.com/luxfi/rpc v1.0.2

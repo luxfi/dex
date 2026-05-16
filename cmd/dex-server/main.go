@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/luxfi/dex/pkg/lx"
 	"github.com/nats-io/nats.go"
 )
 
@@ -29,6 +30,11 @@ type DexServer struct {
 }
 
 func main() {
+	// Commercial license gate. Must run before any matching-engine state
+	// is constructed so an unlicensed install fails closed with a clear
+	// stderr message. See pkg/lx/license_gate.go.
+	lx.EnforceMatchingEngineLicense()
+
 	port := flag.Int("port", 8080, "Server port")
 	natsURL := flag.String("nats", nats.DefaultURL, "NATS URL")
 	flag.Parse()
