@@ -1,5 +1,12 @@
 # LX
 
+> **MOVED TO PRIVATE REPO** — Active development of the Lux DEX matching
+> engine has moved to `lux-private/dex` and is now only available under a
+> commercial license. Tagged releases up to `v1.4.1` remain readable in
+> this archived repository for prior `go get` consumers.
+>
+> Commercial license inquiries: licensing@lux.network
+
 [![CI](https://github.com/luxfi/dex/actions/workflows/ci.yml/badge.svg)](https://github.com/luxfi/dex/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/luxfi/dex)](https://github.com/luxfi/dex/releases)
 [![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://go.dev)
