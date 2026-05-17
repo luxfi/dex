@@ -193,6 +193,13 @@ func reconciliationKey(symbol string, side Side, price float64, size float64) st
 }
 
 // SubmitDEXTrade records a DEX trade for reconciliation.
+//
+// When the trade matches a pending counterpart and settlement begins, the
+// returned *CrossVenueTrade is a value-copy snapshot of the merged trade
+// at match time. The live, mutable trade is owned by the background settle
+// goroutine and stays inside the Reconciler — callers must use GetStatus
+// for the current state. Pending (unmatched) submissions return the
+// caller-supplied pointer unchanged for backward compatibility.
 func (r *Reconciler) SubmitDEXTrade(trade *CrossVenueTrade) (*CrossVenueTrade, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -206,9 +213,12 @@ func (r *Reconciler) SubmitDEXTrade(trade *CrossVenueTrade) (*CrossVenueTrade, e
 		delete(r.pendingCEX, key)
 		r.active[merged.ID] = merged
 
+		// Snapshot before handing the live pointer to settle().
+		snapshot := *merged
+
 		// Kick off settlement
 		go r.settle(merged)
-		return merged, nil
+		return &snapshot, nil
 	}
 
 	// No match yet — queue for later
@@ -218,6 +228,8 @@ func (r *Reconciler) SubmitDEXTrade(trade *CrossVenueTrade) (*CrossVenueTrade, e
 }
 
 // SubmitCEXTrade records a CEX trade for reconciliation.
+//
+// See SubmitDEXTrade for the snapshot semantics of the return value.
 func (r *Reconciler) SubmitCEXTrade(trade *CrossVenueTrade) (*CrossVenueTrade, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -236,8 +248,11 @@ func (r *Reconciler) SubmitCEXTrade(trade *CrossVenueTrade) (*CrossVenueTrade, e
 		delete(r.pendingDEX, key)
 		r.active[merged.ID] = merged
 
+		// Snapshot before handing the live pointer to settle().
+		snapshot := *merged
+
 		go r.settle(merged)
-		return merged, nil
+		return &snapshot, nil
 	}
 
 	// No match yet — queue
@@ -306,27 +321,39 @@ func (r *Reconciler) settle(trade *CrossVenueTrade) {
 		err = nil
 	}
 
+	// Mutate internal state under the lock, then invoke user callbacks
+	// outside the lock so foreign code never runs while we hold r.mu.
+	// This avoids lock-ordering surprises if a callback re-enters the
+	// Reconciler, and ensures the callback's own synchronization (if any)
+	// is the source of happens-before for downstream readers.
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
+	var (
+		onFailed  func(*CrossVenueTrade, string)
+		onSettled func(*CrossVenueTrade) error
+		reason    string
+	)
 	if err != nil {
+		reason = err.Error()
 		trade.Status = ReconFailed
-		trade.FailureReason = err.Error()
+		trade.FailureReason = reason
 		delete(r.active, trade.ID)
 		r.failed[trade.ID] = trade
-		if r.onFailed != nil {
-			r.onFailed(trade, err.Error())
-		}
-		return
+		onFailed = r.onFailed
+	} else {
+		now := time.Now()
+		trade.Status = ReconSettled
+		trade.SettledAt = &now
+		delete(r.active, trade.ID)
+		r.completed[trade.ID] = trade
+		onSettled = r.onSettled
 	}
+	r.mu.Unlock()
 
-	now := time.Now()
-	trade.Status = ReconSettled
-	trade.SettledAt = &now
-	delete(r.active, trade.ID)
-	r.completed[trade.ID] = trade
-	if r.onSettled != nil {
-		_ = r.onSettled(trade)
+	if onFailed != nil {
+		onFailed(trade, reason)
+	}
+	if onSettled != nil {
+		_ = onSettled(trade)
 	}
 }
 
