@@ -1,10 +1,12 @@
-// LX Trading Client
+// LX Trading Client.
 //
 // Multi-protocol programmatic trading client for LX.
-// Supports WebSocket and gRPC protocols with unified interface.
+// Default build supports WebSocket only. gRPC support is opt-in via the
+// `grpc` build tag (see grpc.go); without it `-protocol=grpc`, the
+// `ping`/`info` commands, and the `switch grpc` interactive command
+// report that gRPC is not compiled in.
 //
 // Usage:
-//   - As package: import "github.com/luxfi/dex/client/go/lxclient"
 //   - As CLI: ./lx-client [flags] [command]
 //   - Interactive: ./lx-client -i
 package main
@@ -24,13 +26,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
-	pb "github.com/luxfi/dex/pkg/grpc/pb"
 )
 
-// Protocol identifies the transport protocol
+// Protocol identifies the transport protocol.
 type Protocol string
 
 const (
@@ -38,7 +36,7 @@ const (
 	ProtocolGRPC Protocol = "grpc"
 )
 
-// Order represents a trading order
+// Order represents a trading order.
 type Order struct {
 	Symbol string  `json:"symbol"`
 	Side   string  `json:"side"`
@@ -47,7 +45,7 @@ type Order struct {
 	Size   float64 `json:"size"`
 }
 
-// OrderResponse represents order operation response
+// OrderResponse represents order operation response.
 type OrderResponse struct {
 	OrderID uint64 `json:"order_id"`
 	Status  string `json:"status"`
@@ -55,7 +53,7 @@ type OrderResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// Position represents an open position
+// Position represents an open position.
 type Position struct {
 	Symbol     string  `json:"symbol"`
 	Size       float64 `json:"size"`
@@ -64,7 +62,7 @@ type Position struct {
 	PnL        float64 `json:"pnl"`
 }
 
-// Client defines the trading client interface
+// Client defines the trading client interface.
 type Client interface {
 	// Trading operations
 	PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, error)
@@ -80,9 +78,19 @@ type Client interface {
 	Close() error
 }
 
+// grpcSubClient is the subset of *GrpcClient consumed by ClientManager
+// and the CLI. The real implementation lives in grpc.go and is gated by
+// the `grpc` build tag; nogrpc.go wires nil so the field is always
+// addressable.
+type grpcSubClient interface {
+	Client
+	Ping(ctx context.Context) (time.Duration, error)
+	GetNodeInfo(ctx context.Context) (interface{}, error)
+}
+
 // ----- WebSocket Client Implementation -----
 
-// WsMessage represents a WebSocket message
+// WsMessage represents a WebSocket message.
 type WsMessage struct {
 	Type      string                 `json:"type"`
 	Data      map[string]interface{} `json:"data,omitempty"`
@@ -91,7 +99,7 @@ type WsMessage struct {
 	Timestamp int64                  `json:"timestamp,omitempty"`
 }
 
-// WsClient implements Client over WebSocket
+// WsClient implements Client over WebSocket.
 type WsClient struct {
 	conn       *websocket.Conn
 	mu         sync.Mutex
@@ -101,7 +109,7 @@ type WsClient struct {
 	url        string
 }
 
-// NewWsClient creates a WebSocket client
+// NewWsClient creates a WebSocket client.
 func NewWsClient(url string, verbose bool) (*WsClient, error) {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
@@ -186,12 +194,12 @@ func (c *WsClient) waitResponse(reqID string, timeout time.Duration) (*WsMessage
 	}
 }
 
-// Protocol returns the protocol type
+// Protocol returns the protocol type.
 func (c *WsClient) Protocol() Protocol {
 	return ProtocolWS
 }
 
-// PlaceOrder places an order via WebSocket
+// PlaceOrder places an order via WebSocket.
 func (c *WsClient) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, error) {
 	reqID, err := c.send("place_order", map[string]interface{}{
 		"order": order,
@@ -219,7 +227,7 @@ func (c *WsClient) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse
 	return resp, nil
 }
 
-// CancelOrder cancels an order via WebSocket
+// CancelOrder cancels an order via WebSocket.
 func (c *WsClient) CancelOrder(ctx context.Context, orderID uint64) error {
 	reqID, err := c.send("cancel_order", map[string]interface{}{
 		"orderID": orderID,
@@ -239,7 +247,7 @@ func (c *WsClient) CancelOrder(ctx context.Context, orderID uint64) error {
 	return nil
 }
 
-// GetOrders retrieves open orders via WebSocket
+// GetOrders retrieves open orders via WebSocket.
 func (c *WsClient) GetOrders(ctx context.Context) ([]Order, error) {
 	reqID, err := c.send("get_orders", nil)
 	if err != nil {
@@ -255,7 +263,6 @@ func (c *WsClient) GetOrders(ctx context.Context) ([]Order, error) {
 		return nil, fmt.Errorf("get orders failed: %s", msg.Error)
 	}
 
-	// Parse orders from response
 	var orders []Order
 	if ordersData, ok := msg.Data["orders"].([]interface{}); ok {
 		for _, o := range ordersData {
@@ -273,7 +280,7 @@ func (c *WsClient) GetOrders(ctx context.Context) ([]Order, error) {
 	return orders, nil
 }
 
-// GetPositions retrieves positions via WebSocket
+// GetPositions retrieves positions via WebSocket.
 func (c *WsClient) GetPositions(ctx context.Context) ([]Position, error) {
 	reqID, err := c.send("get_positions", nil)
 	if err != nil {
@@ -306,7 +313,7 @@ func (c *WsClient) GetPositions(ctx context.Context) ([]Position, error) {
 	return positions, nil
 }
 
-// Subscribe subscribes to market data via WebSocket
+// Subscribe subscribes to market data via WebSocket.
 func (c *WsClient) Subscribe(ctx context.Context, symbol string) error {
 	_, err := c.send("subscribe", map[string]interface{}{
 		"symbols": []string{symbol},
@@ -314,7 +321,7 @@ func (c *WsClient) Subscribe(ctx context.Context, symbol string) error {
 	return err
 }
 
-// Auth authenticates via WebSocket
+// Auth authenticates via WebSocket.
 func (c *WsClient) Auth(apiKey, apiSecret string) error {
 	reqID, err := c.send("auth", map[string]interface{}{
 		"apiKey":    apiKey,
@@ -335,7 +342,7 @@ func (c *WsClient) Auth(apiKey, apiSecret string) error {
 	return nil
 }
 
-// WaitConnected waits for WebSocket connection confirmation
+// WaitConnected waits for WebSocket connection confirmation.
 func (c *WsClient) WaitConnected(timeout time.Duration) error {
 	select {
 	case msg := <-c.responses:
@@ -348,263 +355,32 @@ func (c *WsClient) WaitConnected(timeout time.Duration) error {
 	}
 }
 
-// Responses returns the response channel for streaming
+// Responses returns the response channel for streaming.
 func (c *WsClient) Responses() <-chan WsMessage {
 	return c.responses
 }
 
-// Close closes the WebSocket connection
+// Close closes the WebSocket connection.
 func (c *WsClient) Close() error {
-	return c.conn.Close()
-}
-
-// ----- gRPC Client Implementation -----
-
-// GrpcClient implements Client over gRPC
-type GrpcClient struct {
-	conn    *grpc.ClientConn
-	client  pb.LXDEXServiceClient
-	address string
-	userID  string
-	verbose bool
-}
-
-// NewGrpcClient creates a gRPC client
-func NewGrpcClient(address string, verbose bool) (*GrpcClient, error) {
-	conn, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(100*1024*1024),
-			grpc.MaxCallSendMsgSize(100*1024*1024),
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("grpc dial failed: %w", err)
-	}
-
-	return &GrpcClient{
-		conn:    conn,
-		client:  pb.NewLXDEXServiceClient(conn),
-		address: address,
-		userID:  "default",
-		verbose: verbose,
-	}, nil
-}
-
-// Protocol returns the protocol type
-func (c *GrpcClient) Protocol() Protocol {
-	return ProtocolGRPC
-}
-
-// SetUserID sets the user ID for requests
-func (c *GrpcClient) SetUserID(userID string) {
-	c.userID = userID
-}
-
-// PlaceOrder places an order via gRPC
-func (c *GrpcClient) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, error) {
-	req := &pb.PlaceOrderRequest{
-		Symbol: order.Symbol,
-		Type:   parseOrderType(order.Type),
-		Side:   parseOrderSide(order.Side),
-		Price:  order.Price,
-		Size:   order.Size,
-		UserId: c.userID,
-	}
-
-	if c.verbose {
-		fmt.Printf(">> gRPC PlaceOrder: %+v\n", req)
-	}
-
-	resp, err := c.client.PlaceOrder(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("grpc PlaceOrder failed: %w", err)
-	}
-
-	if c.verbose {
-		fmt.Printf("<< gRPC Response: %+v\n", resp)
-	}
-
-	return &OrderResponse{
-		OrderID: resp.OrderId,
-		Status:  resp.Status.String(),
-		Message: resp.Message,
-	}, nil
-}
-
-// CancelOrder cancels an order via gRPC
-func (c *GrpcClient) CancelOrder(ctx context.Context, orderID uint64) error {
-	req := &pb.CancelOrderRequest{
-		OrderId: orderID,
-		UserId:  c.userID,
-	}
-
-	if c.verbose {
-		fmt.Printf(">> gRPC CancelOrder: %+v\n", req)
-	}
-
-	resp, err := c.client.CancelOrder(ctx, req)
-	if err != nil {
-		return fmt.Errorf("grpc CancelOrder failed: %w", err)
-	}
-
-	if c.verbose {
-		fmt.Printf("<< gRPC Response: %+v\n", resp)
-	}
-
-	if !resp.Success {
-		return fmt.Errorf("cancel failed: %s", resp.Message)
-	}
-	return nil
-}
-
-// GetOrders retrieves open orders via gRPC
-func (c *GrpcClient) GetOrders(ctx context.Context) ([]Order, error) {
-	req := &pb.GetOrdersRequest{
-		UserId: c.userID,
-	}
-
-	if c.verbose {
-		fmt.Printf(">> gRPC GetOrders: %+v\n", req)
-	}
-
-	resp, err := c.client.GetOrders(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("grpc GetOrders failed: %w", err)
-	}
-
-	if c.verbose {
-		fmt.Printf("<< gRPC Response: %d orders\n", len(resp.Orders))
-	}
-
-	var orders []Order
-	for _, o := range resp.Orders {
-		orders = append(orders, Order{
-			Symbol: o.Symbol,
-			Side:   o.Side.String(),
-			Type:   o.Type.String(),
-			Price:  o.Price,
-			Size:   o.Size,
-		})
-	}
-	return orders, nil
-}
-
-// GetPositions retrieves positions via gRPC
-func (c *GrpcClient) GetPositions(ctx context.Context) ([]Position, error) {
-	req := &pb.GetPositionsRequest{
-		UserId: c.userID,
-	}
-
-	if c.verbose {
-		fmt.Printf(">> gRPC GetPositions: %+v\n", req)
-	}
-
-	resp, err := c.client.GetPositions(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("grpc GetPositions failed: %w", err)
-	}
-
-	if c.verbose {
-		fmt.Printf("<< gRPC Response: %d positions\n", len(resp.Positions))
-	}
-
-	var positions []Position
-	for _, p := range resp.Positions {
-		positions = append(positions, Position{
-			Symbol:     p.Symbol,
-			Size:       p.Size,
-			EntryPrice: p.EntryPrice,
-			MarkPrice:  p.MarkPrice,
-			PnL:        p.Pnl,
-		})
-	}
-	return positions, nil
-}
-
-// Subscribe subscribes to market data via gRPC streaming
-func (c *GrpcClient) Subscribe(ctx context.Context, symbol string) error {
-	req := &pb.StreamOrderBookRequest{
-		Symbol: symbol,
-		Depth:  20,
-	}
-
-	if c.verbose {
-		fmt.Printf(">> gRPC StreamOrderBook: %+v\n", req)
-	}
-
-	stream, err := c.client.StreamOrderBook(ctx, req)
-	if err != nil {
-		return fmt.Errorf("grpc StreamOrderBook failed: %w", err)
-	}
-
-	// Start goroutine to read stream
-	go func() {
-		for {
-			update, err := stream.Recv()
-			if err != nil {
-				if c.verbose {
-					fmt.Printf("stream ended: %v\n", err)
-				}
-				return
-			}
-			fmt.Printf("OrderBook [%s]: bids=%d asks=%d\n",
-				update.Symbol, len(update.BidUpdates), len(update.AskUpdates))
-		}
-	}()
-
-	return nil
-}
-
-// Ping tests connectivity via gRPC
-func (c *GrpcClient) Ping(ctx context.Context) (time.Duration, error) {
-	start := time.Now()
-	req := &pb.PingRequest{
-		Timestamp: start.UnixNano(),
-	}
-
-	resp, err := c.client.Ping(ctx, req)
-	if err != nil {
-		return 0, fmt.Errorf("grpc Ping failed: %w", err)
-	}
-
-	latency := time.Since(start)
-	if c.verbose {
-		fmt.Printf("Ping response: %s (latency: %v)\n", resp.Message, latency)
-	}
-	return latency, nil
-}
-
-// GetNodeInfo retrieves node information via gRPC
-func (c *GrpcClient) GetNodeInfo(ctx context.Context) (*pb.NodeInfo, error) {
-	resp, err := c.client.GetNodeInfo(ctx, &pb.GetNodeInfoRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("grpc GetNodeInfo failed: %w", err)
-	}
-	return resp, nil
-}
-
-// Close closes the gRPC connection
-func (c *GrpcClient) Close() error {
 	return c.conn.Close()
 }
 
 // ----- Multi-Protocol Manager -----
 
-// ClientManager manages multiple protocol clients
+// ClientManager manages multiple protocol clients.
 type ClientManager struct {
 	wsClient   *WsClient
-	grpcClient *GrpcClient
+	grpcClient grpcSubClient // nil unless built with -tags=grpc and ConnectGrpc succeeded
 	active     Client
 	mu         sync.RWMutex
 }
 
-// NewClientManager creates a client manager
+// NewClientManager creates a client manager.
 func NewClientManager() *ClientManager {
 	return &ClientManager{}
 }
 
-// ConnectWs connects via WebSocket
+// ConnectWs connects via WebSocket.
 func (m *ClientManager) ConnectWs(url string, verbose bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -621,24 +397,7 @@ func (m *ClientManager) ConnectWs(url string, verbose bool) error {
 	return nil
 }
 
-// ConnectGrpc connects via gRPC
-func (m *ClientManager) ConnectGrpc(address string, verbose bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	client, err := NewGrpcClient(address, verbose)
-	if err != nil {
-		return err
-	}
-
-	m.grpcClient = client
-	if m.active == nil {
-		m.active = client
-	}
-	return nil
-}
-
-// SwitchProtocol switches the active protocol
+// SwitchProtocol switches the active protocol.
 func (m *ClientManager) SwitchProtocol(proto Protocol) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -660,28 +419,29 @@ func (m *ClientManager) SwitchProtocol(proto Protocol) error {
 	return nil
 }
 
-// Active returns the active client
+// Active returns the active client.
 func (m *ClientManager) Active() Client {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.active
 }
 
-// WsClient returns the WebSocket client
+// WsClient returns the WebSocket client.
 func (m *ClientManager) WsClient() *WsClient {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.wsClient
 }
 
-// GrpcClient returns the gRPC client
-func (m *ClientManager) GrpcClient() *GrpcClient {
+// GrpcClient returns the gRPC client (nil unless built with -tags=grpc
+// and ConnectGrpc succeeded).
+func (m *ClientManager) GrpcClient() grpcSubClient {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.grpcClient
 }
 
-// Close closes all connections
+// Close closes all connections.
 func (m *ClientManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -720,32 +480,10 @@ func getFloat(m map[string]interface{}, key string) float64 {
 	return 0
 }
 
-func parseOrderType(t string) pb.OrderType {
-	switch strings.ToLower(t) {
-	case "market":
-		return pb.OrderType_MARKET
-	case "stop":
-		return pb.OrderType_STOP
-	case "stop_limit":
-		return pb.OrderType_STOP_LIMIT
-	default:
-		return pb.OrderType_LIMIT
-	}
-}
-
-func parseOrderSide(s string) pb.OrderSide {
-	switch strings.ToLower(s) {
-	case "sell":
-		return pb.OrderSide_SELL
-	default:
-		return pb.OrderSide_BUY
-	}
-}
-
 // ----- CLI Implementation -----
 
 func printHelp() {
-	fmt.Println(`
+	fmt.Print(`
 LX Trading Client Commands:
 
   place_order <symbol> <side> <type> <price> <size>
@@ -770,13 +508,13 @@ LX Trading Client Commands:
     Authenticate with credentials (WebSocket only)
 
   switch <ws|grpc>
-    Switch active protocol
+    Switch active protocol (gRPC requires -tags=grpc build)
 
   ping
-    Test connectivity (gRPC only)
+    Test connectivity (gRPC only, requires -tags=grpc build)
 
   info
-    Show node info (gRPC only)
+    Show node info (gRPC only, requires -tags=grpc build)
 
   protocol
     Show current protocol
@@ -848,27 +586,27 @@ func runInteractive(mgr *ClientManager) {
 			}
 
 		case "ping":
-			if grpc := mgr.GrpcClient(); grpc != nil {
-				latency, err := grpc.Ping(ctx)
+			if g := mgr.GrpcClient(); g != nil {
+				latency, err := g.Ping(ctx)
 				if err != nil {
 					fmt.Printf("Ping failed: %v\n", err)
 				} else {
 					fmt.Printf("Pong! Latency: %v\n", latency)
 				}
 			} else {
-				fmt.Println("Ping requires gRPC connection")
+				fmt.Println("Ping requires gRPC connection (rebuild with -tags=grpc)")
 			}
 
 		case "info":
-			if grpc := mgr.GrpcClient(); grpc != nil {
-				info, err := grpc.GetNodeInfo(ctx)
+			if g := mgr.GrpcClient(); g != nil {
+				info, err := g.GetNodeInfo(ctx)
 				if err != nil {
 					fmt.Printf("GetNodeInfo failed: %v\n", err)
 				} else {
 					printMessage(info)
 				}
 			} else {
-				fmt.Println("Info requires gRPC connection")
+				fmt.Println("Info requires gRPC connection (rebuild with -tags=grpc)")
 			}
 
 		case "place_order":
@@ -1030,28 +768,28 @@ func runCommand(mgr *ClientManager, args []string) {
 		printMessage(orders)
 
 	case "ping":
-		if grpc := mgr.GrpcClient(); grpc != nil {
-			latency, err := grpc.Ping(ctx)
+		if g := mgr.GrpcClient(); g != nil {
+			latency, err := g.Ping(ctx)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 			fmt.Printf(`{"latency_ns":%d,"latency_ms":%.3f}`+"\n", latency.Nanoseconds(), float64(latency.Nanoseconds())/1e6)
 		} else {
-			fmt.Fprintln(os.Stderr, "Ping requires gRPC connection")
+			fmt.Fprintln(os.Stderr, "Ping requires gRPC connection (rebuild with -tags=grpc)")
 			os.Exit(1)
 		}
 
 	case "info":
-		if grpc := mgr.GrpcClient(); grpc != nil {
-			info, err := grpc.GetNodeInfo(ctx)
+		if g := mgr.GrpcClient(); g != nil {
+			info, err := g.GetNodeInfo(ctx)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 			printMessage(info)
 		} else {
-			fmt.Fprintln(os.Stderr, "Info requires gRPC connection")
+			fmt.Fprintln(os.Stderr, "Info requires gRPC connection (rebuild with -tags=grpc)")
 			os.Exit(1)
 		}
 
@@ -1063,9 +801,9 @@ func runCommand(mgr *ClientManager, args []string) {
 
 func main() {
 	// Flags
-	protocol := flag.String("protocol", "ws", "Protocol: ws or grpc")
+	protocol := flag.String("protocol", "ws", "Protocol: ws or grpc (grpc requires -tags=grpc build)")
 	wsURL := flag.String("ws-url", "ws://localhost:8081", "WebSocket server URL")
-	grpcAddr := flag.String("grpc-addr", "localhost:9090", "gRPC server address")
+	grpcAddr := flag.String("grpc-addr", "localhost:9090", "gRPC server address (requires -tags=grpc build)")
 	apiKey := flag.String("key", "", "API key for authentication")
 	apiSecret := flag.String("secret", "", "API secret for authentication")
 	interactive := flag.Bool("i", false, "Interactive mode")
