@@ -50,7 +50,6 @@ type AssetPool struct {
 	Suppliers            map[string]*SupplyPosition
 	Borrowers            map[string]*BorrowPosition
 	Paused               bool
-	mu                   sync.RWMutex
 }
 
 // LendingAccount represents a supplier's account
@@ -322,13 +321,13 @@ func (lp *LendingPool) Withdraw(userID, asset string, amount *big.Int) error {
 // Borrow allows users to borrow against collateral
 func (lp *LendingPool) Borrow(asset string, amount *big.Int) error {
 	// Implementation handled by MarginEngine
+	lp.mu.Lock()
+	defer lp.mu.Unlock()
+
 	pool, exists := lp.Pools[asset]
 	if !exists {
 		return fmt.Errorf("pool not found for %s", asset)
 	}
-
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
 
 	// Check available liquidity
 	available := new(big.Int).Sub(pool.TotalSupply, pool.TotalBorrow)
@@ -349,13 +348,13 @@ func (lp *LendingPool) Borrow(asset string, amount *big.Int) error {
 
 // Repay repays borrowed amount with interest
 func (lp *LendingPool) Repay(asset string, principal, interest *big.Int) error {
+	lp.mu.Lock()
+	defer lp.mu.Unlock()
+
 	pool, exists := lp.Pools[asset]
 	if !exists {
 		return fmt.Errorf("pool not found for %s", asset)
 	}
-
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
 
 	// Update pool
 	pool.TotalBorrow.Sub(pool.TotalBorrow, principal)
