@@ -1,6 +1,7 @@
 package lx
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,10 +247,10 @@ func TestReconcilerNoMatchDifferentSide(t *testing.T) {
 func TestReconcilerSettlementCallbacks(t *testing.T) {
 	recon := NewReconciler(nil)
 
-	var settledTrade *CrossVenueTrade
+	var settledTrade atomic.Pointer[CrossVenueTrade]
 	recon.SetCallbacks(
 		func(trade *CrossVenueTrade) error {
-			settledTrade = trade
+			settledTrade.Store(trade)
 			return nil
 		},
 		nil,
@@ -277,20 +278,24 @@ func TestReconcilerSettlementCallbacks(t *testing.T) {
 	// Wait for settlement
 	time.Sleep(50 * time.Millisecond)
 
-	require.NotNil(t, settledTrade)
-	assert.Equal(t, ReconSettled, settledTrade.Status)
-	assert.NotNil(t, settledTrade.SettledAt)
+	got := settledTrade.Load()
+	require.NotNil(t, got)
+	// Read trade state through the reconciler's mutex.
+	st, ok := recon.GetStatus(got.ID)
+	require.True(t, ok)
+	assert.Equal(t, ReconSettled, st.Status)
+	assert.NotNil(t, st.SettledAt)
 }
 
 func TestReconcilerBridgeSettlementFails(t *testing.T) {
 	// Bridge settlement without a bridge should fail
 	recon := NewReconciler(nil) // nil bridge
 
-	var failedReason string
+	var failedReason atomic.Value // string, written from settle goroutine
 	recon.SetCallbacks(
 		nil,
 		func(trade *CrossVenueTrade, reason string) {
-			failedReason = reason
+			failedReason.Store(reason)
 		},
 	)
 
@@ -316,7 +321,8 @@ func TestReconcilerBridgeSettlementFails(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	assert.Contains(t, failedReason, "bridge required")
+	got, _ := failedReason.Load().(string)
+	assert.Contains(t, got, "bridge required")
 	stats := recon.Stats()
 	assert.Equal(t, 1, stats["failed"])
 }
