@@ -1,18 +1,26 @@
 # LX
 
-> **MOVED TO PRIVATE REPO** — Active development of the Lux DEX matching
-> engine has moved to `lux-private/dex` and is now only available under a
-> commercial license. Tagged releases up to `v1.4.1` remain readable in
-> this archived repository for prior `go get` consumers.
->
-> Commercial license inquiries: licensing@lux.network
+Lux DEX — pure-Go matching engine, order book, oracle aggregator, and
+JSON-RPC / WebSocket / gRPC SDKs.
 
 [![CI](https://github.com/luxfi/dex/actions/workflows/ci.yml/badge.svg)](https://github.com/luxfi/dex/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/luxfi/dex)](https://github.com/luxfi/dex/releases)
-[![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://go.dev)
-[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.26+-blue.svg)](https://go.dev)
+[![License](https://img.shields.io/badge/license-Lux%20Research%20%2B%20Patent%20Reservation-blue.svg)](LICENSE)
 
-Ultra-high performance DEX with 434M+ orders/sec with GPU acceleration.
+## Open core
+
+This repository is the **public, pure-Go reference implementation** of
+the Lux DEX matching engine. It is fully functional, runs standalone,
+and underpins every Lux DEX deployment.
+
+For commercial deployments that need hardware acceleration (NUMA-aware
+C++ order book, CUDA / Metal batched verification, FPGA fast paths)
+the same Go interfaces are implemented by `lux-private/dex` and
+selected at build time via the `dex_gpu` build tag. The accelerated
+backend fails closed unless the operator's environment carries a Lux
+commercial license token whose scope list includes `dex`. Contact
+`licensing@lux.network` for commercial licensing.
 
 ## Features
 

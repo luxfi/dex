@@ -1,4 +1,11 @@
-// Go SDK for LX Trading Platform
+//go:build grpc
+
+// Go SDK for LX Trading Platform.
+//
+// This file contains the gRPC-backed client and is built only when the
+// `grpc` build tag is set. The default build provides a stub in
+// client_nogrpc.go whose NewClient returns an error directing callers
+// to rebuild with `-tags=grpc`.
 package lxsdk
 
 import (
