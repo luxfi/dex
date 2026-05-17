@@ -4,6 +4,8 @@
 // - protoc             v5.29.3
 // source: proto/lxdex.proto
 
+//go:build grpc
+
 package pb
 
 import (
