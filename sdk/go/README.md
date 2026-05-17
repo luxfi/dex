@@ -2,19 +2,40 @@
 
 Official Go SDK for interacting with the LX trading platform.
 
-## Features
+## Transports
 
-- **Multiple Protocol Support**: JSON-RPC, gRPC, and WebSocket
-- **High Performance**: Direct gRPC connection for low-latency operations
-- **Real-time Data**: WebSocket subscriptions for live market data
-- **Type Safety**: Strongly typed Go interfaces
-- **Concurrent Safe**: Thread-safe operations with proper locking
-- **Automatic Failover**: Falls back to JSON-RPC if gRPC unavailable
+The SDK ships two transports by default and a third behind a build tag:
+
+- **JSON-RPC** — request/response, always built.
+- **WebSocket** — streaming subscriptions, always built.
+- **gRPC** — binary low-latency transport, **opt-in via the `grpc`
+  build tag**. The default build pulls zero gRPC code.
+
+Consumers that want gRPC rebuild their binary with `-tags=grpc`. The
+public API is identical across both builds: methods (`PlaceOrder`,
+`CancelOrder`, `GetOrderBook`, `GetTrades`) transparently use gRPC
+when it is wired and connected, otherwise fall back to JSON-RPC.
+
+`ConnectGRPC` returns `client.ErrGRPCNotBuilt` without the tag, and
+`StreamOrderBook` returns the same error. Calling them is safe in any
+build.
 
 ## Installation
 
 ```bash
 go get github.com/luxfi/dex/sdk/go
+```
+
+Default build (JSON-RPC + WebSocket only):
+
+```bash
+go build ./...
+```
+
+Build with gRPC support:
+
+```bash
+go build -tags=grpc ./...
 ```
 
 ## Quick Start
@@ -258,10 +279,12 @@ balance.Utilization() // Calculate balance utilization
 
 ## Performance Tips
 
-1. **Use gRPC**: Connect via gRPC for lowest latency
-2. **Reuse Client**: Create one client and reuse it
-3. **Batch Operations**: Use concurrent requests when possible
-4. **Stream vs Poll**: Use streaming for real-time data instead of polling
+1. **Use gRPC for HFT**: Rebuild with `-tags=grpc`, then call
+   `ConnectGRPC`. Methods automatically prefer the gRPC transport when
+   it is connected, otherwise use JSON-RPC.
+2. **Reuse Client**: Create one client and reuse it.
+3. **Batch Operations**: Use concurrent requests when possible.
+4. **Stream vs Poll**: Use streaming for real-time data instead of polling.
 
 ## Thread Safety
 
@@ -315,7 +338,11 @@ go test ./...
 ### Building
 
 ```bash
+# Default — JSON-RPC + WebSocket only.
 go build ./...
+
+# With gRPC support.
+go build -tags=grpc ./...
 ```
 
 ## Support

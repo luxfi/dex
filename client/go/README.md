@@ -1,19 +1,30 @@
 # LX Trading Client
 
-Multi-protocol programmatic trading client for LX. Supports WebSocket and gRPC protocols with a unified interface.
+Multi-protocol programmatic trading client for LX. Default build is
+WebSocket-only; gRPC is opt-in via a build tag.
 
 ## Features
 
-- **Dual Protocol Support**: WebSocket and gRPC with runtime switching
-- **Unified Interface**: Same API across both protocols
+- **WebSocket transport** (always available, default)
+- **gRPC transport** (opt-in, behind the `grpc` build tag)
+- **Unified Interface**: Same API across both transports
 - **Multiple Usage Modes**: Package import, CLI commands, or interactive shell
 - **Real-time Streaming**: Market data subscriptions via WebSocket or gRPC streams
 
 ## Installation
 
 ```bash
+# Default build — WebSocket only, zero gRPC code compiled in.
 go build -o lx-client .
+
+# With gRPC support (adds google.golang.org/grpc to the binary).
+go build -tags=grpc -o lx-client .
 ```
+
+Without the `grpc` build tag, `-protocol=grpc`, the `switch grpc`
+interactive command, and the `ping` / `info` commands report that gRPC
+is not compiled in. WebSocket-only consumers ship a smaller binary
+with no gRPC runtime.
 
 ## Quick Start
 
@@ -30,9 +41,12 @@ go build -o lx-client .
 ./lx-client -key mykey -secret mysecret -i
 ```
 
-### gRPC
+### gRPC (requires `-tags=grpc` build)
 
 ```bash
+# Rebuild with the grpc tag first.
+go build -tags=grpc -o lx-client .
+
 # Interactive mode via gRPC
 ./lx-client -protocol grpc -i
 
@@ -318,7 +332,12 @@ if err != nil {
 ```bash
 cd /path/to/lx/dex/client/go
 go mod tidy
+
+# Default — WebSocket only.
 go build -o lx-client .
+
+# With gRPC support.
+go build -tags=grpc -o lx-client .
 ```
 
 ## Testing

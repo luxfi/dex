@@ -4,6 +4,8 @@
 // - protoc             v5.29.3
 // source: proto/lx_engine.proto
 
+//go:build grpc
+
 package engine
 
 import (
