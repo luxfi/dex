@@ -1,4 +1,9 @@
-// Package client provides a Go SDK for interacting with LX
+// Package client provides a Go SDK for interacting with LX.
+//
+// The default build ships JSON-RPC and WebSocket transports only and
+// pulls in zero gRPC code. gRPC dial support is an opt-in capability
+// gated behind the `grpc` build tag (see client_grpc.go). Consumers
+// that want the binary gRPC transport rebuild with `-tags=grpc`.
 package client
 
 import (
@@ -12,12 +17,13 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	pb "github.com/luxfi/dex/pkg/grpc/pb"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Client is the main client for interacting with LX
+// Client is the main client for interacting with LX.
+//
+// Public methods (PlaceOrder, CancelOrder, GetOrderBook, GetTrades)
+// route to the gRPC backend first when it is wired and otherwise fall
+// back to JSON-RPC. The grpc backend is a no-op in the default build.
 type Client struct {
 	// Configuration
 	jsonRPCURL string
@@ -36,14 +42,13 @@ type Client struct {
 	wsRunning   bool
 	wsStop      chan struct{}
 
-	// gRPC
-	grpcConn   *grpc.ClientConn
-	grpcClient pb.LXDEXServiceClient
+	// gRPC backend (no-op unless built with -tags=grpc).
+	grpc grpcBackend
 
 	mu sync.RWMutex
 }
 
-// NewClient creates a new LX client
+// NewClient creates a new LX client.
 func NewClient(opts ...Option) (*Client, error) {
 	c := &Client{
 		jsonRPCURL:  "http://localhost:8080",
@@ -52,6 +57,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		wsCallbacks: make(map[string]func(interface{})),
 		wsStop:      make(chan struct{}),
+		grpc:        newGRPCBackend(),
 	}
 
 	// Apply options
@@ -62,53 +68,45 @@ func NewClient(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-// Option is a client configuration option
+// Option is a client configuration option.
 type Option func(*Client)
 
-// WithJSONRPCURL sets the JSON-RPC URL
+// WithJSONRPCURL sets the JSON-RPC URL.
 func WithJSONRPCURL(url string) Option {
 	return func(c *Client) {
 		c.jsonRPCURL = url
 	}
 }
 
-// WithWebSocketURL sets the WebSocket URL
+// WithWebSocketURL sets the WebSocket URL.
 func WithWebSocketURL(url string) Option {
 	return func(c *Client) {
 		c.wsURL = url
 	}
 }
 
-// WithGRPCURL sets the gRPC URL
+// WithGRPCURL sets the gRPC URL. The URL is only dialed when the
+// client is built with the `grpc` build tag and ConnectGRPC is called.
 func WithGRPCURL(url string) Option {
 	return func(c *Client) {
 		c.grpcURL = url
 	}
 }
 
-// WithAPIKey sets the API key for authentication
+// WithAPIKey sets the API key for authentication.
 func WithAPIKey(key string) Option {
 	return func(c *Client) {
 		c.apiKey = key
 	}
 }
 
-// ConnectGRPC establishes a gRPC connection
+// ConnectGRPC establishes a gRPC connection. Returns an error in the
+// default build instructing callers to rebuild with `-tags=grpc`.
 func (c *Client) ConnectGRPC(ctx context.Context) error {
-	conn, err := grpc.DialContext(ctx, c.grpcURL,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to connect to gRPC: %w", err)
-	}
-
-	c.grpcConn = conn
-	c.grpcClient = pb.NewLXDEXServiceClient(conn)
-	return nil
+	return c.grpc.connect(ctx, c.grpcURL)
 }
 
-// ConnectWebSocket establishes a WebSocket connection
+// ConnectWebSocket establishes a WebSocket connection.
 func (c *Client) ConnectWebSocket(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -135,7 +133,7 @@ func (c *Client) ConnectWebSocket(ctx context.Context) error {
 	return nil
 }
 
-// handleWebSocketMessages processes incoming WebSocket messages
+// handleWebSocketMessages processes incoming WebSocket messages.
 func (c *Client) handleWebSocketMessages() {
 	defer func() {
 		c.mu.Lock()
@@ -175,7 +173,7 @@ func (c *Client) handleWebSocketMessages() {
 	}
 }
 
-// Disconnect closes all connections
+// Disconnect closes all connections.
 func (c *Client) Disconnect() error {
 	// Close WebSocket
 	if c.wsRunning {
@@ -187,44 +185,19 @@ func (c *Client) Disconnect() error {
 		c.mu.Unlock()
 	}
 
-	// Close gRPC
-	if c.grpcConn != nil {
-		c.grpcConn.Close()
-	}
+	// Close gRPC backend (no-op in default build).
+	_ = c.grpc.close()
 
 	return nil
 }
 
-// PlaceOrder places a new order
+// PlaceOrder places a new order. Uses the gRPC backend when available,
+// otherwise falls back to JSON-RPC.
 func (c *Client) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, error) {
-	// Use gRPC if connected
-	if c.grpcClient != nil {
-		req := &pb.PlaceOrderRequest{
-			Symbol:      order.Symbol,
-			Type:        pb.OrderType(order.Type),
-			Side:        pb.OrderSide(order.Side),
-			Price:       order.Price,
-			Size:        order.Size,
-			UserId:      order.UserID,
-			ClientId:    order.ClientID,
-			TimeInForce: timeInForceToProto(order.TimeInForce),
-			PostOnly:    order.PostOnly,
-			ReduceOnly:  order.ReduceOnly,
-		}
-
-		resp, err := c.grpcClient.PlaceOrder(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return &OrderResponse{
-			OrderID: resp.OrderId,
-			Status:  orderStatusFromProto(resp.Status),
-			Message: resp.Message,
-		}, nil
+	if resp, ok, err := c.grpc.placeOrder(ctx, order); ok {
+		return resp, err
 	}
 
-	// Fallback to JSON-RPC
 	params := map[string]interface{}{
 		"symbol":      order.Symbol,
 		"type":        order.Type,
@@ -249,17 +222,12 @@ func (c *Client) PlaceOrder(ctx context.Context, order *Order) (*OrderResponse, 
 	}, nil
 }
 
-// CancelOrder cancels an existing order
+// CancelOrder cancels an existing order.
 func (c *Client) CancelOrder(ctx context.Context, orderID uint64) error {
-	// Use gRPC if connected
-	if c.grpcClient != nil {
-		_, err := c.grpcClient.CancelOrder(ctx, &pb.CancelOrderRequest{
-			OrderId: orderID,
-		})
+	if ok, err := c.grpc.cancelOrder(ctx, orderID); ok {
 		return err
 	}
 
-	// Fallback to JSON-RPC
 	params := map[string]interface{}{
 		"orderId": orderID,
 	}
@@ -268,43 +236,12 @@ func (c *Client) CancelOrder(ctx context.Context, orderID uint64) error {
 	return c.callJSONRPC(ctx, "lx_cancelOrder", params, &result)
 }
 
-// GetOrderBook retrieves the order book for a symbol
+// GetOrderBook retrieves the order book for a symbol.
 func (c *Client) GetOrderBook(ctx context.Context, symbol string, depth int32) (*OrderBook, error) {
-	// Use gRPC if connected
-	if c.grpcClient != nil {
-		resp, err := c.grpcClient.GetOrderBook(ctx, &pb.GetOrderBookRequest{
-			Symbol: symbol,
-			Depth:  depth,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		ob := &OrderBook{
-			Symbol:    resp.Symbol,
-			Timestamp: resp.Timestamp,
-			Bids:      make([]PriceLevel, len(resp.Bids)),
-			Asks:      make([]PriceLevel, len(resp.Asks)),
-		}
-
-		for i, bid := range resp.Bids {
-			ob.Bids[i] = PriceLevel{
-				Price: bid.Price,
-				Size:  bid.Size,
-			}
-		}
-
-		for i, ask := range resp.Asks {
-			ob.Asks[i] = PriceLevel{
-				Price: ask.Price,
-				Size:  ask.Size,
-			}
-		}
-
-		return ob, nil
+	if ob, ok, err := c.grpc.getOrderBook(ctx, symbol, depth); ok {
+		return ob, err
 	}
 
-	// Fallback to JSON-RPC
 	params := map[string]interface{}{
 		"symbol": symbol,
 		"depth":  depth,
@@ -320,7 +257,6 @@ func (c *Client) GetOrderBook(ctx context.Context, symbol string, depth int32) (
 		Timestamp: int64(result["Timestamp"].(float64)),
 	}
 
-	// Parse bids
 	bids := result["Bids"].([]interface{})
 	ob.Bids = make([]PriceLevel, len(bids))
 	for i, bid := range bids {
@@ -331,7 +267,6 @@ func (c *Client) GetOrderBook(ctx context.Context, symbol string, depth int32) (
 		}
 	}
 
-	// Parse asks
 	asks := result["Asks"].([]interface{})
 	ob.Asks = make([]PriceLevel, len(asks))
 	for i, ask := range asks {
@@ -345,38 +280,12 @@ func (c *Client) GetOrderBook(ctx context.Context, symbol string, depth int32) (
 	return ob, nil
 }
 
-// GetTrades retrieves recent trades
+// GetTrades retrieves recent trades.
 func (c *Client) GetTrades(ctx context.Context, symbol string, limit int32) ([]*Trade, error) {
-	// Use gRPC if connected
-	if c.grpcClient != nil {
-		resp, err := c.grpcClient.GetTrades(ctx, &pb.GetTradesRequest{
-			Symbol: symbol,
-			Limit:  limit,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		trades := make([]*Trade, len(resp.Trades))
-		for i, t := range resp.Trades {
-			trades[i] = &Trade{
-				TradeID:     t.TradeId,
-				Symbol:      t.Symbol,
-				Price:       t.Price,
-				Size:        t.Size,
-				Side:        OrderSide(t.Side),
-				BuyOrderID:  t.BuyOrderId,
-				SellOrderID: t.SellOrderId,
-				BuyerID:     t.BuyerId,
-				SellerID:    t.SellerId,
-				Timestamp:   t.Timestamp,
-			}
-		}
-
-		return trades, nil
+	if trades, ok, err := c.grpc.getTrades(ctx, symbol, limit); ok {
+		return trades, err
 	}
 
-	// Fallback to JSON-RPC
 	params := map[string]interface{}{
 		"symbol": symbol,
 		"limit":  limit,
@@ -407,13 +316,12 @@ func (c *Client) GetTrades(ctx context.Context, symbol string, limit int32) ([]*
 	return trades, nil
 }
 
-// Subscribe subscribes to a WebSocket channel
+// Subscribe subscribes to a WebSocket channel.
 func (c *Client) Subscribe(channel string, callback func(interface{})) error {
 	c.wsMu.Lock()
 	c.wsCallbacks[channel] = callback
 	c.wsMu.Unlock()
 
-	// Send subscription message
 	msg := map[string]interface{}{
 		"type":    "subscribe",
 		"channel": channel,
@@ -429,13 +337,12 @@ func (c *Client) Subscribe(channel string, callback func(interface{})) error {
 	return c.wsConn.WriteJSON(msg)
 }
 
-// Unsubscribe unsubscribes from a WebSocket channel
+// Unsubscribe unsubscribes from a WebSocket channel.
 func (c *Client) Unsubscribe(channel string) error {
 	c.wsMu.Lock()
 	delete(c.wsCallbacks, channel)
 	c.wsMu.Unlock()
 
-	// Send unsubscription message
 	msg := map[string]interface{}{
 		"type":    "unsubscribe",
 		"channel": channel,
@@ -451,26 +358,22 @@ func (c *Client) Unsubscribe(channel string) error {
 	return c.wsConn.WriteJSON(msg)
 }
 
-// SubscribeOrderBook subscribes to order book updates
+// SubscribeOrderBook subscribes to order book updates.
 func (c *Client) SubscribeOrderBook(symbol string, callback func(*OrderBook)) error {
 	return c.Subscribe(fmt.Sprintf("orderbook:%s", symbol), func(data interface{}) {
-		// Convert data to OrderBook
 		if m, ok := data.(map[string]interface{}); ok {
 			ob := &OrderBook{
 				Symbol:    m["symbol"].(string),
 				Timestamp: int64(m["timestamp"].(float64)),
 			}
-			// Parse bids and asks
-			// ... conversion logic ...
 			callback(ob)
 		}
 	})
 }
 
-// SubscribeTrades subscribes to trade updates
+// SubscribeTrades subscribes to trade updates.
 func (c *Client) SubscribeTrades(symbol string, callback func(*Trade)) error {
 	return c.Subscribe(fmt.Sprintf("trades:%s", symbol), func(data interface{}) {
-		// Convert data to Trade
 		if m, ok := data.(map[string]interface{}); ok {
 			trade := &Trade{
 				TradeID:   uint64(m["tradeId"].(float64)),
@@ -484,62 +387,13 @@ func (c *Client) SubscribeTrades(symbol string, callback func(*Trade)) error {
 	})
 }
 
-// StreamOrderBook streams order book updates via gRPC
+// StreamOrderBook streams order book updates. Requires the `grpc`
+// build tag; returns ErrGRPCNotBuilt otherwise.
 func (c *Client) StreamOrderBook(ctx context.Context, symbol string) (<-chan *OrderBook, error) {
-	if c.grpcClient == nil {
-		return nil, fmt.Errorf("gRPC not connected")
-	}
-
-	stream, err := c.grpcClient.StreamOrderBook(ctx, &pb.StreamOrderBookRequest{
-		Symbol: symbol,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	ch := make(chan *OrderBook, 100)
-
-	go func() {
-		defer close(ch)
-		for {
-			update, err := stream.Recv()
-			if err != nil {
-				return
-			}
-
-			ob := &OrderBook{
-				Symbol:    update.Symbol,
-				Timestamp: update.Timestamp,
-				Bids:      make([]PriceLevel, len(update.GetBidUpdates())),
-				Asks:      make([]PriceLevel, len(update.GetAskUpdates())),
-			}
-
-			for i, bid := range update.GetBidUpdates() {
-				ob.Bids[i] = PriceLevel{
-					Price: bid.Price,
-					Size:  bid.Size,
-				}
-			}
-
-			for i, ask := range update.GetAskUpdates() {
-				ob.Asks[i] = PriceLevel{
-					Price: ask.Price,
-					Size:  ask.Size,
-				}
-			}
-
-			select {
-			case ch <- ob:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return ch, nil
+	return c.grpc.streamOrderBook(ctx, symbol)
 }
 
-// callJSONRPC makes a JSON-RPC call
+// callJSONRPC makes a JSON-RPC call.
 func (c *Client) callJSONRPC(ctx context.Context, method string, params interface{}, result interface{}) error {
 	id := atomic.AddUint64(&c.idCounter, 1)
 
@@ -588,7 +442,6 @@ func (c *Client) callJSONRPC(ctx context.Context, method string, params interfac
 		return fmt.Errorf("RPC error %d: %s", response.Error.Code, response.Error.Message)
 	}
 
-	// Convert response.Result to the expected type
 	if result != nil {
 		resultBytes, _ := json.Marshal(response.Result)
 		return json.Unmarshal(resultBytes, result)
@@ -597,7 +450,7 @@ func (c *Client) callJSONRPC(ctx context.Context, method string, params interfac
 	return nil
 }
 
-// sendJSONRPCRequest sends a JSON-RPC request and returns the response
+// sendJSONRPCRequest sends a JSON-RPC request and returns the response.
 func (c *Client) sendJSONRPCRequest(ctx context.Context, req map[string]interface{}) (*struct {
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
@@ -647,7 +500,7 @@ func (c *Client) sendJSONRPCRequest(ctx context.Context, req map[string]interfac
 	return &response, nil
 }
 
-// sendWSMessage sends a message through the WebSocket connection
+// sendWSMessage sends a message through the WebSocket connection.
 func (c *Client) sendWSMessage(msg map[string]interface{}) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -659,51 +512,17 @@ func (c *Client) sendWSMessage(msg map[string]interface{}) error {
 	return c.wsConn.WriteJSON(msg)
 }
 
-// Ping checks if the server is responsive
+// Ping checks if the server is responsive.
 func (c *Client) Ping(ctx context.Context) error {
 	var result string
 	return c.callJSONRPC(ctx, "lx_ping", nil, &result)
 }
 
-// GetInfo retrieves node information
+// GetInfo retrieves node information.
 func (c *Client) GetInfo(ctx context.Context) (*NodeInfo, error) {
 	var result NodeInfo
 	if err := c.callJSONRPC(ctx, "lx_getInfo", nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
-}
-
-// timeInForceToProto converts SDK TimeInForce to proto TimeInForce
-func timeInForceToProto(tif TimeInForce) pb.TimeInForce {
-	switch tif {
-	case TimeInForceGTC:
-		return pb.TimeInForce_GTC
-	case TimeInForceIOC:
-		return pb.TimeInForce_IOC
-	case TimeInForceFOK:
-		return pb.TimeInForce_FOK
-	case TimeInForceDAY:
-		return pb.TimeInForce_DAY
-	default:
-		return pb.TimeInForce_GTC
-	}
-}
-
-// orderStatusFromProto converts proto OrderStatus to SDK string status
-func orderStatusFromProto(status pb.OrderStatus) string {
-	switch status {
-	case pb.OrderStatus_OPEN:
-		return string(OrderStatusOpen)
-	case pb.OrderStatus_PARTIAL:
-		return string(OrderStatusPartial)
-	case pb.OrderStatus_FILLED:
-		return string(OrderStatusFilled)
-	case pb.OrderStatus_CANCELLED:
-		return string(OrderStatusCancelled)
-	case pb.OrderStatus_REJECTED:
-		return string(OrderStatusRejected)
-	default:
-		return string(OrderStatusOpen)
-	}
 }
