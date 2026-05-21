@@ -15,7 +15,7 @@ LX Trading SDK provides a unified interface for trading across:
 | Language | Package | Directory | Throughput |
 |----------|---------|-----------|------------|
 | Rust | `lx-trading` | `lx-trading-core/` | 5M+ msgs/sec |
-| C++ | `lx-trading` | `lx-trading-cpp/` | 10M+ msgs/sec |
+| C++ | `lx-trading` | `~/work/luxcpp/dex/sdk/trading-cpp/` | 10M+ msgs/sec |
 | Go | `github.com/luxfi/trading` | `lx-trading-go/` | 1M+ msgs/sec |
 | TypeScript | `@luxfi/trading` | `lx-trading-ts/` | 100K+ msgs/sec |
 | Python | `lx-trading` | `lx-trading-py/` | 50K+ msgs/sec |
