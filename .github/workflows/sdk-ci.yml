@@ -161,42 +161,10 @@ jobs:
       - name: Build release
         run: cargo build --release
 
-  # C++ SDK Tests
-  test-cpp:
-    name: C++ SDK
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sdk/lx-trading-cpp
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev libcurl4-openssl-dev
-
-      - name: Configure CMake
-        run: |
-          mkdir -p build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DLX_TRADING_BUILD_TESTS=ON
-
-      - name: Build
-        run: |
-          cd build
-          make -j$(nproc)
-
-      - name: Run tests
-        run: |
-          cd build
-          ./lx_trading_tests
-
   # Integration test (all SDKs must pass)
   integration-check:
     name: Integration Check
-    needs: [test-go, test-typescript, test-python, test-rust, test-cpp]
+    needs: [test-go, test-typescript, test-python, test-rust]
     runs-on: ubuntu-latest
     steps:
       - name: All SDK tests passed

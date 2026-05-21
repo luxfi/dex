@@ -290,74 +290,10 @@ jobs:
             sdk/lx-trading-core/lx-trading-rust-*.tar.gz
             sdk/lx-trading-core/lx-trading-rust-*.zip
 
-  # Build C++ SDK
-  build-cpp:
-    name: C++ SDK (${{ matrix.os }})
-    needs: [validate-version, create-release]
-    strategy:
-      matrix:
-        include:
-          - os: lux-amd64
-            platform: linux-amd64
-          - os: macos-13
-            platform: darwin-amd64
-          - os: macos-14
-            platform: darwin-arm64
-          - os: windows-latest
-            platform: windows-amd64
-
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev libcurl4-openssl-dev
-
-      - name: Install dependencies (macOS)
-        if: startsWith(matrix.os, 'macos')
-        run: |
-          brew install cmake openssl curl
-
-      - name: Configure and Build
-        working-directory: sdk/lx-trading-cpp
-        shell: bash
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DLX_TRADING_BUILD_TESTS=OFF
-          cmake --build . --config Release -j
-
-      - name: Package
-        working-directory: sdk/lx-trading-cpp
-        shell: bash
-        run: |
-          mkdir -p dist/lib dist/include
-          cp -r include/* dist/include/
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp build/Release/*.lib dist/lib/ 2>/dev/null || cp build/*.lib dist/lib/ 2>/dev/null || true
-            cp build/Release/*.dll dist/lib/ 2>/dev/null || cp build/*.dll dist/lib/ 2>/dev/null || true
-            cd dist && 7z a ../lx-trading-cpp-${{ matrix.platform }}.zip *
-          else
-            cp build/*.a dist/lib/ 2>/dev/null || true
-            cp build/*.so dist/lib/ 2>/dev/null || true
-            cp build/*.dylib dist/lib/ 2>/dev/null || true
-            tar -czf lx-trading-cpp-${{ matrix.platform }}.tar.gz -C dist .
-          fi
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: sdk-v${{ needs.validate-version.outputs.version }}
-          files: |
-            sdk/lx-trading-cpp/lx-trading-cpp-*.tar.gz
-            sdk/lx-trading-cpp/lx-trading-cpp-*.zip
-
   # Generate checksums
   generate-checksums:
     name: Generate Checksums
-    needs: [validate-version, build-go, build-typescript, build-python, build-rust, build-cpp]
+    needs: [validate-version, build-go, build-typescript, build-python, build-rust]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
