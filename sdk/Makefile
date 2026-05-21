@@ -59,17 +59,11 @@ build-rust: ## Build Rust SDK
 	@echo "$(BLUE)Building Rust SDK...$(NC)"
 	cd lx-trading-core && cargo build --release
 
-build-cpp: ## Build C++ SDK
-	@echo "$(BLUE)Building C++ SDK...$(NC)"
-	cd lx-trading-cpp && mkdir -p build && cd build && \
-		cmake .. -DCMAKE_BUILD_TYPE=Release && \
-		make -j$(NPROC)
-
 #------------------------------------------------------------------------------
 # Test targets
 #------------------------------------------------------------------------------
 
-test: test-go test-ts test-py test-rust test-cpp ## Run all SDK tests
+test: test-go test-ts test-py test-rust ## Run all SDK tests
 	@echo ""
 	@echo "$(GREEN)═══════════════════════════════════════════════════════════$(NC)"
 	@echo "$(GREEN)  All SDK tests completed$(NC)"
@@ -102,14 +96,6 @@ test-rust: ## Run Rust SDK tests
 	@echo "$(BLUE)  Running Rust SDK tests$(NC)"
 	@echo "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
 	cd lx-trading-core && cargo test --all-features
-
-test-cpp: ## Run C++ SDK tests
-	@echo ""
-	@echo "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@echo "$(BLUE)  Running C++ SDK tests$(NC)"
-	@echo "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	cd lx-trading-cpp/build && ./lx_trading_tests 2>/dev/null || \
-		(cd ../.. && $(MAKE) build-cpp && cd lx-trading-cpp/build && ./lx_trading_tests)
 
 #------------------------------------------------------------------------------
 # Lint & Format
@@ -161,7 +147,6 @@ clean: ## Clean all build artifacts
 	rm -rf lx-trading-ts/dist lx-trading-ts/node_modules
 	rm -rf lx-trading-py/dist lx-trading-py/build lx-trading-py/*.egg-info
 	rm -rf lx-trading-core/target
-	rm -rf lx-trading-cpp/build
 	@echo "$(GREEN)Clean complete$(NC)"
 
 #------------------------------------------------------------------------------
