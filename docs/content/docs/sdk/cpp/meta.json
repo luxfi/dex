@@ -1,9 +1,0 @@
-{
-  "title": "C++ SDK",
-  "pages": [
-    "index",
-    "client",
-    "orders",
-    "orderbook"
-  ]
-}

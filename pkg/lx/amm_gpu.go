@@ -7,9 +7,9 @@ package lx
 
 // GPU-accelerated batch xy=k AMM evaluation via Metal.
 //
-// The Metal kernel and Objective-C++ driver live in luxcpp/dex/gpu/metal:
-//   kernel: amm_xyk.metal           -> built by cmake into amm_xyk.metallib
-//   driver: amm_xyk_driver.{h,mm}   -> built into libamm_xyk_metal.a
+// The Metal kernel lives in luxcpp/metal (one-home-per-backend policy):
+//   kernel: ~/work/luxcpp/metal/src/shaders/dex/amm_xyk.metal
+//   driver: ~/work/luxcpp/dex/gpu/metal/amm_xyk_driver.{h,mm}
 //
 // One-time build:
 //   cmake -S ~/work/luxcpp/dex -B ~/work/luxcpp/dex/build && \
