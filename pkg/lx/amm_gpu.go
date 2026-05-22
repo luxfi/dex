@@ -8,22 +8,27 @@ package lx
 // GPU-accelerated batch xy=k AMM evaluation via Metal.
 //
 // The Metal kernel lives in luxcpp/metal (one-home-per-backend policy):
-//   kernel: ~/work/luxcpp/metal/src/shaders/dex/amm_xyk.metal
-//   driver: ~/work/luxcpp/dex/gpu/metal/amm_xyk_driver.{h,mm}
+//   kernel: $LUXCPP_DIR/metal/src/shaders/dex/amm_xyk.metal
+//   driver: $LUXCPP_DIR/dex/gpu/metal/amm_xyk_driver.{h,mm}
+//           -> built into libamm_xyk_metal.a in $LUXCPP_PREFIX/lib
+//   header: $LUXCPP_PREFIX/include/lux/dex/metal/amm_xyk_driver.h
+//   metallib: $LUXCPP_PREFIX/share/lux/dex/amm_xyk.metallib
+//             (also at build-tree path as fallback)
 //
-// One-time build:
-//   cmake -S ~/work/luxcpp/dex -B ~/work/luxcpp/dex/build && \
-//     cmake --build ~/work/luxcpp/dex/build --target amm_xyk_metal
+// Linkage goes through the lux-dex-amm-metal pkg-config bundle. Build +
+// install once with:
+//
+//   cmake -S $HOME/work/luxcpp/dex -B $HOME/work/luxcpp/dex/build \
+//         -DCMAKE_INSTALL_PREFIX=$HOME/work/luxcpp/install \
+//         -DBUILD_TESTS=OFF
+//   cmake --build $HOME/work/luxcpp/dex/build --target amm_xyk_metal
+//   cmake --install $HOME/work/luxcpp/dex/build
 //
 // The metallib's runtime path is read from $LUX_DEX_AMM_METALLIB; if unset
 // we fall back to the canonical build-tree location.
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../../../luxcpp/dex/gpu/metal
-
-#cgo LDFLAGS: -L${SRCDIR}/../../../../luxcpp/dex/build
-#cgo LDFLAGS: -lamm_xyk_metal -lstdc++
-#cgo LDFLAGS: -framework Metal -framework Foundation
+#cgo pkg-config: lux-dex-amm-metal
 
 #include <stdint.h>
 #include <stdlib.h>
