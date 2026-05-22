@@ -8,33 +8,38 @@ package lx
 // GPU/batched signed-order verification.
 //
 // The C primitive lives in luxcpp/crypto:
-//   header: ~/work/luxcpp/crypto/include/lux/crypto/secp256k1.h
-//   body:   ~/work/luxcpp/crypto/secp256k1/cpp/ecrecover.cpp
-//   metal:  ~/work/luxcpp/crypto/secp256k1/gpu/metal/secp256k1_recover.metal
+//   header: $LUXCPP_PREFIX/include/lux/crypto/secp256k1.h
+//   body:   libsecp256k1_cpu.a in $LUXCPP_PREFIX/lib (CPU oracle)
+//   metal:  libsecp256k1_metal.a in luxcpp/crypto/build/secp256k1
+//           (still consumed from the build tree — Metal-only, no .pc yet)
 //
-// The CPU/oracle entry point used here is
-// `secp256k1_ecrecover_address_batch`: it takes (hash, r||s||v) tuples and
-// writes 20-byte Ethereum addresses out. We then compare each recovered
-// address with order.Sender and emit the per-order bool.
+// The CPU/oracle entry point is `secp256k1_ecrecover_address_batch`: it
+// takes (hash, r||s||v) tuples and writes 20-byte Ethereum addresses out.
+// We then compare each recovered address with order.Sender and emit the
+// per-order bool.
 //
-// Build the linked archives once via:
+// CPU linkage goes through the lux-crypto-secp256k1 pkg-config bundle
+// (libsecp256k1_cpu + libkeccak_cpu). Build + install once with:
 //
-//   cmake -S ~/work/luxcpp/crypto -B ~/work/luxcpp/crypto/build && \
-//     cmake --build ~/work/luxcpp/crypto/build \
-//       --target secp256k1_cpu keccak_cpu
+//   cmake -S $HOME/work/luxcpp/crypto -B $HOME/work/luxcpp/crypto/build \
+//         -DCMAKE_INSTALL_PREFIX=$HOME/work/luxcpp/install
+//   cmake --build $HOME/work/luxcpp/crypto/build \
+//         --target secp256k1_cpu keccak_cpu
+//   cmake --install $HOME/work/luxcpp/crypto/build
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../../../luxcpp/crypto/include
-
-#cgo LDFLAGS: -L${SRCDIR}/../../../../luxcpp/crypto/build/secp256k1
-#cgo LDFLAGS: -L${SRCDIR}/../../../../luxcpp/crypto/build/keccak
-#cgo LDFLAGS: -lsecp256k1_cpu -lkeccak_cpu -lstdc++
+#cgo pkg-config: lux-crypto-secp256k1
 //
 // Metal driver: dispatch in cpp/ecrecover.cpp resolves the GPU symbol via
 // dlsym(RTLD_DEFAULT, ...). The anchor file signed_order_metal_anchor_darwin.c
 // takes its address so the linker pulls libsecp256k1_metal.a into the final
 // binary. Set LUX_SECP256K1_METALLIB to enable GPU dispatch; unset or
 // LUX_SECP256K1_BACKEND=cpu uses the CPU pipeline.
+//
+// libsecp256k1_metal is NOT in the lux-crypto-secp256k1 .pc bundle (Apple
+// only, Metal/Foundation frameworks required). Keep the build-tree path
+// until a separate lux-crypto-secp256k1-metal .pc lands.
+#cgo darwin LDFLAGS: -L${SRCDIR}/../../../../luxcpp/crypto/build/secp256k1
 #cgo darwin LDFLAGS: -lsecp256k1_metal -framework Metal -framework Foundation
 
 #include <stdint.h>
