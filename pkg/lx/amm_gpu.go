@@ -21,7 +21,7 @@ import (
 //   other   → amm_gpu_stub.go  → returns errAMMGPUUnsupported (caller falls back to CPU)
 //
 // Fallback policy (recorded via backend.RecordFallback):
-//   LUX_GPU_DISABLE=1            → reason "disabled"
+//   GPU_DISABLE=1            → reason "disabled"
 //   gpuBatchEval returns sentinel → reason "unsupported"
 //   other gpuBatchEval error     → surfaced to caller (no fallback)
 //
