@@ -21,7 +21,7 @@ import (
 // linked-list semantics and is NOT touched by this dispatch.
 //
 // Fallback policy (recorded via backend.RecordFallback):
-//   LUX_GPU_DISABLE=1                 → reason "disabled"
+//   GPU_DISABLE=1                 → reason "disabled"
 //   gpuMatchOrder returns sentinel    → reason "unsupported"
 //   other gpuMatchOrder error         → surfaced to caller (no fallback)
 //
