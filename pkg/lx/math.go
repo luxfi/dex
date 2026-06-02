@@ -13,7 +13,7 @@ var MaxUint256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewI
 
 // Math errors matching Solidity revert semantics.
 var (
-	ErrDivisionByZero = errors.New("division by zero")
+	ErrDivisionByZero  = errors.New("division by zero")
 	ErrUint256Overflow = errors.New("uint256 overflow")
 )
 

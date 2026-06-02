@@ -48,8 +48,8 @@ type MarketConfig struct {
 	InstitutionalOnly bool    // Institutions only (QIB, etc.)
 
 	// CEX reconciliation — links this DEX market to a CEX venue
-	CEXSymbol         string // Corresponding CEX symbol (if reconciled)
-	CEXVenue          string // CEX venue identifier (e.g. "lux-cex")
+	CEXSymbol          string             // Corresponding CEX symbol (if reconciled)
+	CEXVenue           string             // CEX venue identifier (e.g. "lux-cex")
 	ReconciliationMode ReconciliationMode // How cross-venue settlement works
 }
 
@@ -77,10 +77,10 @@ func DefaultMarketConfig() MarketConfig {
 // FixedIncomeMarketConfig returns a config for bond/note markets.
 func FixedIncomeMarketConfig(symbol string) MarketConfig {
 	return MarketConfig{
-		Symbol:     symbol,
-		AssetClass: AssetClassFixedIncome,
-		TickSize:   0.001,
-		LotSize:    1000, // Standard bond lot
+		Symbol:      symbol,
+		AssetClass:  AssetClassFixedIncome,
+		TickSize:    0.001,
+		LotSize:     1000, // Standard bond lot
 		MinNotional: 1000,
 	}
 }
@@ -136,8 +136,8 @@ func PrivateEquityMarketConfig(symbol string) MarketConfig {
 		InstitutionalOnly: false,
 		SingleMatchMode:   true, // Private secondaries
 		Restrictions: &TransferRestriction{
-			MinInvestorStatus: InvestorQualifiedPurchaser,
-			ROFRRequired:      true,
+			MinInvestorStatus:     InvestorQualifiedPurchaser,
+			ROFRRequired:          true,
 			BoardApprovalRequired: true,
 		},
 	}

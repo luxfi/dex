@@ -47,7 +47,7 @@ func NewUniswapV2Venue(cfg UniswapV2Config) *UniswapV2Venue {
 	}
 }
 
-func (v *UniswapV2Venue) Name() string      { return v.venueName }
+func (v *UniswapV2Venue) Name() string       { return v.venueName }
 func (v *UniswapV2Venue) IsExecutable() bool { return true }
 
 func (v *UniswapV2Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*VenueQuote, error) {
@@ -135,7 +135,7 @@ func BuildV2SwapCalldata(routerAddress string, path []string, amountIn, amountOu
 	calldata = append(calldata, selectorV2SwapExact...)
 	calldata = append(calldata, lxrPadUint256(amountIn)...)
 	calldata = append(calldata, lxrPadUint256(amountOutMin)...)
-	calldata = append(calldata, lxrPadUint256(big.NewInt(160))...)              // offset to path (5 * 32 = 160)
+	calldata = append(calldata, lxrPadUint256(big.NewInt(160))...) // offset to path (5 * 32 = 160)
 	calldata = append(calldata, lxrPadAddress(recipientAddr)...)
 	calldata = append(calldata, lxrPadUint256(deadline)...)
 	calldata = append(calldata, lxrPadUint256(big.NewInt(int64(len(path))))...) // path length

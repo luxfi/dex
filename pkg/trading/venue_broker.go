@@ -97,7 +97,7 @@ func NewBrokerHTTPVenue(cfg BrokerHTTPConfig) *BrokerHTTPVenue {
 	}
 }
 
-func (v *BrokerHTTPVenue) Name() string      { return v.provider }
+func (v *BrokerHTTPVenue) Name() string       { return v.provider }
 func (v *BrokerHTTPVenue) IsExecutable() bool { return false }
 
 func (v *BrokerHTTPVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {
@@ -198,7 +198,7 @@ func NewBrokerSORVenue(brokerURL, apiKey string, registry *SymbolRegistry) *Brok
 	}
 }
 
-func (v *BrokerSORVenue) Name() string      { return "broker_sor" }
+func (v *BrokerSORVenue) Name() string       { return "broker_sor" }
 func (v *BrokerSORVenue) IsExecutable() bool { return false }
 
 func (v *BrokerSORVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {
