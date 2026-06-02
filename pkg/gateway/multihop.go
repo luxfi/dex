@@ -9,8 +9,8 @@ import (
 
 // Routing constants
 const (
-	DefaultMaxHops = 3
-	AbsoluteMaxHops = 4
+	DefaultMaxHops    = 3
+	AbsoluteMaxHops   = 4
 	MaxRoutesReturned = 5
 )
 
@@ -21,14 +21,14 @@ const LXRouterPrecompile = "0x0000000000000000000000000000000000009012"
 
 // RouteHop represents a single hop in a multihop route.
 type RouteHop struct {
-	TokenIn       string `json:"tokenIn"`
-	TokenOut      string `json:"tokenOut"`
-	PoolID        string `json:"poolId"`
-	Fee           uint32 `json:"fee"`
-	TickSpacing   int32  `json:"tickSpacing"`
-	AmountIn      string `json:"amountIn"`
-	AmountOut     string `json:"amountOut"`
-	SqrtPriceX96  string `json:"sqrtPriceX96,omitempty"`
+	TokenIn      string `json:"tokenIn"`
+	TokenOut     string `json:"tokenOut"`
+	PoolID       string `json:"poolId"`
+	Fee          uint32 `json:"fee"`
+	TickSpacing  int32  `json:"tickSpacing"`
+	AmountIn     string `json:"amountIn"`
+	AmountOut    string `json:"amountOut"`
+	SqrtPriceX96 string `json:"sqrtPriceX96,omitempty"`
 }
 
 // MultihopRoute represents a complete multihop route with gas and impact estimates.
@@ -60,16 +60,16 @@ type RoutingResponse struct {
 // The full Pool type from types.go is used by the provider layer; this adds
 // fields specific to the routing response.
 type PoolSummary struct {
-	PoolID      string  `json:"poolId"`
-	Token0      string  `json:"token0"`
-	Token1      string  `json:"token1"`
-	Fee         uint32  `json:"fee"`
-	TickSpacing int32   `json:"tickSpacing"`
-	TVL         string  `json:"tvl,omitempty"`
-	Volume24h   string  `json:"volume24h,omitempty"`
-	Liquidity   string  `json:"liquidity,omitempty"`
-	SqrtPrice   string  `json:"sqrtPrice,omitempty"`
-	Tick        int32   `json:"tick,omitempty"`
+	PoolID      string `json:"poolId"`
+	Token0      string `json:"token0"`
+	Token1      string `json:"token1"`
+	Fee         uint32 `json:"fee"`
+	TickSpacing int32  `json:"tickSpacing"`
+	TVL         string `json:"tvl,omitempty"`
+	Volume24h   string `json:"volume24h,omitempty"`
+	Liquidity   string `json:"liquidity,omitempty"`
+	SqrtPrice   string `json:"sqrtPrice,omitempty"`
+	Tick        int32  `json:"tick,omitempty"`
 }
 
 // --- Validation ---

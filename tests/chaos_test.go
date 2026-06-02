@@ -431,10 +431,10 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 		require.NotZero(t, sellID)
 
 		var (
-			cancelErr    error
-			trades       []lx.Trade
-			cancelDone   = make(chan struct{})
-			matchDone    = make(chan struct{})
+			cancelErr  error
+			trades     []lx.Trade
+			cancelDone = make(chan struct{})
+			matchDone  = make(chan struct{})
 		)
 
 		// Race: cancel vs match
@@ -557,7 +557,7 @@ func TestDEX_GatewayLoadShedding(t *testing.T) {
 	ob := lx.NewOrderBook("LOAD-USD")
 
 	const (
-		numWorkers     = 100
+		numWorkers      = 100
 		ordersPerWorker = 100 // 10K total
 	)
 

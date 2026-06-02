@@ -114,12 +114,12 @@ func BuildExactInputCalldata(path []string, amountIn, amountOutMin, sqrtPriceLim
 
 	data := make([]byte, 0, 4+32*5+len(pathPadded))
 	data = append(data, SelectorExactInput...)
-	data = append(data, lxrPadUint256(big.NewInt(128))...)              // offset to path data (4 * 32 = 128)
-	data = append(data, lxrPadUint256(amountIn)...)                     // amountIn
-	data = append(data, lxrPadUint256(amountOutMin)...)                 // amountOutMinimum
-	data = append(data, lxrPadUint256(sqrtPriceLimitX96)...)            // sqrtPriceLimitX96
+	data = append(data, lxrPadUint256(big.NewInt(128))...)                    // offset to path data (4 * 32 = 128)
+	data = append(data, lxrPadUint256(amountIn)...)                           // amountIn
+	data = append(data, lxrPadUint256(amountOutMin)...)                       // amountOutMinimum
+	data = append(data, lxrPadUint256(sqrtPriceLimitX96)...)                  // sqrtPriceLimitX96
 	data = append(data, lxrPadUint256(big.NewInt(int64(len(packedPath))))...) // path length
-	data = append(data, pathPadded...)                                  // path data
+	data = append(data, pathPadded...)                                        // path data
 
 	return "0x" + hex.EncodeToString(data), nil
 }

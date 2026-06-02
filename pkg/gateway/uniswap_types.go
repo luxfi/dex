@@ -9,10 +9,10 @@ import "encoding/json"
 
 // UniQuoteRequest is the Uniswap-compatible quote request body.
 type UniQuoteRequest struct {
-	Type              string   `json:"type"`                        // EXACT_INPUT or EXACT_OUTPUT
-	Amount            string   `json:"amount"`                      // wei string
-	TokenIn           string   `json:"tokenIn"`                     // address
-	TokenOut          string   `json:"tokenOut"`                    // address
+	Type              string   `json:"type"`     // EXACT_INPUT or EXACT_OUTPUT
+	Amount            string   `json:"amount"`   // wei string
+	TokenIn           string   `json:"tokenIn"`  // address
+	TokenOut          string   `json:"tokenOut"` // address
 	TokenInChainId    int      `json:"tokenInChainId"`
 	TokenOutChainId   int      `json:"tokenOutChainId"`
 	Swapper           string   `json:"swapper"`                     // wallet address
@@ -38,35 +38,35 @@ type UniQuoteResponse struct {
 
 // UniClassicQuote is the classic (AMM) quote response body.
 type UniClassicQuote struct {
-	Input             UniTokenAmount    `json:"input"`
-	Output            UniTokenAmount    `json:"output"`
-	Swapper           string            `json:"swapper"`
-	Route             [][]UniRouteHop   `json:"route"`
-	GasFee            string            `json:"gasFee"`
-	GasFeeUSD         string            `json:"gasFeeUSD,omitempty"`
-	GasFeeQuote       string            `json:"gasFeeQuote,omitempty"`
-	GasUseEstimate    string            `json:"gasUseEstimate"`
-	RouteString       string            `json:"routeString"`
-	QuoteId           string            `json:"quoteId"`
-	BlockNumber       string            `json:"blockNumber,omitempty"`
-	PriceImpact       float64           `json:"priceImpact,omitempty"`
-	SlippageTolerance float64           `json:"slippageTolerance,omitempty"`
-	TxFailureReasons  []string          `json:"txFailureReasons,omitempty"`
-	PortionBips       int               `json:"portionBips,omitempty"`
-	PortionAmount     string            `json:"portionAmount,omitempty"`
-	PortionRecipient  string            `json:"portionRecipient,omitempty"`
+	Input             UniTokenAmount  `json:"input"`
+	Output            UniTokenAmount  `json:"output"`
+	Swapper           string          `json:"swapper"`
+	Route             [][]UniRouteHop `json:"route"`
+	GasFee            string          `json:"gasFee"`
+	GasFeeUSD         string          `json:"gasFeeUSD,omitempty"`
+	GasFeeQuote       string          `json:"gasFeeQuote,omitempty"`
+	GasUseEstimate    string          `json:"gasUseEstimate"`
+	RouteString       string          `json:"routeString"`
+	QuoteId           string          `json:"quoteId"`
+	BlockNumber       string          `json:"blockNumber,omitempty"`
+	PriceImpact       float64         `json:"priceImpact,omitempty"`
+	SlippageTolerance float64         `json:"slippageTolerance,omitempty"`
+	TxFailureReasons  []string        `json:"txFailureReasons,omitempty"`
+	PortionBips       int             `json:"portionBips,omitempty"`
+	PortionAmount     string          `json:"portionAmount,omitempty"`
+	PortionRecipient  string          `json:"portionRecipient,omitempty"`
 }
 
 // UniTokenAmount represents a token address + amount pair with chain context.
 type UniTokenAmount struct {
-	Token   string `json:"token"`   // address
-	Amount  string `json:"amount"`  // wei string
+	Token   string `json:"token"`  // address
+	Amount  string `json:"amount"` // wei string
 	ChainId int    `json:"chainId"`
 }
 
 // UniRouteHop represents one pool hop in a swap route.
 type UniRouteHop struct {
-	Type         string `json:"type"`                   // v2-pool, v3-pool, v4-pool
+	Type         string `json:"type"` // v2-pool, v3-pool, v4-pool
 	Address      string `json:"address"`
 	TokenIn      string `json:"tokenIn"`
 	TokenOut     string `json:"tokenOut"`
@@ -239,9 +239,9 @@ type UniModifyLPRequest struct {
 
 // UniLPResponse wraps LP operation results.
 type UniLPResponse struct {
-	Type  string          `json:"type"` // TRANSACTION
+	Type  string              `json:"type"` // TRANSACTION
 	Tx    *UniTransactionData `json:"transaction,omitempty"`
-	Steps []UniLPStep     `json:"steps,omitempty"` // for multi-step (approve + create)
+	Steps []UniLPStep         `json:"steps,omitempty"` // for multi-step (approve + create)
 }
 
 // UniLPStep is one step in a multi-step LP operation.

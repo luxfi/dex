@@ -17,7 +17,7 @@ type percentageFeeBridge struct {
 	duration    time.Duration
 }
 
-func (b *percentageFeeBridge) BridgeType() BridgeType   { return b.bridgeType }
+func (b *percentageFeeBridge) BridgeType() BridgeType    { return b.bridgeType }
 func (b *percentageFeeBridge) SupportedRoutes() [][2]int { return b.routes }
 func (b *percentageFeeBridge) SupportedTokens(src, _ int) []string {
 	return b.tokens[src]
