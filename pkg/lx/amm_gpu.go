@@ -16,14 +16,16 @@ import (
 // the CPU oracle BatchEvalConstantProductCPU.
 //
 // Backend selection at compile time (CGo on):
-//   darwin  → amm_gpu_metal.go → Metal
-//   linux   → amm_gpu_cuda.go  → CUDA
-//   other   → amm_gpu_stub.go  → returns errAMMGPUUnsupported (caller falls back to CPU)
+//
+//	darwin  → amm_gpu_metal.go → Metal
+//	linux   → amm_gpu_cuda.go  → CUDA
+//	other   → amm_gpu_stub.go  → returns errAMMGPUUnsupported (caller falls back to CPU)
 //
 // Fallback policy (recorded via backend.RecordFallback):
-//   GPU_DISABLE=1            → reason "disabled"
-//   gpuBatchEval returns sentinel → reason "unsupported"
-//   other gpuBatchEval error     → surfaced to caller (no fallback)
+//
+//	GPU_DISABLE=1            → reason "disabled"
+//	gpuBatchEval returns sentinel → reason "unsupported"
+//	other gpuBatchEval error     → surfaced to caller (no fallback)
 //
 // CGo off → amm_nogpu.go provides a CPU-only implementation of this
 // entry point. One and only one BatchEvalConstantProduct symbol per build.
