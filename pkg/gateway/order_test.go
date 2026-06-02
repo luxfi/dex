@@ -222,9 +222,9 @@ func TestHexAddressValidation(t *testing.T) {
 		{"", false},
 		{"0x", false},
 		{"0x000000000000000000000000000000000000000", false},   // 39 chars
-		{"0x00000000000000000000000000000000000000001", false},  // 41 chars
-		{"0xGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG", false}, // invalid hex
-		{"000000000000000000000000000000000000000001", false},    // no 0x
+		{"0x00000000000000000000000000000000000000001", false}, // 41 chars
+		{"0xGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG", false},  // invalid hex
+		{"000000000000000000000000000000000000000001", false},  // no 0x
 	}
 
 	for _, tt := range tests {

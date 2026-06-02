@@ -36,12 +36,12 @@ func retailProfile(userID string) *InvestorProfile {
 
 func regD506cMarket() MarketConfig {
 	return MarketConfig{
-		Symbol:     "ACME-USD",
-		AssetClass: AssetClassEquity,
-		Exemption:  ExemptionRegD506c,
-		ShareClass: "Series A Preferred",
-		TickSize:   0.01,
-		LotSize:    1.0,
+		Symbol:      "ACME-USD",
+		AssetClass:  AssetClassEquity,
+		Exemption:   ExemptionRegD506c,
+		ShareClass:  "Series A Preferred",
+		TickSize:    0.01,
+		LotSize:     1.0,
 		MinNotional: 25000.0,
 		Restrictions: &TransferRestriction{
 			HoldingPeriod:     365 * 24 * time.Hour,

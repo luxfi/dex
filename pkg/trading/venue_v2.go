@@ -41,7 +41,7 @@ func NewUniswapV2Venue(cfg UniswapV2Config) *UniswapV2Venue {
 	}
 }
 
-func (v *UniswapV2Venue) Name() string      { return v.venueName }
+func (v *UniswapV2Venue) Name() string       { return v.venueName }
 func (v *UniswapV2Venue) IsExecutable() bool { return true }
 
 func (v *UniswapV2Venue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {

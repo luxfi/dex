@@ -83,11 +83,11 @@ type CreateOrderRequest struct {
 
 // CreateOrderResponse is returned from POST /v1/order.
 type CreateOrderResponse struct {
-	OrderID   string             `json:"orderId"`
-	Status    OrderStatus        `json:"status"`
-	Tx        *TxData            `json:"tx,omitempty"`        // unsigned tx for limit orders
-	EIP712    *DutchOrderEIP712  `json:"eip712,omitempty"`    // typed data for dutch orders
-	CreatedAt time.Time          `json:"createdAt"`
+	OrderID   string            `json:"orderId"`
+	Status    OrderStatus       `json:"status"`
+	Tx        *TxData           `json:"tx,omitempty"`     // unsigned tx for limit orders
+	EIP712    *DutchOrderEIP712 `json:"eip712,omitempty"` // typed data for dutch orders
+	CreatedAt time.Time         `json:"createdAt"`
 }
 
 // TxData is an unsigned transaction envelope.
@@ -116,10 +116,10 @@ type EIP712Field struct {
 // Uses DutchOrderEIP712Domain which adds a version field to the domain separator,
 // matching the UniswapX reactor ABI.
 type DutchOrderEIP712 struct {
-	Types       map[string][]EIP712Field   `json:"types"`
-	PrimaryType string                     `json:"primaryType"`
-	Domain      DutchOrderEIP712Domain     `json:"domain"`
-	Message     map[string]interface{}     `json:"message"`
+	Types       map[string][]EIP712Field `json:"types"`
+	PrimaryType string                   `json:"primaryType"`
+	Domain      DutchOrderEIP712Domain   `json:"domain"`
+	Message     map[string]interface{}   `json:"message"`
 }
 
 // DutchOrderEIP712Domain is the domain separator for Dutch auction orders.

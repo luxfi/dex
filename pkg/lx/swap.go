@@ -608,7 +608,7 @@ func updatePosition(
 	if !ok {
 		pos = &LPPosition{
 			Owner: owner, TickLower: params.TickLower, TickUpper: params.TickUpper,
-			Liquidity: big.NewInt(0),
+			Liquidity:                big.NewInt(0),
 			FeeGrowthInside0LastX128: big.NewInt(0), FeeGrowthInside1LastX128: big.NewInt(0),
 			TokensOwed0: big.NewInt(0), TokensOwed1: big.NewInt(0),
 		}
