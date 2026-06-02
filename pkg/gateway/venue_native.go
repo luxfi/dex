@@ -56,7 +56,7 @@ func NewNativeDEXVenue(cfg NativeDEXConfig) *NativeDEXVenue {
 	}
 }
 
-func (v *NativeDEXVenue) Name() string      { return v.name }
+func (v *NativeDEXVenue) Name() string       { return v.name }
 func (v *NativeDEXVenue) IsExecutable() bool { return true }
 
 func (v *NativeDEXVenue) Quote(ctx context.Context, req VenueQuoteRequest) (*VenueQuote, error) {

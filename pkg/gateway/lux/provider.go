@@ -481,13 +481,13 @@ func (p *Provider) ExecuteSwap(ctx context.Context, req gateway.SwapRequest) (st
 
 // v3PoolDef defines a V3 token pair to check for pools
 type v3PoolDef struct {
-	tokenA   string
-	symbolA  string
-	nameA    string
+	tokenA    string
+	symbolA   string
+	nameA     string
 	decimalsA int
-	tokenB   string
-	symbolB  string
-	nameB    string
+	tokenB    string
+	symbolB   string
+	nameB     string
 	decimalsB int
 }
 

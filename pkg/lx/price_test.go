@@ -9,8 +9,8 @@ import (
 )
 
 // helper to build big.Ints concisely
-func bi(v int64) *big.Int          { return big.NewInt(v) }
-func bis(s string) *big.Int        { v, _ := new(big.Int).SetString(s, 10); return v }
+func bi(v int64) *big.Int   { return big.NewInt(v) }
+func bis(s string) *big.Int { v, _ := new(big.Int).SetString(s, 10); return v }
 
 func TestSqrtPriceMath_GetNextSqrtPriceFromAmount0RoundingUp(t *testing.T) {
 	// Use a realistic sqrtPrice ~= sqrt(1) * 2^96 = 2^96
@@ -161,9 +161,9 @@ func TestSqrtPriceMath_GetNextSqrtPriceFromOutput(t *testing.T) {
 
 func TestSqrtPriceMath_GetAmount0Delta(t *testing.T) {
 	// Two prices: sqrtPrice at tick 0 (1:1) and at a higher price
-	priceLow := new(big.Int).Set(Q96)             // sqrt(1) * 2^96
-	priceHigh := new(big.Int).Mul(Q96, bi(2))     // sqrt(4) * 2^96 = 2 * Q96
-	liquidity := bis("1000000000000000000")        // 1e18
+	priceLow := new(big.Int).Set(Q96)         // sqrt(1) * 2^96
+	priceHigh := new(big.Int).Mul(Q96, bi(2)) // sqrt(4) * 2^96 = 2 * Q96
+	liquidity := bis("1000000000000000000")   // 1e18
 
 	t.Run("roundUp >= roundDown", func(t *testing.T) {
 		up, err := GetAmount0Delta(priceLow, priceHigh, liquidity, true)

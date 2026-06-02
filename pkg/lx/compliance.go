@@ -24,25 +24,25 @@ type SettlementHandler interface {
 type ComplianceErrorCode uint8
 
 const (
-	ErrNotAccredited      ComplianceErrorCode = iota + 1 // Investor not accredited
-	ErrJurisdiction                                      // Investor jurisdiction blocked
-	ErrHoldingPeriod                                     // Holding period not elapsed
-	ErrMaxHolders                                        // Would exceed max holder count
-	ErrKYCRequired                                       // KYC verification missing
-	ErrAMLRequired                                       // AML clearance missing
-	ErrMinNotional                                       // Below minimum notional value
-	ErrMinSize                                           // Below minimum order size
-	ErrMaxSize                                           // Exceeds maximum order size
-	ErrROFRPending                                       // Right of first refusal pending
-	ErrBoardApproval                                     // Board approval required
-	ErrTransferRestricted                                // Generic transfer restriction
-	ErrPEPReviewRequired                                 // PEP requires enhanced due diligence
-	ErrSourceOfFundsRequired                             // Source of funds verification needed
-	ErrAdverseMedia                                      // Adverse media screening flagged
-	ErrHighRiskCountry                                   // FATF high-risk jurisdiction
-	ErrInstitutionalOnly                                 // Restricted to institutional investors
-	ErrLockupPeriod                                      // Asset is within lockup period
-	ErrCollateralInsufficient                            // Insufficient collateral ratio
+	ErrNotAccredited          ComplianceErrorCode = iota + 1 // Investor not accredited
+	ErrJurisdiction                                          // Investor jurisdiction blocked
+	ErrHoldingPeriod                                         // Holding period not elapsed
+	ErrMaxHolders                                            // Would exceed max holder count
+	ErrKYCRequired                                           // KYC verification missing
+	ErrAMLRequired                                           // AML clearance missing
+	ErrMinNotional                                           // Below minimum notional value
+	ErrMinSize                                               // Below minimum order size
+	ErrMaxSize                                               // Exceeds maximum order size
+	ErrROFRPending                                           // Right of first refusal pending
+	ErrBoardApproval                                         // Board approval required
+	ErrTransferRestricted                                    // Generic transfer restriction
+	ErrPEPReviewRequired                                     // PEP requires enhanced due diligence
+	ErrSourceOfFundsRequired                                 // Source of funds verification needed
+	ErrAdverseMedia                                          // Adverse media screening flagged
+	ErrHighRiskCountry                                       // FATF high-risk jurisdiction
+	ErrInstitutionalOnly                                     // Restricted to institutional investors
+	ErrLockupPeriod                                          // Asset is within lockup period
+	ErrCollateralInsufficient                                // Insufficient collateral ratio
 )
 
 // ComplianceError is returned when a pre-trade check fails.
