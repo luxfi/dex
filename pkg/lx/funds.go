@@ -29,30 +29,30 @@ const (
 type FundsRoute uint8
 
 const (
-	RouteDEXInternal  FundsRoute = iota // DEX → same DEX (internal: margin, vault, lending)
-	RouteCEXInternal                    // CEX → same CEX (account transfer, margin)
-	RouteDEXToDEX                       // DEX → different DEX (cross-chain bridge)
-	RouteCEXToCEX                       // CEX → different CEX (broker transfer)
-	RouteDEXToCEX                       // DEX → CEX (on-chain withdraw → custodial deposit)
-	RouteCEXToDEX                       // CEX → DEX (custodial withdraw → on-chain deposit)
-	RouteExternalIn                     // Fiat/external → venue (wire, ACH, card)
-	RouteExternalOut                    // Venue → fiat/external (wire out)
+	RouteDEXInternal FundsRoute = iota // DEX → same DEX (internal: margin, vault, lending)
+	RouteCEXInternal                   // CEX → same CEX (account transfer, margin)
+	RouteDEXToDEX                      // DEX → different DEX (cross-chain bridge)
+	RouteCEXToCEX                      // CEX → different CEX (broker transfer)
+	RouteDEXToCEX                      // DEX → CEX (on-chain withdraw → custodial deposit)
+	RouteCEXToDEX                      // CEX → DEX (custodial withdraw → on-chain deposit)
+	RouteExternalIn                    // Fiat/external → venue (wire, ACH, card)
+	RouteExternalOut                   // Venue → fiat/external (wire out)
 )
 
 // FundsStatus tracks the lifecycle of a funds movement.
 type FundsStatus uint8
 
 const (
-	FundsStatusPending       FundsStatus = iota // Created, awaiting processing
-	FundsStatusCompliance                       // Undergoing compliance review
-	FundsStatusApproved                         // Compliance approved, ready to execute
-	FundsStatusProcessing                       // Execution in progress
-	FundsStatusConfirming                       // Awaiting on-chain confirmations (DEX)
-	FundsStatusSettling                         // Settlement in progress (CEX T+1/T+2)
-	FundsStatusCompleted                        // Fully settled
-	FundsStatusFailed                           // Failed (insufficient funds, compliance, etc.)
-	FundsStatusCancelled                        // Cancelled by user or system
-	FundsStatusFrozen                           // Frozen by compliance (AML hold)
+	FundsStatusPending    FundsStatus = iota // Created, awaiting processing
+	FundsStatusCompliance                    // Undergoing compliance review
+	FundsStatusApproved                      // Compliance approved, ready to execute
+	FundsStatusProcessing                    // Execution in progress
+	FundsStatusConfirming                    // Awaiting on-chain confirmations (DEX)
+	FundsStatusSettling                      // Settlement in progress (CEX T+1/T+2)
+	FundsStatusCompleted                     // Fully settled
+	FundsStatusFailed                        // Failed (insufficient funds, compliance, etc.)
+	FundsStatusCancelled                     // Cancelled by user or system
+	FundsStatusFrozen                        // Frozen by compliance (AML hold)
 )
 
 // RiskLevel classifies the risk of a funds movement.
@@ -83,16 +83,16 @@ type FundsMovement struct {
 	DestChain string // For DEX: chain ID. For CEX: empty.
 
 	// Asset
-	Asset    string   // Symbol (e.g. "USDC", "BTC", "XAU")
-	Amount   *big.Int // In smallest unit (wei, satoshi, etc.)
-	Fee      *big.Int // Total fee charged
+	Asset     string   // Symbol (e.g. "USDC", "BTC", "XAU")
+	Amount    *big.Int // In smallest unit (wei, satoshi, etc.)
+	Fee       *big.Int // Total fee charged
 	NetAmount *big.Int // Amount after fee
 
 	// Status
-	Status     FundsStatus
-	Risk       RiskLevel
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Status      FundsStatus
+	Risk        RiskLevel
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 	CompletedAt *time.Time
 
 	// Compliance
@@ -103,10 +103,10 @@ type FundsMovement struct {
 	ReviewerID        string // Manual reviewer (if required)
 
 	// On-chain (DEX movements)
-	SourceTxHash string // Source chain transaction
-	DestTxHash   string // Destination chain transaction
-	Confirmations int   // Current confirmations
-	RequiredConfs int   // Required confirmations
+	SourceTxHash  string // Source chain transaction
+	DestTxHash    string // Destination chain transaction
+	Confirmations int    // Current confirmations
+	RequiredConfs int    // Required confirmations
 
 	// Settlement (CEX movements)
 	SettlementType string     // instant, t1, t2, wire
@@ -121,11 +121,11 @@ type FundsMovement struct {
 
 // RiskProfile describes the risk characteristics of a specific route.
 type RiskProfile struct {
-	Route            FundsRoute
-	CounterpartyRisk string // "none" (DEX), "custodial" (CEX), "bridge" (cross-chain)
-	SmartContractRisk bool  // True for DEX movements
-	CustodialRisk     bool  // True for CEX movements
-	BridgeRisk        bool  // True for cross-chain
+	Route             FundsRoute
+	CounterpartyRisk  string // "none" (DEX), "custodial" (CEX), "bridge" (cross-chain)
+	SmartContractRisk bool   // True for DEX movements
+	CustodialRisk     bool   // True for CEX movements
+	BridgeRisk        bool   // True for cross-chain
 	SettlementTime    string // "instant", "~15min", "T+1", "T+2", "1-5 business days"
 	ComplianceGates   []string
 	TypicalFees       string // Human-readable fee description
@@ -134,8 +134,8 @@ type RiskProfile struct {
 // routeRiskProfiles defines the risk characteristics for each route.
 var routeRiskProfiles = map[FundsRoute]RiskProfile{
 	RouteDEXInternal: {
-		Route:            RouteDEXInternal,
-		CounterpartyRisk: "none",
+		Route:             RouteDEXInternal,
+		CounterpartyRisk:  "none",
 		SmartContractRisk: true,
 		SettlementTime:    "instant",
 		ComplianceGates:   []string{},
@@ -145,13 +145,13 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		Route:            RouteCEXInternal,
 		CounterpartyRisk: "custodial",
 		CustodialRisk:    true,
-		SettlementTime:    "instant",
-		ComplianceGates:   []string{"account_verification"},
-		TypicalFees:       "none",
+		SettlementTime:   "instant",
+		ComplianceGates:  []string{"account_verification"},
+		TypicalFees:      "none",
 	},
 	RouteDEXToDEX: {
-		Route:            RouteDEXToDEX,
-		CounterpartyRisk: "bridge",
+		Route:             RouteDEXToDEX,
+		CounterpartyRisk:  "bridge",
 		SmartContractRisk: true,
 		BridgeRisk:        true,
 		SettlementTime:    "~15min (bridge confirmations)",
@@ -162,13 +162,13 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		Route:            RouteCEXToCEX,
 		CounterpartyRisk: "custodial",
 		CustodialRisk:    true,
-		SettlementTime:    "T+1 to T+2",
-		ComplianceGates:   []string{"kyc", "aml", "withdrawal_limit"},
-		TypicalFees:       "broker transfer fee",
+		SettlementTime:   "T+1 to T+2",
+		ComplianceGates:  []string{"kyc", "aml", "withdrawal_limit"},
+		TypicalFees:      "broker transfer fee",
 	},
 	RouteDEXToCEX: {
-		Route:            RouteDEXToCEX,
-		CounterpartyRisk: "custodial",
+		Route:             RouteDEXToCEX,
+		CounterpartyRisk:  "custodial",
 		SmartContractRisk: true,
 		CustodialRisk:     true,
 		SettlementTime:    "~30min (on-chain confirm + CEX credit)",
@@ -176,9 +176,9 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		TypicalFees:       "gas + CEX deposit fee (often free)",
 	},
 	RouteCEXToDEX: {
-		Route:            RouteCEXToDEX,
-		CounterpartyRisk: "custodial",
-		CustodialRisk:    true,
+		Route:             RouteCEXToDEX,
+		CounterpartyRisk:  "custodial",
+		CustodialRisk:     true,
 		SmartContractRisk: true,
 		SettlementTime:    "~15min (CEX processing + on-chain confirm)",
 		ComplianceGates:   []string{"kyc", "aml", "withdrawal_limit", "address_whitelist", "2fa"},
@@ -188,17 +188,17 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		Route:            RouteExternalIn,
 		CounterpartyRisk: "banking",
 		CustodialRisk:    true,
-		SettlementTime:    "1-5 business days (wire/ACH)",
-		ComplianceGates:   []string{"kyc", "aml", "source_of_funds", "bank_verification"},
-		TypicalFees:       "wire fee ($25-50) or free (ACH)",
+		SettlementTime:   "1-5 business days (wire/ACH)",
+		ComplianceGates:  []string{"kyc", "aml", "source_of_funds", "bank_verification"},
+		TypicalFees:      "wire fee ($25-50) or free (ACH)",
 	},
 	RouteExternalOut: {
 		Route:            RouteExternalOut,
 		CounterpartyRisk: "banking",
 		CustodialRisk:    true,
-		SettlementTime:    "1-5 business days (wire/ACH)",
-		ComplianceGates:   []string{"kyc", "aml", "withdrawal_limit", "bank_verification", "travel_rule"},
-		TypicalFees:       "wire fee ($25-50) or free (ACH)",
+		SettlementTime:   "1-5 business days (wire/ACH)",
+		ComplianceGates:  []string{"kyc", "aml", "withdrawal_limit", "bank_verification", "travel_rule"},
+		TypicalFees:      "wire fee ($25-50) or free (ACH)",
 	},
 }
 
@@ -223,8 +223,8 @@ type FundsManager struct {
 	lastReset             time.Time
 
 	// Hooks
-	preCheck  func(m *FundsMovement) error  // Pre-movement compliance check
-	onComplete func(m *FundsMovement)        // Post-settlement callback
+	preCheck   func(m *FundsMovement) error // Pre-movement compliance check
+	onComplete func(m *FundsMovement)       // Post-settlement callback
 	onFail     func(m *FundsMovement, reason string)
 
 	// Bridge for cross-chain movements

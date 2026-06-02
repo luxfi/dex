@@ -311,18 +311,18 @@ func TestSimulateRoute_ZeroAmount(t *testing.T) {
 func TestBuildRoutesFromPools_SortedByOutput(t *testing.T) {
 	pools := []Pool{
 		{
-			Address:  "0x0000000000000000000000000000000000001001",
-			Token0:   Token{Address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Token1:   Token{Address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-			Fee:      500, // Lower fee = more output
-			TVL:      big.NewInt(1_000_000),
+			Address: "0x0000000000000000000000000000000000001001",
+			Token0:  Token{Address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Token1:  Token{Address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			Fee:     500, // Lower fee = more output
+			TVL:     big.NewInt(1_000_000),
 		},
 		{
-			Address:  "0x0000000000000000000000000000000000001002",
-			Token0:   Token{Address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Token1:   Token{Address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-			Fee:      3000, // Higher fee = less output
-			TVL:      big.NewInt(1_000_000),
+			Address: "0x0000000000000000000000000000000000001002",
+			Token0:  Token{Address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Token1:  Token{Address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			Fee:     3000, // Higher fee = less output
+			TVL:     big.NewInt(1_000_000),
 		},
 	}
 

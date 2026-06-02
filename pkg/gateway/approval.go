@@ -30,8 +30,8 @@ var (
 
 // Gas estimates for approval operations
 const (
-	gasERC20Approve    uint64 = 50_000
-	gasPermit2Approve  uint64 = 60_000
+	gasERC20Approve   uint64 = 50_000
+	gasPermit2Approve uint64 = 60_000
 )
 
 // MaxUint256 is the maximum approval amount (2^256 - 1)
@@ -68,9 +68,9 @@ type ApprovalRequest struct {
 
 // ApprovalResponse is returned from the approval check endpoint.
 type ApprovalResponse struct {
-	Approved      bool             `json:"approved"`
-	Allowance     string           `json:"allowance"`
-	NeedsApproval bool             `json:"needsApproval"`
+	Approved      bool                `json:"approved"`
+	Allowance     string              `json:"allowance"`
+	NeedsApproval bool                `json:"needsApproval"`
 	ApproveTx     *UnsignedTxResponse `json:"approveTx,omitempty"`
 }
 
@@ -86,8 +86,8 @@ type Permit2Request struct {
 
 // Permit2Response is returned from the Permit2 check endpoint.
 type Permit2Response struct {
-	Permit2Approved  bool              `json:"permit2Approved"`
-	Permit2Allowance string            `json:"permit2Allowance"`
+	Permit2Approved  bool               `json:"permit2Approved"`
+	Permit2Allowance string             `json:"permit2Allowance"`
 	SignatureRequest *EIP712SignRequest `json:"signatureRequest,omitempty"`
 }
 
@@ -175,8 +175,9 @@ func (r *Permit2Request) Validate() error {
 // BuildERC20ApproveCalldata encodes ERC20 approve(spender, amount).
 //
 // ABI layout (after 4-byte selector):
-//   [0:32]  spender (address, left-padded to 32 bytes)
-//   [32:64] amount  (uint256)
+//
+//	[0:32]  spender (address, left-padded to 32 bytes)
+//	[32:64] amount  (uint256)
 func BuildERC20ApproveCalldata(spender string, amount *big.Int) []byte {
 	data := make([]byte, 68) // 4 selector + 2*32 params
 	copy(data[0:4], selectorERC20Approve[:])
@@ -209,10 +210,11 @@ func BuildERC20AllowanceCalldata(owner, spender string) []byte {
 // BuildPermit2ApproveCalldata encodes Permit2 approve(token, spender, amount, expiration).
 //
 // ABI layout (after 4-byte selector):
-//   [0:32]   token      (address)
-//   [32:64]  spender    (address)
-//   [64:96]  amount     (uint160)
-//   [96:128] expiration (uint48)
+//
+//	[0:32]   token      (address)
+//	[32:64]  spender    (address)
+//	[64:96]  amount     (uint160)
+//	[96:128] expiration (uint48)
 func BuildPermit2ApproveCalldata(token, spender string, amount *big.Int, expiration int64) []byte {
 	data := make([]byte, 132) // 4 + 4*32
 	copy(data[0:4], selectorPermit2Approve[:])

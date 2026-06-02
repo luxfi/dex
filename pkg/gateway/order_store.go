@@ -13,8 +13,8 @@ import (
 // Keyed by orderId (UUID). Supports lookup by owner address.
 type OrderStore struct {
 	mu     sync.RWMutex
-	orders map[string]*GatewayOrder        // orderId -> order
-	byAddr map[string]map[string]struct{}   // lowercase(owner) -> set of orderIds
+	orders map[string]*GatewayOrder       // orderId -> order
+	byAddr map[string]map[string]struct{} // lowercase(owner) -> set of orderIds
 }
 
 // NewOrderStore creates an empty order store.

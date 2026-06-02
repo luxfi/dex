@@ -12,11 +12,11 @@
 // mode this daemon supports.
 //
 // Smoke flow:
-//   1. build dex-api-server
-//   2. spawn it with a free port
-//   3. POST /api/order to place a limit-buy order
-//   4. GET /api/orderbook and confirm the order appears on the bid side
-//   5. SIGTERM and confirm graceful exit
+//  1. build dex-api-server
+//  2. spawn it with a free port
+//  3. POST /api/order to place a limit-buy order
+//  4. GET /api/orderbook and confirm the order appears on the bid side
+//  5. SIGTERM and confirm graceful exit
 //
 // Multi-node consensus is provided by an entirely different binary
 // (cmd/dag-network, build-tagged zmqtest) that wires pkg/consensus

@@ -117,7 +117,7 @@ func (r *CrossChainRouter) bfsRoutes(ctx context.Context, req CrossChainQuoteReq
 	start := &bfsNode{
 		chainID: req.SourceChain, token: req.TokenIn,
 		amount: req.Amount, originalInput: req.Amount,
-		chains: []int{req.SourceChain},
+		chains:   []int{req.SourceChain},
 		totalGas: big.NewInt(0), totalFee: big.NewInt(0),
 	}
 

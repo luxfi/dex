@@ -118,11 +118,11 @@ func (s *Server) handleTradingQuote(w http.ResponseWriter, r *http.Request) {
 	hops := make([]UniRouteHop, 0, len(quote.Route))
 	for _, hop := range quote.Route {
 		hops = append(hops, UniRouteHop{
-			Type:    poolTypeToUni(hop.PoolType),
-			Address: hop.PoolAddress,
-			TokenIn: hop.TokenIn.Address,
+			Type:     poolTypeToUni(hop.PoolType),
+			Address:  hop.PoolAddress,
+			TokenIn:  hop.TokenIn.Address,
 			TokenOut: hop.TokenOut.Address,
-			Fee:     strconv.Itoa(hop.Fee),
+			Fee:      strconv.Itoa(hop.Fee),
 		})
 	}
 	if len(hops) == 0 {

@@ -44,7 +44,7 @@ func NewNativeDEXVenue(cfg NativeDEXConfig) *NativeDEXVenue {
 	}
 }
 
-func (v *NativeDEXVenue) Name() string      { return v.name }
+func (v *NativeDEXVenue) Name() string       { return v.name }
 func (v *NativeDEXVenue) IsExecutable() bool { return true }
 
 func (v *NativeDEXVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error) {
@@ -138,4 +138,3 @@ func (v *NativeDEXVenue) queryCLOB(ctx context.Context, req QuoteRequest, amount
 		Executable:  true,
 	}, nil
 }
-
