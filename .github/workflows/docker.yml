@@ -23,4 +23,7 @@ jobs:
     with:
       image: ${{ matrix.image }}
       dockerfile: ${{ matrix.dockerfile }}
+      runner-amd64: luxfi-amd64
+      runner-arm64: luxfi-arm64
+      runner-deploy: lux-deploy-linux-amd64
     secrets: inherit
