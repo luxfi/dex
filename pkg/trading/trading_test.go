@@ -15,7 +15,7 @@ import (
 
 // Test addresses — generic, not chain-specific.
 const (
-	testLUSD   = "0xc65ea8882020Af7CDa7854d590C6Fcd34BF364ec"
+	testLUSD  = "0xc65ea8882020Af7CDa7854d590C6Fcd34BF364ec"
 	testWBTC  = "0x1234567890abcdef1234567890abcdef12345678"
 	testWETH  = "0xabcdef1234567890abcdef1234567890abcdef12"
 	testUser  = "0x9011E888251AB053B7bD1cdB598Db4f9DEd94714"
@@ -1141,9 +1141,9 @@ func TestBrokerHTTPVenueNoSymbol(t *testing.T) {
 
 	// No symbol registered for this pair → nil quote.
 	quote, err := venue.Quote(context.Background(), QuoteRequest{
-		TokenIn: "0x0000000000000000000000000000000000000099",
+		TokenIn:  "0x0000000000000000000000000000000000000099",
 		TokenOut: "0x0000000000000000000000000000000000000098",
-		Amount:  "1000", Type: QuoteTypeExactInput,
+		Amount:   "1000", Type: QuoteTypeExactInput,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1159,10 +1159,10 @@ func TestBrokerHTTPVenueNoSymbol(t *testing.T) {
 
 func TestVenueTypeClassification(t *testing.T) {
 	tests := []struct {
-		name   string
-		isV2   bool
-		isV3   bool
-		isV4   bool
+		name string
+		isV2 bool
+		isV3 bool
+		isV4 bool
 	}{
 		{"v4_native", false, false, true},
 		{"v4_native_clob", false, false, true},

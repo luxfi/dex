@@ -108,7 +108,7 @@ func (s *Server) handlePermit2Check(w http.ResponseWriter, r *http.Request) {
 	resp := Permit2Response{
 		Permit2Approved:  false,
 		Permit2Allowance: "0",
-		SignatureRequest:  sigReq,
+		SignatureRequest: sigReq,
 	}
 
 	s.writeJSON(w, http.StatusOK, resp)

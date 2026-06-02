@@ -61,8 +61,8 @@ func (v *V4Venue) AddPool(tokenIn, tokenOut string, poolID string, feeBPS int, r
 	}
 }
 
-func (v *V4Venue) Name() string        { return "v4_native" }
-func (v *V4Venue) IsExecutable() bool   { return true }
+func (v *V4Venue) Name() string       { return "v4_native" }
+func (v *V4Venue) IsExecutable() bool { return true }
 
 func (v *V4Venue) Quote(_ context.Context, req QuoteRequest) (*VenueQuote, error) {
 	key := req.TokenIn + ":" + req.TokenOut
@@ -166,8 +166,8 @@ func (b *BrokerVenue) SetFees(spreadBPS, feeBPS int) {
 	b.feeBPS = feeBPS
 }
 
-func (b *BrokerVenue) Name() string        { return b.provider }
-func (b *BrokerVenue) IsExecutable() bool   { return false }
+func (b *BrokerVenue) Name() string       { return b.provider }
+func (b *BrokerVenue) IsExecutable() bool { return false }
 
 func (b *BrokerVenue) Quote(_ context.Context, req QuoteRequest) (*VenueQuote, error) {
 	if b.mockPrice == nil || b.mockPrice.Sign() == 0 {
