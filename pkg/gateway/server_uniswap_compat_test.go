@@ -535,10 +535,10 @@ func TestBigIntStr(t *testing.T) {
 
 func TestGatewayOrderToUniStatus(t *testing.T) {
 	order := &GatewayOrder{
-		ID:       "test-123",
-		Status:   OrderStatusFilled,
-		Owner:    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		ChainID:  ChainIDLux,
+		ID:      "test-123",
+		Status:  OrderStatusFilled,
+		Owner:   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ChainID: ChainIDLux,
 	}
 
 	uni := gatewayOrderToUniStatus(order)

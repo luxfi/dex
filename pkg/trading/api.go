@@ -71,7 +71,6 @@ const (
 	VenueTypeTraderJoe = "traderjoe"
 )
 
-
 // --- Request types ---
 
 // QuoteRequest is the input for POST /v1/trade/quote.
@@ -189,13 +188,13 @@ type SwapStatusResponse struct {
 
 // OrderStatusResponse is returned by GET /v1/trade/orders/:orderId.
 type OrderStatusResponse struct {
-	OrderID    string `json:"orderId"`
-	Status     string `json:"status"`
-	FilledQty  string `json:"filledQty"`
-	AvgPrice   string `json:"avgPrice"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
-	Venue      string `json:"venue"`
+	OrderID   string `json:"orderId"`
+	Status    string `json:"status"`
+	FilledQty string `json:"filledQty"`
+	AvgPrice  string `json:"avgPrice"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	Venue     string `json:"venue"`
 }
 
 // ApprovalCheckResponse is returned by POST /v1/trade/check-approval.

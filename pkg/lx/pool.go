@@ -21,10 +21,10 @@ type (
 
 // Pool fee tiers (basis points)
 const (
-	Fee001 uint24 = 100   // 0.01% - stablecoins
-	Fee005 uint24 = 500   // 0.05% - stable pairs
-	Fee030 uint24 = 3000  // 0.30% - standard
-	Fee100 uint24 = 10000 // 1.00% - exotic pairs
+	Fee001 uint24 = 100    // 0.01% - stablecoins
+	Fee005 uint24 = 500    // 0.05% - stable pairs
+	Fee030 uint24 = 3000   // 0.30% - standard
+	Fee100 uint24 = 10000  // 1.00% - exotic pairs
 	FeeMax uint24 = 100000 // 10% max fee
 )
 
@@ -218,12 +218,12 @@ func NewTickBitmap() *TickBitmap {
 // PoolState extends Pool with V4 tick-level state for concentrated liquidity.
 type PoolState struct {
 	*Pool
-	Ticks       map[int32]*TickInfo       // Per-tick state
-	TickBitmap  *TickBitmap               // Initialized tick tracking
-	Positions   map[[32]byte]*LPPosition  // Position states
-	TickSpacing int32                     // From pool key
-	LPFee       uint32                    // LP fee in pips
-	ProtocolFee uint32                    // Protocol fee in pips
+	Ticks       map[int32]*TickInfo      // Per-tick state
+	TickBitmap  *TickBitmap              // Initialized tick tracking
+	Positions   map[[32]byte]*LPPosition // Position states
+	TickSpacing int32                    // From pool key
+	LPFee       uint32                   // LP fee in pips
+	ProtocolFee uint32                   // Protocol fee in pips
 }
 
 // NewPoolState wraps a Pool with V4 tick-level state.

@@ -21,9 +21,10 @@ import (
 // linked-list semantics and is NOT touched by this dispatch.
 //
 // Fallback policy (recorded via backend.RecordFallback):
-//   GPU_DISABLE=1                 → reason "disabled"
-//   gpuMatchOrder returns sentinel    → reason "unsupported"
-//   other gpuMatchOrder error         → surfaced to caller (no fallback)
+//
+//	GPU_DISABLE=1                 → reason "disabled"
+//	gpuMatchOrder returns sentinel    → reason "unsupported"
+//	other gpuMatchOrder error         → surfaced to caller (no fallback)
 //
 // Returns: trades emitted, remaining quantity on the incoming order.
 // `book` may be mutated in place to reflect updated Remaining / Status.

@@ -20,12 +20,12 @@ const (
 type ReconciliationStatus uint8
 
 const (
-	ReconPending    ReconciliationStatus = iota // Awaiting counterpart
-	ReconMatched                                // Both sides matched
-	ReconSettling                               // Settlement in progress
-	ReconSettled                                // Fully settled
-	ReconFailed                                 // Settlement failed
-	ReconDisputed                               // Under dispute
+	ReconPending  ReconciliationStatus = iota // Awaiting counterpart
+	ReconMatched                              // Both sides matched
+	ReconSettling                             // Settlement in progress
+	ReconSettled                              // Fully settled
+	ReconFailed                               // Settlement failed
+	ReconDisputed                             // Under dispute
 )
 
 // CrossVenueTrade represents a trade that may span CEX and DEX.
@@ -40,10 +40,10 @@ type CrossVenueTrade struct {
 	DEXTxHash  string // on-chain transaction hash
 
 	// CEX side
-	CEXOrderID    string // CEX uses string UUIDs
-	CEXTradeID    string
-	CEXSymbol     string
-	CEXVenue      string // execution venue on CEX
+	CEXOrderID      string // CEX uses string UUIDs
+	CEXTradeID      string
+	CEXSymbol       string
+	CEXVenue        string // execution venue on CEX
 	CEXComplianceID string
 
 	// Common fields
@@ -61,7 +61,7 @@ type CrossVenueTrade struct {
 	FailureReason  string
 
 	// Regulatory
-	Jurisdiction       string // Governing jurisdiction
+	Jurisdiction        string // Governing jurisdiction
 	ReportedToRegulator bool
 	RegulatoryReportID  string
 }
@@ -69,29 +69,29 @@ type CrossVenueTrade struct {
 // dexToCEXMap maps DEX asset classes to CEX string equivalents.
 // Used by DEXToCEXAssetClass — every DEX class has exactly one CEX mapping.
 var dexToCEXMap = map[AssetClass]string{
-	AssetClassCrypto:        "crypto",
-	AssetClassEquity:        "us_equity",
-	AssetClassIntlEquity:    "intl_equity",
-	AssetClassDebt:          "fixed_income",
-	AssetClassFund:          "venture",
-	AssetClassSAFE:          "venture",
-	AssetClassCommodity:     "commodities",
-	AssetClassDerivative:    "options",
-	AssetClassForex:         "forex",
-	AssetClassOptions:       "options",
-	AssetClassFutures:       "futures",
-	AssetClassFixedIncome:   "fixed_income",
-	AssetClassMunicipal:     "municipal",
-	AssetClassStructured:    "structured",
-	AssetClassCorporateDebt: "corporate_debt",
-	AssetClassConsumerDebt:  "consumer_debt",
-	AssetClassRealEstate:    "real_estate",
+	AssetClassCrypto:         "crypto",
+	AssetClassEquity:         "us_equity",
+	AssetClassIntlEquity:     "intl_equity",
+	AssetClassDebt:           "fixed_income",
+	AssetClassFund:           "venture",
+	AssetClassSAFE:           "venture",
+	AssetClassCommodity:      "commodities",
+	AssetClassDerivative:     "options",
+	AssetClassForex:          "forex",
+	AssetClassOptions:        "options",
+	AssetClassFutures:        "futures",
+	AssetClassFixedIncome:    "fixed_income",
+	AssetClassMunicipal:      "municipal",
+	AssetClassStructured:     "structured",
+	AssetClassCorporateDebt:  "corporate_debt",
+	AssetClassConsumerDebt:   "consumer_debt",
+	AssetClassRealEstate:     "real_estate",
 	AssetClassPreciousMetals: "precious_metals",
-	AssetClassPrivateEquity: "private_equity",
-	AssetClassVenture:       "venture",
-	AssetClassPrivateCredit: "private_credit",
-	AssetClassCDP:           "cdp",
-	AssetClassLP:            "lp",
+	AssetClassPrivateEquity:  "private_equity",
+	AssetClassVenture:        "venture",
+	AssetClassPrivateCredit:  "private_credit",
+	AssetClassCDP:            "cdp",
+	AssetClassLP:             "lp",
 }
 
 // cexToDEXMap maps CEX string asset classes to their most specific DEX equivalent.
