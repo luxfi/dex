@@ -75,9 +75,3 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// Temporary while github.com/luxfi/crypto is being tagged with the new
-// backend.GPUDisabled / backend.RecordFallback / backend.FallbackReason
-// surface. Remove this replace once crypto >= the next tag is published
-// and bumped in `require` above.
-replace github.com/luxfi/crypto => ../../lux/crypto
