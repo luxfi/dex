@@ -1010,7 +1010,7 @@ type LuxDAGOrderBook struct {
     *DAGOrderBook
     luxConfig     LuxConsensusConfig
     blsKey        *SecretKey
-    ringtail      *RingtailEngine      // Post-quantum signatures
+    corona      *CoronaEngine      // Post-quantum signatures
     quasar        *Quasar              // Dual-certificate protocol
     votes         map[ID]*VoteState
     certificates  map[ID]*QuantumCertificate
@@ -1022,7 +1022,7 @@ type LuxDAGOrderBook struct {
 **Key Features**:
 - ✅ DAG vertex structure with parent references
 - ✅ Adaptive vote thresholds (θ_min=0.55, θ_max=0.65)
-- ✅ Quantum-resistant certificates (BLS + Ringtail hybrid)
+- ✅ Quantum-resistant certificates (BLS + Corona hybrid)
 - ✅ Vote state tracking with confidence metrics
 - ✅ FPC (Fast Probabilistic Consensus) rounds
 
@@ -1071,12 +1071,12 @@ func (lux *LuxDAGOrderBook) runFPCRound(round int) error {
 **Issue 1: Mock Implementations** ⚠️
 ```go
 // Many cryptographic operations are mocked
-func (r *RingtailEngine) Sign(msg []byte, sk []byte) ([]byte, error) {
+func (r *CoronaEngine) Sign(msg []byte, sk []byte) ([]byte, error) {
     sig := make([]byte, 64)  // Returns empty signature!
     return sig, nil
 }
 
-func (r *RingtailEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
+func (r *CoronaEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
     if len(sig) != 64 || string(msg) == "Wrong message" {
         return false
     }
@@ -1084,7 +1084,7 @@ func (r *RingtailEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
 }
 ```
 
-**Impact**: Security NOT production-ready. Needs integration with actual Ringtail implementation from `/Users/z/work/lux/threshold/protocols/ringtail/`.
+**Impact**: Security NOT production-ready. Needs integration with the actual Corona threshold implementation (`github.com/luxfi/corona`).
 
 **Issue 2: Missing Network Layer Integration** ❌
 ```go
@@ -1158,7 +1158,7 @@ type NetworkMessage struct {
     Sender    NodeID          // 32-byte node identifier
     Timestamp uint64          // Unix nanoseconds
     Payload   []byte          // Serialized message
-    Signature []byte          // BLS or Ringtail signature
+    Signature []byte          // BLS or Corona signature
 }
 
 type MessageType uint8
@@ -1586,7 +1586,7 @@ Transitions:
 │  [QUORUM_REACHED]                                              │
 │        │                                                       │
 │        ├──> Generate BLS aggregate signature                  │
-│        ├──> Generate Ringtail quantum signature               │
+│        ├──> Generate Corona quantum signature               │
 │        ├──> Create QuantumCertificate                         │
 │        │                                                       │
 │        ▼                                                       │
@@ -1643,9 +1643,9 @@ Total Finality Time = 50ms
 - Time-bandit attacks: ⚠️ Mitigated by fast finality (50ms)
 
 **Quantum Threats**:
-- Key compromise: ✅ Protected by Ringtail (post-quantum)
+- Key compromise: ✅ Protected by Corona (post-quantum)
 - Signature forgery: ✅ Protected by lattice-based crypto
-- Future attacks: ✅ Hybrid BLS+Ringtail provides transition path
+- Future attacks: ✅ Hybrid BLS+Corona provides transition path
 
 ---
 
@@ -1657,12 +1657,12 @@ Total Finality Time = 50ms
 2. **GPU acceleration** is production-ready (434M ops/sec achieved)
 3. **FPGA wire protocol** is well-designed for hardware acceleration
 4. **Test coverage** is comprehensive (multi-node, Byzantine, partition tests)
-5. **Quantum-resistant crypto** architecture is sound (BLS+Ringtail hybrid)
+5. **Quantum-resistant crypto** architecture is sound (BLS+Corona hybrid)
 
 ### 7.2 Critical Gaps ❌
 
 1. **No P2P network layer** - `/pkg/network/` does not exist
-2. **Mock cryptographic implementations** - Ringtail not integrated
+2. **Mock cryptographic implementations** - Corona not integrated
 3. **No vote collection mechanism** - Consensus cannot finalize
 4. **DPDK not implemented** - Kernel bypass claims are aspirational
 5. **FPGA integration missing** - All device drivers are stubs
@@ -1673,7 +1673,7 @@ Total Finality Time = 50ms
 
 **P0 (Blocking)**:
 1. Implement P2P network layer with QZMQ/ZeroMQ
-2. Integrate real Ringtail signatures from threshold package
+2. Integrate real Corona signatures from threshold package
 3. Implement vote collection and aggregation
 4. Define and implement network message protocol
 
@@ -1722,7 +1722,7 @@ Total Finality Time = 50ms
    - Peer management and health checking
    - Retransmission and timeout logic
 
-2. **Integrate Ringtail crypto** from `/Users/z/work/lux/threshold/`:
+2. **Integrate Corona crypto** from `github.com/luxfi/corona`:
    - Replace mock Sign() and Verify() implementations
    - Test quantum certificate generation end-to-end
    - Benchmark signature performance (target: <1ms)
@@ -1792,7 +1792,7 @@ The LX architecture shows **ambitious vision** with cutting-edge technologies (D
 ---
 
 **End of Code Review**  
-**Next Steps**: Prioritize P0 tasks, create network package, integrate Ringtail crypto.
+**Next Steps**: Prioritize P0 tasks, create network package, integrate Corona crypto.
 
 
 ---
@@ -1981,7 +1981,7 @@ go test -v ./pkg/gateway/...
 
 Unified swap routing across on-chain V4 pools and off-chain broker venues. This package implements a Uniswap-style Trading API that aggregates liquidity from multiple sources — native DEX precompiles, V2/V3 AMM routers, and the Lux Broker REST API — returning the best-price quote to the caller. All endpoints are `net/http` handlers mounted on a standard `http.ServeMux` (Go 1.22+ method routing).
 
-The package is consumed directly by the Liquidity ATS (`~/work/liquidity/ats/`) for its exchange trading API.
+The package is consumed directly by a regulated securities ATS for its exchange trading API.
 
 ### Constructor
 
@@ -2064,7 +2064,7 @@ ABI encoding for the LXRouter precompile at `0x000000000000000000000000000000000
 
 ### Usage by ATS
 
-The Liquidity ATS imports the trading package and wires it with venue instances:
+A regulated securities ATS imports the trading package and wires it with venue instances:
 
 ```go
 import "github.com/luxfi/dex/pkg/trading"

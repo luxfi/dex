@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Run 3-node FPC DAG network with quantum finality
-# Uses Fast Probabilistic Consensus with hybrid Ringtail+BLS signatures
+# Uses Fast Probabilistic Consensus with hybrid Corona+BLS signatures
 
 set -e
 
@@ -17,7 +17,7 @@ echo -e "${BLUE}    LX - FPC DAG Network with Quantum Finality${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${GREEN}Consensus:${NC} Fast Probabilistic Consensus (FPC)"
-echo -e "${GREEN}Security:${NC}  Hybrid Ringtail+BLS (Quantum-resistant)"
+echo -e "${GREEN}Security:${NC}  Hybrid Corona+BLS (Quantum-resistant)"
 echo -e "${GREEN}Protocol:${NC}  Nebula secured by Quasar dual-certificates"
 echo -e "${GREEN}Network:${NC}   3 nodes with ZeroMQ messaging"
 echo ""
@@ -96,7 +96,7 @@ echo ""
 echo -e "${YELLOW}FPC Features:${NC}"
 echo "  • 50ms consensus rounds for ultra-fast finality"
 echo "  • Adaptive vote threshold (55%-65%)"
-echo "  • Quantum-resistant signatures (Ringtail+BLS)"
+echo "  • Quantum-resistant signatures (Corona+BLS)"
 echo "  • Quasar dual-certificate overlay"
 echo "  • 256 votes per block limit"
 echo "  • Execute-owned optimization"

@@ -79,7 +79,7 @@ The LX is a high-performance decentralized exchange built for planet-scale throu
 |   |  |                  DAG CONSENSUS                           |  |         |
 |   |  |  +------------+  +------------+  +------------------+    |  |         |
 |   |  |  | Vertex DAG |  | Lux FPC    |  | Quantum Certs    |    |  |         |
-|   |  |  | Parallel   |  | Adaptive   |  | BLS + Ringtail   |    |  |         |
+|   |  |  | Parallel   |  | Adaptive   |  | BLS + Corona   |    |  |         |
 |   |  |  | Processing |  | Threshold  |  | Post-Quantum     |    |  |         |
 |   |  |  +------------+  +------------+  +------------------+    |  |         |
 |   |  +----------------------------------------------------------+  |         |
@@ -197,7 +197,7 @@ type LuxDAGOrderBook struct {
     *DAGOrderBook
     luxConfig     LuxConsensusConfig
     blsKey        *SecretKey
-    ringtail      *RingtailEngine       // Post-quantum signatures
+    corona      *CoronaEngine       // Post-quantum signatures
     quasar        *Quasar               // Quantum certificate aggregation
     votes         map[ID]*VoteState
     certificates  map[ID]*QuantumCertificate
@@ -299,7 +299,7 @@ The DEX integrates with the Lux 6-chain architecture via Warp messaging:
 |-----------|-----------|----------|
 | Signatures | Ed25519 | Order signing |
 | Aggregation | BLS12-381 | Validator consensus |
-| Post-Quantum | Ringtail (ML-DSA-65) | Quantum resistance |
+| Post-Quantum | Corona (ML-DSA-65) | Quantum resistance |
 | Key Exchange | X25519 | TLS connections |
 
 ### Access Control

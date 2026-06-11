@@ -15,7 +15,7 @@ This software contains patent-pending technology. Key innovations include but
 are not limited to:
 
 DEX INNOVATIONS:
-- Quantum-Resistant DAG Consensus with Hybrid BLS+Ringtail Signatures
+- Quantum-Resistant DAG Consensus with Hybrid BLS+Corona Signatures
 - Multi-Backend Hardware-Accelerated Order Matching (CPU/GPU/FPGA)
 - FPGA-Accelerated Order Processing Pipeline (48-byte wire protocol)
 - Multi-Source Price Oracle with Q-Chain Quantum Finality Verification

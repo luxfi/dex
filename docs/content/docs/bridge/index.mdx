@@ -19,7 +19,7 @@ The LX bridge enables secure, quantum-safe cross-chain asset transfers through a
 | ThresholdVM (T-Chain) | [`vms/thresholdvm/`](https://github.com/luxfi/node/tree/main/vms/thresholdvm) | LP-6015 | Complete |
 | LP-333 Signer Management | [`vms/bridgevm/rpc.go`](https://github.com/luxfi/node/blob/main/vms/bridgevm/rpc.go) | LP-333 | Complete |
 | Threshold Crypto | [`github.com/luxfi/threshold`](https://github.com/luxfi/threshold) | LP-6015 | Complete |
-| Ringtail Signatures | [`vms/platformvm/warp/signature.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/signature.go) | Warp 1.5 | Complete |
+| Corona Signatures | [`vms/platformvm/warp/signature.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/signature.go) | Warp 1.5 | Complete |
 | Teleport Protocol | [`vms/platformvm/warp/teleport.go`](https://github.com/luxfi/node/blob/main/vms/platformvm/warp/teleport.go) | LP-6016 | Complete |
 | Bridge Contracts | [`github.com/luxfi/standard`](https://github.com/luxfi/standard) | LP-6000 | Complete |
 
@@ -35,7 +35,7 @@ The bridge operates through a dedicated B-Chain VM that coordinates with the T-C
 |  |  B-Chain    |<--->|  T-Chain    |<--->|  Warp 1.5   |         |
 |  |  BridgeVM   |     |  ThresholdVM|     |  Messaging  |         |
 |  |             |     |             |     |             |         |
-|  | - Signer    |     | - DKG       |     | - Ringtail  |         |
+|  | - Signer    |     | - DKG       |     | - Corona  |         |
 |  |   Set Mgmt  |     | - Reshare   |     | - ML-KEM    |         |
 |  | - Bridge    |     | - Sign      |     | - Teleport  |         |
 |  |   Requests  |     | - Refresh   |     |             |         |
@@ -77,7 +77,7 @@ The T-Chain provides MPC-as-a-service:
 
 Cross-chain messages use Warp 1.5 with quantum-safe primitives:
 
-- **Ringtail Signatures**: LWE-based threshold signatures (post-quantum)
+- **Corona Signatures**: LWE-based threshold signatures (post-quantum)
 - **ML-KEM Encryption**: FIPS 203 key encapsulation for private transfers
 - **Teleport Protocol**: High-level abstraction for bridge operations
 
@@ -93,7 +93,7 @@ Source Chain                B-Chain                  T-Chain              Destin
                           |         | <---------- |         |            |          |
                           |         |  3. Sig     +---------+            |          |
                           |         |                                    |          |
-                          |         |  4. Warp Message (Ringtail)        |          |
+                          |         |  4. Warp Message (Corona)        |          |
                           |         | ---------------------------------> | Mint TX  |
                           +---------+                                    +----------+
 ```
@@ -103,7 +103,7 @@ Source Chain                B-Chain                  T-Chain              Destin
 1. **Lock**: User locks assets on source chain via bridge contract
 2. **Verify**: B-Chain validators verify lock transaction
 3. **Sign**: T-Chain signers produce threshold signature
-4. **Relay**: Warp message with Ringtail signature sent to destination
+4. **Relay**: Warp message with Corona signature sent to destination
 5. **Mint**: Destination chain verifies signature and mints wrapped assets
 
 ## Supported Chains
@@ -186,7 +186,7 @@ fmt.Printf("Destination TX: %s\n", result.DestTxHash)
 
 - **2/3 Threshold**: 67% of signers required for valid signature
 - **No Single Point of Failure**: Key never exists in one place
-- **Quantum-Safe**: Ringtail signatures resist quantum attacks
+- **Quantum-Safe**: Corona signatures resist quantum attacks
 
 ### Slashing Conditions
 
@@ -204,7 +204,7 @@ fmt.Printf("Destination TX: %s\n", result.DestTxHash)
 | [B-Chain](/docs/bridge/bchain) | BridgeVM architecture, state machine, block structure |
 | [MPC Custody](/docs/bridge/mpc) | CGGMP21 protocol, threshold signatures, key management |
 | [ThresholdVM](/docs/bridge/threshold) | T-Chain VM, DKG, resharing, cross-chain requests |
-| [Ringtail](/docs/bridge/ringtail) | Quantum-safe signatures, Warp 1.5, ML-KEM encryption |
+| [Corona](/docs/bridge/corona) | Quantum-safe signatures, Warp 1.5, ML-KEM encryption |
 | [Teleport](/docs/bridge/teleport) | Teleport protocol, IBC integration, message types |
 | [Contracts](/docs/bridge/contracts) | Bridge smart contracts, lock/mint/burn mechanics |
 | [Security](/docs/bridge/security) | Security model, bonds, slashing, threat analysis |

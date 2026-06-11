@@ -133,7 +133,7 @@ type LuxFPC struct {
 
     // Quantum-safe extensions
     BLSAggregator *BLSAggregator
-    RingtailSigner *RingtailSigner
+    CoronaSigner *CoronaSigner
 }
 
 // ProcessVertex handles new order vertices
@@ -273,7 +273,7 @@ type WarpMessage struct {
 
     // Signatures (threshold required)
     BLSSignature  []byte    // Aggregated BLS signature
-    RTSignature   []byte    // Post-quantum Ringtail signature
+    RTSignature   []byte    // Post-quantum Corona signature
     SignerBitmap  []byte    // Which validators signed
 }
 
@@ -320,7 +320,7 @@ type Daemon struct {
 ```
 1. INITIALIZATION
    +-> Load configuration
-   +-> Initialize cryptographic keys (Ed25519, BLS, Ringtail)
+   +-> Initialize cryptographic keys (Ed25519, BLS, Corona)
    +-> Verify D-Chain stake is active
 
 2. LUX NETWORK CONNECTION
@@ -583,7 +583,7 @@ var (
 **Trade-off**:
 - **Pro**: Native Lux protocol, no additional trust assumptions
 - **Pro**: Aggregated signatures reduce verification cost
-- **Pro**: Quantum-safe with Ringtail signatures
+- **Pro**: Quantum-safe with Corona signatures
 - **Con**: Requires threshold of validators to sign messages
 
 **Rationale**: Warp messaging is the standard cross-chain protocol in Lux, providing security guarantees equivalent to the network itself.

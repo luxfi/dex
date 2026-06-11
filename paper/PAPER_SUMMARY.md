@@ -36,7 +36,7 @@
 - Execute-owned optimization for local orders
 
 #### 4. Quantum-Resistant Security
-- **Ringtail**: Post-quantum lattice-based signatures
+- **Corona**: Post-quantum lattice-based signatures
 - **BLS**: Efficient signature aggregation
 - **Quasar**: Dual-certificate protocol
 - 256-bit post-quantum security level
@@ -112,7 +112,7 @@
 
 ### Quantum Resistance
 - 256-bit post-quantum security
-- Hybrid Ringtail+BLS signatures
+- Hybrid Corona+BLS signatures
 - Forward secrecy through ephemeral keys
 
 ### Economic Security

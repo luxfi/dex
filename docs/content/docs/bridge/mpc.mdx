@@ -17,7 +17,7 @@ The Lux bridge uses Multi-Party Computation (MPC) for secure custody of cross-ch
 |-----------|--------|----------|--------|
 | CGGMP21 Core | [`protocols/cmp/`](https://github.com/luxfi/threshold/tree/main/protocols/cmp) | CGGMP21 | Complete |
 | LSS Protocol | [`protocols/lss/`](https://github.com/luxfi/threshold/tree/main/protocols/lss) | LSS | Complete |
-| Ringtail (PQ) | [`protocols/ringtail/`](https://github.com/luxfi/threshold/tree/main/protocols/ringtail) | Ringtail | Complete |
+| Corona (PQ) | [`protocols/corona/`](https://github.com/luxfi/threshold/tree/main/protocols/corona) | Corona | Complete |
 | Party Management | [`pkg/party/`](https://github.com/luxfi/threshold/tree/main/pkg/party) | N/A | Complete |
 | Worker Pool | [`pkg/pool/`](https://github.com/luxfi/threshold/tree/main/pkg/pool) | N/A | Complete |
 
@@ -141,7 +141,7 @@ type Config struct {
 |----------|----------|----------|-------------|
 | CGGMP21 | Standard ECDSA | Classical | Fast |
 | LSS | Lux optimized | Classical + refresh | Faster |
-| Ringtail | Quantum-safe | Post-quantum | Moderate |
+| Corona | Quantum-safe | Post-quantum | Moderate |
 | BLS | Aggregation | Classical | Fast |
 
 ## Key Operations
@@ -446,6 +446,6 @@ func (vm *ThresholdVM) CrossChainAppRequest(
 ## Related Documentation
 
 - [ThresholdVM](/docs/bridge/threshold) - T-Chain VM implementation
-- [Ringtail](/docs/bridge/ringtail) - Quantum-safe threshold signatures
+- [Corona](/docs/bridge/corona) - Quantum-safe threshold signatures
 - [Security](/docs/bridge/security) - Full security model
 - [LP-6015 Specification](https://github.com/luxfi/LPs/blob/main/LPs/lp-6015-mpc-bridge-protocol.md)

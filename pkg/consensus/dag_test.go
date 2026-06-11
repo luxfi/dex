@@ -46,13 +46,13 @@ func TestSecretKeySign(t *testing.T) {
 	assert.Equal(t, data, sig.Data)
 }
 
-func TestNewRingtail(t *testing.T) {
-	rt := NewRingtail()
+func TestNewCorona(t *testing.T) {
+	rt := NewCorona()
 	assert.NotNil(t, rt)
 }
 
-func TestRingtailInitialize(t *testing.T) {
-	rt := NewRingtail()
+func TestCoronaInitialize(t *testing.T) {
+	rt := NewCorona()
 
 	tests := []struct {
 		name  string
@@ -72,8 +72,8 @@ func TestRingtailInitialize(t *testing.T) {
 	}
 }
 
-func TestRingtailGenerateKeyPair(t *testing.T) {
-	rt := NewRingtail()
+func TestCoronaGenerateKeyPair(t *testing.T) {
+	rt := NewCorona()
 	err := rt.Initialize(SecurityHigh)
 	require.NoError(t, err)
 
@@ -83,8 +83,8 @@ func TestRingtailGenerateKeyPair(t *testing.T) {
 	assert.Len(t, pk, 32)
 }
 
-func TestRingtailSignAndVerify(t *testing.T) {
-	rt := NewRingtail()
+func TestCoronaSignAndVerify(t *testing.T) {
+	rt := NewCorona()
 	err := rt.Initialize(SecurityHigh)
 	require.NoError(t, err)
 
@@ -120,7 +120,7 @@ func TestNewQuasar(t *testing.T) {
 		Threshold:       3,
 		CertThreshold:   5,
 		SkipThreshold:   2,
-		SignatureScheme: "ringtail",
+		SignatureScheme: "corona",
 	}
 
 	q, err := NewQuasar(config)
@@ -222,8 +222,8 @@ func BenchmarkGenerateTestID(b *testing.B) {
 	}
 }
 
-func BenchmarkRingtailSign(b *testing.B) {
-	rt := NewRingtail()
+func BenchmarkCoronaSign(b *testing.B) {
+	rt := NewCorona()
 	_ = rt.Initialize(SecurityHigh)
 	sk, _, _ := rt.GenerateKeyPair()
 	msg := []byte("benchmark message")
@@ -234,8 +234,8 @@ func BenchmarkRingtailSign(b *testing.B) {
 	}
 }
 
-func BenchmarkRingtailVerify(b *testing.B) {
-	rt := NewRingtail()
+func BenchmarkCoronaVerify(b *testing.B) {
+	rt := NewCorona()
 	_ = rt.Initialize(SecurityHigh)
 	sk, pk, _ := rt.GenerateKeyPair()
 	msg := []byte("benchmark message")
@@ -459,7 +459,7 @@ func TestNewLuxDAGOrderBook(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, lux)
 	assert.NotNil(t, lux.blsKey)
-	assert.NotNil(t, lux.ringtail)
+	assert.NotNil(t, lux.corona)
 	assert.NotNil(t, lux.quasar)
 	assert.NotNil(t, lux.votes)
 	assert.NotNil(t, lux.certificates)
@@ -596,7 +596,7 @@ func TestLuxDAGOrderBookProcessRemoteVertex(t *testing.T) {
 	cert := &QuantumCertificate{
 		VertexID:      vertex.ID,
 		BLSSignature:  &Signature{Data: []byte("test")},
-		RingtailCert:  []byte("cert"),
+		CoronaCert:    []byte("cert"),
 		Height:        1,
 		VoteThreshold: 0.55,
 	}
@@ -869,7 +869,7 @@ func TestQuantumCertificateFields(t *testing.T) {
 	cert := &QuantumCertificate{
 		VertexID:      id,
 		BLSSignature:  &Signature{Data: []byte("sig")},
-		RingtailCert:  []byte("ringtail"),
+		CoronaCert:    []byte("corona"),
 		Timestamp:     time.Now(),
 		Height:        5,
 		VoteThreshold: 0.67,
@@ -880,7 +880,7 @@ func TestQuantumCertificateFields(t *testing.T) {
 
 	assert.Equal(t, id, cert.VertexID)
 	assert.NotNil(t, cert.BLSSignature)
-	assert.NotNil(t, cert.RingtailCert)
+	assert.NotNil(t, cert.CoronaCert)
 	assert.Equal(t, uint64(5), cert.Height)
 	assert.Equal(t, 0.67, cert.VoteThreshold)
 	assert.Equal(t, 15, cert.Threshold)
