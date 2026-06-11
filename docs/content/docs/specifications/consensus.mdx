@@ -282,13 +282,13 @@ type FPCConfig struct {
 - [**Implementation**](https://github.com/luxfi/consensus/tree/main/pq)
 ### Abstract
 
-LP-4099 defines Quasar, a post-quantum consensus mechanism using lattice-based signatures (Dilithium/Ringtail) for quantum-resistant validator attestations.
+LP-4099 defines Quasar, a post-quantum consensus mechanism using lattice-based signatures (Dilithium/Corona) for quantum-resistant validator attestations.
 
 ### Key Properties
 
 | Property | Value | Notes |
 |----------|-------|-------|
-| Signature | Dilithium/Ringtail | NIST PQC finalists |
+| Signature | Dilithium/Corona | NIST PQC finalists |
 | Security | 128-256 bit PQ | Quantum resistant |
 | Signature Size | 2.4-3.3 KB | Larger than ECDSA |
 | Verification | ~0.5ms | Per signature |
@@ -296,10 +296,10 @@ LP-4099 defines Quasar, a post-quantum consensus mechanism using lattice-based s
 ### Hybrid Signature Mode
 
 ```go
-// Hybrid BLS + Ringtail for transition period
+// Hybrid BLS + Corona for transition period
 type HybridSignature struct {
     BLSSignature      [96]byte   // Classical (aggregate)
-    RingtailSignature []byte     // Post-quantum
+    CoronaSignature []byte     // Post-quantum
     PublicKeys        [][]byte   // RT public keys
 }
 
@@ -308,7 +308,7 @@ func (h *HybridSignature) Verify(msg []byte, validators []Validator) error {
     if err := h.verifyBLS(msg, validators); err != nil {
         return err
     }
-    if err := h.verifyRingtail(msg, validators); err != nil {
+    if err := h.verifyCorona(msg, validators); err != nil {
         return err
     }
     return nil
@@ -320,9 +320,9 @@ func (h *HybridSignature) Verify(msg []byte, validators []Validator) error {
 ```
 Phase 1 (Current):  BLS-only signatures
                     ↓
-Phase 2 (Hybrid):   BLS + Ringtail dual signatures
+Phase 2 (Hybrid):   BLS + Corona dual signatures
                     ↓
-Phase 3 (Future):   Ringtail-only (full PQ)
+Phase 3 (Future):   Corona-only (full PQ)
 ```
 
 ### Security Levels
@@ -337,7 +337,7 @@ Phase 3 (Future):   Ringtail-only (full PQ)
 
 - [LP-0111](#lp-0111) - Photon consensus (base)
 - [LP-5010](/docs/specifications/warp#lp-5010) - PQ Warp messages
-- [LP-4100](/docs/specifications/crypto#lp-4100) - Ringtail signatures
+- [LP-4100](/docs/specifications/crypto#lp-4100) - Corona signatures
 
 ## Implementation Status
 

@@ -471,7 +471,7 @@ type LuxDAGOrderBook struct {
     *DAGOrderBook
     luxConfig     LuxConsensusConfig
     blsKey        *SecretKey
-    ringtail      *RingtailEngine
+    corona      *CoronaEngine
     quasar        *Quasar
     votes         map[ID]*VoteState
     precomputed   map[ID][]byte

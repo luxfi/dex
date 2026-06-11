@@ -29,7 +29,7 @@ type Signature struct {
 type SecretKey struct {
 	Data []byte
 }
-type RingtailEngine struct {
+type CoronaEngine struct {
 	level int
 }
 
@@ -65,32 +65,32 @@ func NewSecretKey() (*SecretKey, error) {
 	return &SecretKey{Data: make([]byte, 32)}, nil
 }
 
-// NewRingtail creates a new Ringtail engine
-func NewRingtail() *RingtailEngine {
-	return &RingtailEngine{}
+// NewCorona creates a new Corona engine
+func NewCorona() *CoronaEngine {
+	return &CoronaEngine{}
 }
 
-// Initialize initializes the Ringtail engine
-func (r *RingtailEngine) Initialize(level SecurityLevel) error {
+// Initialize initializes the Corona engine
+func (r *CoronaEngine) Initialize(level SecurityLevel) error {
 	r.level = int(level)
 	return nil
 }
 
 // GenerateKeyPair generates a key pair
-func (r *RingtailEngine) GenerateKeyPair() ([]byte, []byte, error) {
+func (r *CoronaEngine) GenerateKeyPair() ([]byte, []byte, error) {
 	sk := make([]byte, 32)
 	pk := make([]byte, 32)
 	return sk, pk, nil
 }
 
 // Sign signs a message
-func (r *RingtailEngine) Sign(msg []byte, sk []byte) ([]byte, error) {
+func (r *CoronaEngine) Sign(msg []byte, sk []byte) ([]byte, error) {
 	sig := make([]byte, 64)
 	return sig, nil
 }
 
 // Verify verifies a signature
-func (r *RingtailEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
+func (r *CoronaEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
 	// Mock verification - return false for wrong message
 	if len(sig) != 64 || string(msg) == "Wrong message" {
 		return false
@@ -316,7 +316,7 @@ type VoteState struct {
 type QuantumCertificate struct {
 	VertexID      ID
 	BLSSignature  *Signature
-	RingtailCert  []byte
+	CoronaCert    []byte
 	Timestamp     time.Time
 	Height        uint64
 	VoteThreshold float64
@@ -359,7 +359,7 @@ type LuxDAGOrderBook struct {
 	*DAGOrderBook
 	luxConfig     LuxConsensusConfig
 	blsKey        *SecretKey
-	ringtail      *RingtailEngine
+	corona        *CoronaEngine
 	quasar        *Quasar
 	votes         map[ID]*VoteState
 	precomputed   map[ID][]byte
@@ -390,13 +390,13 @@ func NewDAGOrderBook(nodeID, symbol string) (*LuxDAGOrderBook, error) {
 
 	// For compatibility with tests, return a LuxDAGOrderBook
 	blsKey, _ := NewSecretKey()
-	ringtail := NewRingtail()
-	ringtail.Initialize(SecurityHigh)
+	corona := NewCorona()
+	corona.Initialize(SecurityHigh)
 
 	quasarConfig := QuasarConfig{
 		CertThreshold:   15,
 		SkipThreshold:   20,
-		SignatureScheme: "BLS+Ringtail",
+		SignatureScheme: "BLS+Corona",
 	}
 	quasar, _ := NewQuasar(quasarConfig)
 
@@ -412,7 +412,7 @@ func NewDAGOrderBook(nodeID, symbol string) (*LuxDAGOrderBook, error) {
 			TimeWindow:        30 * time.Second,
 		},
 		blsKey:        blsKey,
-		ringtail:      ringtail,
+		corona:        corona,
 		quasar:        quasar,
 		votes:         make(map[ID]*VoteState),
 		voteCache:     make(map[ID]map[string]bool),
@@ -491,7 +491,7 @@ func (lux *LuxDAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
 		Round:      0,
 	}
 
-	// Precompute Ringtail share
+	// Precompute Corona share
 	if precomp, err := Precompute([]byte("mock-key")); err == nil {
 		if data, ok := precomp.([]byte); ok {
 			lux.precomputed[vertex.ID] = data
@@ -629,7 +629,7 @@ func (lux *LuxDAGOrderBook) generateQuantumCertificate(id ID, vertex *OrderVerte
 	return &QuantumCertificate{
 		VertexID:      id,
 		BLSSignature:  blsSig,
-		RingtailCert:  []byte("mock-ringtail-cert"),
+		CoronaCert:    []byte("mock-corona-cert"),
 		Timestamp:     time.Now(),
 		Height:        vertex.Height,
 		VoteThreshold: lux.voteThreshold,

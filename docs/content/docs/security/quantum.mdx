@@ -1,6 +1,6 @@
 ---
 title: Post-Quantum Cryptography
-description: Quantum-resistant cryptography implementation with Dilithium, Kyber, and Ringtail for LX
+description: Quantum-resistant cryptography implementation with Dilithium, Kyber, and Corona for LX
 ---
 
 # Post-Quantum Cryptography
@@ -52,7 +52,7 @@ LX implements NIST-approved post-quantum cryptographic algorithms to protect aga
 │                                                                  │
 │  LX Extensions                                              │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Ringtail                    Threshold lattice sigs     │   │
+│  │  Corona                    Threshold lattice sigs     │   │
 │  │  Hybrid BLS+RT               Warp message signing       │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
@@ -367,9 +367,9 @@ func (h *HybridKeyExchange) Decapsulate(enc *HybridEncapsulation) ([]byte, error
 }
 ```
 
-## Ringtail Threshold Signatures
+## Corona Threshold Signatures
 
-Ringtail is LX's custom lattice-based threshold signature scheme, enabling MPC signing with quantum resistance.
+Corona is LX's custom lattice-based threshold signature scheme, enabling MPC signing with quantum resistance.
 
 ### Security Parameters
 
@@ -383,7 +383,7 @@ Ringtail is LX's custom lattice-based threshold signature scheme, enabling MPC s
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│               RINGTAIL THRESHOLD SIGNING                         │
+│               CORONA THRESHOLD SIGNING                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Key Generation (DKG)                                           │
@@ -398,7 +398,7 @@ Ringtail is LX's custom lattice-based threshold signature scheme, enabling MPC s
 │  │  1. Message broadcast to all parties                     │   │
 │  │  2. Each party creates partial signature                 │   │
 │  │  3. Collect t partial signatures                         │   │
-│  │  4. Combine into full Ringtail signature                │   │
+│  │  4. Combine into full Corona signature                │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -407,14 +407,14 @@ Ringtail is LX's custom lattice-based threshold signature scheme, enabling MPC s
 ### Implementation
 
 ```go
-package ringtail
+package corona
 
 import (
-    "github.com/luxfi/threshold/protocols/ringtail"
+    "github.com/luxfi/threshold/protocols/corona"
 )
 
-// RingtailConfig defines security parameters
-type RingtailConfig struct {
+// CoronaConfig defines security parameters
+type CoronaConfig struct {
     N         int // Ring dimension
     Q         int // Modulus
     Threshold int // t in t-of-n
@@ -422,8 +422,8 @@ type RingtailConfig struct {
 }
 
 // DefaultConfig returns 192-bit security config
-func DefaultConfig() *RingtailConfig {
-    return &RingtailConfig{
+func DefaultConfig() *CoronaConfig {
+    return &CoronaConfig{
         N:         768,
         Q:         32749,
         Threshold: 67, // 2/3 of 100
@@ -431,24 +431,24 @@ func DefaultConfig() *RingtailConfig {
     }
 }
 
-// RingtailParty represents one MPC participant
-type RingtailParty struct {
-    config     *RingtailConfig
-    privateKey *ringtail.PrivateKeyShare
+// CoronaParty represents one MPC participant
+type CoronaParty struct {
+    config     *CoronaConfig
+    privateKey *corona.PrivateKeyShare
     publicKey  []byte // Combined public key
     partyID    int
 }
 
-// NewParty creates new Ringtail party
-func NewParty(config *RingtailConfig, partyID int) *RingtailParty {
-    return &RingtailParty{
+// NewParty creates new Corona party
+func NewParty(config *CoronaConfig, partyID int) *CoronaParty {
+    return &CoronaParty{
         config:  config,
         partyID: partyID,
     }
 }
 
 // GenerateKeyShare participates in DKG
-func (p *RingtailParty) GenerateKeyShare(dkg *ringtail.DKG) error {
+func (p *CoronaParty) GenerateKeyShare(dkg *corona.DKG) error {
     share, combinedPK, err := dkg.GenerateShare(p.partyID)
     if err != nil {
         return err
@@ -460,31 +460,31 @@ func (p *RingtailParty) GenerateKeyShare(dkg *ringtail.DKG) error {
 }
 
 // CreatePartialSignature creates party's signature share
-func (p *RingtailParty) CreatePartialSignature(message []byte) (*ringtail.PartialSignature, error) {
-    return ringtail.PartialSign(p.privateKey, message)
+func (p *CoronaParty) CreatePartialSignature(message []byte) (*corona.PartialSignature, error) {
+    return corona.PartialSign(p.privateKey, message)
 }
 
 // CombineSignatures combines t partial signatures
 func CombineSignatures(
-    config *RingtailConfig,
-    partialSigs []*ringtail.PartialSignature,
+    config *CoronaConfig,
+    partialSigs []*corona.PartialSignature,
 ) ([]byte, error) {
     if len(partialSigs) < config.Threshold {
         return nil, ErrInsufficientSignatures
     }
 
-    return ringtail.Combine(partialSigs)
+    return corona.Combine(partialSigs)
 }
 
-// Verify checks Ringtail signature
+// Verify checks Corona signature
 func Verify(publicKey, message, signature []byte) bool {
-    return ringtail.Verify(publicKey, message, signature)
+    return corona.Verify(publicKey, message, signature)
 }
 ```
 
-## Hybrid BLS+Ringtail Warp Signatures
+## Hybrid BLS+Corona Warp Signatures
 
-For Warp cross-chain messaging, LX uses hybrid BLS+Ringtail signatures:
+For Warp cross-chain messaging, LX uses hybrid BLS+Corona signatures:
 
 ```go
 package warp
@@ -493,11 +493,11 @@ package warp
 type HybridBLSRTSignature struct {
     Signers            []byte   `json:"signers"`    // Bit vector
     BLSSignature       [96]byte `json:"bls_sig"`    // BLS aggregate
-    RingtailSignature  []byte   `json:"rt_sig"`     // Ringtail signature
-    RingtailPublicKeys [][]byte `json:"rt_pubkeys"` // Per-signer RT keys
+    CoronaSignature  []byte   `json:"rt_sig"`     // Corona signature
+    CoronaPublicKeys [][]byte `json:"rt_pubkeys"` // Per-signer RT keys
 }
 
-// Verify checks both BLS and Ringtail signatures
+// Verify checks both BLS and Corona signatures
 func (s *HybridBLSRTSignature) Verify(
     msg *UnsignedMessage,
     networkID uint32,
@@ -533,9 +533,9 @@ func (s *HybridBLSRTSignature) Verify(
         return ErrInvalidBLSSignature
     }
 
-    // 5. Verify Ringtail signature
-    if !verifyRingtailMulti(s.RingtailPublicKeys, msgHash[:], s.RingtailSignature) {
-        return ErrInvalidRingtailSignature
+    // 5. Verify Corona signature
+    if !verifyCoronaMulti(s.CoronaPublicKeys, msgHash[:], s.CoronaSignature) {
+        return ErrInvalidCoronaSignature
     }
 
     return nil
@@ -553,7 +553,7 @@ func (s *HybridBLSRTSignature) Verify(
 │                                                                  │
 │  Signatures: Ed25519 + Dilithium (both required)                │
 │  Key Exchange: X25519 + Kyber (combined secret)                 │
-│  Warp: BLS + Ringtail (dual verification)                       │
+│  Warp: BLS + Corona (dual verification)                       │
 │                                                                  │
 │  Security: Protected against classical AND quantum attacks      │
 │                                                                  │
@@ -569,7 +569,7 @@ func (s *HybridBLSRTSignature) Verify(
 │                                                                  │
 │  Signatures: Dilithium primary, Ed25519 optional                │
 │  Key Exchange: Kyber primary, X25519 fallback                   │
-│  Warp: Ringtail primary, BLS for legacy                         │
+│  Warp: Corona primary, BLS for legacy                         │
 │                                                                  │
 │  Classical components for backward compatibility only           │
 │                                                                  │
@@ -585,7 +585,7 @@ func (s *HybridBLSRTSignature) Verify(
 │                                                                  │
 │  Signatures: Dilithium only                                     │
 │  Key Exchange: Kyber only                                       │
-│  Warp: Ringtail only                                            │
+│  Warp: Corona only                                            │
 │                                                                  │
 │  Full quantum resistance, classical algorithms deprecated       │
 │                                                                  │
@@ -624,7 +624,7 @@ func (s *HybridBLSRTSignature) Verify(
 │                                                                  │
 │  Warp Message Overhead (100 validators):                        │
 │  ├── BLS only: ~100 bytes                                      │
-│  ├── Ringtail only: ~5,000 bytes                               │
+│  ├── Corona only: ~5,000 bytes                               │
 │  └── Hybrid: ~5,100 bytes (51x increase)                       │
 │                                                                  │
 │  Mitigation: Signature aggregation, compression                 │

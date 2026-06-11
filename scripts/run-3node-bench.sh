@@ -156,7 +156,7 @@ echo -e "${GREEN}Querying consensus status...${NC}"
 curl -s http://localhost:8080/consensus 2>/dev/null | jq '.' 2>/dev/null || echo "{"
 echo '  "consensus": "FPC",
   "finality": "50ms",
-  "security": "Quantum-resistant (Ringtail+BLS)",
+  "security": "Quantum-resistant (Corona+BLS)",
   "nodes": 3,
   "status": "healthy"
 }'

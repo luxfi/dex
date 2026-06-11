@@ -58,7 +58,7 @@ Lux Industries Inc. \\
 \maketitle
 
 \begin{abstract}
-We present \lxdex{}, an ultra-high-performance decentralized exchange achieving over 100 million trades per second with 597 nanosecond order matching latency. Our system combines a novel DAG-based consensus protocol (Lux Consensus) with quantum-resistant cryptography (Ringtail+BLS hybrid signatures), kernel-bypass networking (DPDK/RDMA), GPU acceleration (MLX/CUDA), and zero-copy architecture to achieve performance exceeding centralized exchanges while maintaining full decentralization. Through integration with the Lux X-Chain for order processing and Q-Chain for quantum finality, we demonstrate 50ms consensus finality with Byzantine fault tolerance. The system utilizes the luxfi/database abstraction layer for consistent storage across multiple backend implementations and achieves linear scaling to 100M+ trades/second on 100Gbps fiber networks.
+We present \lxdex{}, an ultra-high-performance decentralized exchange achieving over 100 million trades per second with 597 nanosecond order matching latency. Our system combines a novel DAG-based consensus protocol (Lux Consensus) with quantum-resistant cryptography (Corona+BLS hybrid signatures), kernel-bypass networking (DPDK/RDMA), GPU acceleration (MLX/CUDA), and zero-copy architecture to achieve performance exceeding centralized exchanges while maintaining full decentralization. Through integration with the Lux X-Chain for order processing and Q-Chain for quantum finality, we demonstrate 50ms consensus finality with Byzantine fault tolerance. The system utilizes the luxfi/database abstraction layer for consistent storage across multiple backend implementations and achieves linear scaling to 100M+ trades/second on 100Gbps fiber networks.
 \end{abstract}
 
 \section{Introduction}
@@ -71,7 +71,7 @@ The cryptocurrency trading ecosystem faces a fundamental performance barrier: cu
     \item \textbf{100M+ trades/second} throughput on 100Gbps networks
     \item \textbf{597 nanosecond} order matching latency
     \item \textbf{50ms} consensus finality through Lux Consensus (formerly FPC)
-    \item \textbf{Quantum resistance} via Ringtail+BLS hybrid signatures
+    \item \textbf{Quantum resistance} via Corona+BLS hybrid signatures
     \item \textbf{Zero-copy} networking with DPDK and RDMA
     \item \textbf{GPU acceleration} with automatic MLX/CUDA detection
 \end{itemize}
@@ -170,7 +170,7 @@ Lux Consensus is our novel DAG-based consensus protocol featuring Fast Probabili
 We implement a hybrid cryptographic scheme combining:
 
 \begin{itemize}
-    \item \textbf{Ringtail}: Post-quantum lattice-based signatures
+    \item \textbf{Corona}: Post-quantum lattice-based threshold signatures (Lux production fork of the two-round Ringtail construction, IACR ePrint 2024/1113)
     \item \textbf{BLS}: Efficient signature aggregation
     \item \textbf{Quasar}: Dual-certificate protocol for faster finality
 \end{itemize}
@@ -179,7 +179,7 @@ We implement a hybrid cryptographic scheme combining:
 type QuantumCertificate struct {
     VertexID      [32]byte
     BLSSignature  *Signature
-    RingtailCert  []byte
+    CoronaCert  []byte
     VoteThreshold float64
 }
 \end{lstlisting}
@@ -362,7 +362,7 @@ Lux Consensus tolerates up to 33\% Byzantine nodes through:
 
 \subsection{Quantum Resistance}
 
-The Ringtail+BLS hybrid scheme provides:
+The Corona+BLS hybrid scheme provides:
 \begin{itemize}
     \item 256-bit post-quantum security
     \item Signature aggregation for efficiency

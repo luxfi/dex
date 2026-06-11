@@ -4,7 +4,7 @@ import "encoding/json"
 
 // Uniswap Trading API-compatible types.
 // These match the request/response shapes of https://trade-api.gateway.uniswap.org/v1
-// so the Liquidity Exchange frontend can talk to the LXD gateway using the same
+// so a downstream exchange frontend can talk to the LXD gateway using the same
 // client code it uses for Uniswap.
 
 // UniQuoteRequest is the Uniswap-compatible quote request body.
