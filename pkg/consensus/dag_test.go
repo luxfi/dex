@@ -596,7 +596,7 @@ func TestLuxDAGOrderBookProcessRemoteVertex(t *testing.T) {
 	cert := &QuantumCertificate{
 		VertexID:      vertex.ID,
 		BLSSignature:  &Signature{Data: []byte("test")},
-		CoronaCert:  []byte("cert"),
+		CoronaCert:    []byte("cert"),
 		Height:        1,
 		VoteThreshold: 0.55,
 	}
@@ -869,7 +869,7 @@ func TestQuantumCertificateFields(t *testing.T) {
 	cert := &QuantumCertificate{
 		VertexID:      id,
 		BLSSignature:  &Signature{Data: []byte("sig")},
-		CoronaCert:  []byte("corona"),
+		CoronaCert:    []byte("corona"),
 		Timestamp:     time.Now(),
 		Height:        5,
 		VoteThreshold: 0.67,
