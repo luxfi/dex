@@ -1084,7 +1084,7 @@ func (r *CoronaEngine) Verify(msg []byte, sig []byte, pk []byte) bool {
 }
 ```
 
-**Impact**: Security NOT production-ready. Needs integration with actual Corona implementation from `/Users/z/work/lux/threshold/protocols/corona/`.
+**Impact**: Security NOT production-ready. Needs integration with the actual Corona threshold implementation (`github.com/luxfi/corona`).
 
 **Issue 2: Missing Network Layer Integration** ❌
 ```go
@@ -1722,7 +1722,7 @@ Total Finality Time = 50ms
    - Peer management and health checking
    - Retransmission and timeout logic
 
-2. **Integrate Corona crypto** from `/Users/z/work/lux/threshold/`:
+2. **Integrate Corona crypto** from `github.com/luxfi/corona`:
    - Replace mock Sign() and Verify() implementations
    - Test quantum certificate generation end-to-end
    - Benchmark signature performance (target: <1ms)
@@ -1981,7 +1981,7 @@ go test -v ./pkg/gateway/...
 
 Unified swap routing across on-chain V4 pools and off-chain broker venues. This package implements a Uniswap-style Trading API that aggregates liquidity from multiple sources — native DEX precompiles, V2/V3 AMM routers, and the Lux Broker REST API — returning the best-price quote to the caller. All endpoints are `net/http` handlers mounted on a standard `http.ServeMux` (Go 1.22+ method routing).
 
-The package is consumed directly by the Liquidity ATS (`~/work/liquidity/ats/`) for its exchange trading API.
+The package is consumed directly by a regulated securities ATS for its exchange trading API.
 
 ### Constructor
 
@@ -2064,7 +2064,7 @@ ABI encoding for the LXRouter precompile at `0x000000000000000000000000000000000
 
 ### Usage by ATS
 
-The Liquidity ATS imports the trading package and wires it with venue instances:
+A regulated securities ATS imports the trading package and wires it with venue instances:
 
 ```go
 import "github.com/luxfi/dex/pkg/trading"

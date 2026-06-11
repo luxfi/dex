@@ -316,7 +316,7 @@ type VoteState struct {
 type QuantumCertificate struct {
 	VertexID      ID
 	BLSSignature  *Signature
-	CoronaCert  []byte
+	CoronaCert    []byte
 	Timestamp     time.Time
 	Height        uint64
 	VoteThreshold float64
@@ -359,7 +359,7 @@ type LuxDAGOrderBook struct {
 	*DAGOrderBook
 	luxConfig     LuxConsensusConfig
 	blsKey        *SecretKey
-	corona      *CoronaEngine
+	corona        *CoronaEngine
 	quasar        *Quasar
 	votes         map[ID]*VoteState
 	precomputed   map[ID][]byte
@@ -412,7 +412,7 @@ func NewDAGOrderBook(nodeID, symbol string) (*LuxDAGOrderBook, error) {
 			TimeWindow:        30 * time.Second,
 		},
 		blsKey:        blsKey,
-		corona:      corona,
+		corona:        corona,
 		quasar:        quasar,
 		votes:         make(map[ID]*VoteState),
 		voteCache:     make(map[ID]map[string]bool),
@@ -629,7 +629,7 @@ func (lux *LuxDAGOrderBook) generateQuantumCertificate(id ID, vertex *OrderVerte
 	return &QuantumCertificate{
 		VertexID:      id,
 		BLSSignature:  blsSig,
-		CoronaCert:  []byte("mock-corona-cert"),
+		CoronaCert:    []byte("mock-corona-cert"),
 		Timestamp:     time.Now(),
 		Height:        vertex.Height,
 		VoteThreshold: lux.voteThreshold,
