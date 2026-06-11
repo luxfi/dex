@@ -54,7 +54,7 @@ const (
 )
 
 // V4Venue quotes from V4 pools via the DEX precompile (LXRouter at 0x9012).
-// In production this would call the Liquidity EVM RPC. The current implementation
+// In production this would call the tenant EVM RPC. The current implementation
 // uses a deterministic pricing model for the mock backend.
 type V4Venue struct {
 	rpcURL string
