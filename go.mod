@@ -12,7 +12,7 @@ require (
 	github.com/luxfi/geth v1.16.98
 	github.com/luxfi/log v1.4.3
 	github.com/luxfi/pq v1.0.3
-	github.com/luxfi/rpc v1.0.3
+	github.com/luxfi/rpc v1.1.0
 	github.com/nats-io/nats.go v1.52.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
