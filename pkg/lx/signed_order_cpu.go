@@ -13,6 +13,12 @@ import (
 // order it recomputes the signing hash, recovers the pubkey from the sig,
 // derives the 20-byte address and compares with order.Sender.
 func verifyOrdersCPU(orders []SignedOrder) ([]bool, error) {
+	// Return nil (not an empty slice) for empty input so the CPU oracle matches
+	// the luxcpp-backed batch path's contract (signed_order_gpu.go) byte-for-
+	// byte at the boundary — TestBatchVerifyOrders_Empty pins this.
+	if len(orders) == 0 {
+		return nil, nil
+	}
 	out := make([]bool, len(orders))
 	for i := range orders {
 		hash, err := orders[i].SigningHash()
