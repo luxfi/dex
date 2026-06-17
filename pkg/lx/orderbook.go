@@ -262,6 +262,67 @@ func NewOrderTree(side Side) *OrderTree {
 	return tree
 }
 
+// SubmitMarketable submits a marketable (crossing) order against the book and
+// returns ONLY the trades that order generated, atomically. It is the single
+// path a taker uses to get its fills back: a market order, or an IOC limit order
+// whose Price bounds how far it crosses. Whatever does not fill is NOT rested —
+// the remainder is discarded (IOC semantics), so a marketable order never leaves
+// liquidity behind.
+//
+// The whole match-and-capture runs under one acquisition of ob.mu, so the
+// returned slice is exactly this order's fills even under concurrent submission:
+// no other goroutine can append to ob.Trades between the match and the capture.
+// This is what lets the LP-9010 adapter derive a value-conserving BalanceDelta
+// from server-side truth — it never trusts a client-supplied amount.
+//
+// order.Type is forced to the crossing form: Market keeps Market, anything else
+// is treated as an IOC limit (Price is the worst price it will accept). The order
+// is never added to the resting book.
+func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
+	if order == nil {
+		return nil, ErrInvalidOrder
+	}
+	if order.Size <= 0 {
+		return nil, ErrInvalidSize
+	}
+	// A limit-bounded marketable order needs a positive price; a pure market
+	// order does not (it sweeps the book unconditionally).
+	if order.Type != Market && order.Price <= 0 {
+		return nil, ErrInvalidPrice
+	}
+	if order.Price > MaxSafePrice {
+		return nil, fmt.Errorf("price %f exceeds max safe price %f: %w", order.Price, MaxSafePrice, ErrInvalidPrice)
+	}
+
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	// CONSENSUS DETERMINISM: a marketable order is IOC and never rests, so its
+	// ID and Timestamp are ephemeral — they never participate in resting
+	// price-time priority and are never persisted as book state. We therefore
+	// MUST NOT stamp them from wall-clock time (time.Now) or a process-local
+	// counter (atomic.AddUint64 on LastOrderID): both are non-deterministic
+	// across validators replaying the same ordered block. The d-chain consensus
+	// path supplies a deterministic ID/Timestamp derived from block context when
+	// it wants one; anything left zero stays zero. The returned fills name real
+	// makers (resting orders, which DO carry deterministic IDs/timestamps), so
+	// value conservation is derived purely from book-resident truth.
+	order.Status = Open
+	order.RemainingSize = order.Size
+	order.Filled = 0
+
+	// Capture the trade-log tail BEFORE matching so we can slice off exactly the
+	// trades this order produced. tryMatchImmediateLocked appends each fill to
+	// ob.Trades; we hold ob.mu for the whole window, so nothing else interleaves.
+	startTrades := len(ob.Trades)
+	ob.tryMatchImmediateLocked(order)
+
+	produced := ob.Trades[startTrades:]
+	fills := make([]Trade, len(produced))
+	copy(fills, produced)
+	return fills, nil
+}
+
 // AddOrder with optimized integer price handling
 func (ob *OrderBook) AddOrder(order *Order) uint64 {
 	// Auto-assign ID if not set
@@ -654,13 +715,34 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 		}
 		tradeSize = math.Min(order.RemainingSize, bestRemaining)
 
-		// Create trade
+		// Create trade. CONSENSUS DETERMINISM: stamp the trade with the
+		// INCOMING order's timestamp (the d-chain supplies a block-derived,
+		// deterministic value via SubmitMarketable) rather than wall-clock, so
+		// every validator replaying the same ordered block emits byte-identical
+		// fills. Legacy non-consensus callers that leave the timestamp zero fall
+		// back to wall-clock, preserving their prior behavior. The fill also
+		// carries both maker and taker identity so settlement can credit the
+		// real resting maker (value-conservation source of truth).
+		ts := order.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
 		ob.LastTradeID++
 		trade := Trade{
 			ID:        ob.LastTradeID,
 			Price:     bestOrder.Price,
 			Size:      tradeSize,
-			Timestamp: time.Now(),
+			Timestamp: ts,
+			TakerSide: order.Side,
+		}
+		if order.Side == Buy {
+			trade.BuyOrder, trade.SellOrder = order.ID, bestOrder.ID
+			trade.Buyer, trade.Seller = order.User, bestOrder.User
+			trade.BuyUserID, trade.SellUserID = order.UserID, bestOrder.UserID
+		} else {
+			trade.BuyOrder, trade.SellOrder = bestOrder.ID, order.ID
+			trade.Buyer, trade.Seller = bestOrder.User, order.User
+			trade.BuyUserID, trade.SellUserID = bestOrder.UserID, order.UserID
 		}
 
 		// Update orders
