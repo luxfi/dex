@@ -45,6 +45,12 @@ import (
 // orders[4] | remaining[f64:8] | bestBid[f64:8] | bestAsk[f64:8] | found[1].
 const clobDepthMethod = "clob_depth"
 
+// clobBalanceMethod is the read-only custody-balance observation method. It lets
+// the bring-up harness watch funds DEPOSIT into the book, move on a fill, and
+// WITHDRAW out — the "money lives in the order book" proof. Request: user[16] +
+// asset[8]. Response: available[8] | locked[8] (big-endian uint64 atomic units).
+const clobBalanceMethod = "clob_balance"
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
 	dir := flag.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
@@ -83,6 +89,10 @@ func main() {
 	}
 	if err := server.RegisterRaw(clobDepthMethod, depthHandler(vm)); err != nil {
 		logger.Error("RegisterRaw clob_depth", "err", err)
+		os.Exit(1)
+	}
+	if err := server.RegisterRaw(clobBalanceMethod, balanceHandler(vm)); err != nil {
+		logger.Error("RegisterRaw clob_balance", "err", err)
 		os.Exit(1)
 	}
 
@@ -159,6 +169,38 @@ func depthHandler(vm *dchain.VM) rpc.RawHandler {
 		}
 		return out, nil
 	}
+}
+
+// balanceHandler serves clob_balance: a read-only observation of an account's
+// custody balances for an asset (available + locked), read from the durable
+// ledger via the VM's Balance accessor. Request: user[16] + asset[8]. Response:
+// available[8] | locked[8].
+func balanceHandler(vm *dchain.VM) rpc.RawHandler {
+	return func(_ context.Context, payload []byte) ([]byte, error) {
+		out := make([]byte, 16)
+		if len(payload) < zapwire.UserSize+zapwire.AssetIDSize {
+			return out, nil
+		}
+		user := string(trimNullBytes(payload[0:zapwire.UserSize]))
+		asset := binary.BigEndian.Uint64(payload[zapwire.UserSize : zapwire.UserSize+zapwire.AssetIDSize])
+		available, locked, err := vm.Balance(user, asset)
+		if err != nil {
+			return out, err
+		}
+		binary.BigEndian.PutUint64(out[0:8], available)
+		binary.BigEndian.PutUint64(out[8:16], locked)
+		return out, nil
+	}
+}
+
+// trimNullBytes removes trailing NUL padding from a fixed-width user field.
+func trimNullBytes(b []byte) []byte {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] != 0 {
+			return b[:i+1]
+		}
+	}
+	return b[:0]
 }
 
 func min(a, b int) int {
