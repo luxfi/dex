@@ -12,6 +12,7 @@ import (
 	"github.com/luxfi/crypto/merkle"
 	"github.com/luxfi/database"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
 
@@ -72,9 +73,64 @@ func isSeen(db database.KeyValueReader, txID ids.ID) (bool, error) {
 }
 
 // markSeen records a tx id as applied (written into the block's overlay so it
-// commits atomically with the tx's effects).
-func markSeen(db database.KeyValueWriter, txID ids.ID) error {
-	return db.Put(seenKey(txID), []byte{1})
+// commits atomically with the tx's effects). The stored value is the tx's
+// ORIGINAL outcome (status + orderID + fills) so a later replay of the same
+// content-addressed tx returns the FIRST result verbatim rather than a blanket
+// reject — the idempotency contract a caller (precompile / proxy) needs: a
+// retried clob_place returns its original Placed+orderID, a retried clob_submit
+// returns its original fills, never a spurious "rejected". (A bare presence
+// byte made a deduped place indistinguishable from a genuine rejection, which
+// reverted the EVM tx whose precompile re-ran the place across the host's
+// multiple executions of one transaction.)
+func markSeen(db database.KeyValueWriter, txID ids.ID, o txOutcome) error {
+	return db.Put(seenKey(txID), encodeSeenOutcome(o))
+}
+
+// getSeenOutcome returns the recorded outcome for an already-applied tx id, with
+// ok=false if the tx has not been seen. The returned outcome carries the tx id
+// and type from the replayed tx (the stored value holds only status/orderID/
+// fills, which is all a replay needs).
+func getSeenOutcome(db database.KeyValueReader, txID ids.ID, typ TxType) (txOutcome, bool, error) {
+	v, err := db.Get(seenKey(txID))
+	if err == database.ErrNotFound {
+		return txOutcome{}, false, nil
+	}
+	if err != nil {
+		return txOutcome{}, false, err
+	}
+	o := decodeSeenOutcome(v)
+	o.txID = txID
+	o.typ = typ
+	return o, true, nil
+}
+
+// encodeSeenOutcome serializes the replay-relevant fields: status[1] |
+// orderID[8] | EncodeFills(fills). EncodeFills self-delimits with a leading
+// count, so the value parses unambiguously.
+func encodeSeenOutcome(o txOutcome) []byte {
+	out := make([]byte, 9)
+	out[0] = o.status
+	binary.BigEndian.PutUint64(out[1:9], o.orderID)
+	if len(o.fills) > 0 {
+		out = append(out, zapwire.EncodeFills(o.fills)...)
+	}
+	return out
+}
+
+// decodeSeenOutcome inverts encodeSeenOutcome. A legacy 1-byte presence value
+// (or any value shorter than the 9-byte header) decodes to a Placed status with
+// no orderID/fills — backward-safe for any pre-existing seen marks.
+func decodeSeenOutcome(v []byte) txOutcome {
+	if len(v) < 9 {
+		return txOutcome{status: zapwire.StatusPlaced}
+	}
+	o := txOutcome{status: v[0], orderID: binary.BigEndian.Uint64(v[1:9])}
+	if len(v) > 9 {
+		if fills, err := zapwire.DecodeFills(v[9:]); err == nil {
+			o.fills = fills
+		}
+	}
+	return o
 }
 
 // orderKey builds order:<poolID:32><orderID:8>.
