@@ -79,10 +79,22 @@ func (vm *VM) submitTx(ctx context.Context, t TxType, payload []byte) (txOutcome
 	case o := <-ch:
 		return o, nil
 	case <-ctx.Done():
-		// The caller gave up; drop the waiter so a later Accept does not leak it.
-		// The tx may still be accepted (its effect is durable) — idempotency makes
-		// a retry safe.
+		// The caller gave up. Drop the waiter AND withdraw the tx from the mempool
+		// (RED #4): a custody op (deposit/withdraw) whose ZAP submission timed out
+		// must NOT silently commit in a LATER block — the EVM rolled back its vault
+		// leg, so a stranded deposit would MINT and a stranded withdraw would
+		// double-release. mempool.cancel removes it if still pending, or tombstones
+		// it if already drained into an in-flight block, so it can never land later.
+		// (For an order frame this is also correct: a submit the caller abandoned
+		// should not rest/cross in a future block under the caller's account.)
+		// Idempotency still makes an explicit RETRY of the same op safe — a retry
+		// re-Adds a fresh tx (and, for custody, the same ref dedups it exactly once
+		// if the original DID commit before the timeout).
 		vm.outcomes.cancel(txID)
+		// Stamp the tombstone with the height of the single in-flight block the tx
+		// could be in (lastAcceptedHeight+1) so gcTombstones can reclaim it once that
+		// height is accepted (R4). inFlightHeight reads the watermark under vm.mu.
+		vm.mempool.cancel(txID, vm.inFlightHeight())
 		return txOutcome{}, ctx.Err()
 	}
 }
