@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -715,6 +716,22 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 		}
 		tradeSize = math.Min(order.RemainingSize, bestRemaining)
 
+		// EXACT-INTEGER QUANTITY LANE (value conservation). When BOTH the taker
+		// and the resting maker carry the integer quantity lane (CLOB / consensus
+		// path), the matched base is min(remainingUnits) computed in big.Int — the
+		// authoritative quantity, immune to the float64 precision loss that mints
+		// or burns value for 18-decimal token amounts above 2^53. The float
+		// tradeSize above still drives the crossing loop and legacy bookkeeping;
+		// the integer base/quote below are what settlement is derived from. If
+		// either side lacks the lane (legacy float API), tradeUnits stays nil and
+		// the fill carries no integer truth, preserving legacy behavior exactly.
+		takerUnits := ensureRemainingUnits(order)
+		makerUnits := ensureRemainingUnits(bestOrder)
+		var tradeUnits *big.Int
+		if takerUnits != nil && makerUnits != nil {
+			tradeUnits = minBig(takerUnits, makerUnits)
+		}
+
 		// Create trade. CONSENSUS DETERMINISM: stamp the trade with the
 		// INCOMING order's timestamp (the d-chain supplies a block-derived,
 		// deterministic value via SubmitMarketable) rather than wall-clock, so
@@ -734,6 +751,17 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 			Size:      tradeSize,
 			Timestamp: ts,
 			TakerSide: order.Side,
+		}
+		if tradeUnits != nil {
+			// Quote is an exact integer function of the matched base and the
+			// maker's resting price (its PriceInt key) — never of any float size.
+			priceInt := PriceInt(bestOrder.Price * PriceMultiplier)
+			trade.BaseUnits = tradeUnits
+			trade.QuoteUnits = quoteUnitsFor(tradeUnits, priceInt)
+			// Decrement the exact integer remainders so a multi-level / partial
+			// sweep stays integer-consistent across iterations.
+			takerUnits.Sub(takerUnits, tradeUnits)
+			makerUnits.Sub(makerUnits, tradeUnits)
 		}
 		if order.Side == Buy {
 			trade.BuyOrder, trade.SellOrder = order.ID, bestOrder.ID
