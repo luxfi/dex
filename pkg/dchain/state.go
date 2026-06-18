@@ -51,14 +51,31 @@ const (
 	// because every unit a fill removes from one account's locked is added to
 	// another account's available (no float, exact integer units).
 	//
-	//	balance:<user:8><asset:8> -> uint64  AVAILABLE (deposited, un-escrowed)
-	//	locked:<user:8><asset:8>  -> uint64  LOCKED    (reserved by live orders)
-	//	asset:<poolID:32>         -> base[8]quote[8]   market's (base,quote) handles
-	//	orderasset:<poolID:32><orderID:8> -> assetID[8]|amount[8]  per-order reserve
+	//	balance:<user:16><asset:32> -> uint64  AVAILABLE (deposited, un-escrowed)
+	//	locked:<user:16><asset:32>  -> uint64  LOCKED    (reserved by live orders)
+	//	asset:<poolID:32>           -> base[32]quote[32]   market's (base,quote) ids
+	//	orderasset:<poolID:32><orderID:8> -> assetID[32]|amount[8]  per-order reserve
+	//	orderuser:<poolID:32><orderID:8>  -> user[16]  resting order's FULL identity
+	//
+	// BOTH halves of a ledger key are kept at FULL injective width:
+	//   - The asset is the FULL 32-byte injective id (zapwire.AssetIDSize), NOT a
+	//     truncated handle: keying a value-bearing ledger by a truncated asset is
+	//     unsound (a token whose id folds to the native key could mint a native
+	//     claim and drain the native vault; two tokens sharing the truncated prefix
+	//     would share balances).
+	//   - The user is the FULL 16-byte injective wire identity (zapwire.UserSize),
+	//     NOT a folded 8-byte handle: keying the ledger by a truncated user is the
+	//     SAME unsoundness on the account axis — two addresses sharing a leading
+	//     8-byte prefix would share balances, letting one withdraw the other's
+	//     deposit (the cross-user native-drain fix). The matcher's DEXOrder.UserID
+	//     stays an 8-byte STP handle (the frozen GPU ABI); the SETTLEMENT identity
+	//     that the ledger keys by is this full 16-byte user, decomplected from the
+	//     matching handle exactly as pkg/lx/persist.go declares.
 	prefixBalance    = "balance:"
 	prefixLocked     = "locked:"
 	prefixAsset      = "asset:"      // market (base,quote) asset binding
 	prefixOrderLock  = "orderasset:" // per-resting-order locked (asset,amount) for unlock on cancel/fill
+	prefixOrderUser  = "orderuser:"  // per-resting-order FULL 16-byte settlement identity
 
 	metaLastAccepted = prefixMeta + "lastAccepted"
 	metaHeight       = prefixMeta + "height"
@@ -258,15 +275,50 @@ func writeBookWatermark(db database.KeyValueWriter, poolID [32]byte, watermark u
 // unit.
 // =========================================================================
 
-// balanceLedgerKey builds <prefix><user:8><asset:8>. The user identity is the
-// d-chain's 8-byte UserID handle (lx.userToUint64) and the asset is the 8-byte
-// asset handle — one consistent identity width across the ledger and the GPU row
-// ABI.
-func balanceLedgerKey(prefix string, user, asset uint64) []byte {
-	k := make([]byte, len(prefix)+16)
+// userKey is the d-chain's SETTLEMENT identity: the FULL 16-byte wire user
+// (zapwire.UserSize), the value the ledger keys an account by. It is DISTINCT from
+// the matcher's 8-byte DEXOrder.UserID STP handle — the book row models matching,
+// d-chain state models settlement identity (pkg/lx/persist.go). 16 bytes makes the
+// account axis birthday-safe (2^64) and, crucially, makes two addresses sharing a
+// leading 8-byte prefix DISTINCT accounts so neither can withdraw the other's
+// balance.
+type userKey = [zapwire.UserSize]byte
+
+// userKey16 renders a user-identity string to the canonical 16-byte ledger
+// identity: the leading 16 bytes, zero-padded — byte-identical to the wire's
+// user[16] field (zapwire null-padding) so the account the ledger credits is the
+// SAME account the orders/deposits name. This is the ONE fold from a user string
+// to the settlement identity; there is no 8-byte fold anywhere on the value path.
+//
+// TODO(accountid32): the settlement identity stays the full 16-byte wire user
+// NOW. The target derivation is a domain-separated 32-byte account id:
+//
+//	AccountID32 = H("lux.account.v1", networkID, sourceChainID, addressKind, fullAddressBytes)
+//	UserID8     = first8(H("lux.matcher.user.v1", AccountID))   // matcher/STP handle
+//
+// UserID8 may collide (birthday over 2^64) — acceptable ONLY because it is NEVER
+// authoritative for value (it is a compact STP handle; settlement resolves through
+// orderuser: to the full AccountID). The 16-byte userKey is birthday-safe at 2^64
+// for the account axis; AccountID32 widens that to 2^128 and binds the network +
+// source chain + address kind so identities are globally unique across chains. Do
+// NOT implement the 32-byte form here yet — this records the migration target.
+func userKey16(user string) userKey {
+	var k userKey
+	copy(k[:], user)
+	return k
+}
+
+// balanceLedgerKey builds <prefix><user:16><asset:32>. BOTH the user (the full
+// 16-byte injective wire identity, zapwire.UserSize) and the asset (the full
+// 32-byte injective asset id, zapwire.AssetIDSize) are kept at full width, so no
+// two distinct accounts and no two distinct assets ever collide on a balance key
+// (the cross-user native-drain fix on the account axis; the native-vault-drain fix
+// on the asset axis).
+func balanceLedgerKey(prefix string, user userKey, asset [32]byte) []byte {
+	k := make([]byte, len(prefix)+len(user)+len(asset))
 	copy(k, prefix)
-	binary.BigEndian.PutUint64(k[len(prefix):], user)
-	binary.BigEndian.PutUint64(k[len(prefix)+8:], asset)
+	copy(k[len(prefix):], user[:])
+	copy(k[len(prefix)+len(user):], asset[:])
 	return k
 }
 
@@ -299,18 +351,18 @@ func writeUint64(db database.KeyValueWriterDeleter, key []byte, v uint64) error 
 }
 
 // getAvailable / getLocked return an account's available / locked balance for an
-// asset.
-func getAvailable(db database.KeyValueReader, user, asset uint64) (uint64, error) {
+// asset (keyed by the full 16-byte user and the full 32-byte asset id).
+func getAvailable(db database.KeyValueReader, user userKey, asset [32]byte) (uint64, error) {
 	return readUint64(db, balanceLedgerKey(prefixBalance, user, asset))
 }
-func getLocked(db database.KeyValueReader, user, asset uint64) (uint64, error) {
+func getLocked(db database.KeyValueReader, user userKey, asset [32]byte) (uint64, error) {
 	return readUint64(db, balanceLedgerKey(prefixLocked, user, asset))
 }
 
 // creditAvailable adds amount to an account's available balance (the deposit
 // primitive and the fill-proceeds primitive). Refuses overflow — a credit that
 // would wrap uint64 is a corrupt input, never silently truncated.
-func creditAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+func creditAvailable(db database.KeyValueReaderWriterDeleter, user userKey, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return nil
 	}
@@ -319,7 +371,7 @@ func creditAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amoun
 		return err
 	}
 	if cur+amount < cur {
-		return fmt.Errorf("dchain: available credit overflow user=%d asset=%d", user, asset)
+		return fmt.Errorf("dchain: available credit overflow user=%x asset=%x", user, asset)
 	}
 	return writeUint64(db, balanceLedgerKey(prefixBalance, user, asset), cur+amount)
 }
@@ -328,7 +380,7 @@ func creditAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amoun
 // ErrInsufficientAvailable when the account lacks the balance — the matcher MUST
 // debit only AVAILABLE (deposited, un-escrowed) funds, so an over-debit is a
 // hard refusal, never an underflow.
-func debitAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+func debitAvailable(db database.KeyValueReaderWriterDeleter, user userKey, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return nil
 	}
@@ -337,7 +389,7 @@ func debitAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount
 		return err
 	}
 	if cur < amount {
-		return fmt.Errorf("%w: user=%d asset=%d have=%d need=%d", ErrInsufficientAvailable, user, asset, cur, amount)
+		return fmt.Errorf("%w: user=%x asset=%x have=%d need=%d", ErrInsufficientAvailable, user, asset, cur, amount)
 	}
 	return writeUint64(db, balanceLedgerKey(prefixBalance, user, asset), cur-amount)
 }
@@ -345,7 +397,7 @@ func debitAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount
 // lockFromAvailable moves amount from available to locked (placing/submitting an
 // order reserves the asset it will spend). All-or-nothing: the debit and the
 // lock are written together, so a partial lock can never strand value.
-func lockFromAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+func lockFromAvailable(db database.KeyValueReaderWriterDeleter, user userKey, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return nil
 	}
@@ -357,7 +409,7 @@ func lockFromAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amo
 		return err
 	}
 	if cur+amount < cur {
-		return fmt.Errorf("dchain: locked credit overflow user=%d asset=%d", user, asset)
+		return fmt.Errorf("dchain: locked credit overflow user=%x asset=%x", user, asset)
 	}
 	return writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur+amount)
 }
@@ -365,7 +417,7 @@ func lockFromAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amo
 // unlockToAvailable moves amount from locked back to available (cancel, reject,
 // or the unspent remainder of a partially-filled order). Refuses to unlock more
 // than is locked — that would mint against the ledger.
-func unlockToAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+func unlockToAvailable(db database.KeyValueReaderWriterDeleter, user userKey, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return nil
 	}
@@ -374,7 +426,7 @@ func unlockToAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amo
 		return err
 	}
 	if cur < amount {
-		return fmt.Errorf("%w: unlock user=%d asset=%d locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
+		return fmt.Errorf("%w: unlock user=%x asset=%x locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
 	}
 	if err := writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur-amount); err != nil {
 		return err
@@ -388,7 +440,7 @@ func unlockToAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amo
 // (spendLocked from spender + creditAvailable to counterparty) is what conserves
 // value across a fill: every unit removed here is added to exactly one other
 // account, so sum(available)+sum(locked) is invariant. Refuses spend > locked.
-func spendLocked(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+func spendLocked(db database.KeyValueReaderWriterDeleter, user userKey, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return nil
 	}
@@ -397,7 +449,7 @@ func spendLocked(db database.KeyValueReaderWriterDeleter, user, asset, amount ui
 		return err
 	}
 	if cur < amount {
-		return fmt.Errorf("%w: spend user=%d asset=%d locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
+		return fmt.Errorf("%w: spend user=%x asset=%x locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
 	}
 	return writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur-amount)
 }
@@ -412,30 +464,34 @@ func assetKey(poolID [32]byte) []byte {
 	return k
 }
 
-// writeMarketAssets binds a market's (base,quote) asset handles (idempotent
-// across re-opens with the same pair). The value is base[8]|quote[8].
-func writeMarketAssets(db database.KeyValueWriter, poolID [32]byte, base, quote uint64) error {
-	var v [16]byte
-	binary.BigEndian.PutUint64(v[0:8], base)
-	binary.BigEndian.PutUint64(v[8:16], quote)
+// writeMarketAssets binds a market's (base,quote) asset ids (idempotent across
+// re-opens with the same pair). The value is base[32]|quote[32] — the FULL
+// injective ids the ledger keys balance:/locked: by, so an order's locked spend
+// names the SAME asset key a deposit credited.
+func writeMarketAssets(db database.KeyValueWriter, poolID [32]byte, base, quote [32]byte) error {
+	var v [64]byte
+	copy(v[0:32], base[:])
+	copy(v[32:64], quote[:])
 	return db.Put(assetKey(poolID), v[:])
 }
 
-// readMarketAssets returns a market's (base,quote) handles, ok=false if the
-// market's assets were never bound (a market created via the asset-less
-// EnsureMarket path — orders on it cannot be balance-checked).
-func readMarketAssets(db database.KeyValueReader, poolID [32]byte) (base, quote uint64, ok bool, err error) {
+// readMarketAssets returns a market's (base,quote) ids, ok=false if the market's
+// assets were never bound (a market created via the asset-less EnsureMarket path
+// — orders on it cannot be balance-checked).
+func readMarketAssets(db database.KeyValueReader, poolID [32]byte) (base, quote [32]byte, ok bool, err error) {
 	v, gerr := db.Get(assetKey(poolID))
 	if gerr == database.ErrNotFound {
-		return 0, 0, false, nil
+		return base, quote, false, nil
 	}
 	if gerr != nil {
-		return 0, 0, false, gerr
+		return base, quote, false, gerr
 	}
-	if len(v) != 16 {
-		return 0, 0, false, fmt.Errorf("dchain: corrupt market assets len=%d", len(v))
+	if len(v) != 64 {
+		return base, quote, false, fmt.Errorf("dchain: corrupt market assets len=%d", len(v))
 	}
-	return binary.BigEndian.Uint64(v[0:8]), binary.BigEndian.Uint64(v[8:16]), true, nil
+	copy(base[:], v[0:32])
+	copy(quote[:], v[32:64])
+	return base, quote, true, nil
 }
 
 // ---- per-order reserve (so cancel/fill can unlock the exact remaining lock) ----
@@ -451,32 +507,85 @@ func orderLockKey(poolID [32]byte, orderID uint64) []byte {
 
 // putOrderLock records the (asset, remaining-locked-amount) a resting order
 // holds, so a later cancel or a maker fill knows exactly how much to unlock /
-// spend. Deleted when the remaining lock reaches zero.
-func putOrderLock(db database.KeyValueWriterDeleter, poolID [32]byte, orderID, asset, amount uint64) error {
+// spend. The asset is the FULL 32-byte id; the value is asset[32]|amount[8].
+// Deleted when the remaining lock reaches zero.
+func putOrderLock(db database.KeyValueWriterDeleter, poolID [32]byte, orderID uint64, asset [32]byte, amount uint64) error {
 	if amount == 0 {
 		return db.Delete(orderLockKey(poolID, orderID))
 	}
-	var v [16]byte
-	binary.BigEndian.PutUint64(v[0:8], asset)
-	binary.BigEndian.PutUint64(v[8:16], amount)
+	var v [40]byte
+	copy(v[0:32], asset[:])
+	binary.BigEndian.PutUint64(v[32:40], amount)
 	return db.Put(orderLockKey(poolID, orderID), v[:])
 }
 
 // getOrderLock returns the (asset, remaining-locked-amount) for a resting order,
 // ok=false if none recorded (e.g. an order placed before the balance model, or a
 // fully-consumed lock).
-func getOrderLock(db database.KeyValueReader, poolID [32]byte, orderID uint64) (asset, amount uint64, ok bool, err error) {
+func getOrderLock(db database.KeyValueReader, poolID [32]byte, orderID uint64) (asset [32]byte, amount uint64, ok bool, err error) {
 	v, gerr := db.Get(orderLockKey(poolID, orderID))
 	if gerr == database.ErrNotFound {
-		return 0, 0, false, nil
+		return asset, 0, false, nil
 	}
 	if gerr != nil {
-		return 0, 0, false, gerr
+		return asset, 0, false, gerr
 	}
-	if len(v) != 16 {
-		return 0, 0, false, fmt.Errorf("dchain: corrupt order lock len=%d", len(v))
+	if len(v) != 40 {
+		return asset, 0, false, fmt.Errorf("dchain: corrupt order lock len=%d", len(v))
 	}
-	return binary.BigEndian.Uint64(v[0:8]), binary.BigEndian.Uint64(v[8:16]), true, nil
+	copy(asset[:], v[0:32])
+	return asset, binary.BigEndian.Uint64(v[32:40]), true, nil
+}
+
+// ---- per-order FULL settlement identity (so a fill/cancel credits the resting
+// maker's full 16-byte account even after a restart) ----
+//
+// The matcher's persisted DEXOrder row carries only an 8-byte UserID (the frozen
+// GPU ABI / STP handle), so a resting order rebuilt from a row (RowToOrder) loses
+// bytes 8..15 of its user. Settlement, however, MUST credit the maker's FULL
+// 16-byte account (the one its deposit/lock live under). This row carries that
+// full identity in d-chain state, keyed by orderID — orthogonal to the GPU row —
+// so a maker fill (live OR post-restart) and a cancel settle to the exact account.
+// Written when an order rests (alongside orderasset:), deleted when the reserve is.
+
+// orderUserKey builds orderuser:<poolID:32><orderID:8>.
+func orderUserKey(poolID [32]byte, orderID uint64) []byte {
+	k := make([]byte, len(prefixOrderUser)+32+8)
+	copy(k, prefixOrderUser)
+	copy(k[len(prefixOrderUser):], poolID[:])
+	binary.BigEndian.PutUint64(k[len(prefixOrderUser)+32:], orderID)
+	return k
+}
+
+// putOrderUser records a resting order's FULL 16-byte settlement identity, or
+// deletes the row when amount-less (called with the order's user on rest, and
+// deleted in lockstep with the per-order reserve on cancel/reject/full-fill).
+func putOrderUser(db database.KeyValueWriterDeleter, poolID [32]byte, orderID uint64, user userKey) error {
+	return db.Put(orderUserKey(poolID, orderID), user[:])
+}
+
+// deleteOrderUser removes a resting order's settlement-identity row.
+func deleteOrderUser(db database.KeyValueWriterDeleter, poolID [32]byte, orderID uint64) error {
+	return db.Delete(orderUserKey(poolID, orderID))
+}
+
+// getOrderUser returns a resting order's FULL 16-byte settlement identity, ok=false
+// if none recorded (an asset-less / pre-custody market, or an order placed before
+// this row existed). The caller falls back to the trade's carried user string in
+// that case, matching the getOrderLock ok=false discipline.
+func getOrderUser(db database.KeyValueReader, poolID [32]byte, orderID uint64) (user userKey, ok bool, err error) {
+	v, gerr := db.Get(orderUserKey(poolID, orderID))
+	if gerr == database.ErrNotFound {
+		return user, false, nil
+	}
+	if gerr != nil {
+		return user, false, gerr
+	}
+	if len(v) != len(user) {
+		return user, false, fmt.Errorf("dchain: corrupt order user len=%d", len(v))
+	}
+	copy(user[:], v)
+	return user, true, nil
 }
 
 // readMeta helpers.

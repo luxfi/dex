@@ -45,6 +45,16 @@ const (
 	statusRejected   uint8 = 2
 )
 
+// errZeroCustodyRef refuses a deposit/withdraw whose idempotency ref is all-zero
+// (R3, defense-in-depth). The ref is the txHash that uniquely identifies the
+// originating EVM tx and enters the seen: dedup key via tx.ID(); a committed EVM
+// tx always has a unique non-zero hash, so a zero ref means a non-tx-identified
+// (test-mock) or proxy fillRef=0 frame. A zero ref is a full-length 64B frame so
+// length checks don't catch it — refusing here (every validator decodes the same
+// frame and rejects identically, so it stays consensus-neutral) closes the door
+// before any credit/debit and is a prerequisite for the ERC-20 rail.
+var errZeroCustodyRef = errors.New("dchain: zero custody ref refused (no originating-tx identity)")
+
 // Block is one d-chain block implementing block.Block.
 type Block struct {
 	vm *VM
@@ -226,6 +236,12 @@ func (b *Block) Accept(ctx context.Context) error {
 	b.status = statusAccepted
 	b.overlay = nil
 
+	// Reclaim tombstones whose in-flight height is now accepted (R4): such a tx can
+	// no longer be in flight, so its tombstone is dead weight. gcTombstones takes the
+	// mempool's own lock (distinct from vm.mu, no re-entry) and is a no-op on the hot
+	// path (no tombstones), so this bounds tombstone growth without taxing draining.
+	b.vm.mempool.gcTombstones(b.height)
+
 	// Resolve any parked ZAP handlers with their tx's consensus outcome. This is
 	// the only place an outcome becomes final: a rejected block never reaches
 	// here (its txs return to the mempool). On a follower with no local waiters
@@ -313,9 +329,22 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		// ---- Account-scoped custody txs (no poolId) ----
 		switch tx.Type {
 		case TxDeposit:
-			user, asset, amount, derr := zapwire.DecodeDeposit(tx.Body)
+			// ref is decoded for completeness but the ledger does NOT key on it:
+			// the ref already entered the idempotency identity via tx.ID() above
+			// (Checksum256 over the full body, ref included). The credit arithmetic
+			// is orthogonal to the dedup identity — it operates on (user,asset,amount)
+			// exactly as before. This is the decomplect: the funds-safety property
+			// (exactly-once per originating tx) lives in the content hash; the ledger
+			// math stays in its own lane.
+			user, asset, amount, ref, derr := zapwire.DecodeDeposit(tx.Body)
 			if derr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d deposit decode: %w", i, derr)
+			}
+			// Reject a zero-ref (unbound) custody credit before touching the ledger
+			// (R3). A genuine EVM deposit always threads a unique non-zero txHash; a
+			// zero ref is an unidentified frame that must not mint an unbacked credit.
+			if ref == ([32]byte{}) {
+				return execResult{}, fmt.Errorf("dchain: tx %d deposit: %w", i, errZeroCustodyRef)
 			}
 			realized, serr := creditDeposit(overlay, user, asset, amount)
 			if serr != nil {
@@ -328,9 +357,21 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			}
 			continue
 		case TxWithdraw:
-			user, asset, amount, derr := zapwire.DecodeWithdraw(tx.Body)
+			// ref decoded for completeness; see the deposit note — the ref is in the
+			// txID/seen: identity (so two GENUINELY distinct withdraws no longer
+			// collide on seen: and replay a stale realized amount against an
+			// already-paid vault), while debitWithdraw clamps to CURRENT available
+			// independent of the ref.
+			user, asset, amount, ref, derr := zapwire.DecodeWithdraw(tx.Body)
 			if derr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d withdraw decode: %w", i, derr)
+			}
+			// Reject a zero-ref (unbound) custody debit before touching the ledger or
+			// releasing the vault (R3). A genuine EVM withdraw always threads a unique
+			// non-zero txHash; a zero ref is an unidentified frame that must not
+			// release value against an untracked identity.
+			if ref == ([32]byte{}) {
+				return execResult{}, fmt.Errorf("dchain: tx %d withdraw: %w", i, errZeroCustodyRef)
 			}
 			realized, serr := debitWithdraw(overlay, user, asset, amount)
 			if serr != nil {
@@ -517,7 +558,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 //     bounded by the balance), and the unspent remainder is refunded after the
 //     cross. No per-order reserve (IOC never rests).
 //   - other tx types: no lock (returns 0, true).
-func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, base, quote uint64, assetsBound bool) (uint64, bool, error) {
+func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, base, quote [32]byte, assetsBound bool) (uint64, bool, error) {
 	if !assetsBound {
 		return 0, true, nil // no-custody fallback for asset-less markets
 	}
@@ -529,20 +570,30 @@ func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, 
 		}
 		lockAsset, lockAmt := orderLock(side, price, size, base, quote)
 		if lockAmt == 0 {
-			// Degenerate order (zero size / unrepresentable lock): let the matcher
-			// reject it, lock nothing.
-			return 0, true, nil
+			// Degenerate order (zero size / unrepresentable lock) on a balance-bearing
+			// market: REJECT it (ok=false) so it never rests. A resting order on a
+			// custody market MUST carry BOTH a non-zero lock AND an orderuser: identity
+			// row; allowing a zero-lock order to rest would leave a book row with no
+			// orderuser: mapping — exactly the degraded path settlement must never hit.
+			// (The matcher would also reject a zero-size order; rejecting here keeps the
+			// "every resting custody order has a lock + identity" invariant total.)
+			return 0, false, nil
 		}
-		uid := userID8(user)
+		uid := userKey16(user)
 		if err := lockFromAvailable(db, uid, lockAsset, lockAmt); err != nil {
 			if errors.Is(err, ErrInsufficientAvailable) {
 				return 0, false, nil
 			}
 			return 0, false, err
 		}
-		// Record the per-order reserve so cancel/fill unlocks the exact amount.
+		// Record the per-order reserve so cancel/fill unlocks the exact amount, and
+		// the order's FULL settlement identity so a maker fill/cancel credits the
+		// right account even after a restart (the GPU row carries only 8 user bytes).
 		orderID := blockDeterministicID(b.height, txIndexOf(b, tx))
 		if err := putOrderLock(db, poolID, orderID, lockAsset, lockAmt); err != nil {
+			return 0, false, err
+		}
+		if err := putOrderUser(db, poolID, orderID, uid); err != nil {
 			return 0, false, err
 		}
 		return lockAmt, true, nil
@@ -552,8 +603,9 @@ func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, 
 		if derr != nil {
 			return 0, false, derr
 		}
-		uid := userID8(user)
-		var lockAsset, lockAmt uint64
+		uid := userKey16(user)
+		var lockAsset [32]byte
+		var lockAmt uint64
 		if side == sideBuy {
 			lockAsset = quote
 		} else {
@@ -572,8 +624,13 @@ func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, 
 		}
 		if lockAmt == 0 {
 			// Nothing affordable to lock: a market buy with zero quote, or a zero
-			// size. The matcher will produce no settle-able fills; treat as funded
-			// with a zero lock (the cross yields nothing, settle is a no-op).
+			// size. A SUBMIT is IOC — it NEVER rests, so (unlike a place) it creates
+			// no resting book row and needs no orderuser: identity row; the "every
+			// resting custody order has a lock + identity" invariant does not apply.
+			// The taker's own settlement identity is always the live, full 16-byte
+			// submit user, never an 8-byte handle. A zero lock means the matcher can
+			// produce no settle-able fills (its exact-integer value lane is zero), so
+			// settle is a no-op; treat as funded with a zero lock.
 			return 0, true, nil
 		}
 		if err := lockFromAvailable(db, uid, lockAsset, lockAmt); err != nil {
@@ -601,7 +658,7 @@ func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, 
 //   - SUBMIT: settle each fill (taker locked spend -> maker available; maker
 //     locked -> taker available), decrement each touched maker's per-order
 //     reserve by the filled amount, then unlock the taker's unspent remainder.
-func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *Tx, res applyResult, base, quote, lockedAmt uint64) error {
+func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *Tx, res applyResult, base, quote [32]byte, lockedAmt uint64) error {
 	switch tx.Type {
 	case TxCancel:
 		if res.Canceled == 0 {
@@ -614,12 +671,29 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 		if !ok || amt == 0 {
 			return nil
 		}
-		// The cancelled order's owner reserved `amt` of `asset`; return it.
-		owner := userID8(canceledOwner(res))
+		// The cancelled order's owner reserved `amt` of `asset`; return it to the
+		// order's recorded FULL settlement identity (orderuser:) — the ONLY source.
+		// The in-RAM owner string is 8-byte after a restart, so it MUST NOT be used
+		// for the unlock. A cancelled order that holds a non-zero reserve (amt>0) but
+		// has NO orderuser: row is state corruption: fail closed (block rejected, no
+		// unlock) rather than unlock to a compact-handle-derived account.
+		//
+		// Settlement fails closed if full account identity is unavailable. Falling back
+		// to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
+		owner, ok, uerr := getOrderUser(db, poolID, res.Canceled)
+		if uerr != nil {
+			return uerr
+		}
+		if !ok {
+			return fmt.Errorf("%w: cancel of order %d in market %x", ErrMissingSettlementUser, res.Canceled, poolID[:8])
+		}
 		if err := unlockToAvailable(db, owner, asset, amt); err != nil {
 			return err
 		}
-		return putOrderLock(db, poolID, res.Canceled, asset, 0) // delete the reserve
+		if err := putOrderLock(db, poolID, res.Canceled, asset, 0); err != nil { // delete the reserve
+			return err
+		}
+		return deleteOrderUser(db, poolID, res.Canceled) // delete the identity row
 
 	case TxPlace:
 		if res.Placed != nil {
@@ -634,22 +708,27 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 		if lockAmt == 0 {
 			return nil
 		}
-		uid := userID8(user)
+		uid := userKey16(user)
 		if err := unlockToAvailable(db, uid, lockAsset, lockAmt); err != nil {
 			return err
 		}
-		// Remove the per-order reserve recorded at lock time.
+		// Remove the per-order reserve and identity row recorded at lock time.
 		orderID := blockDeterministicID(b.height, txIndexOf(b, tx))
-		return putOrderLock(db, poolID, orderID, lockAsset, 0)
+		if err := putOrderLock(db, poolID, orderID, lockAsset, 0); err != nil {
+			return err
+		}
+		return deleteOrderUser(db, poolID, orderID)
 
 	case TxSubmit:
 		_, side, _, _, _, user, derr := zapwire.DecodeSubmit(tx.Body)
 		if derr != nil {
 			return derr
 		}
-		uid := userID8(user)
-		// Move value for the fills (uses the matcher's exact integer lane).
-		spent, err := settleFills(db, side, base, quote, res.Fills)
+		uid := userKey16(user)
+		// Move value for the fills (uses the matcher's exact integer lane). poolID
+		// lets settleFills resolve each maker's FULL settlement identity from the
+		// orderuser: row (restart-safe), not the 8-byte in-RAM maker string.
+		spent, err := settleFills(db, poolID, side, base, quote, res.Fills)
 		if err != nil {
 			return err
 		}
@@ -662,7 +741,7 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 		}
 		// Refund the taker's unspent lock remainder (IOC never rests).
 		if lockedAmt > spent {
-			var lockAsset uint64
+			var lockAsset [32]byte
 			if side == sideBuy {
 				lockAsset = quote
 			} else {
@@ -684,7 +763,7 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 // the remaining resting size. A maker on the opposite side of the taker locked:
 // taker BUY -> maker SOLD base (reserve in base, reduced by fill base units);
 // taker SELL -> maker BOUGHT base (reserve in quote, reduced by fill quote units).
-func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote uint64, fills []lx.Trade) error {
+func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []lx.Trade) error {
 	// Aggregate the consumed reserve per maker order id (a maker may fill across
 	// several fills in one cross, though typically one).
 	consumed := map[uint64]uint64{}
@@ -718,6 +797,14 @@ func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, 
 		if err := putOrderLock(db, poolID, makerOrderID, asset, newReserve); err != nil {
 			return err
 		}
+		// A fully-consumed maker reserve means the maker order left the book; drop
+		// its identity row in lockstep with the reserve so no orphan orderuser:
+		// survives a fully-filled order (keeps the two per-order rows consistent).
+		if newReserve == 0 {
+			if err := deleteOrderUser(db, poolID, makerOrderID); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -733,22 +820,6 @@ func txIndexOf(b *Block, tx *Tx) uint32 {
 		}
 	}
 	return 0
-}
-
-// canceledOwner returns the user identity of a cancelled order. The matcher's
-// cancel path removes the order; the owner is recovered from the order snapshot
-// the apply result captured. (applyCancel records only the id today; the owner is
-// read from the reserve's account at unlock by re-deriving from the order row —
-// but since the reserve is keyed by order id and the owner is whoever placed it,
-// we resolve the owner from the order row captured in res.) For the current
-// applyCancel which does not carry the owner, the owner is the reserve's account
-// — see settleOrderEffects, which reads the reserve and unlocks to the placing
-// account. This helper returns the canceller from the result when available.
-func canceledOwner(res applyResult) string {
-	if res.CanceledOwner != "" {
-		return res.CanceledOwner
-	}
-	return ""
 }
 
 // applyToMemBooks replays the block's resting effects onto the VM's cached in-RAM

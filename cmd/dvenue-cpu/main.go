@@ -1,8 +1,8 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain
-// +build dchain
+//go:build !cgo
+// +build !cgo
 
 // Command dvenue-cpu runs the standalone D-Chain DEX VENUE as a long-lived ZAP
 // server — the dial-able endpoint the 0x9010 EVM precompile
@@ -12,9 +12,14 @@
 // cgo/luxcpp/gpu-kernels dependency.
 //
 // This is the FREE, open base venue: any operator can run a correct CPU D-Chain
-// from this single static binary. GPU acceleration is the licensed opt-in
-// (cmd/dvenue, //go:build dchain && cgo, links the private CUDA matcher) — same
-// surface, same consensus, just the HFT-grade accelerator.
+// from this single static binary. Built under //go:build !cgo so it is the venue
+// that the default CGO_ENABLED=0 build produces (it pulls pkg/lx's pure-Go
+// matcher — amm_nogpu / orderbook_cuda_stub / signed_order_nocgo — and links no
+// luxcpp). GPU acceleration is the opt-in (cmd/dvenue, //go:build cgo, links the
+// private CUDA/Metal matcher) — same surface, same consensus, just the HFT-grade
+// accelerator. cgo vs !cgo is the ONE axis: exactly one of the two venue daemons
+// builds per CGO_ENABLED. The old `dchain` tag gated a now-removed node kludge
+// and wrongly excluded this pure-Go binary from the default build — dropped.
 //
 //   - opens the authoritative on-disk badger/zapdb (real persisted chainstate),
 //   - serves the FROZEN clob_* surface (RegisterCLOB) over rpc.Listen,
@@ -163,7 +168,8 @@ func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 			return out, nil
 		}
 		user := string(trimNullBytes(payload[0:zapwire.UserSize]))
-		asset := binary.BigEndian.Uint64(payload[zapwire.UserSize : zapwire.UserSize+zapwire.AssetIDSize])
+		var asset [32]byte
+		copy(asset[:], payload[zapwire.UserSize:zapwire.UserSize+zapwire.AssetIDSize])
 		available, locked, err := vm.Balance(user, asset)
 		if err != nil {
 			return out, err

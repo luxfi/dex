@@ -18,37 +18,78 @@ package dchain
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
-// asset handles for the test market (8-byte ledger handles).
-const (
-	assetLUX  uint64 = 0x4c5558_00000001 // "LUX" base
-	assetLUSD uint64 = 0x4c555344_000001 // "LUSD" quote
+// asset ids for the test market (full 32-byte injective ids; the uint64 LABEL is
+// packed into the low 8 bytes by a32, the test-side analog of the production
+// address->id map).
+var (
+	assetLUX  = a32(0x4c5558_00000001) // "LUX" base
+	assetLUSD = a32(0x4c555344_000001) // "LUSD" quote
 )
 
-func depositTx(t *testing.T, user string, asset, amount uint64) *Tx {
+// contentRef derives a deterministic 32-byte idempotency ref from a custody op's
+// (user,asset,amount) content. It exists ONLY so the default depositTx/withdrawTx
+// helpers preserve the PRE-ref content-dedup semantics every existing scenario
+// relies on: a byte-identical (user,asset,amount) call yields a byte-identical
+// ref -> identical txID -> the same content-addressed seen: dedup as before. To
+// model a GENUINELY distinct originating tx (the production reality where a real
+// 2nd withdraw carries a fresh EVM txHash), use depositTxRef/withdrawTxRef with an
+// explicit, distinct ref. This is a TEST FIXTURE convention; production always
+// supplies the real originating-tx ref (precompile txHash / atomic import id).
+func contentRef(typ byte, user string, asset [32]byte, amount uint64) [32]byte {
+	// Deterministic, content-derived ref: XOR-fold the full asset id (so its
+	// distinguishing low bytes participate, not a truncated prefix), then mix the
+	// type, user, and amount. Byte-identical inputs yield the same ref (exactly-once
+	// retry); any difference yields a different ref (genuinely distinct op).
+	var ref [32]byte
+	copy(ref[:], asset[:]) // full id, including its low-byte discriminant
+	ref[0] ^= typ
+	for i := 0; i < len(user) && i+1 < 24; i++ {
+		ref[1+i] ^= user[i]
+	}
+	binary.BigEndian.PutUint64(ref[24:32], binary.BigEndian.Uint64(asset[24:32])^amount)
+	return ref
+}
+
+func depositTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxDeposit, zapwire.EncodeDeposit(user, asset, amount))
+	return depositTxRef(t, user, asset, amount, contentRef(byte(TxDeposit), user, asset, amount))
+}
+
+func withdrawTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
+	t.Helper()
+	return withdrawTxRef(t, user, asset, amount, contentRef(byte(TxWithdraw), user, asset, amount))
+}
+
+// depositTxRef / withdrawTxRef build a custody tx with an EXPLICIT idempotency ref
+// (the originating-tx identity). Distinct refs => distinct txID => the d-chain
+// treats the ops as genuinely different (no seen: replay); an identical ref models
+// a true exactly-once retry of ONE op.
+func depositTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
+	t.Helper()
+	tx, err := NewTx(TxDeposit, zapwire.EncodeDeposit(user, asset, amount, ref))
 	if err != nil {
 		t.Fatalf("NewTx deposit: %v", err)
 	}
 	return tx
 }
 
-func withdrawTx(t *testing.T, user string, asset, amount uint64) *Tx {
+func withdrawTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxWithdraw, zapwire.EncodeWithdraw(user, asset, amount))
+	tx, err := NewTx(TxWithdraw, zapwire.EncodeWithdraw(user, asset, amount, ref))
 	if err != nil {
 		t.Fatalf("NewTx withdraw: %v", err)
 	}
 	return tx
 }
 
-func openMarketTx(t *testing.T, pool [32]byte, base, quote uint64) *Tx {
+func openMarketTx(t *testing.T, pool [32]byte, base, quote [32]byte) *Tx {
 	t.Helper()
 	tx, err := NewTx(TxOpenMarket, zapwire.EncodeOpenMarket(pool, base, quote))
 	if err != nil {
@@ -365,23 +406,23 @@ func cancelPoolTx(t *testing.T, pool [32]byte, orderID uint64) *Tx {
 	return tx
 }
 
-func bal(t *testing.T, vm *VM, user string, asset uint64) uint64 {
+func bal(t *testing.T, vm *VM, user string, asset [32]byte) uint64 {
 	t.Helper()
 	avail, _, err := vm.Balance(user, asset)
 	if err != nil {
-		t.Fatalf("Balance(%s,%d): %v", user, asset, err)
+		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}
 	return avail
 }
 
-func assertBalance(t *testing.T, vm *VM, user string, asset, wantAvail, wantLocked uint64) {
+func assertBalance(t *testing.T, vm *VM, user string, asset [32]byte, wantAvail, wantLocked uint64) {
 	t.Helper()
 	avail, locked, err := vm.Balance(user, asset)
 	if err != nil {
-		t.Fatalf("Balance(%s,%d): %v", user, asset, err)
+		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}
 	if avail != wantAvail || locked != wantLocked {
-		t.Fatalf("balance %s asset=%#x: available=%d locked=%d, want available=%d locked=%d",
+		t.Fatalf("balance %s asset=%x: available=%d locked=%d, want available=%d locked=%d",
 			user, asset, avail, locked, wantAvail, wantLocked)
 	}
 }

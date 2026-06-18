@@ -45,16 +45,16 @@ const (
 	// user[16].
 	TxSubmit
 	// TxDeposit credits an account's available balance from value the proxy
-	// atomically imported. Body = zapwire Deposit payload (32B): user[16] +
-	// asset[8] + amount[8].
+	// atomically imported. Body = zapwire Deposit payload (88B): user[16] +
+	// asset[32] + amount[8] + ref[32].
 	TxDeposit
 	// TxWithdraw debits an account's realized available balance for the proxy to
-	// atomically export. Body = zapwire Withdraw payload (32B): user[16] +
-	// asset[8] + amount[8] (clamped to available).
+	// atomically export. Body = zapwire Withdraw payload (88B): user[16] +
+	// asset[32] + amount[8] + ref[32] (clamped to available).
 	TxWithdraw
-	// TxOpenMarket binds a market's (base,quote) asset handles so orders on it can
-	// be value-checked. Body = zapwire OpenMarket payload (48B): poolId[32] +
-	// baseAsset[8] + quoteAsset[8].
+	// TxOpenMarket binds a market's (base,quote) asset ids so orders on it can be
+	// value-checked. Body = zapwire OpenMarket payload (96B): poolId[32] +
+	// baseAsset[32] + quoteAsset[32].
 	TxOpenMarket
 )
 
@@ -103,6 +103,16 @@ var (
 	// ErrFillUnitsOverflow: a fill's integer units exceed uint64 — refused rather
 	// than truncated into a mint/burn.
 	ErrFillUnitsOverflow = errors.New("dchain: fill units exceed uint64")
+	// ErrMissingSettlementUser: a fill/cancel reached settlement for a resting order
+	// that has NO orderuser: row — its full 16-byte settlement identity is
+	// unavailable. This is a STATE-CORRUPTION error, NOT a deterministic per-tx
+	// reject: it aborts block execution (every validator reads the identical overlay
+	// state, so the row is missing on all of them — the abort is consensus-neutral),
+	// the block/tx is REJECTED with NO partial settlement and NO balance mutation.
+	//
+	// Settlement fails closed if full account identity is unavailable. Falling back
+	// to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
+	ErrMissingSettlementUser = errors.New("dchain: resting order missing full settlement identity (orderuser)")
 )
 
 // Tx is a parsed DEX transaction: the type discriminant plus the raw zapwire body
