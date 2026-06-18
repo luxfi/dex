@@ -228,6 +228,26 @@ func (vm *VM) BookDepth(poolID [32]byte) (orders int, remaining, bestBid, bestAs
 	return orders, remaining, bestBid, bestAsk, true
 }
 
+// Balance reports an account's custody balances for an asset: the AVAILABLE
+// (deposited, un-escrowed, withdrawable) amount and the LOCKED (reserved by live
+// orders) amount, both in atomic asset units. It reads the durable ledger under
+// the VM lock — the authoritative committed state, not the in-RAM book — so a
+// caller (the proxy's withdraw leg, the venue daemon, tests) observes exactly
+// what consensus settled. user is the identity string; it is folded to the 8-byte
+// ledger handle internally.
+func (vm *VM) Balance(user string, asset uint64) (available, locked uint64, err error) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	uid := userID8(user)
+	if available, err = getAvailable(vm.db, uid, asset); err != nil {
+		return 0, 0, err
+	}
+	if locked, err = getLocked(vm.db, uid, asset); err != nil {
+		return 0, 0, err
+	}
+	return available, locked, nil
+}
+
 // BuildBlock drains the mempool into a new block on top of the preferred head,
 // executes it locally to compute the execution root (the proposer's claim), and
 // returns it. The block is NOT accepted here — consensus votes, then calls

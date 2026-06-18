@@ -44,6 +44,9 @@ func (vm *VM) RegisterCLOB(server rpc.Server) error {
 		{zapwire.MethodPlace, vm.handlePlace},
 		{zapwire.MethodCancel, vm.handleCancel},
 		{zapwire.MethodSubmit, vm.handleSubmit},
+		{zapwire.MethodOpenMarket, vm.handleOpenMarket},
+		{zapwire.MethodDeposit, vm.handleDeposit},
+		{zapwire.MethodWithdraw, vm.handleWithdraw},
 	}
 	for _, r := range regs {
 		if err := server.RegisterRaw(r.method, r.handler); err != nil {
@@ -142,6 +145,49 @@ func (vm *VM) handleSubmit(ctx context.Context, payload []byte) ([]byte, error) 
 		return nil, err
 	}
 	return zapwire.EncodeFills(o.fills), nil
+}
+
+// handleOpenMarket: payload = zapwire OpenMarket (48B). Binds the market's
+// (base,quote) asset handles so orders on it can be value-checked, then acks.
+func (vm *VM) handleOpenMarket(ctx context.Context, payload []byte) ([]byte, error) {
+	if len(payload) < zapwire.OpenMarketReqSize {
+		return encodeReject(0, "clob_open_market: short payload"), nil
+	}
+	o, err := vm.submitTx(ctx, TxOpenMarket, payload)
+	if err != nil {
+		return nil, err
+	}
+	return zapwire.EncodeAck(0, o.status, 0), nil
+}
+
+// handleDeposit: payload = zapwire Deposit (32B). Credits the account's available
+// balance from value the proxy atomically imported, then returns the realized
+// credited amount (status[1] + amount[8]).
+func (vm *VM) handleDeposit(ctx context.Context, payload []byte) ([]byte, error) {
+	if len(payload) < zapwire.DepositReqSize {
+		return zapwire.EncodeBalanceResp(zapwire.StatusRejected, 0), nil
+	}
+	o, err := vm.submitTx(ctx, TxDeposit, payload)
+	if err != nil {
+		return nil, err
+	}
+	// orderID carries the realized credited amount.
+	return zapwire.EncodeBalanceResp(o.status, o.orderID), nil
+}
+
+// handleWithdraw: payload = zapwire Withdraw (32B). Debits the account's realized
+// available balance (clamped) and returns the REALIZED amount the proxy must
+// export (status[1] + amount[8]). A zero realized withdraw is StatusRejected so
+// the proxy builds no empty export leg.
+func (vm *VM) handleWithdraw(ctx context.Context, payload []byte) ([]byte, error) {
+	if len(payload) < zapwire.WithdrawReqSize {
+		return zapwire.EncodeBalanceResp(zapwire.StatusRejected, 0), nil
+	}
+	o, err := vm.submitTx(ctx, TxWithdraw, payload)
+	if err != nil {
+		return nil, err
+	}
+	return zapwire.EncodeBalanceResp(o.status, o.orderID), nil
 }
 
 // encodeReject builds the legacy reject frame the gateway uses:
