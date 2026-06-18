@@ -284,17 +284,22 @@ func TestHandlerIdempotentReplay(t *testing.T) {
 	}
 
 	// Replay the EXACT same submit frame (same bytes -> same tx id). Idempotency
-	// must make it a no-op: zero fills, and the resting maker keeps the 6 units
-	// the first submit left (a double-execution would consume 4 more).
+	// must return the ORIGINAL outcome verbatim (the same single 4.0 fill) WITHOUT
+	// re-executing against the book — the contract a caller (precompile/proxy)
+	// needs when the host runs one tx multiple times. Exactly-once is proven by
+	// the book invariant below (a double-execution would consume 4 MORE units);
+	// the return value being the first result, not a spurious empty/reject, is
+	// what lets the caller's settlement see a consistent answer on every replay.
 	fills2, err := zapwire.DecodeFills(mustCall(relayMethodSubmit, submit))
 	if err != nil {
 		t.Fatalf("submit2 (replay) decode: %v", err)
 	}
-	if len(fills2) != 0 {
-		t.Fatalf("replayed submit executed again: got %d fills, want 0 (idempotency broken)", len(fills2))
+	if len(fills2) != 1 || fills2[0].Size != 4.0 {
+		t.Fatalf("replayed submit = %+v, want the original one 4.0 fill (idempotent return)", fills2)
 	}
 
-	// The maker's remaining size confirms exactly-once: 10 - 4 = 6 left.
+	// The maker's remaining size confirms exactly-once: 10 - 4 = 6 left. THIS is
+	// the no-double-execution invariant — unchanged by returning the cached fills.
 	ob := vm.books[pool]
 	if ob == nil {
 		t.Fatal("market book missing")

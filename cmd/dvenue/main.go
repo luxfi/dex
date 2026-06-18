@@ -1,0 +1,172 @@
+// Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+//go:build dchain && cgo
+// +build dchain,cgo
+
+// Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
+// server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
+// precompile (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy
+// relay connect to. It is the production form of the capstone venue proof
+// (pkg/dchain/localnet_e2e_test.go), promoted from a test harness to a daemon:
+//
+//   - opens the authoritative on-disk badger/zapdb (real persisted chainstate),
+//   - serves the FROZEN clob_* surface (RegisterCLOB) over rpc.Listen,
+//   - runs the consensus sealer loop (WaitForEvent -> BuildBlock -> Verify ->
+//     Accept), so every write crosses the full match -> Verify -> Accept path
+//     and the bytes a caller gets back are consensus-computed fills,
+//   - additionally exposes a read-only clob_depth method for observing settled
+//     book state (reads need no consensus round-trip; see handler.go).
+//
+// Built under //go:build dchain && cgo so it links the cgo/GPU matching engine
+// (the venue accelerator); the pure-Go test path is unaffected.
+package main
+
+import (
+	"context"
+	"encoding/binary"
+	"flag"
+	"math"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/luxfi/consensus/engine/chain/block"
+	"github.com/luxfi/database"
+	"github.com/luxfi/database/badgerdb"
+	"github.com/luxfi/dex/pkg/dchain"
+	"github.com/luxfi/dex/pkg/zapwire"
+	log "github.com/luxfi/log"
+	"github.com/luxfi/rpc"
+)
+
+// clobDepthMethod is the read-only book-observation method this daemon adds on
+// top of the four frozen clob_* write methods. Request: poolId[32]. Response:
+// orders[4] | remaining[f64:8] | bestBid[f64:8] | bestAsk[f64:8] | found[1].
+const clobDepthMethod = "clob_depth"
+
+func main() {
+	addr := flag.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
+	dir := flag.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
+	flag.Parse()
+
+	logger := log.Root()
+
+	db, err := badgerdb.New(*dir, nil, "dchain", nil)
+	if err != nil {
+		logger.Error("badgerdb.New", "dir", *dir, "err", err)
+		os.Exit(1)
+	}
+
+	vm := &dchain.VM{}
+	toEngine := make(chan block.Message, 256)
+	if err := vm.Initialize(context.Background(), block.Init{
+		DB:       db,
+		Log:      logger,
+		ToEngine: toEngine,
+	}); err != nil {
+		logger.Error("VM.Initialize", "err", err)
+		_ = db.Close()
+		os.Exit(1)
+	}
+
+	server, err := rpc.Listen(*addr)
+	if err != nil {
+		logger.Error("rpc.Listen", "addr", *addr, "err", err)
+		_ = vm.Shutdown(context.Background())
+		_ = db.Close()
+		os.Exit(1)
+	}
+	if err := vm.RegisterCLOB(server); err != nil {
+		logger.Error("RegisterCLOB", "err", err)
+		os.Exit(1)
+	}
+	if err := server.RegisterRaw(clobDepthMethod, depthHandler(vm)); err != nil {
+		logger.Error("RegisterRaw clob_depth", "err", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go sealer(ctx, vm, logger)
+	go func() {
+		if serr := server.Serve(ctx); serr != nil && ctx.Err() == nil {
+			logger.Error("server.Serve", "err", serr)
+		}
+	}()
+
+	logger.Info("D-Chain venue serving",
+		"addr", server.Addr(), "db", *dir, "version", dchain.Version)
+	// Emit a machine-greppable readiness line for the bring-up harness.
+	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + "\n")
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
+	<-sigc
+
+	logger.Info("D-Chain venue shutting down")
+	cancel()
+	_ = server.Close()
+	_ = vm.Shutdown(context.Background())
+	_ = db.Close()
+}
+
+// sealer is the production consensus loop: on each PendingTxs signal it builds a
+// block, verifies it (re-derives fills against a versiondb overlay), and accepts
+// it (atomically commits to zapdb). This is the engine the node runtime would
+// drive for the in-process chain; the standalone venue runs it itself.
+func sealer(ctx context.Context, vm *dchain.VM, logger log.Logger) {
+	for {
+		msg, err := vm.WaitForEvent(ctx)
+		if err != nil {
+			return // ctx cancelled
+		}
+		if msg.Type != block.PendingTxs {
+			continue
+		}
+		// Drain every pending tx the signal may have batched.
+		for {
+			blk, berr := vm.BuildBlock(ctx)
+			if berr != nil {
+				break // empty mempool
+			}
+			if verr := blk.Verify(ctx); verr != nil {
+				logger.Error("sealer Verify", "err", verr)
+				break
+			}
+			if aerr := blk.Accept(ctx); aerr != nil {
+				logger.Error("sealer Accept", "err", aerr)
+				break
+			}
+		}
+	}
+}
+
+// depthHandler serves clob_depth: a read-only observation of a market's settled
+// resting book. It reads the in-RAM book via the VM's BookDepth accessor (a fold
+// of committed rows) — no consensus round-trip.
+func depthHandler(vm *dchain.VM) rpc.RawHandler {
+	return func(_ context.Context, payload []byte) ([]byte, error) {
+		var pool [32]byte
+		copy(pool[:], payload[:min(len(payload), zapwire.PoolIDSize)])
+		orders, remaining, bestBid, bestAsk, ok := vm.BookDepth(pool)
+		out := make([]byte, 4+8+8+8+1)
+		binary.BigEndian.PutUint32(out[0:4], uint32(orders))
+		binary.BigEndian.PutUint64(out[4:12], math.Float64bits(remaining))
+		binary.BigEndian.PutUint64(out[12:20], math.Float64bits(bestBid))
+		binary.BigEndian.PutUint64(out[20:28], math.Float64bits(bestAsk))
+		if ok {
+			out[28] = 1
+		}
+		return out, nil
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ensure the import is used even if database alias drift occurs.
+var _ database.Database

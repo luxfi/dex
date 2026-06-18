@@ -12,7 +12,6 @@ import (
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/versiondb"
 	"github.com/luxfi/dex/pkg/lx"
-	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
 
@@ -317,19 +316,21 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 
 		// Idempotency: an order op whose tx id is already committed (or applied
 		// earlier in THIS block, since seen-marks are written to the overlay) is a
-		// deterministic no-op. This is read from the overlay so every validator —
-		// and the proposer's probe — make the identical decision. A deduped write
-		// resolves its waiter as rejected (already-processed), never re-executes,
-		// so a relay retry of a dropped clob_submit can never double-fill/place.
+		// deterministic no-op — it MUST NOT re-execute (no double-fill/place on a
+		// relay retry of a dropped frame). But it MUST return the FIRST outcome
+		// verbatim, not a blanket reject: a deduped clob_place returns its
+		// original Placed+orderID and a deduped clob_submit returns its original
+		// fills. (A bare presence mark made a deduped place look identical to a
+		// genuine rejection, reverting the EVM tx whose precompile re-runs the
+		// place across the host's multiple executions of one transaction.) Read
+		// from the overlay so every validator — and the proposer's probe — make
+		// the identical decision.
 		txID := tx.ID()
-		if seen, err := isSeen(overlay, txID); err != nil {
+		if prior, seen, err := getSeenOutcome(overlay, txID, tx.Type); err != nil {
 			return execResult{}, err
 		} else if seen {
-			outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+			outcomes = append(outcomes, prior)
 			continue
-		}
-		if err := markSeen(overlay, txID); err != nil {
-			return execResult{}, err
 		}
 
 		ob, err := bookForPool(poolID)
@@ -341,7 +342,13 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		if err != nil {
 			return execResult{}, err
 		}
-		outcomes = append(outcomes, outcomeFromApply(tx, res))
+		outcome := outcomeFromApply(tx, res)
+		outcomes = append(outcomes, outcome)
+		// Record the outcome under the seen-key so a later replay returns it
+		// verbatim (commits atomically with the tx's effects in this overlay).
+		if err := markSeen(overlay, txID, outcome); err != nil {
+			return execResult{}, err
+		}
 
 		// Persist resting deltas to the overlay.
 		switch {
