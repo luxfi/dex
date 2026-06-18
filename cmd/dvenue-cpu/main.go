@@ -1,25 +1,27 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain && cgo
-// +build dchain,cgo
+//go:build dchain
+// +build dchain
 
-// Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
-// server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
-// precompile (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy
-// relay connect to. It is the production form of the capstone venue proof
-// (pkg/dchain/localnet_e2e_test.go), promoted from a test harness to a daemon:
+// Command dvenue-cpu runs the standalone D-Chain DEX VENUE as a long-lived ZAP
+// server — the dial-able endpoint the 0x9010 EVM precompile
+// (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy relay
+// connect to. It is byte-identical in behavior to cmd/dvenue but builds PURE-GO
+// (CGO_ENABLED=0): it drives the pure-Go CPU matcher via dchain.VM, with NO
+// cgo/luxcpp/gpu-kernels dependency.
+//
+// This is the FREE, open base venue: any operator can run a correct CPU D-Chain
+// from this single static binary. GPU acceleration is the licensed opt-in
+// (cmd/dvenue, //go:build dchain && cgo, links the private CUDA matcher) — same
+// surface, same consensus, just the HFT-grade accelerator.
 //
 //   - opens the authoritative on-disk badger/zapdb (real persisted chainstate),
 //   - serves the FROZEN clob_* surface (RegisterCLOB) over rpc.Listen,
 //   - runs the consensus sealer loop (WaitForEvent -> BuildBlock -> Verify ->
 //     Accept), so every write crosses the full match -> Verify -> Accept path
 //     and the bytes a caller gets back are consensus-computed fills,
-//   - additionally exposes a read-only clob_depth method for observing settled
-//     book state (reads need no consensus round-trip; see handler.go).
-//
-// Built under //go:build dchain && cgo so it links the cgo/GPU matching engine
-// (the venue accelerator); the pure-Go test path is unaffected.
+//   - exposes read-only clob_depth + clob_balance observation methods.
 package main
 
 import (
@@ -40,15 +42,7 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// clobDepthMethod is the read-only book-observation method this daemon adds on
-// top of the four frozen clob_* write methods. Request: poolId[32]. Response:
-// orders[4] | remaining[f64:8] | bestBid[f64:8] | bestAsk[f64:8] | found[1].
 const clobDepthMethod = "clob_depth"
-
-// clobBalanceMethod is the read-only custody-balance observation method. It lets
-// the bring-up harness watch funds DEPOSIT into the book, move on a fill, and
-// WITHDRAW out — the "money lives in the order book" proof. Request: user[16] +
-// asset[8]. Response: available[8] | locked[8] (big-endian uint64 atomic units).
 const clobBalanceMethod = "clob_balance"
 
 func main() {
@@ -104,10 +98,9 @@ func main() {
 		}
 	}()
 
-	logger.Info("D-Chain venue serving",
+	logger.Info("D-Chain venue (CPU) serving",
 		"addr", server.Addr(), "db", *dir, "version", dchain.Version)
-	// Emit a machine-greppable readiness line for the bring-up harness.
-	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + "\n")
+	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + " engine=cpu\n")
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
@@ -120,24 +113,19 @@ func main() {
 	_ = db.Close()
 }
 
-// sealer is the production consensus loop: on each PendingTxs signal it builds a
-// block, verifies it (re-derives fills against a versiondb overlay), and accepts
-// it (atomically commits to zapdb). This is the engine the node runtime would
-// drive for the in-process chain; the standalone venue runs it itself.
 func sealer(ctx context.Context, vm *dchain.VM, logger log.Logger) {
 	for {
 		msg, err := vm.WaitForEvent(ctx)
 		if err != nil {
-			return // ctx cancelled
+			return
 		}
 		if msg.Type != block.PendingTxs {
 			continue
 		}
-		// Drain every pending tx the signal may have batched.
 		for {
 			blk, berr := vm.BuildBlock(ctx)
 			if berr != nil {
-				break // empty mempool
+				break
 			}
 			if verr := blk.Verify(ctx); verr != nil {
 				logger.Error("sealer Verify", "err", verr)
@@ -151,9 +139,6 @@ func sealer(ctx context.Context, vm *dchain.VM, logger log.Logger) {
 	}
 }
 
-// depthHandler serves clob_depth: a read-only observation of a market's settled
-// resting book. It reads the in-RAM book via the VM's BookDepth accessor (a fold
-// of committed rows) — no consensus round-trip.
 func depthHandler(vm *dchain.VM) rpc.RawHandler {
 	return func(_ context.Context, payload []byte) ([]byte, error) {
 		var pool [32]byte
@@ -171,10 +156,6 @@ func depthHandler(vm *dchain.VM) rpc.RawHandler {
 	}
 }
 
-// balanceHandler serves clob_balance: a read-only observation of an account's
-// custody balances for an asset (available + locked), read from the durable
-// ledger via the VM's Balance accessor. Request: user[16] + asset[8]. Response:
-// available[8] | locked[8].
 func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 	return func(_ context.Context, payload []byte) ([]byte, error) {
 		out := make([]byte, 16)
@@ -193,7 +174,6 @@ func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 	}
 }
 
-// trimNullBytes removes trailing NUL padding from a fixed-width user field.
 func trimNullBytes(b []byte) []byte {
 	for i := len(b) - 1; i >= 0; i-- {
 		if b[i] != 0 {
@@ -210,5 +190,4 @@ func min(a, b int) int {
 	return b
 }
 
-// ensure the import is used even if database alias drift occurs.
 var _ database.Database
