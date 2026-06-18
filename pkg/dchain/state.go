@@ -42,6 +42,24 @@ const (
 	prefixSeen   = "seen:" // processed tx ids (idempotency / replay dedup)
 	prefixMeta   = "meta:"
 
+	// The CLOB custody ledger: where the money LIVES inside the d-chain. A
+	// deposit credits balance:; placing/submitting an order moves available ->
+	// locked: for the asset the order spends; a fill moves locked: between maker
+	// and taker; a cancel/reject returns locked: -> balance:; a withdraw debits
+	// balance:. The conservation invariant is global: sum(balance:) + sum(locked:)
+	// over an (account,asset) is constant across deposit -> trade -> withdraw
+	// because every unit a fill removes from one account's locked is added to
+	// another account's available (no float, exact integer units).
+	//
+	//	balance:<user:8><asset:8> -> uint64  AVAILABLE (deposited, un-escrowed)
+	//	locked:<user:8><asset:8>  -> uint64  LOCKED    (reserved by live orders)
+	//	asset:<poolID:32>         -> base[8]quote[8]   market's (base,quote) handles
+	//	orderasset:<poolID:32><orderID:8> -> assetID[8]|amount[8]  per-order reserve
+	prefixBalance    = "balance:"
+	prefixLocked     = "locked:"
+	prefixAsset      = "asset:"      // market (base,quote) asset binding
+	prefixOrderLock  = "orderasset:" // per-resting-order locked (asset,amount) for unlock on cancel/fill
+
 	metaLastAccepted = prefixMeta + "lastAccepted"
 	metaHeight       = prefixMeta + "height"
 	metaRoot         = prefixMeta + "root"
@@ -230,6 +248,235 @@ func writeBookWatermark(db database.KeyValueWriter, poolID [32]byte, watermark u
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], watermark)
 	return db.Put(bookKey(poolID), b[:])
+}
+
+// =========================================================================
+// Custody ledger — the per-account (available, locked) balances the order book
+// draws from, plus the market (base,quote) asset binding and per-order reserve.
+// All amounts are uint64 atomic asset units; all arithmetic is checked integer
+// (no float, no silent overflow), so the conservation invariant holds to the
+// unit.
+// =========================================================================
+
+// balanceLedgerKey builds <prefix><user:8><asset:8>. The user identity is the
+// d-chain's 8-byte UserID handle (lx.userToUint64) and the asset is the 8-byte
+// asset handle — one consistent identity width across the ledger and the GPU row
+// ABI.
+func balanceLedgerKey(prefix string, user, asset uint64) []byte {
+	k := make([]byte, len(prefix)+16)
+	copy(k, prefix)
+	binary.BigEndian.PutUint64(k[len(prefix):], user)
+	binary.BigEndian.PutUint64(k[len(prefix)+8:], asset)
+	return k
+}
+
+// readUint64 reads an 8-byte big-endian value, returning 0 when absent (an
+// account with no row has zero balance — the natural ledger default).
+func readUint64(db database.KeyValueReader, key []byte) (uint64, error) {
+	v, err := db.Get(key)
+	if err == database.ErrNotFound {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(v) != 8 {
+		return 0, fmt.Errorf("dchain: corrupt ledger value len=%d", len(v))
+	}
+	return binary.BigEndian.Uint64(v), nil
+}
+
+// writeUint64 persists an 8-byte big-endian value, deleting the row when it
+// reaches zero (a zero balance is the absence of a row — keeps the merkle leaf
+// set minimal and iteration clean).
+func writeUint64(db database.KeyValueWriterDeleter, key []byte, v uint64) error {
+	if v == 0 {
+		return db.Delete(key)
+	}
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], v)
+	return db.Put(key, b[:])
+}
+
+// getAvailable / getLocked return an account's available / locked balance for an
+// asset.
+func getAvailable(db database.KeyValueReader, user, asset uint64) (uint64, error) {
+	return readUint64(db, balanceLedgerKey(prefixBalance, user, asset))
+}
+func getLocked(db database.KeyValueReader, user, asset uint64) (uint64, error) {
+	return readUint64(db, balanceLedgerKey(prefixLocked, user, asset))
+}
+
+// creditAvailable adds amount to an account's available balance (the deposit
+// primitive and the fill-proceeds primitive). Refuses overflow — a credit that
+// would wrap uint64 is a corrupt input, never silently truncated.
+func creditAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+	if amount == 0 {
+		return nil
+	}
+	cur, err := getAvailable(db, user, asset)
+	if err != nil {
+		return err
+	}
+	if cur+amount < cur {
+		return fmt.Errorf("dchain: available credit overflow user=%d asset=%d", user, asset)
+	}
+	return writeUint64(db, balanceLedgerKey(prefixBalance, user, asset), cur+amount)
+}
+
+// debitAvailable removes amount from an account's available balance. Returns
+// ErrInsufficientAvailable when the account lacks the balance — the matcher MUST
+// debit only AVAILABLE (deposited, un-escrowed) funds, so an over-debit is a
+// hard refusal, never an underflow.
+func debitAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+	if amount == 0 {
+		return nil
+	}
+	cur, err := getAvailable(db, user, asset)
+	if err != nil {
+		return err
+	}
+	if cur < amount {
+		return fmt.Errorf("%w: user=%d asset=%d have=%d need=%d", ErrInsufficientAvailable, user, asset, cur, amount)
+	}
+	return writeUint64(db, balanceLedgerKey(prefixBalance, user, asset), cur-amount)
+}
+
+// lockFromAvailable moves amount from available to locked (placing/submitting an
+// order reserves the asset it will spend). All-or-nothing: the debit and the
+// lock are written together, so a partial lock can never strand value.
+func lockFromAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+	if amount == 0 {
+		return nil
+	}
+	if err := debitAvailable(db, user, asset, amount); err != nil {
+		return err
+	}
+	cur, err := getLocked(db, user, asset)
+	if err != nil {
+		return err
+	}
+	if cur+amount < cur {
+		return fmt.Errorf("dchain: locked credit overflow user=%d asset=%d", user, asset)
+	}
+	return writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur+amount)
+}
+
+// unlockToAvailable moves amount from locked back to available (cancel, reject,
+// or the unspent remainder of a partially-filled order). Refuses to unlock more
+// than is locked — that would mint against the ledger.
+func unlockToAvailable(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+	if amount == 0 {
+		return nil
+	}
+	cur, err := getLocked(db, user, asset)
+	if err != nil {
+		return err
+	}
+	if cur < amount {
+		return fmt.Errorf("%w: unlock user=%d asset=%d locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
+	}
+	if err := writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur-amount); err != nil {
+		return err
+	}
+	return creditAvailable(db, user, asset, amount)
+}
+
+// spendLocked removes amount from an account's locked balance WITHOUT crediting
+// it back — used on a fill, where the spender's locked asset LEAVES the spender
+// and is credited (by creditAvailable) to the COUNTERPARTY's available. The pair
+// (spendLocked from spender + creditAvailable to counterparty) is what conserves
+// value across a fill: every unit removed here is added to exactly one other
+// account, so sum(available)+sum(locked) is invariant. Refuses spend > locked.
+func spendLocked(db database.KeyValueReaderWriterDeleter, user, asset, amount uint64) error {
+	if amount == 0 {
+		return nil
+	}
+	cur, err := getLocked(db, user, asset)
+	if err != nil {
+		return err
+	}
+	if cur < amount {
+		return fmt.Errorf("%w: spend user=%d asset=%d locked=%d need=%d", ErrInsufficientLocked, user, asset, cur, amount)
+	}
+	return writeUint64(db, balanceLedgerKey(prefixLocked, user, asset), cur-amount)
+}
+
+// ---- market (base,quote) asset binding ----
+
+// assetKey builds asset:<poolID:32>.
+func assetKey(poolID [32]byte) []byte {
+	k := make([]byte, len(prefixAsset)+32)
+	copy(k, prefixAsset)
+	copy(k[len(prefixAsset):], poolID[:])
+	return k
+}
+
+// writeMarketAssets binds a market's (base,quote) asset handles (idempotent
+// across re-opens with the same pair). The value is base[8]|quote[8].
+func writeMarketAssets(db database.KeyValueWriter, poolID [32]byte, base, quote uint64) error {
+	var v [16]byte
+	binary.BigEndian.PutUint64(v[0:8], base)
+	binary.BigEndian.PutUint64(v[8:16], quote)
+	return db.Put(assetKey(poolID), v[:])
+}
+
+// readMarketAssets returns a market's (base,quote) handles, ok=false if the
+// market's assets were never bound (a market created via the asset-less
+// EnsureMarket path — orders on it cannot be balance-checked).
+func readMarketAssets(db database.KeyValueReader, poolID [32]byte) (base, quote uint64, ok bool, err error) {
+	v, gerr := db.Get(assetKey(poolID))
+	if gerr == database.ErrNotFound {
+		return 0, 0, false, nil
+	}
+	if gerr != nil {
+		return 0, 0, false, gerr
+	}
+	if len(v) != 16 {
+		return 0, 0, false, fmt.Errorf("dchain: corrupt market assets len=%d", len(v))
+	}
+	return binary.BigEndian.Uint64(v[0:8]), binary.BigEndian.Uint64(v[8:16]), true, nil
+}
+
+// ---- per-order reserve (so cancel/fill can unlock the exact remaining lock) ----
+
+// orderLockKey builds orderasset:<poolID:32><orderID:8>.
+func orderLockKey(poolID [32]byte, orderID uint64) []byte {
+	k := make([]byte, len(prefixOrderLock)+32+8)
+	copy(k, prefixOrderLock)
+	copy(k[len(prefixOrderLock):], poolID[:])
+	binary.BigEndian.PutUint64(k[len(prefixOrderLock)+32:], orderID)
+	return k
+}
+
+// putOrderLock records the (asset, remaining-locked-amount) a resting order
+// holds, so a later cancel or a maker fill knows exactly how much to unlock /
+// spend. Deleted when the remaining lock reaches zero.
+func putOrderLock(db database.KeyValueWriterDeleter, poolID [32]byte, orderID, asset, amount uint64) error {
+	if amount == 0 {
+		return db.Delete(orderLockKey(poolID, orderID))
+	}
+	var v [16]byte
+	binary.BigEndian.PutUint64(v[0:8], asset)
+	binary.BigEndian.PutUint64(v[8:16], amount)
+	return db.Put(orderLockKey(poolID, orderID), v[:])
+}
+
+// getOrderLock returns the (asset, remaining-locked-amount) for a resting order,
+// ok=false if none recorded (e.g. an order placed before the balance model, or a
+// fully-consumed lock).
+func getOrderLock(db database.KeyValueReader, poolID [32]byte, orderID uint64) (asset, amount uint64, ok bool, err error) {
+	v, gerr := db.Get(orderLockKey(poolID, orderID))
+	if gerr == database.ErrNotFound {
+		return 0, 0, false, nil
+	}
+	if gerr != nil {
+		return 0, 0, false, gerr
+	}
+	if len(v) != 16 {
+		return 0, 0, false, fmt.Errorf("dchain: corrupt order lock len=%d", len(v))
+	}
+	return binary.BigEndian.Uint64(v[0:8]), binary.BigEndian.Uint64(v[8:16]), true, nil
 }
 
 // readMeta helpers.
