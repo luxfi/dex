@@ -1,6 +1,7 @@
 package lx
 
 import (
+	"math/big"
 	"sync"
 	"time"
 )
@@ -58,6 +59,17 @@ type Order struct {
 	Status        string
 	Flags         OrderFlags
 	ExecutedSize  float64 // Total executed size
+
+	// Exact-integer quantity lane (CLOB / consensus path only). The float Size
+	// above is the price-grid/validation/legacy quantity; it loses precision for
+	// 18-decimal token amounts above 2^53. SizeUnits is the AUTHORITATIVE base
+	// quantity in atomic token units (no float, no rounding) and is the only
+	// quantity settlement is derived from. RemainingUnits tracks the unfilled
+	// integer remainder as the order crosses. Both are nil on the legacy float
+	// API path (AddOrder/MatchOrders), set on the CLOB path (ConsensusAddOrder /
+	// SubmitMarketable) by the wire decoder. See settlement_units.go.
+	SizeUnits      *big.Int
+	RemainingUnits *big.Int
 }
 
 // Trade represents an executed trade
@@ -75,6 +87,17 @@ type Trade struct {
 	IsMaker    bool
 	MatchType  string // Type of match (e.g., "normal", "liquidation")
 	TakerSide  Side   // Side that took liquidity
+
+	// Exact-integer execution truth (CLOB / consensus path). Price/Size above are
+	// the float view; BaseUnits and QuoteUnits are the AUTHORITATIVE atomic-unit
+	// amounts this fill moved, computed with big.Int only (no float, see
+	// settlement_units.go: QuoteUnits = BaseUnits*priceInt/PriceMultiplier). These
+	// are what every settlement consumer (precompile fillsToDelta, dexvm
+	// settleFromFills) derives the on-chain BalanceDelta from, so a fill is
+	// value-conserving for 18-decimal magnitudes that float64 cannot represent.
+	// Nil on the legacy float matcher path; set on SubmitMarketable fills.
+	BaseUnits  *big.Int
+	QuoteUnits *big.Int
 }
 
 // MarketDataUpdate represents market data updates
