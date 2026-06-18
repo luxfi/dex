@@ -41,7 +41,7 @@ import (
 
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database"
-	"github.com/luxfi/database/badgerdb"
+	"github.com/luxfi/database/zapdb"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/log"
 	"github.com/luxfi/rpc"
@@ -78,9 +78,9 @@ type venue struct {
 // from the persisted order rows rather than bootstrapping a fresh genesis.
 func bootVenue(t *testing.T, dir string) *venue {
 	t.Helper()
-	db, err := badgerdb.New(dir, nil, "dchain", nil)
+	db, err := zapdb.New(dir, nil, "dchain", nil)
 	if err != nil {
-		t.Fatalf("badgerdb.New(%s): %v", dir, err)
+		t.Fatalf("zapdb.New(%s): %v", dir, err)
 	}
 	vm := &VM{}
 	toEngine := make(chan block.Message, 256)
