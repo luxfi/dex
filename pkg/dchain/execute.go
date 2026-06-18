@@ -5,12 +5,24 @@ package dchain
 
 import (
 	"encoding/binary"
+	"math/big"
 	"time"
 
 	"github.com/luxfi/crypto/hash"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
+
+// sizeUnitsBig returns the order's exact integer base-unit quantity as a big.Int
+// (the value lane the matcher uses to produce BaseUnits/QuoteUnits on a fill).
+// nil for a non-positive size so the matcher's legacy float path is unaffected
+// for a degenerate order. Whole-unit truncation matches the ledger's sizeToUnits.
+func sizeUnitsBig(size float64) *big.Int {
+	if !(size > 0) {
+		return nil
+	}
+	return new(big.Int).SetUint64(uint64(size))
+}
 
 // execute.go is the deterministic state-transition function. applyTx takes a tx,
 // the in-memory book for its market, the block height, the block timestamp, and
@@ -45,6 +57,9 @@ type applyResult struct {
 	Placed *lx.Order
 	// Canceled is the order id a TxCancel removed (0 otherwise).
 	Canceled uint64
+	// CanceledOwner is the user identity of the cancelled order (so the custody
+	// ledger unlocks its reserve to the right account). Empty unless Canceled != 0.
+	CanceledOwner string
 	// Touched are resting orders whose remaining changed due to a submit cross
 	// (the makers); their rows must be rewritten/deleted.
 	Touched []*lx.Order
@@ -98,6 +113,7 @@ func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex
 		Side:      side,
 		Price:     price,
 		Size:      size,
+		SizeUnits: sizeUnitsBig(size), // exact integer base units (value lane)
 		User:      user,
 		UserID:    user,
 		Symbol:    book.Symbol,
@@ -114,14 +130,21 @@ func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex
 // error which we map to an empty result — every validator sees the same).
 func applyCancel(book *lx.OrderBook, tx *Tx) (applyResult, error) {
 	orderID := binary.BigEndian.Uint64(tx.Body[zapwire.PoolIDSize : zapwire.PoolIDSize+8])
-	// Snapshot the order before cancel so we know it existed (for the delta).
-	if book.GetOrder(orderID) == nil {
+	// Snapshot the order before cancel so we know it existed (for the delta) and
+	// capture its owner so the custody ledger unlocks the reserve to the right
+	// account.
+	o := book.GetOrder(orderID)
+	if o == nil {
 		return applyResult{}, nil
+	}
+	owner := o.User
+	if owner == "" {
+		owner = o.UserID
 	}
 	if err := book.CancelOrder(orderID); err != nil {
 		return applyResult{}, nil
 	}
-	return applyResult{Canceled: orderID}, nil
+	return applyResult{Canceled: orderID, CanceledOwner: owner}, nil
 }
 
 // applySubmit decodes a zapwire Submit body and crosses the book. The marketable
@@ -145,6 +168,7 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		ID:        blockDeterministicID(height, txIndex),
 		Side:      side,
 		Size:      size,
+		SizeUnits: sizeUnitsBig(size), // exact integer base units (value lane)
 		User:      user,
 		UserID:    user,
 		Symbol:    book.Symbol,

@@ -213,6 +213,32 @@ func DecodeSubmit(payload []byte) (poolID [32]byte, side uint8, isMarket bool, l
 	return
 }
 
+// DecodePlace parses a Place request payload into its fields (poolId[32] +
+// side[1] + price[8] + size[8] + user[16]).
+func DecodePlace(payload []byte) (poolID [32]byte, side uint8, price, size float64, user string, err error) {
+	if len(payload) < PlaceReqSize {
+		err = fmt.Errorf("zapwire: place request too short: %d", len(payload))
+		return
+	}
+	copy(poolID[:], payload[0:PoolIDSize])
+	side = payload[PoolIDSize]
+	price = Float64(payload[PoolIDSize+1 : PoolIDSize+9])
+	size = Float64(payload[PoolIDSize+9 : PoolIDSize+17])
+	user = string(trimNull(payload[PoolIDSize+17 : PoolIDSize+17+UserSize]))
+	return
+}
+
+// DecodeCancel parses a Cancel request payload (poolId[32] + orderId[8]).
+func DecodeCancel(payload []byte) (poolID [32]byte, orderID uint64, err error) {
+	if len(payload) < CancelReqSize {
+		err = fmt.Errorf("zapwire: cancel request too short: %d", len(payload))
+		return
+	}
+	copy(poolID[:], payload[0:PoolIDSize])
+	orderID = binary.BigEndian.Uint64(payload[PoolIDSize : PoolIDSize+8])
+	return
+}
+
 // EncodeAck builds an ack response (orderId, status, seq).
 func EncodeAck(orderID uint64, status uint8, seq uint64) []byte {
 	out := make([]byte, AckSize)
@@ -232,5 +258,145 @@ func DecodeAck(resp []byte) (orderID uint64, status uint8, err error) {
 	}
 	orderID = binary.BigEndian.Uint64(resp[0:8])
 	status = resp[8]
+	return
+}
+
+// =========================================================================
+// CUSTODY frames — deposit / withdraw / open-market.
+//
+// These are the funds-in / funds-out / market-binding operations of the CLOB
+// "money lives in the order book" model: a DEPOSIT credits an account's
+// available D-Chain balance (what the book draws from), a WITHDRAW debits a
+// realized balance back out, and OPEN-MARKET binds a market's (base, quote)
+// asset identities so an order knows which asset it spends.
+//
+// They are ADDITIVE and ORTHOGONAL to the four FROZEN order frames above
+// (EnsureMarket/Place/Cancel/Submit), which are byte-identical across the
+// precompile, the proxy relay, and the d-chain gateway and MUST stay so. The
+// custody frames are new methods with their own fixed sizes; adding them does
+// not touch a single byte of the frozen order frames. They are still FROZEN in
+// the same sense — the precompile/proxy/d-chain re-define identical constants —
+// just newer.
+//
+// Asset identity is an 8-byte handle (AssetIDSize). On the EVM side the real
+// 20-byte ERC-20 / address(0) currency is folded to this handle by the
+// adapter (a stable map); inside the d-chain the handle IS the asset for
+// balance keying. 8 bytes matches the d-chain balance-key width and the
+// DEXOrder/DEXTrade UserID width — one consistent identity size end to end.
+const (
+	// MethodDeposit credits an account's available balance from value the proxy
+	// atomically imported (shared-memory ImportTx). Funds-IN leg.
+	MethodDeposit = "clob_deposit"
+	// MethodWithdraw debits an account's realized available balance for the
+	// proxy to atomically export (shared-memory ExportTx). Funds-OUT leg.
+	MethodWithdraw = "clob_withdraw"
+	// MethodOpenMarket binds a market's (base, quote) asset handles. Idempotent;
+	// the asset binding is what lets place/submit know which asset to lock.
+	MethodOpenMarket = "clob_open_market"
+)
+
+const (
+	// AssetIDSize is the on-wire asset handle width (matches the balance-key and
+	// DEXOrder.UserID width).
+	AssetIDSize = 8
+
+	// DepositReqSize: user[16] + asset[8] + amount[8].
+	DepositReqSize = UserSize + AssetIDSize + 8 // 32
+
+	// WithdrawReqSize: user[16] + asset[8] + amount[8].
+	WithdrawReqSize = UserSize + AssetIDSize + 8 // 32
+
+	// OpenMarketReqSize: poolId[32] + baseAsset[8] + quoteAsset[8].
+	OpenMarketReqSize = PoolIDSize + AssetIDSize + AssetIDSize // 48
+
+	// BalanceRespSize: status[1] + amount[8]. A deposit/withdraw response reports
+	// the amount actually credited/debited (a withdraw clamps to available, so the
+	// caller — the proxy export leg — learns the exact realized amount to export).
+	BalanceRespSize = 1 + 8
+)
+
+// EncodeDeposit builds a deposit request: user[16] + asset[8] + amount[8].
+func EncodeDeposit(user string, asset uint64, amount uint64) []byte {
+	out := make([]byte, DepositReqSize)
+	copy(out[0:UserSize], padNull(user, UserSize))
+	binary.BigEndian.PutUint64(out[UserSize:UserSize+AssetIDSize], asset)
+	binary.BigEndian.PutUint64(out[UserSize+AssetIDSize:], amount)
+	return out
+}
+
+// DecodeDeposit parses a deposit request.
+func DecodeDeposit(payload []byte) (user string, asset uint64, amount uint64, err error) {
+	if len(payload) < DepositReqSize {
+		err = fmt.Errorf("zapwire: deposit payload too short: %d", len(payload))
+		return
+	}
+	user = string(trimNull(payload[0:UserSize]))
+	asset = binary.BigEndian.Uint64(payload[UserSize : UserSize+AssetIDSize])
+	amount = binary.BigEndian.Uint64(payload[UserSize+AssetIDSize : UserSize+AssetIDSize+8])
+	return
+}
+
+// EncodeWithdraw builds a withdraw request: user[16] + asset[8] + amount[8].
+// amount is the requested withdrawal; the d-chain clamps it to the account's
+// available balance and reports the realized amount in the response.
+func EncodeWithdraw(user string, asset uint64, amount uint64) []byte {
+	out := make([]byte, WithdrawReqSize)
+	copy(out[0:UserSize], padNull(user, UserSize))
+	binary.BigEndian.PutUint64(out[UserSize:UserSize+AssetIDSize], asset)
+	binary.BigEndian.PutUint64(out[UserSize+AssetIDSize:], amount)
+	return out
+}
+
+// DecodeWithdraw parses a withdraw request.
+func DecodeWithdraw(payload []byte) (user string, asset uint64, amount uint64, err error) {
+	if len(payload) < WithdrawReqSize {
+		err = fmt.Errorf("zapwire: withdraw payload too short: %d", len(payload))
+		return
+	}
+	user = string(trimNull(payload[0:UserSize]))
+	asset = binary.BigEndian.Uint64(payload[UserSize : UserSize+AssetIDSize])
+	amount = binary.BigEndian.Uint64(payload[UserSize+AssetIDSize : UserSize+AssetIDSize+8])
+	return
+}
+
+// EncodeOpenMarket builds an open-market request: poolId[32] + baseAsset[8] +
+// quoteAsset[8].
+func EncodeOpenMarket(poolID [32]byte, baseAsset, quoteAsset uint64) []byte {
+	out := make([]byte, OpenMarketReqSize)
+	copy(out[0:PoolIDSize], poolID[:])
+	binary.BigEndian.PutUint64(out[PoolIDSize:PoolIDSize+AssetIDSize], baseAsset)
+	binary.BigEndian.PutUint64(out[PoolIDSize+AssetIDSize:], quoteAsset)
+	return out
+}
+
+// DecodeOpenMarket parses an open-market request.
+func DecodeOpenMarket(payload []byte) (poolID [32]byte, baseAsset, quoteAsset uint64, err error) {
+	if len(payload) < OpenMarketReqSize {
+		err = fmt.Errorf("zapwire: open-market payload too short: %d", len(payload))
+		return
+	}
+	copy(poolID[:], payload[0:PoolIDSize])
+	baseAsset = binary.BigEndian.Uint64(payload[PoolIDSize : PoolIDSize+AssetIDSize])
+	quoteAsset = binary.BigEndian.Uint64(payload[PoolIDSize+AssetIDSize : PoolIDSize+2*AssetIDSize])
+	return
+}
+
+// EncodeBalanceResp builds a deposit/withdraw response: status[1] + amount[8],
+// where amount is the realized credited/debited value.
+func EncodeBalanceResp(status uint8, amount uint64) []byte {
+	out := make([]byte, BalanceRespSize)
+	out[0] = status
+	binary.BigEndian.PutUint64(out[1:9], amount)
+	return out
+}
+
+// DecodeBalanceResp reads (status, realized amount) from a balance response.
+func DecodeBalanceResp(resp []byte) (status uint8, amount uint64, err error) {
+	if len(resp) < BalanceRespSize {
+		err = fmt.Errorf("zapwire: balance response too short: %d", len(resp))
+		return
+	}
+	status = resp[0]
+	amount = binary.BigEndian.Uint64(resp[1:9])
 	return
 }

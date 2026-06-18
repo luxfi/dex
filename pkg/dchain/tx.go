@@ -44,6 +44,18 @@ const (
 	// payload (66B): poolId[32] + side[1] + isMarket[1] + price[8] + size[8] +
 	// user[16].
 	TxSubmit
+	// TxDeposit credits an account's available balance from value the proxy
+	// atomically imported. Body = zapwire Deposit payload (32B): user[16] +
+	// asset[8] + amount[8].
+	TxDeposit
+	// TxWithdraw debits an account's realized available balance for the proxy to
+	// atomically export. Body = zapwire Withdraw payload (32B): user[16] +
+	// asset[8] + amount[8] (clamped to available).
+	TxWithdraw
+	// TxOpenMarket binds a market's (base,quote) asset handles so orders on it can
+	// be value-checked. Body = zapwire OpenMarket payload (48B): poolId[32] +
+	// baseAsset[8] + quoteAsset[8].
+	TxOpenMarket
 )
 
 func (t TxType) String() string {
@@ -56,6 +68,12 @@ func (t TxType) String() string {
 		return "cancel"
 	case TxSubmit:
 		return "submit"
+	case TxDeposit:
+		return "deposit"
+	case TxWithdraw:
+		return "withdraw"
+	case TxOpenMarket:
+		return "open_market"
 	default:
 		return "unknown"
 	}
@@ -67,6 +85,24 @@ var (
 	ErrUnknownTx    = errors.New("dchain: unknown transaction type")
 	ErrShortTxBody  = errors.New("dchain: transaction body too short for its type")
 	ErrEmptyMempool = errors.New("dchain: no pending transactions")
+
+	// Custody-ledger errors (the "money lives in the order book" invariants).
+	// ErrInsufficientAvailable: an order/withdraw would debit more available
+	// balance than an account holds — the matcher debits only deposited funds.
+	ErrInsufficientAvailable = errors.New("dchain: insufficient available balance")
+	// ErrInsufficientLocked: an unlock/spend would move more than is locked —
+	// would mint against the ledger.
+	ErrInsufficientLocked = errors.New("dchain: insufficient locked balance")
+	// ErrMarketAssetsUnbound: a balance-bearing order on a market whose (base,
+	// quote) assets were never bound (clob_open_market) — cannot value-check it.
+	ErrMarketAssetsUnbound = errors.New("dchain: market assets not bound")
+	// ErrFillMissingUnits: a consensus fill reached settlement without the exact
+	// integer lane (BaseUnits/QuoteUnits) — the VM must set SizeUnits on every
+	// order so settlement is value-exact; a missing lane is refused, never guessed.
+	ErrFillMissingUnits = errors.New("dchain: fill missing integer units")
+	// ErrFillUnitsOverflow: a fill's integer units exceed uint64 — refused rather
+	// than truncated into a mint/burn.
+	ErrFillUnitsOverflow = errors.New("dchain: fill units exceed uint64")
 )
 
 // Tx is a parsed DEX transaction: the type discriminant plus the raw zapwire body
@@ -77,10 +113,26 @@ type Tx struct {
 	Body []byte // the zapwire payload for Type (verbatim)
 }
 
-// poolID returns the 32-byte market id every tx body begins with. All four tx
-// bodies start with poolId[32]; the type-specific decode is done in execute.go.
+// isMarketScoped reports whether a tx body begins with poolId[32] (the order
+// operations + open-market). Deposit/withdraw are ACCOUNT-scoped (their body
+// begins with user[16]), not market-scoped, so they have no poolId.
+func (t TxType) isMarketScoped() bool {
+	switch t {
+	case TxEnsureMarket, TxPlace, TxCancel, TxSubmit, TxOpenMarket:
+		return true
+	default:
+		return false
+	}
+}
+
+// poolID returns the 32-byte market id a MARKET-SCOPED tx body begins with.
+// Account-scoped txs (deposit/withdraw) return ok=false — their body has no
+// poolId, so callers must dispatch on the type first.
 func (tx *Tx) poolID() ([32]byte, bool) {
 	var id [32]byte
+	if !tx.Type.isMarketScoped() {
+		return id, false
+	}
 	if len(tx.Body) < zapwire.PoolIDSize {
 		return id, false
 	}
@@ -116,6 +168,12 @@ func bodySize(t TxType) (int, bool) {
 		return zapwire.CancelReqSize, true
 	case TxSubmit:
 		return zapwire.SubmitReqSize, true
+	case TxDeposit:
+		return zapwire.DepositReqSize, true
+	case TxWithdraw:
+		return zapwire.WithdrawReqSize, true
+	case TxOpenMarket:
+		return zapwire.OpenMarketReqSize, true
 	default:
 		return 0, false
 	}
