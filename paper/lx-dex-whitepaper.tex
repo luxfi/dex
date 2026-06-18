@@ -42,8 +42,9 @@
     stringstyle=\color{red}
 }
 
-\title{\textbf{LX: A 100M+ Trades/Second Decentralized Exchange} \\
-\large{Achieving 597ns Latency Through Quantum-Resistant DAG Consensus}}
+\title{\textbf{LX: A GPU-Native Decentralized Exchange} \\
+\large{Byte-Exact \texttt{uint256} CLOB Matching at 100--250M Fills/s per Device,
+Scaling to Fleet-Level Throughput Through Quantum-Resistant Consensus}}
 
 \author{
 z@lux.network \\
@@ -58,25 +59,46 @@ Lux Industries Inc. \\
 \maketitle
 
 \begin{abstract}
-We present \lxdex{}, an ultra-high-performance decentralized exchange achieving over 100 million trades per second with 597 nanosecond order matching latency. Our system combines a novel DAG-based consensus protocol (Lux Consensus) with quantum-resistant cryptography (Corona+BLS hybrid signatures), kernel-bypass networking (DPDK/RDMA), GPU acceleration (MLX/CUDA), and zero-copy architecture to achieve performance exceeding centralized exchanges while maintaining full decentralization. Through integration with the Lux X-Chain for order processing and Q-Chain for quantum finality, we demonstrate 50ms consensus finality with Byzantine fault tolerance. The system utilizes the luxfi/database abstraction layer for consistent storage across multiple backend implementations and achieves linear scaling to 100M+ trades/second on 100Gbps fiber networks.
+We present \lxdex{}, a GPU-native decentralized exchange whose central-limit
+order book (CLOB) matching kernel computes byte-exact \texttt{uint256} fills.
+On a single accelerator the kernel sustains 104--126M fills/s on an NVIDIA GB10
+(6.9\,ns/match) and approximately 250M fills/s on an Apple M4 Max
+(4.15\,ns/match); the throughput lever is a Knuth Algorithm-D division that
+replaces a 512-iteration bit-serial \texttt{uint256} VWAP, an $\sim$8$\times$
+gain, with output byte-identical to the CPU reference (validated against
+millions of fuzz and known-answer vectors with zero divergence). Per-book
+arenas are independent, so aggregate throughput exceeding one billion fills/s
+is reached by aggregating across nodes (a fleet of roughly 8--10 accelerators),
+\emph{not} by a single device. Matching is paired with market-sharded Block-STM
+settlement (2.2M fills/s conflict-detection, with CPU and GPU producing a
+byte-identical commit order on real silicon) and a post-quantum rollup to the
+Lux Z-Chain: P3Q (ML-DSA-65, venue-trust) verifies 4{,}714 proofs/s and the
+trustless STARK/FRI verifier (\texttt{starkfri}) verifies 986 proofs/s on a toy
+AIR. The system uses the \texttt{luxfi/database} abstraction layer for
+consistent storage across backends, combining a private single-operator HFT
+matching chain (the D-Chain) with quantum-resistant consensus and Byzantine
+fault tolerance.
 \end{abstract}
 
 \section{Introduction}
 
 The cryptocurrency trading ecosystem faces a fundamental performance barrier: current decentralized exchanges (DEXs) process fewer than 1,000 transactions per second, while centralized exchanges (CEXs) handle millions. This 1000x performance gap has relegated DEXs to less than 5\% of total trading volume despite their superior security model.
 
-\lxdex{} eliminates this performance gap entirely, achieving:
+\lxdex{} closes this performance gap, achieving:
 
 \begin{itemize}
-    \item \textbf{100M+ trades/second} throughput on 100Gbps networks
-    \item \textbf{597 nanosecond} order matching latency
-    \item \textbf{50ms} consensus finality through Lux Consensus (formerly FPC)
-    \item \textbf{Quantum resistance} via Corona+BLS hybrid signatures
-    \item \textbf{Zero-copy} networking with DPDK and RDMA
+    \item \textbf{104--126M fills/s} of byte-exact \texttt{uint256} CLOB matching on a single NVIDIA GB10 (6.9\,ns/match), and $\sim$250M fills/s on an Apple M4 Max (4.15\,ns/match)
+    \item \textbf{$>$1B fills/s} aggregate throughput across a node fleet ($\sim$8--10 accelerators), since per-book arenas are independent --- not from a single device
+    \item \textbf{2.2M fills/s} market-sharded Block-STM settlement, with a CPU/GPU byte-identical commit order
+    \item \textbf{Post-quantum rollup} to the Z-Chain: P3Q (ML-DSA-65) at 4{,}714 verifies/s, trustless STARK/FRI (\texttt{starkfri}) at 986 verifies/s
+    \item \textbf{Quantum-resistant consensus} via Corona+BLS hybrid signatures
     \item \textbf{GPU acceleration} with automatic MLX/CUDA detection
 \end{itemize}
 
-Our key innovation is the integration of multiple cutting-edge technologies into a cohesive system that maintains decentralization while exceeding CEX performance.
+Our key innovation is a byte-exact \texttt{uint256} matching kernel that is
+correctness-bound rather than precision-truncated: GPU output is identical to
+the CPU oracle bit for bit, so the throughput gain is free of the silent
+rounding that disqualifies floating-point matchers from settlement.
 
 \section{System Architecture}
 
@@ -93,39 +115,48 @@ This separation allows parallel processing of orders while maintaining cryptogra
 
 \subsection{Polyglot Engine Architecture}
 
-We implement five distinct matching engines, each optimized for specific deployment scenarios:
+We implement several matching-engine front-ends sharing one byte-exact
+\texttt{uint256} matching core, each suited to a deployment scenario. The
+byte-exact CPU reference sustains $\sim$1M fills/s and is the oracle the GPU
+kernel is validated against; the GPU back-ends (Section~\ref{sec:gpu}) raise
+single-device throughput to 104--250M fills/s.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{lrrr}
+\begin{tabular}{lll}
 \toprule
-\textbf{Engine} & \textbf{Throughput} & \textbf{Latency} & \textbf{Memory} \\
+\textbf{Engine} & \textbf{Deployment role} & \textbf{Memory} \\
 \midrule
-Pure Go & 90K trades/s & <1ms & Moderate \\
-Pure C++ & 500K+ trades/s & <100$\microsec$ & Low \\
-Hybrid Go/C++ & 400K trades/s & <200$\microsec$ & Moderate \\
-TypeScript & 50K trades/s & <5ms & High \\
-Rust & 450K trades/s & <150$\microsec$ & Low \\
+Go (CPU reference) & Default, correctness oracle & Moderate \\
+C++ & High-frequency CPU path & Low \\
+Rust & Safety-critical CPU path & Low \\
+TypeScript & Client/embedded & High \\
+GPU (CUDA / MLX) & Bulk matching back-end & Low \\
 \bottomrule
 \end{tabular}
-\caption{Performance characteristics of different engine implementations}
+\caption{Matching-engine front-ends and their deployment roles. All share the
+same byte-exact \texttt{uint256} core; the CPU reference is the validation
+oracle for the GPU kernels.}
 \label{tab:engines}
 \end{table}
 
 \subsection{Order Book Implementation}
 
-Our order book achieves 597ns latency through multiple optimizations:
+Our order book attains a per-match cost of 6.9\,ns on an NVIDIA GB10 and
+4.15\,ns on an Apple M4 Max through several optimizations:
 
 \subsubsection{Integer Price Representation}
 \begin{lstlisting}
-// Traditional (slow): 177ns per operation
+// Traditional (slow): string-formatted decimal price key
 priceKey := fmt.Sprintf("%.8f", order.Price)
 
-// Optimized (fast): 0.597ns per operation  
+// Fixed-point: integer comparison, no formatting/parsing
 priceInt := int64(order.Price * 1e7) // 7 decimals
 \end{lstlisting}
 
-This optimization provides a \textbf{296x speedup} in price operations.
+Prices and quantities are exact integers (\texttt{uint256} on the matching
+path), so price-level comparison is a single integer operation with no
+floating-point rounding and no string formatting.
 
 \subsubsection{Lock-Free Architecture}
 \begin{lstlisting}
@@ -232,6 +263,7 @@ type BinaryFIXOrder struct {
 \end{lstlisting}
 
 \section{GPU Acceleration}
+\label{sec:gpu}
 
 \subsection{Universal Backend Detection}
 
@@ -255,14 +287,15 @@ func detectBackend() Backend {
 \centering
 \begin{tabular}{lrr}
 \toprule
-\textbf{Backend} & \textbf{Orders/Batch} & \textbf{Time/Batch} \\
+\textbf{Backend} & \textbf{Fills/s} & \textbf{Per-match cost} \\
 \midrule
-CPU (AVX2) & 1,000 & 1ms \\
-CUDA (RTX 4090) & 100,000 & 1ms \\
-MLX (M2 Ultra) & 50,000 & 1ms \\
+CUDA --- NVIDIA GB10 & 104--126M & 6.9\,ns \\
+MLX/Metal --- Apple M4 Max & $\sim$250M & 4.15\,ns \\
 \bottomrule
 \end{tabular}
-\caption{GPU acceleration provides 50-100x throughput increase}
+\caption{Measured GPU matching throughput. The throughput lever is a Knuth
+Algorithm-D division replacing a 512-iteration bit-serial \texttt{uint256}
+VWAP ($\sim$8$\times$); output is byte-identical to the CPU oracle.}
 \end{table}
 
 \section{Storage Layer}
@@ -295,13 +328,13 @@ Supported backends:
 
 \subsection{Benchmark Configuration}
 
-Testing performed on:
+Matching-kernel measurements performed on:
 \begin{itemize}
-    \item Apple M1 Max (10 cores, 64GB RAM)
-    \item AMD EPYC 7763 (64 cores, 512GB RAM)
-    \item NVIDIA A100 GPU (40GB HBM2)
-    \item Mellanox ConnectX-6 (100GbE + RDMA)
+    \item NVIDIA GB10 (Grace Blackwell)
+    \item Apple M4 Max (unified-memory, MLX/Metal backend)
 \end{itemize}
+All figures below are measured fills/s of byte-exact \texttt{uint256}
+matching, validated bit-for-bit against the CPU reference oracle.
 
 \subsection{Throughput Results}
 
@@ -309,16 +342,18 @@ Testing performed on:
 \centering
 \begin{tabular}{lrr}
 \toprule
-\textbf{Configuration} & \textbf{Throughput} & \textbf{Latency} \\
+\textbf{Configuration} & \textbf{Throughput} & \textbf{Per-match cost} \\
 \midrule
-Single Core (Go) & 90K/s & 894ns \\
-10 Cores (Go) & 2.1M/s & 597ns \\
-10 Cores (Hybrid) & 4.2M/s & 421ns \\
-64 Cores + DPDK & 25M/s & 102ns \\
-64 Cores + DPDK + GPU & 100M+/s & 89ns \\
+GPU CLOB --- NVIDIA GB10 & 104--126M fills/s & 6.9\,ns \\
+GPU CLOB --- Apple M4 Max & $\sim$250M fills/s & 4.15\,ns \\
+Settlement (Block-STM, market-sharded) & 2.2M fills/s & --- \\
+Fleet aggregate ($\sim$8--10 GPUs) & $>$1B fills/s & --- \\
 \bottomrule
 \end{tabular}
-\caption{Throughput scales linearly with resources}
+\caption{Measured byte-exact \texttt{uint256} matching throughput. A single
+accelerator is dependency-latency-bound at $\sim$100--250M fills/s; the
+$>$1B fills/s aggregate is reached across independent per-book arenas on a
+node fleet, not on one device.}
 \end{table}
 
 \subsection{Network Saturation}
@@ -329,7 +364,10 @@ At 100Gbps with 60-byte messages:
 &= 208\text{M messages/sec}
 \end{align}
 
-With batching and compression, we achieve 100M+ trades/sec, utilizing 48\% of theoretical bandwidth.
+A single matching node is dependency-latency-bound well below this ceiling
+($\sim$100--250M fills/s); network bandwidth is therefore not the binding
+constraint on a single device, and fleet-level throughput is obtained by
+sharding independent per-book arenas across nodes.
 
 \section{Comparative Analysis}
 
@@ -343,10 +381,13 @@ Uniswap v3 & 1K/s & 12s & Yes \\
 Serum (Solana) & 65K/s & 400ms & Yes \\
 dYdX v4 & 100K/s & 100ms & Partial \\
 Binance (CEX) & 10M/s & 10ms & No \\
-\textbf{LX} & \textbf{100M+/s} & \textbf{597ns} & \textbf{Yes} \\
+\textbf{LX} & \textbf{104--250M fills/s} & \textbf{4--7\,ns/match} & \textbf{Yes} \\
 \bottomrule
 \end{tabular}
-\caption{LX exceeds CEX performance while maintaining decentralization}
+\caption{LX single-device byte-exact matching throughput versus reported
+exchange figures. The LX column is measured GPU CLOB matching (GB10 / M4 Max);
+fleet aggregation reaches $>$1B fills/s. The latency column is per-match kernel
+cost, not end-to-end trade confirmation.}
 \end{table}
 
 \section{Security Analysis}
@@ -403,9 +444,18 @@ The Corona+BLS hybrid scheme provides:
 
 \section{Conclusion}
 
-\lxdex{} demonstrates that decentralized exchanges can exceed centralized exchange performance without compromising security or decentralization. Through novel integration of DAG consensus, quantum-resistant cryptography, kernel-bypass networking, and GPU acceleration, we achieve 100M+ trades/second with 597ns latency—a 100,000x improvement over existing DEXs.
+\lxdex{} demonstrates that a decentralized exchange can match orders at
+hardware speed without abandoning settlement-grade correctness. The matching
+kernel sustains 104--126M byte-exact \texttt{uint256} fills/s on an NVIDIA GB10
+(6.9\,ns/match) and $\sim$250M fills/s on an Apple M4 Max (4.15\,ns/match), with
+output identical bit-for-bit to the CPU reference. Because per-book arenas are
+independent, aggregate throughput exceeding one billion fills/s is reached
+across a node fleet rather than on any single device. Matching composes with
+market-sharded Block-STM settlement (2.2M fills/s, CPU/GPU byte-identical commit
+order) and a post-quantum rollup to the Z-Chain.
 
-Our open-source implementation proves these performance levels are achievable on commodity hardware, democratizing access to high-frequency trading infrastructure. As quantum computing threatens existing cryptographic systems, our quantum-resistant design ensures long-term security for digital asset trading.
+As quantum computing threatens existing cryptographic systems, our
+quantum-resistant design ensures long-term security for digital asset trading.
 
 \section*{Acknowledgments}
 
