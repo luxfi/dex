@@ -198,6 +198,36 @@ func (vm *VM) rebuildAllBooks() error {
 	return it.Error()
 }
 
+// BookDepth reports the authoritative resting-book state for a market: the count
+// of resting orders, their total remaining size, and the best bid/ask. It reads
+// the in-RAM book (a fold of the committed order:* rows) under the VM lock —
+// reads need no consensus round-trip (see handler.go). It is the read accessor
+// the venue daemon and out-of-package callers use to observe consensus-settled
+// state without reaching into unexported fields. Returns ok=false for an unknown
+// market.
+func (vm *VM) BookDepth(poolID [32]byte) (orders int, remaining, bestBid, bestAsk float64, ok bool) {
+	vm.mu.Lock()
+	ob := vm.books[poolID]
+	vm.mu.Unlock()
+	if ob == nil {
+		return 0, 0, 0, 0, false
+	}
+	for _, o := range ob.Orders {
+		orders++
+		remaining += o.RemainingSize
+	}
+	d := ob.GetDepth(1)
+	if d != nil {
+		if len(d.Bids) > 0 {
+			bestBid = d.Bids[0].Price
+		}
+		if len(d.Asks) > 0 {
+			bestAsk = d.Asks[0].Price
+		}
+	}
+	return orders, remaining, bestBid, bestAsk, true
+}
+
 // BuildBlock drains the mempool into a new block on top of the preferred head,
 // executes it locally to compute the execution root (the proposer's claim), and
 // returns it. The block is NOT accepted here — consensus votes, then calls
