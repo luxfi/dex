@@ -6,12 +6,15 @@ package dchain
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/versiondb"
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
 
@@ -294,12 +297,68 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 	var tradeSeq uint64
 	outcomes := make([]txOutcome, 0, len(b.txs))
 	for i, tx := range b.txs {
+		// Idempotency (all tx types): a tx whose id is already committed (or
+		// applied earlier in THIS block) is a deterministic no-op returning the
+		// FIRST outcome verbatim — no double deposit/withdraw/fill/place on a relay
+		// retry of a dropped frame. Checked from the overlay so every validator and
+		// the proposer's probe decide identically.
+		txID := tx.ID()
+		if prior, seen, err := getSeenOutcome(overlay, txID, tx.Type); err != nil {
+			return execResult{}, err
+		} else if seen {
+			outcomes = append(outcomes, prior)
+			continue
+		}
+
+		// ---- Account-scoped custody txs (no poolId) ----
+		switch tx.Type {
+		case TxDeposit:
+			user, asset, amount, derr := zapwire.DecodeDeposit(tx.Body)
+			if derr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d deposit decode: %w", i, derr)
+			}
+			realized, serr := creditDeposit(overlay, user, asset, amount)
+			if serr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d deposit: %w", i, serr)
+			}
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: realized}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
+			continue
+		case TxWithdraw:
+			user, asset, amount, derr := zapwire.DecodeWithdraw(tx.Body)
+			if derr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d withdraw decode: %w", i, derr)
+			}
+			realized, serr := debitWithdraw(overlay, user, asset, amount)
+			if serr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d withdraw: %w", i, serr)
+			}
+			// orderID carries the REALIZED amount the proxy must export (clamped to
+			// available). A zero realized withdraw is StatusRejected (nothing to
+			// export) so the caller does not build an empty export.
+			st := uint8(zapwire.StatusPlaced)
+			if realized == 0 {
+				st = zapwire.StatusRejected
+			}
+			oc := txOutcome{txID: txID, typ: tx.Type, status: st, orderID: realized}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
+			continue
+		}
+
+		// ---- Market-scoped txs (begin with poolId) ----
 		poolID, ok := tx.poolID()
 		if !ok {
 			return execResult{}, fmt.Errorf("dchain: tx %d missing poolId", i)
 		}
 
-		if tx.Type == TxEnsureMarket {
+		switch tx.Type {
+		case TxEnsureMarket:
 			// Idempotent market creation: record existence keyed by poolId. The
 			// symbol is the hex of the poolId (the venue's market identity is the
 			// poolId; a human symbol is a display concern handled at the gateway).
@@ -310,26 +369,33 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 					return execResult{}, err
 				}
 			}
-			outcomes = append(outcomes, outcomeFromApply(tx, applyResult{}))
+			oc := outcomeFromApply(tx, applyResult{})
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
 			continue
-		}
-
-		// Idempotency: an order op whose tx id is already committed (or applied
-		// earlier in THIS block, since seen-marks are written to the overlay) is a
-		// deterministic no-op — it MUST NOT re-execute (no double-fill/place on a
-		// relay retry of a dropped frame). But it MUST return the FIRST outcome
-		// verbatim, not a blanket reject: a deduped clob_place returns its
-		// original Placed+orderID and a deduped clob_submit returns its original
-		// fills. (A bare presence mark made a deduped place look identical to a
-		// genuine rejection, reverting the EVM tx whose precompile re-runs the
-		// place across the host's multiple executions of one transaction.) Read
-		// from the overlay so every validator — and the proposer's probe — make
-		// the identical decision.
-		txID := tx.ID()
-		if prior, seen, err := getSeenOutcome(overlay, txID, tx.Type); err != nil {
-			return execResult{}, err
-		} else if seen {
-			outcomes = append(outcomes, prior)
+		case TxOpenMarket:
+			pid, base, quote, derr := zapwire.DecodeOpenMarket(tx.Body)
+			if derr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d open-market decode: %w", i, derr)
+			}
+			// Ensure the market exists (idempotent) and bind its assets.
+			if _, exists, err := readMarketSymbol(overlay, pid); err != nil {
+				return execResult{}, err
+			} else if !exists {
+				if err := writeMarket(overlay, pid, poolSymbol(pid)); err != nil {
+					return execResult{}, err
+				}
+			}
+			if err := writeMarketAssets(overlay, pid, base, quote); err != nil {
+				return execResult{}, err
+			}
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
 			continue
 		}
 
@@ -338,10 +404,46 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			return execResult{}, err
 		}
 
+		// ---- CUSTODY GATE: lock the order's spend BEFORE matching ----
+		// A place/submit can only proceed if the account has the AVAILABLE balance
+		// to fund it. The lock moves available -> locked for the spend asset; the
+		// matcher then draws from the locked balance (a fill spends locked, a
+		// cancel/refund unlocks it). If the market's assets are bound and the lock
+		// cannot be funded, the order is REJECTED here — it never matches, never
+		// rests. (A market with unbound assets falls back to the no-custody path so
+		// asset-less test/legacy markets still function; the live custody e2e binds
+		// assets via clob_open_market.)
+		base, quote, assetsBound, aerr := readMarketAssets(overlay, poolID)
+		if aerr != nil {
+			return execResult{}, aerr
+		}
+		locked, lockedOK, lerr := b.lockOrderSpend(overlay, tx, poolID, base, quote, assetsBound)
+		if lerr != nil {
+			return execResult{}, fmt.Errorf("dchain: tx %d lock: %w", i, lerr)
+		}
+		if assetsBound && !lockedOK {
+			// Insufficient available balance to fund the order: deterministic reject,
+			// no match, no rest, no lock held.
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
+			continue
+		}
+
 		res, err := applyTx(ob, tx, b.height, b.timestamp, uint32(i))
 		if err != nil {
 			return execResult{}, err
 		}
+
+		// ---- SETTLE: move value for this tx's effects inside the ledger ----
+		if assetsBound {
+			if serr := b.settleOrderEffects(overlay, poolID, tx, res, base, quote, locked); serr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d settle: %w", i, serr)
+			}
+		}
+
 		outcome := outcomeFromApply(tx, res)
 		outcomes = append(outcomes, outcome)
 		// Record the outcome under the seen-key so a later replay returns it
@@ -398,6 +500,257 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 	return execResult{root: root, fills: allFills, rows: allRows, outcomes: outcomes}, nil
 }
 
+// lockOrderSpend reserves the asset a place/submit will spend, moving it from the
+// account's AVAILABLE to LOCKED balance BEFORE matching. It is the custody gate:
+// returns ok=false (and locks nothing) when the account cannot fund the order, so
+// the caller rejects it without matching or resting. Returns the locked amount so
+// the caller can refund/spend it precisely.
+//
+//   - PLACE: locks the full spend (buy -> ceil(size*price) quote, sell -> size
+//     base) and records a per-order reserve (orderasset:) so a later cancel or a
+//     maker fill unlocks/spends the exact remaining amount. A rested limit order
+//     never crosses (ConsensusAddOrder), so its lock stays held until filled or
+//     cancelled.
+//   - SUBMIT: locks the taker's spend. A LIMIT submit locks the exact want
+//     (fills occur at maker prices within the limit, so spend <= lock). A MARKET
+//     submit locks ALL available of the spend asset (the worst-case spend is
+//     bounded by the balance), and the unspent remainder is refunded after the
+//     cross. No per-order reserve (IOC never rests).
+//   - other tx types: no lock (returns 0, true).
+func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, poolID [32]byte, base, quote uint64, assetsBound bool) (uint64, bool, error) {
+	if !assetsBound {
+		return 0, true, nil // no-custody fallback for asset-less markets
+	}
+	switch tx.Type {
+	case TxPlace:
+		_, side, price, size, user, derr := zapwire.DecodePlace(tx.Body)
+		if derr != nil {
+			return 0, false, derr
+		}
+		lockAsset, lockAmt := orderLock(side, price, size, base, quote)
+		if lockAmt == 0 {
+			// Degenerate order (zero size / unrepresentable lock): let the matcher
+			// reject it, lock nothing.
+			return 0, true, nil
+		}
+		uid := userID8(user)
+		if err := lockFromAvailable(db, uid, lockAsset, lockAmt); err != nil {
+			if errors.Is(err, ErrInsufficientAvailable) {
+				return 0, false, nil
+			}
+			return 0, false, err
+		}
+		// Record the per-order reserve so cancel/fill unlocks the exact amount.
+		orderID := blockDeterministicID(b.height, txIndexOf(b, tx))
+		if err := putOrderLock(db, poolID, orderID, lockAsset, lockAmt); err != nil {
+			return 0, false, err
+		}
+		return lockAmt, true, nil
+
+	case TxSubmit:
+		_, side, isMarket, limitPrice, size, user, derr := zapwire.DecodeSubmit(tx.Body)
+		if derr != nil {
+			return 0, false, derr
+		}
+		uid := userID8(user)
+		var lockAsset, lockAmt uint64
+		if side == sideBuy {
+			lockAsset = quote
+		} else {
+			lockAsset = base
+		}
+		if isMarket && side == sideBuy {
+			// Market buy: spend is unbounded by a limit -> lock all available quote;
+			// the cross spends what it fills, the remainder is refunded.
+			avail, err := getAvailable(db, uid, lockAsset)
+			if err != nil {
+				return 0, false, err
+			}
+			lockAmt = avail
+		} else {
+			_, lockAmt = orderLock(side, limitPrice, size, base, quote)
+		}
+		if lockAmt == 0 {
+			// Nothing affordable to lock: a market buy with zero quote, or a zero
+			// size. The matcher will produce no settle-able fills; treat as funded
+			// with a zero lock (the cross yields nothing, settle is a no-op).
+			return 0, true, nil
+		}
+		if err := lockFromAvailable(db, uid, lockAsset, lockAmt); err != nil {
+			if errors.Is(err, ErrInsufficientAvailable) {
+				return 0, false, nil
+			}
+			return 0, false, err
+		}
+		return lockAmt, true, nil
+
+	default:
+		return 0, true, nil
+	}
+}
+
+// settleOrderEffects moves value for an order tx's matcher result inside the
+// ledger, AFTER matching, against the same overlay. lockedAmt is what
+// lockOrderSpend reserved for this tx (the taker's lock for a submit; the place's
+// lock is held under its per-order reserve).
+//
+//   - CANCEL: unlock the cancelled order's remaining per-order reserve.
+//   - PLACE rejected by the matcher (post-only would take) AFTER we locked:
+//     refund the lock (unlock + delete the per-order reserve). A rested place
+//     keeps its lock (held under the per-order reserve recorded at lock time).
+//   - SUBMIT: settle each fill (taker locked spend -> maker available; maker
+//     locked -> taker available), decrement each touched maker's per-order
+//     reserve by the filled amount, then unlock the taker's unspent remainder.
+func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *Tx, res applyResult, base, quote, lockedAmt uint64) error {
+	switch tx.Type {
+	case TxCancel:
+		if res.Canceled == 0 {
+			return nil // unknown cancel: no reserve to unlock
+		}
+		asset, amt, ok, err := getOrderLock(db, poolID, res.Canceled)
+		if err != nil {
+			return err
+		}
+		if !ok || amt == 0 {
+			return nil
+		}
+		// The cancelled order's owner reserved `amt` of `asset`; return it.
+		owner := userID8(canceledOwner(res))
+		if err := unlockToAvailable(db, owner, asset, amt); err != nil {
+			return err
+		}
+		return putOrderLock(db, poolID, res.Canceled, asset, 0) // delete the reserve
+
+	case TxPlace:
+		if res.Placed != nil {
+			return nil // rested: lock stays held under the per-order reserve
+		}
+		// The matcher rejected the place AFTER we locked: refund the lock fully.
+		_, side, price, size, user, derr := zapwire.DecodePlace(tx.Body)
+		if derr != nil {
+			return derr
+		}
+		lockAsset, lockAmt := orderLock(side, price, size, base, quote)
+		if lockAmt == 0 {
+			return nil
+		}
+		uid := userID8(user)
+		if err := unlockToAvailable(db, uid, lockAsset, lockAmt); err != nil {
+			return err
+		}
+		// Remove the per-order reserve recorded at lock time.
+		orderID := blockDeterministicID(b.height, txIndexOf(b, tx))
+		return putOrderLock(db, poolID, orderID, lockAsset, 0)
+
+	case TxSubmit:
+		_, side, _, _, _, user, derr := zapwire.DecodeSubmit(tx.Body)
+		if derr != nil {
+			return derr
+		}
+		uid := userID8(user)
+		// Move value for the fills (uses the matcher's exact integer lane).
+		spent, err := settleFills(db, side, base, quote, res.Fills)
+		if err != nil {
+			return err
+		}
+		// Decrement each touched maker's per-order reserve by the base/quote it
+		// spent on this cross, so a later cancel of a partially-filled maker unlocks
+		// only the still-resting remainder (a fully-filled maker's reserve is
+		// deleted). The maker's aggregate locked: was already spent by settleFills.
+		if err := b.decrementMakerReserves(db, poolID, side, base, quote, res.Fills); err != nil {
+			return err
+		}
+		// Refund the taker's unspent lock remainder (IOC never rests).
+		if lockedAmt > spent {
+			var lockAsset uint64
+			if side == sideBuy {
+				lockAsset = quote
+			} else {
+				lockAsset = base
+			}
+			if err := unlockToAvailable(db, uid, lockAsset, lockedAmt-spent); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// decrementMakerReserves reduces each filled maker's per-order reserve by the
+// amount of its locked asset the cross consumed, so cancel-time unlock matches
+// the remaining resting size. A maker on the opposite side of the taker locked:
+// taker BUY -> maker SOLD base (reserve in base, reduced by fill base units);
+// taker SELL -> maker BOUGHT base (reserve in quote, reduced by fill quote units).
+func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote uint64, fills []lx.Trade) error {
+	// Aggregate the consumed reserve per maker order id (a maker may fill across
+	// several fills in one cross, though typically one).
+	consumed := map[uint64]uint64{}
+	for _, f := range fills {
+		var makerOrderID, amt uint64
+		if takerSide == sideBuy {
+			makerOrderID = f.SellOrder
+			if f.BaseUnits != nil && f.BaseUnits.IsUint64() {
+				amt = f.BaseUnits.Uint64() // maker reserve is in base
+			}
+		} else {
+			makerOrderID = f.BuyOrder
+			if f.QuoteUnits != nil && f.QuoteUnits.IsUint64() {
+				amt = f.QuoteUnits.Uint64() // maker reserve is in quote
+			}
+		}
+		consumed[makerOrderID] += amt
+	}
+	for makerOrderID, amt := range consumed {
+		asset, reserve, ok, err := getOrderLock(db, poolID, makerOrderID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue // maker placed before custody / no reserve recorded
+		}
+		newReserve := uint64(0)
+		if reserve > amt {
+			newReserve = reserve - amt
+		}
+		if err := putOrderLock(db, poolID, makerOrderID, asset, newReserve); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// txIndexOf returns the position of tx within the block (the txIndex the VM uses
+// to derive a placed order's deterministic id). It scans by pointer identity; a
+// block holds a handful of txs so the linear scan is negligible and keeps the
+// helper free of an index parameter threaded through the lock/settle calls.
+func txIndexOf(b *Block, tx *Tx) uint32 {
+	for i, t := range b.txs {
+		if t == tx {
+			return uint32(i)
+		}
+	}
+	return 0
+}
+
+// canceledOwner returns the user identity of a cancelled order. The matcher's
+// cancel path removes the order; the owner is recovered from the order snapshot
+// the apply result captured. (applyCancel records only the id today; the owner is
+// read from the reserve's account at unlock by re-deriving from the order row —
+// but since the reserve is keyed by order id and the owner is whoever placed it,
+// we resolve the owner from the order row captured in res.) For the current
+// applyCancel which does not carry the owner, the owner is the reserve's account
+// — see settleOrderEffects, which reads the reserve and unlocks to the placing
+// account. This helper returns the canceller from the result when available.
+func canceledOwner(res applyResult) string {
+	if res.CanceledOwner != "" {
+		return res.CanceledOwner
+	}
+	return ""
+}
+
 // applyToMemBooks replays the block's resting effects onto the VM's cached in-RAM
 // books at Accept. The cache is an accelerator; the durable rows are truth. We
 // rebuild each touched market's cached book from the just-committed overlay state
@@ -442,7 +795,45 @@ func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*l
 	if err := it.Error(); err != nil {
 		return nil, err
 	}
-	return lx.RowsToBook(symbol, rows), nil
+	ob := lx.RowsToBook(symbol, rows)
+	// Restore the EXACT-INTEGER value lane on every rebuilt resting order. The
+	// persisted DEXOrder row keeps quantities in fixed-point, not the matcher's
+	// atomic-unit SizeUnits/RemainingUnits, so an order rebuilt from disk would
+	// lose the integer lane — its fills would carry no BaseUnits/QuoteUnits and
+	// the custody ledger could not settle value-exactly. We re-derive the lane
+	// from the order's (now-restored) size so a maker resting across a restart, or
+	// rebuilt into a fresh per-block book, settles a taker's cross to the unit.
+	restoreIntegerLane(ob)
+	return ob, nil
+}
+
+// restoreIntegerLane sets SizeUnits/RemainingUnits (the matcher's exact-integer
+// quantity lane) on every resting order in a rebuilt book, derived from the
+// order's float size/remaining via the same whole-unit conversion the consensus
+// place/submit path uses (sizeToUnits). Without this a rebuilt maker has a nil
+// lane and a taker crossing it produces fills with no integer truth (which the
+// custody settle refuses). Idempotent: an order already carrying the lane is left
+// as-is.
+func restoreIntegerLane(ob *lx.OrderBook) {
+	for _, o := range ob.Orders {
+		if o == nil {
+			continue
+		}
+		if o.SizeUnits == nil {
+			if u := sizeToUnits(o.Size); u > 0 {
+				o.SizeUnits = new(big.Int).SetUint64(u)
+			}
+		}
+		if o.RemainingUnits == nil {
+			rem := o.RemainingSize
+			if rem == 0 {
+				rem = o.Size
+			}
+			if u := sizeToUnits(rem); u > 0 {
+				o.RemainingUnits = new(big.Int).SetUint64(u)
+			}
+		}
+	}
 }
 
 // poolSymbol renders a poolId as its hex market symbol.
