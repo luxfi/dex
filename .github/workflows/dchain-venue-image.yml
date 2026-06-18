@@ -28,7 +28,10 @@ on:
         required: false
         default: v1.30.12
   push:
-    tags: ['v*']
+    # Dedicated venue tag prefix so this does NOT fire on the dex repo's own
+    # `v*` SDK/release tags (separate concern, separate cadence). Cut a venue
+    # image with e.g. `git tag venue-v0.1.0 && git push origin venue-v0.1.0`.
+    tags: ['venue-v*']
 
 permissions:
   contents: read
@@ -70,7 +73,7 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=tag
+            type=match,pattern=venue-(v.*),group=1
             type=sha,format=short,prefix=sha-
 
       - name: Resolve cross-repo PAT for private luxfi/* deps
