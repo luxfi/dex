@@ -1,9 +1,6 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain && cgo
-// +build dchain,cgo
-
 // Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
 // server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
 // precompile (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy
@@ -15,11 +12,14 @@
 //   - runs the consensus sealer loop (WaitForEvent -> BuildBlock -> Verify ->
 //     Accept), so every write crosses the full match -> Verify -> Accept path
 //     and the bytes a caller gets back are consensus-computed fills,
-//   - additionally exposes a read-only clob_depth method for observing settled
-//     book state (reads need no consensus round-trip; see handler.go).
+//   - exposes read-only clob_depth + clob_balance observation methods for
+//     settled book and custody state (reads need no consensus round-trip).
 //
-// Built under //go:build dchain && cgo so it links the cgo/GPU matching engine
-// (the venue accelerator); the pure-Go test path is unaffected.
+// This is the ONE venue binary. CGO_ENABLED is the single axis that picks the
+// matcher: pkg/lx links the GPU matcher under cgo (amm_gpu_cuda / amm_gpu_metal
+// / orderbook_cuda) and the pure-Go CPU matcher without it (amm_nogpu /
+// orderbook_cuda_stub). The main is matcher-agnostic — it drives dchain.VM
+// either way; engineName (engine_{cgo,nocgo}.go) only labels the active build.
 package main
 
 import (
@@ -105,9 +105,9 @@ func main() {
 	}()
 
 	logger.Info("D-Chain venue serving",
-		"addr", server.Addr(), "db", *dir, "version", dchain.Version)
+		"addr", server.Addr(), "db", *dir, "version", dchain.Version, "engine", engineName)
 	// Emit a machine-greppable readiness line for the bring-up harness.
-	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + "\n")
+	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + " engine=" + engineName + "\n")
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
@@ -173,7 +173,7 @@ func depthHandler(vm *dchain.VM) rpc.RawHandler {
 
 // balanceHandler serves clob_balance: a read-only observation of an account's
 // custody balances for an asset (available + locked), read from the durable
-// ledger via the VM's Balance accessor. Request: user[16] + asset[8]. Response:
+// ledger via the VM's Balance accessor. Request: user[16] + asset[32]. Response:
 // available[8] | locked[8].
 func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 	return func(_ context.Context, payload []byte) ([]byte, error) {
@@ -182,7 +182,8 @@ func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 			return out, nil
 		}
 		user := string(trimNullBytes(payload[0:zapwire.UserSize]))
-		asset := binary.BigEndian.Uint64(payload[zapwire.UserSize : zapwire.UserSize+zapwire.AssetIDSize])
+		var asset [32]byte
+		copy(asset[:], payload[zapwire.UserSize:zapwire.UserSize+zapwire.AssetIDSize])
 		available, locked, err := vm.Balance(user, asset)
 		if err != nil {
 			return out, err

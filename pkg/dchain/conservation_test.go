@@ -18,37 +18,78 @@ package dchain
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
-// asset handles for the test market (8-byte ledger handles).
-const (
-	assetLUX  uint64 = 0x4c5558_00000001 // "LUX" base
-	assetLUSD uint64 = 0x4c555344_000001 // "LUSD" quote
+// asset ids for the test market (full 32-byte injective ids; the uint64 LABEL is
+// packed into the low 8 bytes by a32, the test-side analog of the production
+// address->id map).
+var (
+	assetLUX  = a32(0x4c5558_00000001) // "LUX" base
+	assetLUSD = a32(0x4c555344_000001) // "LUSD" quote
 )
 
-func depositTx(t *testing.T, user string, asset, amount uint64) *Tx {
+// contentRef derives a deterministic 32-byte idempotency ref from a custody op's
+// (user,asset,amount) content. It exists ONLY so the default depositTx/withdrawTx
+// helpers preserve the PRE-ref content-dedup semantics every existing scenario
+// relies on: a byte-identical (user,asset,amount) call yields a byte-identical
+// ref -> identical txID -> the same content-addressed seen: dedup as before. To
+// model a GENUINELY distinct originating tx (the production reality where a real
+// 2nd withdraw carries a fresh EVM txHash), use depositTxRef/withdrawTxRef with an
+// explicit, distinct ref. This is a TEST FIXTURE convention; production always
+// supplies the real originating-tx ref (precompile txHash / atomic import id).
+func contentRef(typ byte, user string, asset [32]byte, amount uint64) [32]byte {
+	// Deterministic, content-derived ref: XOR-fold the full asset id (so its
+	// distinguishing low bytes participate, not a truncated prefix), then mix the
+	// type, user, and amount. Byte-identical inputs yield the same ref (exactly-once
+	// retry); any difference yields a different ref (genuinely distinct op).
+	var ref [32]byte
+	copy(ref[:], asset[:]) // full id, including its low-byte discriminant
+	ref[0] ^= typ
+	for i := 0; i < len(user) && i+1 < 24; i++ {
+		ref[1+i] ^= user[i]
+	}
+	binary.BigEndian.PutUint64(ref[24:32], binary.BigEndian.Uint64(asset[24:32])^amount)
+	return ref
+}
+
+func depositTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxDeposit, zapwire.EncodeDeposit(user, asset, amount))
+	return depositTxRef(t, user, asset, amount, contentRef(byte(TxDeposit), user, asset, amount))
+}
+
+func withdrawTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
+	t.Helper()
+	return withdrawTxRef(t, user, asset, amount, contentRef(byte(TxWithdraw), user, asset, amount))
+}
+
+// depositTxRef / withdrawTxRef build a custody tx with an EXPLICIT idempotency ref
+// (the originating-tx identity). Distinct refs => distinct txID => the d-chain
+// treats the ops as genuinely different (no seen: replay); an identical ref models
+// a true exactly-once retry of ONE op.
+func depositTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
+	t.Helper()
+	tx, err := NewTx(TxDeposit, zapwire.EncodeDeposit(user, asset, amount, ref))
 	if err != nil {
 		t.Fatalf("NewTx deposit: %v", err)
 	}
 	return tx
 }
 
-func withdrawTx(t *testing.T, user string, asset, amount uint64) *Tx {
+func withdrawTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxWithdraw, zapwire.EncodeWithdraw(user, asset, amount))
+	tx, err := NewTx(TxWithdraw, zapwire.EncodeWithdraw(user, asset, amount, ref))
 	if err != nil {
 		t.Fatalf("NewTx withdraw: %v", err)
 	}
 	return tx
 }
 
-func openMarketTx(t *testing.T, pool [32]byte, base, quote uint64) *Tx {
+func openMarketTx(t *testing.T, pool [32]byte, base, quote [32]byte) *Tx {
 	t.Helper()
 	tx, err := NewTx(TxOpenMarket, zapwire.EncodeOpenMarket(pool, base, quote))
 	if err != nil {
@@ -69,11 +110,13 @@ func addBlock(t *testing.T, vm *VM, txs ...*Tx) *Block {
 	return buildVerifyAccept(t, vm)
 }
 
-// addBlockOutcomes is like addBlock but snapshots the per-tx consensus outcomes
+// addBlockOutcomes is like addBlock but ALSO returns the per-tx consensus outcomes
 // (Verify sets them on the block; Accept clears them after resolving waiters), so
-// a caller can inspect a withdraw's REALIZED amount. It runs the same
-// Build->reparse->Verify->Accept path.
-func addBlockOutcomes(t *testing.T, vm *VM, txs ...*Tx) []txOutcome {
+// a caller can inspect a withdraw's REALIZED amount or a submit's fills. It runs
+// the same Build->reparse->Verify->Accept path and returns the accepted block (so
+// a caller can also assert ownership over it) with the snapshotted outcomes
+// re-attached for post-Accept inspection.
+func addBlockOutcomes(t *testing.T, vm *VM, txs ...*Tx) (*Block, []txOutcome) {
 	t.Helper()
 	ctx := context.Background()
 	for _, tx := range txs {
@@ -97,7 +140,10 @@ func addBlockOutcomes(t *testing.T, vm *VM, txs ...*Tx) []txOutcome {
 	if err := reparsed.Accept(ctx); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	return snap
+	// Re-attach the snapshot so the returned block can be inspected for its fills
+	// (Accept set blk.outcomes to nil after resolving waiters).
+	blk.outcomes = snap
+	return blk, snap
 }
 
 // TestCustodyConservationFullCycle is the headline proof: deposit -> open ->
@@ -114,8 +160,10 @@ func addBlockOutcomes(t *testing.T, vm *VM, txs ...*Tx) []txOutcome {
 //   - both withdraw everything.
 //
 // Expected end balances BEFORE withdraw:
-//   maker: 90 LUX available, 0 LUX locked, 50 LUSD available.
-//   taker: 10 LUX available, 1000-50=950 LUSD available, 0 LUSD locked.
+//
+//	maker: 90 LUX available, 0 LUX locked, 50 LUSD available.
+//	taker: 10 LUX available, 1000-50=950 LUSD available, 0 LUSD locked.
+//
 // Conservation: total LUX in (100) == maker(90)+taker(10); total LUSD in (1000)
 // == taker(950)+maker(50). After withdraw, exported == deposited, exactly.
 func TestCustodyConservationFullCycle(t *testing.T) {
@@ -142,18 +190,27 @@ func TestCustodyConservationFullCycle(t *testing.T) {
 	assertBalance(t, vm, taker, assetLUSD, 1000, 0)
 
 	// --- Block 2: maker rests a SELL of 10 LUX @ 5 (locks 10 LUX). ---
-	addBlock(t, vm, placePoolTx(t, pool, zapwire.SideSell, 5.0, 10.0, maker))
+	ownPlace := newOwnershipChecker(t, vm)
+	placeBlk := addBlock(t, vm, placePoolTx(t, pool, zapwire.SideSell, 5.0, 10.0, maker))
 	// Maker's 10 LUX moved available->locked; 90 LUX stays available.
 	assertBalance(t, vm, maker, assetLUX, 90, 10)
+	// OWNERSHIP: the only account whose value moved is the maker (available->locked,
+	// same owner) — a party to its own place.
+	ownPlace.assert(t, vm, placeBlk, "full-cycle place")
 
 	// --- Block 3: taker BUYS 10 LUX, limit 5 (locks 50 LUSD), crossing. ---
-	addBlock(t, vm, submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker))
+	// OWNERSHIP across the cross: the ONLY accounts whose value changes are the
+	// maker and the taker — both explicit parties to the fill. A colliding-handle
+	// theft would credit a NON-party and trip this gate (proven in
+	// TestOwnershipInvariant_CollidingAttackerIsNotAParty).
+	ownCross := newOwnershipChecker(t, vm)
+	crossBlk := addBlock(t, vm, submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker))
 
 	// THE MAKER LEG: maker received 50 LUSD (the taker's payment) into available,
 	// and its 10 locked LUX left to the taker. This is exactly what the prior
 	// proxy-escrow taker-only model dropped.
-	assertBalance(t, vm, maker, assetLUX, 90, 0)   // 10 locked LUX spent to taker
-	assertBalance(t, vm, maker, assetLUSD, 50, 0)  // received the taker's 50 LUSD
+	assertBalance(t, vm, maker, assetLUX, 90, 0)  // 10 locked LUX spent to taker
+	assertBalance(t, vm, maker, assetLUSD, 50, 0) // received the taker's 50 LUSD
 	// THE TAKER LEG: spent 50 LUSD (refunded 0 since limit*size == lock exactly),
 	// received 10 LUX.
 	assertBalance(t, vm, taker, assetLUX, 10, 0)   // received 10 LUX
@@ -169,10 +226,12 @@ func TestCustodyConservationFullCycle(t *testing.T) {
 	if totalLUSD != 1000 {
 		t.Fatalf("LUSD conservation violated: total available %d, deposited 1000", totalLUSD)
 	}
+	ownCross.assert(t, vm, crossBlk, "full-cycle cross")
 
 	// --- Block 4: both parties WITHDRAW everything; the realized amounts (the
 	// proxy export legs) must equal exactly the available balances. ---
-	wo := addBlockOutcomes(t, vm,
+	ownW := newOwnershipChecker(t, vm)
+	wblk, wo := addBlockOutcomes(t, vm,
 		withdrawTx(t, maker, assetLUX, 90),
 		withdrawTx(t, maker, assetLUSD, 50),
 		withdrawTx(t, taker, assetLUX, 10),
@@ -189,6 +248,8 @@ func TestCustodyConservationFullCycle(t *testing.T) {
 	if totalWithdrawn != totalDeposited {
 		t.Fatalf("CONSERVATION VIOLATED: withdrawn %d != deposited %d", totalWithdrawn, totalDeposited)
 	}
+	// OWNERSHIP: every account whose value left the ledger is the withdrawer itself.
+	ownW.assert(t, vm, wblk, "full-cycle withdraw")
 
 	// Ledger is now empty (all withdrawn).
 	assertBalance(t, vm, maker, assetLUX, 0, 0)
@@ -223,7 +284,12 @@ func TestCustodySameBlockPlaceThenCross(t *testing.T) {
 	)
 
 	// Block 2: place (maker SELL 10@5) AND cross (taker BUY 10@5) in ONE block.
-	addBlock(t, vm,
+	// OWNERSHIP exercises the same-block-maker resolver path: the maker rests AND is
+	// fully filled in this same block (its orderuser: row is created then deleted in
+	// one accept), so the harness must resolve the maker from the block's own
+	// TxPlace, not a pre-block snapshot.
+	ownSB := newOwnershipChecker(t, vm)
+	sbBlk := addBlock(t, vm,
 		placePoolTx(t, pool, zapwire.SideSell, 5.0, 10.0, maker),
 		submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker),
 	)
@@ -233,6 +299,7 @@ func TestCustodySameBlockPlaceThenCross(t *testing.T) {
 	assertBalance(t, vm, maker, assetLUSD, 50, 0)
 	assertBalance(t, vm, taker, assetLUX, 10, 0)
 	assertBalance(t, vm, taker, assetLUSD, 950, 0)
+	ownSB.assert(t, vm, sbBlk, "same-block place+cross")
 
 	if got := bal(t, vm, maker, assetLUX) + bal(t, vm, taker, assetLUX); got != 100 {
 		t.Fatalf("same-block LUX conservation: %d want 100", got)
@@ -317,10 +384,10 @@ func TestCustodyPartialFillConservesAndRefundsRemainder(t *testing.T) {
 	addBlock(t, vm, submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker))
 
 	// Fill = 4 LUX @ 5 = 20 LUSD. Taker spent 20 LUSD, refunded 30 of the 50 lock.
-	assertBalance(t, vm, maker, assetLUX, 96, 0)    // 4 locked LUX spent to taker, 96 still available
-	assertBalance(t, vm, maker, assetLUSD, 20, 0)   // received 20 LUSD
-	assertBalance(t, vm, taker, assetLUX, 4, 0)     // received 4 LUX
-	assertBalance(t, vm, taker, assetLUSD, 980, 0)  // 1000 - 20 spent (30 refunded back to available)
+	assertBalance(t, vm, maker, assetLUX, 96, 0)   // 4 locked LUX spent to taker, 96 still available
+	assertBalance(t, vm, maker, assetLUSD, 20, 0)  // received 20 LUSD
+	assertBalance(t, vm, taker, assetLUX, 4, 0)    // received 4 LUX
+	assertBalance(t, vm, taker, assetLUSD, 980, 0) // 1000 - 20 spent (30 refunded back to available)
 
 	totalLUX := bal(t, vm, maker, assetLUX) + bal(t, vm, taker, assetLUX)
 	totalLUSD := bal(t, vm, maker, assetLUSD) + bal(t, vm, taker, assetLUSD)
@@ -341,7 +408,7 @@ func TestCustodyWithdrawClampsToAvailable(t *testing.T) {
 	addBlock(t, vm, depositTx(t, user, assetLUX, 40))
 
 	// Ask to withdraw 100; only 40 is available.
-	wo := addBlockOutcomes(t, vm, withdrawTx(t, user, assetLUX, 100))
+	_, wo := addBlockOutcomes(t, vm, withdrawTx(t, user, assetLUX, 100))
 	var realized uint64
 	for _, oc := range wo {
 		if oc.typ == TxWithdraw {
@@ -365,23 +432,23 @@ func cancelPoolTx(t *testing.T, pool [32]byte, orderID uint64) *Tx {
 	return tx
 }
 
-func bal(t *testing.T, vm *VM, user string, asset uint64) uint64 {
+func bal(t *testing.T, vm *VM, user string, asset [32]byte) uint64 {
 	t.Helper()
 	avail, _, err := vm.Balance(user, asset)
 	if err != nil {
-		t.Fatalf("Balance(%s,%d): %v", user, asset, err)
+		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}
 	return avail
 }
 
-func assertBalance(t *testing.T, vm *VM, user string, asset, wantAvail, wantLocked uint64) {
+func assertBalance(t *testing.T, vm *VM, user string, asset [32]byte, wantAvail, wantLocked uint64) {
 	t.Helper()
 	avail, locked, err := vm.Balance(user, asset)
 	if err != nil {
-		t.Fatalf("Balance(%s,%d): %v", user, asset, err)
+		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}
 	if avail != wantAvail || locked != wantLocked {
-		t.Fatalf("balance %s asset=%#x: available=%d locked=%d, want available=%d locked=%d",
+		t.Fatalf("balance %s asset=%x: available=%d locked=%d, want available=%d locked=%d",
 			user, asset, avail, locked, wantAvail, wantLocked)
 	}
 }

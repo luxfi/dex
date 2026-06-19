@@ -4,7 +4,7 @@
 package dchain
 
 import (
-	"encoding/binary"
+	"fmt"
 	"math/big"
 
 	"github.com/luxfi/database"
@@ -42,19 +42,6 @@ import (
 // the taker's limit, so sum(spend) <= ceil(size*limit) = lock), so a settle can
 // never spend more than was locked. MARKET orders lock all available of the
 // spend asset; spend <= lock holds because you cannot spend what you do not have.
-
-// userID8 folds a user-identity string to the 8-byte ledger/UserID handle,
-// byte-identically to lx's row encoding (big-endian over the leading 8 bytes,
-// zero-padded). The ledger key and the matcher's DEXTrade.MakerUserID/TakerUserID
-// MUST agree on this fold, so settlement credits the same account the trade
-// names. (lx's helper is unexported; replicating the trivial, canonical fold here
-// keeps the change inside the d-chain boundary. TestUserIDFoldMatchesLx pins the
-// parity.)
-func userID8(user string) uint64 {
-	var b [8]byte
-	copy(b[:], user)
-	return binary.BigEndian.Uint64(b[:])
-}
 
 // priceMultiplierBig mirrors lx.PriceMultiplier as a big.Int for exact lock math.
 var priceMultiplierBig = big.NewInt(lx.PriceMultiplier)
@@ -104,11 +91,12 @@ func priceToInt(price float64) lx.PriceInt {
 // orderLock returns the (asset, amount) a place/limit-submit of (side, price,
 // size) on a market with (base, quote) assets must lock. A buy locks quote =
 // ceil(size * price); a sell locks base = size. amount 0 means "nothing to lock"
-// (a degenerate order the matcher will reject anyway).
-func orderLock(side uint8, price float64, size float64, base, quote uint64) (asset, amount uint64) {
+// (a degenerate order the matcher will reject anyway). asset is the FULL 32-byte
+// id (base or quote), so the lock keys the SAME ledger row a deposit credited.
+func orderLock(side uint8, price float64, size float64, base, quote [32]byte) (asset [32]byte, amount uint64) {
 	units := sizeToUnits(size)
 	if units == 0 {
-		return 0, 0
+		return [32]byte{}, 0
 	}
 	if side == sideBuy {
 		return quote, quoteUnitsCeil(new(big.Int).SetUint64(units), priceToInt(price))
@@ -122,10 +110,48 @@ const (
 	sideSell uint8 = 1
 )
 
+// marketConstraint is the MINIMAL notional scaffold: just enough to express the
+// one constraint a value-bearing CLOB must enforce against integer flooring — an
+// executable order MUST reserve a non-zero lock. It deliberately does NOT model a
+// full fee/tick/lot/minNotional engine (that is a separate roadmap); the only
+// invariant here is "arithmetic flooring can never create a FREE executable order".
+//
+// The notional floor IS the lock: a BUY's notional is ceil(size*price) quote, a
+// SELL's is size base (orderLock). When that floors to zero for a positive-size,
+// positive-price executable order — a sub-tick price whose priceInt rounds to 0,
+// or a size that truncates below one atomic unit — the order would rest/cross while
+// reserving NOTHING. floorsToZeroLock is the single predicate that names that
+// condition; the placement gate rejects it with ErrDustPriceOrZeroLock.
+type marketConstraint struct {
+	base, quote [32]byte
+}
+
+// floorsToZeroLock reports whether an EXECUTABLE order (size>0, and for a limit
+// price>0) on this market would lock ZERO — the zero-notional reject condition.
+// It is exactly the negation of "orderLock yields a positive amount":
+//
+//	BUY  : size>0 && price>0 && ceil(size*price) == 0   (sub-tick price)
+//	SELL : size>0 && size(base units) == 0              (sub-unit size)
+//
+// A non-executable order (size<=0, or a limit with price<=0) is NOT this hazard —
+// the matcher rejects it earlier as malformed; floorsToZeroLock returns false so
+// the named dust reject is reserved for the precise "executable yet free" case.
+func (mc marketConstraint) floorsToZeroLock(side uint8, price, size float64) bool {
+	if !(size > 0) {
+		return false // not executable (zero/negative size) — handled as malformed, not dust
+	}
+	if side == sideBuy && !(price > 0) {
+		return false // a limit buy needs a price; price<=0 is malformed, not dust
+	}
+	_, lockAmt := orderLock(side, price, size, mc.base, mc.quote)
+	return lockAmt == 0
+}
+
 // creditDeposit applies a TxDeposit: available[user,asset] += amount. Returns the
-// amount credited (== amount; a deposit is never clamped).
-func creditDeposit(db database.KeyValueReaderWriterDeleter, user string, asset, amount uint64) (uint64, error) {
-	if err := creditAvailable(db, userID8(user), asset, amount); err != nil {
+// amount credited (== amount; a deposit is never clamped). asset is the FULL
+// 32-byte injective id.
+func creditDeposit(db database.KeyValueReaderWriterDeleter, user string, asset [32]byte, amount uint64) (uint64, error) {
+	if err := creditAvailable(db, userKey16(user), asset, amount); err != nil {
 		return 0, err
 	}
 	return amount, nil
@@ -135,9 +161,9 @@ func creditDeposit(db database.KeyValueReaderWriterDeleter, user string, asset, 
 // available). Returns the REALIZED amount debited so the proxy exports exactly
 // what left the ledger (a withdraw can only export realized, un-escrowed
 // balance). Clamping to available means an over-withdraw exports only what is
-// there — never mints.
-func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset, want uint64) (uint64, error) {
-	uid := userID8(user)
+// there — never mints. asset is the FULL 32-byte injective id.
+func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset [32]byte, want uint64) (uint64, error) {
+	uid := userKey16(user)
 	avail, err := getAvailable(db, uid, asset)
 	if err != nil {
 		return 0, err
@@ -175,7 +201,21 @@ func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset, 
 // non-nil); a fill without it is a programming error on the consensus path (the
 // VM sets SizeUnits on every order) and is refused rather than silently
 // mis-settled.
-func settleFills(db database.KeyValueReaderWriterDeleter, takerSide uint8, base, quote uint64, fills []lx.Trade) (takerSpent uint64, err error) {
+//
+// IDENTITY: the settlement identity is the WALLET (AccountID); UserID8 is only a
+// matcher hint. The TAKER is the submitter, whose full 16-byte wallet is carried on
+// the ephemeral order this block from the decoded clob_submit invocation context
+// (never the 8-byte row handle — the taker never rests, so its full wallet is always
+// in hand). The MAKER is a RESTING order whose in-RAM user is only 8 bytes after a
+// restart (RowToOrder folds the GPU row's 8-byte UserID handle), so its full wallet
+// is resolved EXCLUSIVELY through the orderuser: index by the maker's order id —
+// there is NO fallback to the trade's 8-byte-derived carried user. This guarantees
+// a maker fill credits the SAME full 16-byte wallet the maker's lock lives under,
+// live or post-restart.
+//
+// Settlement fails closed if full account identity is unavailable. Falling back
+// to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
+func settleFills(db database.KeyValueReaderWriterDeleter, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []lx.Trade) (takerSpent uint64, err error) {
 	for _, f := range fills {
 		if f.BaseUnits == nil || f.QuoteUnits == nil {
 			return 0, ErrFillMissingUnits
@@ -185,8 +225,11 @@ func settleFills(db database.KeyValueReaderWriterDeleter, takerSide uint8, base,
 		}
 		baseUnits := f.BaseUnits.Uint64()
 		quoteUnits := f.QuoteUnits.Uint64()
-		makerID := userID8(makerUserID(f, takerSide))
-		takerID := userID8(takerUserID(f, takerSide))
+		makerID, merr := makerSettleKey(db, poolID, f, takerSide)
+		if merr != nil {
+			return 0, merr
+		}
+		takerID := userKey16(takerUserID(f, takerSide))
 
 		if takerSide == sideBuy {
 			// Taker pays quote (from its locked quote) -> maker available quote.
@@ -225,15 +268,30 @@ func settleFills(db database.KeyValueReaderWriterDeleter, takerSide uint8, base,
 	return takerSpent, nil
 }
 
-// makerUserID returns the resting (maker) user string for a fill given the taker
-// side. If the taker bought, the maker sold (SellUserID); else the maker bought
-// (BuyUserID). Mirrors lx.persist.makerUser so the settled account matches the
-// trade row.
-func makerUserID(f lx.Trade, takerSide uint8) string {
-	if takerSide == sideBuy {
-		return pickUserID(f.SellUserID, f.Seller)
+// makerSettleKey resolves a fill's MAKER (the resting order) to its full 16-byte
+// settlement identity. The ONLY source is the orderuser: state row keyed by the
+// maker's resting order id — which survives a restart, unlike the in-RAM maker user
+// string (8-byte after RowToOrder). There is NO fallback: a fill against a resting
+// order with no orderuser: row FAILS CLOSED with ErrMissingSettlementUser (the block
+// is rejected, no value moves). Every order that rests on a balance-bearing market
+// persists its orderuser: row BEFORE it is matchable (lockOrderSpend), so a missing
+// row at settle time can only be state corruption — never a normal path.
+//
+// Settlement fails closed if full account identity is unavailable. Falling back
+// to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
+func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f lx.Trade, takerSide uint8) (userKey, error) {
+	makerOrderID := f.SellOrder // taker bought -> maker sold
+	if takerSide == sideSell {
+		makerOrderID = f.BuyOrder // taker sold -> maker bought
 	}
-	return pickUserID(f.BuyUserID, f.Buyer)
+	u, ok, err := getOrderUser(db, poolID, makerOrderID)
+	if err != nil {
+		return userKey{}, err
+	}
+	if !ok {
+		return userKey{}, fmt.Errorf("%w: maker order %d in market %x", ErrMissingSettlementUser, makerOrderID, poolID[:8])
+	}
+	return u, nil
 }
 
 // takerUserID returns the taker user string for a fill given the taker side.
