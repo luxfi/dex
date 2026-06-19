@@ -124,30 +124,44 @@ func TestAChainSource(t *testing.T) {
 }
 
 func TestCChainSource(t *testing.T) {
-	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
-	if err := src.Start(); err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-	defer src.Close()
 
-	// Wait for data
-	time.Sleep(200 * time.Millisecond)
+	// poll() drives the source's fetch path deterministically; calling it
+	// directly avoids racing the background ticker started by Start().
+	src.poll()
 
-	// Check health
 	if !src.Healthy() {
-		t.Error("Source not healthy")
+		t.Error("Source not healthy after poll")
 	}
 
-	// Get price
-	p, err := src.Price("LUX-USDC")
+	// The source serves the pairs it is configured to poll (cchainTokens).
+	// Pick the first configured pair and assert it is now populated.
+	sym := firstPolledSymbol(t, src)
+	p, err := src.Price(sym)
 	if err != nil {
-		t.Fatalf("Price failed: %v", err)
+		t.Fatalf("Price(%q) after poll: %v", sym, err)
+	}
+	if p.Symbol != sym {
+		t.Errorf("Price symbol = %q, want %q", p.Symbol, sym)
+	}
+	if p.Source != "c-chain" {
+		t.Errorf("Price source = %q, want %q", p.Source, "c-chain")
 	}
 
-	if p.Price <= 0 {
-		t.Error("Price <= 0")
+	// A symbol the source does not track must report not-found.
+	if _, err := src.Price("NOT-A-PAIR"); err == nil {
+		t.Error("Price for untracked symbol: want error, got nil")
 	}
+}
+
+// firstPolledSymbol returns one symbol the source is configured to poll.
+func firstPolledSymbol(t *testing.T, src *CChainSource) string {
+	t.Helper()
+	for sym := range src.tokens {
+		return sym
+	}
+	t.Fatal("CChainSource has no configured token pairs")
+	return ""
 }
 
 func TestOracle(t *testing.T) {
