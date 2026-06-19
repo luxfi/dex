@@ -178,6 +178,16 @@ func (vm *VM) loadHead() error {
 // restart path: after a crash the in-RAM books are reconstructed exactly from the
 // durable resting set, so trading resumes with the committed state. Must be
 // called under vm.mu.
+//
+// SETTLEMENT-IDENTITY BOOT ASSERTION: for every market whose (base,quote) assets
+// are bound (a CUSTODY market that locks/settles value), every resting order MUST
+// have an orderuser: mapping to its full 16-byte settlement identity. An order
+// reaching this point on a custody market always has one (lockOrderSpend persists
+// orderuser: BEFORE the order is matchable, and a custody order with no lock is
+// rejected), so a missing row is state corruption: FAIL BOOT rather than continue
+// on a degraded 8-byte path where a maker fill/cancel could only fall back to the
+// compact handle. (Asset-less / pre-custody markets never lock or settle value, so
+// their orders legitimately carry no orderuser: row and are not asserted.)
 func (vm *VM) rebuildAllBooks() error {
 	it := vm.db.NewIteratorWithPrefix([]byte(prefixMarket))
 	defer it.Release()
@@ -193,9 +203,42 @@ func (vm *VM) rebuildAllBooks() error {
 		if err != nil {
 			return fmt.Errorf("dchain: rebuild book %x: %w", poolID[:8], err)
 		}
+		if err := vm.assertOrderUserCoverage(poolID, ob); err != nil {
+			return err
+		}
 		vm.books[poolID] = ob
 	}
 	return it.Error()
+}
+
+// assertOrderUserCoverage enforces the settlement-identity boot invariant for one
+// market: if the market's assets are bound (custody market), every resting order
+// in the rebuilt book MUST have an orderuser: row. A missing row on a custody
+// market is unrecoverable state corruption (a maker fill/cancel could not resolve
+// the full account) — return an error so Initialize FAILS rather than booting a VM
+// that would settle on the degraded 8-byte handle. Asset-less markets are skipped:
+// they never lock or settle value, so their orders carry no orderuser: row by
+// design. Must be called under vm.mu.
+func (vm *VM) assertOrderUserCoverage(poolID [32]byte, ob *lx.OrderBook) error {
+	_, _, assetsBound, err := readMarketAssets(vm.db, poolID)
+	if err != nil {
+		return fmt.Errorf("dchain: read market %x assets for orderuser audit: %w", poolID[:8], err)
+	}
+	if !assetsBound {
+		return nil // asset-less / pre-custody market: no settlement, no orderuser invariant
+	}
+	for _, o := range ob.Orders {
+		if o == nil {
+			continue
+		}
+		if _, ok, gerr := getOrderUser(vm.db, poolID, o.ID); gerr != nil {
+			return fmt.Errorf("dchain: orderuser audit market %x order %d: %w", poolID[:8], o.ID, gerr)
+		} else if !ok {
+			return fmt.Errorf("dchain: %w: resting order %d on custody market %x has no orderuser row at boot (refusing to start on a degraded settlement path)",
+				ErrMissingSettlementUser, o.ID, poolID[:8])
+		}
+	}
+	return nil
 }
 
 // BookDepth reports the authoritative resting-book state for a market: the count
@@ -233,12 +276,13 @@ func (vm *VM) BookDepth(poolID [32]byte) (orders int, remaining, bestBid, bestAs
 // orders) amount, both in atomic asset units. It reads the durable ledger under
 // the VM lock — the authoritative committed state, not the in-RAM book — so a
 // caller (the proxy's withdraw leg, the venue daemon, tests) observes exactly
-// what consensus settled. user is the identity string; it is folded to the 8-byte
-// ledger handle internally.
-func (vm *VM) Balance(user string, asset uint64) (available, locked uint64, err error) {
+// what consensus settled. user is the identity string; it is rendered to the FULL
+// 16-byte ledger identity internally (no 8-byte fold). asset is the FULL 32-byte
+// injective asset id.
+func (vm *VM) Balance(user string, asset [32]byte) (available, locked uint64, err error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
-	uid := userID8(user)
+	uid := userKey16(user)
 	if available, err = getAvailable(vm.db, uid, asset); err != nil {
 		return 0, 0, err
 	}
@@ -330,6 +374,16 @@ func (vm *VM) LastAccepted(ctx context.Context) (ids.ID, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	return vm.lastAcceptedID, nil
+}
+
+// inFlightHeight returns the height of the single block that could currently be in
+// flight on this linear-chain proposer: lastAcceptedHeight+1. submitTx stamps a
+// tombstone with it (R4) so gcTombstones can reclaim the tombstone once that height
+// is accepted. Read under vm.mu to avoid a race with Accept's height advance.
+func (vm *VM) inFlightHeight() uint64 {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	return vm.lastAcceptedHeight + 1
 }
 
 // SetPreference records the block the engine wants the VM to build on. The
