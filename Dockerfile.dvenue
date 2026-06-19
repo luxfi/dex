@@ -100,10 +100,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
     go build -trimpath -tags "cgo" -ldflags="-s -w" \
-        -o /out/dvenue ./cmd/dvenue \
-    && CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
-    go build -trimpath -tags "cgo" -ldflags="-s -w" \
-        -o /out/dvenue-custody ./cmd/dvenue-custody
+        -o /out/dvenue ./cmd/dvenue
 
 # --- Build the dchain-tagged luxd (the proxy node) ---------------------------
 # Cloned from luxfi/node at a pinned release and built `-tags dchain` so it
@@ -162,12 +159,10 @@ COPY --from=builder /usr/local/include /usr/local/include
 RUN ldconfig 2>/dev/null || true
 
 # Binaries: the dchain luxd (venue node) + the EVM (C-Chain) plugin it loads +
-# dvenue (ZAP matcher) + the custody e2e driver (a bring-up tool; harmless to
-# ship). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
+# dvenue (ZAP matcher). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
 COPY --from=builder /luxd/build/luxd /luxd/build/luxd
 COPY --from=builder /luxd/build/plugins /luxd/build/plugins
 COPY --from=builder /out/dvenue /usr/local/bin/dvenue
-COPY --from=builder /out/dvenue-custody /usr/local/bin/dvenue-custody
 
 # Non-root (matches the operator StatefulSet securityContext runAsUser 1000).
 RUN groupadd -g 1000 venue && useradd -u 1000 -g venue -m -s /usr/sbin/nologin venue \
