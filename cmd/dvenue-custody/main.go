@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -58,7 +59,7 @@ func openMarket(ctx context.Context, c *rpc.ZAPConn, pool [32]byte, base, quote 
 }
 
 func deposit(ctx context.Context, c *rpc.ZAPConn, user string, asset, amount uint64) (uint64, error) {
-	resp, err := c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(user, asset, amount))
+	resp, err := c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(user, asset, amount, freshRef()))
 	if err != nil {
 		return 0, err
 	}
@@ -67,12 +68,26 @@ func deposit(ctx context.Context, c *rpc.ZAPConn, user string, asset, amount uin
 }
 
 func withdraw(ctx context.Context, c *rpc.ZAPConn, user string, asset, want uint64) (uint64, error) {
-	resp, err := c.Call(ctx, zapwire.MethodWithdraw, zapwire.EncodeWithdraw(user, asset, want))
+	resp, err := c.Call(ctx, zapwire.MethodWithdraw, zapwire.EncodeWithdraw(user, asset, want, freshRef()))
 	if err != nil {
 		return 0, err
 	}
 	_, realized, derr := zapwire.DecodeBalanceResp(resp)
 	return realized, derr
+}
+
+// freshRef returns a unique 32-byte idempotency ref for a genuinely-distinct
+// custody op. This live CLI issues each deposit/withdraw as its own operation (not
+// a retry), so each carries a fresh ref — distinct on the d-chain seen: index,
+// never deduped against a prior op. (Production callers supply the originating EVM
+// txHash / atomic import id; a live operator CLI has no such identity, so a CSPRNG
+// nonce is the correct unique reference.)
+func freshRef() [32]byte {
+	var r [32]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		panic("dvenue-custody: CSPRNG failure deriving custody ref: " + err.Error())
+	}
+	return r
 }
 
 func balance(ctx context.Context, c *rpc.ZAPConn, user string, asset uint64) (available, locked uint64, err error) {
