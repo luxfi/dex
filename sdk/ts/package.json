@@ -1,0 +1,69 @@
+{
+  "name": "@luxfi/dex-sdk",
+  "version": "0.1.0",
+  "description": "Clean-room BSD-3-Clause TypeScript client for the Lux DEX. One client surface over the four DEX paths: V4 precompile (LXPool 0x9010), ZAP binary wire, FIX 4.4, and the JSON WebSocket. No GPL/Uniswap-derived code.",
+  "license": "BSD-3-Clause",
+  "author": "Lux Industries Inc.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./precompile": {
+      "types": "./dist/precompile/index.d.ts",
+      "import": "./dist/precompile/index.js"
+    },
+    "./zap": {
+      "types": "./dist/zap/index.d.ts",
+      "import": "./dist/zap/index.js"
+    },
+    "./fix": {
+      "types": "./dist/fix/index.d.ts",
+      "import": "./dist/fix/index.js"
+    },
+    "./ws": {
+      "types": "./dist/ws/index.d.ts",
+      "import": "./dist/ws/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@luxfi/exchange": "1.1.0",
+    "viem": "^2.43.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luxfi/dex.git",
+    "directory": "sdk/ts"
+  },
+  "keywords": [
+    "lux",
+    "dex",
+    "sdk",
+    "clob",
+    "amm",
+    "fix",
+    "websocket",
+    "precompile",
+    "trading"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
