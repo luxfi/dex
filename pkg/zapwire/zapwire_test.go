@@ -26,12 +26,19 @@ func TestFrameSizesFrozen(t *testing.T) {
 		{"AckSize", AckSize, 24},
 		{"FillWireSize", FillWireSize, 17},
 		// Custody frames (additive, FROZEN). The chains/dexvm proxy re-defines
-		// these as DepositReqSize/WithdrawReqSize/BalanceRespSize (32/32/9) and the
+		// these as DepositReqSize/WithdrawReqSize/BalanceRespSize (88/88/9) and the
 		// precompile mirrors them; a change here breaks that cross-module parity.
-		{"AssetIDSize", AssetIDSize, 8},
-		{"DepositReqSize", DepositReqSize, 32},
-		{"WithdrawReqSize", WithdrawReqSize, 32},
-		{"OpenMarketReqSize", OpenMarketReqSize, 48},
+		// Deposit/Withdraw carry the FULL 32-byte injective asset id and the 32-byte
+		// idempotency ref (user[16]+asset[32]+amount[8]+ref[32]=88); the asset is the
+		// full id (NOT a truncated handle) so distinct assets never collide on the
+		// ledger key (the native-vault-drain fix); the ref unifies the EVM-txHash
+		// idempotency identity with the d-chain content-addressed seen: key.
+		{"AssetIDSize", AssetIDSize, 32},
+		{"RefSize", RefSize, 32},
+		{"DepositReqSize", DepositReqSize, 88},
+		{"WithdrawReqSize", WithdrawReqSize, 88},
+		{"OpenMarketReqSize", OpenMarketReqSize, 96},
+		{"BalanceReqSize", BalanceReqSize, 48},
 		{"BalanceRespSize", BalanceRespSize, 9},
 	}
 	for _, c := range cases {
@@ -60,32 +67,61 @@ func TestMethodNamesFrozen(t *testing.T) {
 
 // TestCustodyFramesRoundTrip pins the custody frame codecs (deposit/withdraw/
 // open-market/balance-resp) round-trip exactly — the bytes the proxy's atomic
-// rail and the d-chain ledger exchange.
+// rail and the d-chain ledger exchange. The 32-byte idempotency ref MUST survive
+// the round-trip: it is the field the d-chain folds into its seen: dedup key, so
+// a lost/garbled ref would reopen the vault-drain replay window.
 func TestCustodyFramesRoundTrip(t *testing.T) {
-	// deposit / withdraw
+	// deposit / withdraw — asset is the FULL 32-byte injective id.
+	mkAsset := func(b ...byte) [32]byte { var a [32]byte; copy(a[:], b); return a }
 	for _, tc := range []struct {
 		user   string
-		asset  uint64
+		asset  [32]byte
 		amount uint64
+		ref    [32]byte
 	}{
-		{"maker-a", 0x4c5558_00000001, 100},
-		{"taker-x", 0xdeadbeefcafef00d, 1<<63 + 7},
-		{"", 0, 0},
+		{"maker-a", mkAsset(0x4c, 0x55, 0x58, 0x00, 0x00, 0x00, 0x00, 0x01), 100, [32]byte{0x01, 0x02, 0xff}},
+		{"taker-x", mkAsset(0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xf0, 0x0d), 1<<63 + 7, [32]byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee}},
+		// Full-width id whose distinguishing bytes live in the LOW 24 bytes — a
+		// truncated 8-byte handle would lose them; the full id must survive intact.
+		{"deep-id", mkAsset(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xab, 0xcd, 0xef), 42, [32]byte{0x09}},
+		{"", [32]byte{}, 0, [32]byte{}},
 	} {
-		du, da, dm, err := DecodeDeposit(EncodeDeposit(tc.user, tc.asset, tc.amount))
-		if err != nil || du != tc.user || da != tc.asset || dm != tc.amount {
-			t.Fatalf("deposit round-trip (%q,%#x,%d) = (%q,%#x,%d) err=%v", tc.user, tc.asset, tc.amount, du, da, dm, err)
+		du, da, dm, dref, err := DecodeDeposit(EncodeDeposit(tc.user, tc.asset, tc.amount, tc.ref))
+		if err != nil || du != tc.user || da != tc.asset || dm != tc.amount || dref != tc.ref {
+			t.Fatalf("deposit round-trip (%q,%x,%d,%x) = (%q,%x,%d,%x) err=%v", tc.user, tc.asset[:8], tc.amount, tc.ref[:4], du, da[:8], dm, dref[:4], err)
 		}
-		wu, wa, wm, werr := DecodeWithdraw(EncodeWithdraw(tc.user, tc.asset, tc.amount))
-		if werr != nil || wu != tc.user || wa != tc.asset || wm != tc.amount {
-			t.Fatalf("withdraw round-trip (%q,%#x,%d) = (%q,%#x,%d) err=%v", tc.user, tc.asset, tc.amount, wu, wa, wm, werr)
+		wu, wa, wm, wref, werr := DecodeWithdraw(EncodeWithdraw(tc.user, tc.asset, tc.amount, tc.ref))
+		if werr != nil || wu != tc.user || wa != tc.asset || wm != tc.amount || wref != tc.ref {
+			t.Fatalf("withdraw round-trip (%q,%x,%d,%x) = (%q,%x,%d,%x) err=%v", tc.user, tc.asset[:8], tc.amount, tc.ref[:4], wu, wa[:8], wm, wref[:4], werr)
 		}
+	}
+
+	// COLLISION RESISTANCE (the asset-key fix): two assets that share their leading
+	// 8 bytes but differ in the LOW 24 bytes MUST encode to distinct asset fields.
+	// The old 8-byte handle truncated them to the SAME key (the collision bug); the
+	// full 32-byte id keeps them distinct on the wire (and so on the ledger key).
+	sharedHi := mkAsset(0, 0, 0, 0, 0, 0, 0, 0, 0x11) // low byte 0x11
+	sharedHiAlt := mkAsset(0, 0, 0, 0, 0, 0, 0, 0, 0x22)
+	_, a1, _, _, _ := DecodeDeposit(EncodeDeposit("u", sharedHi, 1, [32]byte{0x01}))
+	_, a2, _, _, _ := DecodeDeposit(EncodeDeposit("u", sharedHiAlt, 1, [32]byte{0x01}))
+	if a1 == a2 {
+		t.Fatal("two assets sharing leading 8 bytes decoded to the SAME id — truncation collision (native-vault-drain class)")
+	}
+
+	// The ref MUST change the encoded bytes: two custody frames identical in
+	// (user,asset,amount) but differing in ref are DIFFERENT bytes — that is the
+	// whole point (distinct d-chain txID -> distinct seen: key -> no replay).
+	a := EncodeWithdraw("alice", mkAsset(7), 1000, [32]byte{0x01})
+	b := EncodeWithdraw("alice", mkAsset(7), 1000, [32]byte{0x02})
+	if string(a) == string(b) {
+		t.Fatal("withdraw frames with distinct refs encoded identically — ref does not enter the wire (vault-drain dedup would collide)")
 	}
 	// open-market
 	pool := [32]byte{0xde, 0xad}
-	op, ob, oq, oerr := DecodeOpenMarket(EncodeOpenMarket(pool, 11, 22))
-	if oerr != nil || op != pool || ob != 11 || oq != 22 {
-		t.Fatalf("open-market round-trip = (%x,%d,%d) err=%v", op[:2], ob, oq, oerr)
+	baseA, quoteA := mkAsset(11), mkAsset(22)
+	op, ob, oq, oerr := DecodeOpenMarket(EncodeOpenMarket(pool, baseA, quoteA))
+	if oerr != nil || op != pool || ob != baseA || oq != quoteA {
+		t.Fatalf("open-market round-trip = (%x,%x,%x) err=%v", op[:2], ob[:2], oq[:2], oerr)
 	}
 	// balance-resp
 	bs, ba, berr := DecodeBalanceResp(EncodeBalanceResp(StatusPlaced, 12345))

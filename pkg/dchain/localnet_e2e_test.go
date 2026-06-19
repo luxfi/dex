@@ -1,8 +1,18 @@
 // Copyright (C) 2019-2025, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain && cgo
-// +build dchain,cgo
+//go:build !cgo
+// +build !cgo
+
+// Built under //go:build !cgo: this venue e2e exercises the PURE-GO consensus
+// path (rebuildable book, zapdb persistence, ZAP socket, match->Verify->Accept)
+// and needs no cgo/GPU matcher — the GPU accelerator is an opt-in venue
+// accelerator (cmd/dvenue, //go:build cgo), and the matching CORRECTNESS proven
+// here is identical on the CPU and GPU paths. The !cgo gate also keeps this test
+// in the package's CGO_ENABLED=0 test binary (the only one that links on a host
+// without luxcpp), so `CGO_ENABLED=0 go test ./pkg/dchain` runs the full venue
+// e2e green. (Was `dchain && cgo`; the dchain tag gated a removed kludge and the
+// cgo tag wrongly excluded a pure-Go proof — decomplected to the real axis.)
 
 package dchain
 

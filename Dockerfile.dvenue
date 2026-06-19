@@ -7,7 +7,8 @@
 # StatefulSet runs from one image:
 #
 #   /usr/local/bin/dvenue   — the ZAP matching engine (luxfi/dex cmd/dvenue,
-#                             built `-tags dchain,cgo`). This is the real CLOB:
+#                             //go:build cgo, built CGO_ENABLED=1). This is the
+#                             real CLOB:
 #                             it links the GPU matching kernels (libdex_clob_cuda
 #                             + libamm_xyk_cuda) and the secp256k1 ecrecover
 #                             bundle via pkg-config. The 0x9010 C-Chain precompile
@@ -88,18 +89,18 @@ RUN --mount=type=secret,id=ghtok,required=false \
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
 # --- Build dvenue (the GPU matcher) from luxfi/dex ---------------------------
-# cmd/dvenue is `//go:build dchain && cgo`. CGO_ENABLED=1 + GOARCH=arm64; the
-# pkg-config libs above satisfy orderbook_cuda + amm_gpu_cuda + signed_order_gpu.
+# cmd/dvenue is `//go:build cgo`: CGO_ENABLED=1 (which sets the `cgo` build tag)
+# selects pkg/lx's GPU matcher (orderbook_cuda + amm_gpu_cuda + signed_order_gpu,
+# all gated on `cgo`), satisfied by the pkg-config libs above. `-tags cgo` is
+# explicit-for-readability (CGO_ENABLED=1 already implies it). The pure-Go CPU
+# venue is cmd/dvenue-cpu (//go:build !cgo) — not built here.
 WORKDIR /build/dex
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
-    go build -trimpath -tags "dchain,cgo" -ldflags="-s -w" \
-        -o /out/dvenue ./cmd/dvenue \
-    && CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
-    go build -trimpath -tags "dchain,cgo" -ldflags="-s -w" \
-        -o /out/dvenue-custody ./cmd/dvenue-custody
+    go build -trimpath -tags "cgo" -ldflags="-s -w" \
+        -o /out/dvenue ./cmd/dvenue
 
 # --- Build the dchain-tagged luxd (the proxy node) ---------------------------
 # Cloned from luxfi/node at a pinned release and built `-tags dchain` so it
@@ -158,12 +159,10 @@ COPY --from=builder /usr/local/include /usr/local/include
 RUN ldconfig 2>/dev/null || true
 
 # Binaries: the dchain luxd (venue node) + the EVM (C-Chain) plugin it loads +
-# dvenue (ZAP matcher) + the custody e2e driver (a bring-up tool; harmless to
-# ship). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
+# dvenue (ZAP matcher). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
 COPY --from=builder /luxd/build/luxd /luxd/build/luxd
 COPY --from=builder /luxd/build/plugins /luxd/build/plugins
 COPY --from=builder /out/dvenue /usr/local/bin/dvenue
-COPY --from=builder /out/dvenue-custody /usr/local/bin/dvenue-custody
 
 # Non-root (matches the operator StatefulSet securityContext runAsUser 1000).
 RUN groupadd -g 1000 venue && useradd -u 1000 -g venue -m -s /usr/sbin/nologin venue \
