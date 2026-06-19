@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -19,6 +20,17 @@ import (
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/rpc"
 )
+
+// freshRef returns a unique 32-byte idempotency ref for a genuinely-distinct
+// custody op (each deposit/withdraw this live CLI issues is its own operation,
+// never a retry), so each is distinct on the d-chain seen: index.
+func freshRef() [32]byte {
+	var r [32]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		panic("dvenue-cancel: CSPRNG failure deriving custody ref: " + err.Error())
+	}
+	return r
+}
 
 const (
 	assetLUX  uint64 = 0x4c5558_00000001
@@ -75,8 +87,8 @@ func main() {
 		fmt.Println("FAIL open rejected")
 		os.Exit(1)
 	}
-	c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(maker, assetLUX, 100))
-	c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(taker, assetLUSD, 1000))
+	c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(maker, assetLUX, 100, freshRef()))
+	c.Call(ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(taker, assetLUSD, 1000, freshRef()))
 	fmt.Println("setup: open LUX/LUSD-CANCEL, deposit maker 100 LUX + taker 1000 LUSD")
 
 	// ---- CASE 1: plain place -> cancel returns the FULL lock ----

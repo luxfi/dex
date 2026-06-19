@@ -46,7 +46,11 @@ const (
 // and we can normalize it to zero after any data path that may leave
 // the bytes uninitialised. Same for DEXTrade.
 type DEXOrder struct {
-	OrderID   uint64   // 0..8
+	OrderID uint64 // 0..8
+	// UserID is a compact matcher/STP handle only. It is intentionally not
+	// collision-resistant and MUST NOT be used for balances, custody, settlement,
+	// withdraws, imports, exports, or liability accounting. Settlement identity is
+	// resolved exclusively through the orderuser index to the full AccountID/userKey.
 	UserID    uint64   // 8..16
 	Price     DEXPrice // 16..32
 	Quantity  uint64   // 32..40
