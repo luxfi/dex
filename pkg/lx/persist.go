@@ -35,11 +35,15 @@ import (
 // user field, used for on-device self-trade prevention). The wire/protocol user
 // is a 16-byte field and the book's Order.User is a string; the row folds that to
 // the leading 8 bytes (big-endian). This is sufficient for the matcher's STP and
-// for rebuilding price-time priority. The CANONICAL 16-byte settlement/dedup
-// identity is NOT a property of the order-book row — it lives in d-chain state
-// (the idempotency index keyed on user[16]+seq). Keeping the row at the GPU ABI's
-// 8-byte user is the decomplected choice: the book row models matching, d-chain
-// state models settlement identity.
+// for rebuilding price-time priority. The CANONICAL 16-byte settlement identity is
+// NOT a property of the order-book row — it lives in d-chain state: the custody
+// LEDGER keys balance:/locked: by the full user[16] (so two addresses sharing a
+// leading 8-byte prefix are DISTINCT accounts, never able to drain each other),
+// the idempotency index keys on user[16]+seq, and orderuser:<orderID> carries each
+// resting order's full user[16] so a maker fill credits the right account even
+// after a row-rebuilt restart truncated the in-RAM user to 8 bytes. Keeping the
+// row at the GPU ABI's 8-byte user is the decomplected choice: the book row models
+// matching, d-chain state models settlement identity.
 
 // QuantityScale is the fixed-point scale for the integer base quantity stored in
 // a DEXOrder row (Quantity / Remaining). A float64 size s is stored as

@@ -1,8 +1,8 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain && cgo
-// +build dchain,cgo
+//go:build cgo
+// +build cgo
 
 // Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
 // server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
@@ -18,8 +18,12 @@
 //   - additionally exposes a read-only clob_depth method for observing settled
 //     book state (reads need no consensus round-trip; see handler.go).
 //
-// Built under //go:build dchain && cgo so it links the cgo/GPU matching engine
-// (the venue accelerator); the pure-Go test path is unaffected.
+// Built under //go:build cgo so it links the cgo/GPU matching engine (the venue
+// accelerator) that pkg/lx selects on the cgo path (amm_gpu_cuda / amm_gpu_metal
+// / orderbook_cuda — all gated on `cgo`); the pure-Go CPU venue is cmd/dvenue-cpu
+// (//go:build !cgo). cgo vs !cgo is the ONE axis: GPU vs CPU, exactly one builds
+// per CGO_ENABLED. The old `dchain` tag gated a now-removed node kludge and added
+// nothing here — dropped.
 package main
 
 import (
@@ -173,7 +177,7 @@ func depthHandler(vm *dchain.VM) rpc.RawHandler {
 
 // balanceHandler serves clob_balance: a read-only observation of an account's
 // custody balances for an asset (available + locked), read from the durable
-// ledger via the VM's Balance accessor. Request: user[16] + asset[8]. Response:
+// ledger via the VM's Balance accessor. Request: user[16] + asset[32]. Response:
 // available[8] | locked[8].
 func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 	return func(_ context.Context, payload []byte) ([]byte, error) {
@@ -182,7 +186,8 @@ func balanceHandler(vm *dchain.VM) rpc.RawHandler {
 			return out, nil
 		}
 		user := string(trimNullBytes(payload[0:zapwire.UserSize]))
-		asset := binary.BigEndian.Uint64(payload[zapwire.UserSize : zapwire.UserSize+zapwire.AssetIDSize])
+		var asset [32]byte
+		copy(asset[:], payload[zapwire.UserSize:zapwire.UserSize+zapwire.AssetIDSize])
 		available, locked, err := vm.Balance(user, asset)
 		if err != nil {
 			return out, err
