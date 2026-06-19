@@ -1,9 +1,6 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build cgo
-// +build cgo
-
 // Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
 // server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
 // precompile (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy
@@ -15,15 +12,14 @@
 //   - runs the consensus sealer loop (WaitForEvent -> BuildBlock -> Verify ->
 //     Accept), so every write crosses the full match -> Verify -> Accept path
 //     and the bytes a caller gets back are consensus-computed fills,
-//   - additionally exposes a read-only clob_depth method for observing settled
-//     book state (reads need no consensus round-trip; see handler.go).
+//   - exposes read-only clob_depth + clob_balance observation methods for
+//     settled book and custody state (reads need no consensus round-trip).
 //
-// Built under //go:build cgo so it links the cgo/GPU matching engine (the venue
-// accelerator) that pkg/lx selects on the cgo path (amm_gpu_cuda / amm_gpu_metal
-// / orderbook_cuda — all gated on `cgo`); the pure-Go CPU venue is cmd/dvenue-cpu
-// (//go:build !cgo). cgo vs !cgo is the ONE axis: GPU vs CPU, exactly one builds
-// per CGO_ENABLED. The old `dchain` tag gated a now-removed node kludge and added
-// nothing here — dropped.
+// This is the ONE venue binary. CGO_ENABLED is the single axis that picks the
+// matcher: pkg/lx links the GPU matcher under cgo (amm_gpu_cuda / amm_gpu_metal
+// / orderbook_cuda) and the pure-Go CPU matcher without it (amm_nogpu /
+// orderbook_cuda_stub). The main is matcher-agnostic — it drives dchain.VM
+// either way; engineName (engine_{cgo,nocgo}.go) only labels the active build.
 package main
 
 import (
@@ -109,9 +105,9 @@ func main() {
 	}()
 
 	logger.Info("D-Chain venue serving",
-		"addr", server.Addr(), "db", *dir, "version", dchain.Version)
+		"addr", server.Addr(), "db", *dir, "version", dchain.Version, "engine", engineName)
 	// Emit a machine-greppable readiness line for the bring-up harness.
-	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + "\n")
+	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + " engine=" + engineName + "\n")
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
