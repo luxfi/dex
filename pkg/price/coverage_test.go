@@ -1,23 +1,9 @@
 package price
 
 import (
-	"net"
 	"testing"
 	"time"
 )
-
-// requireLuxd skips the test when no luxd C-chain RPC is reachable on the
-// expected localhost port. The CChainSource tests below talk to a real
-// node; gating prevents CI machines without a node from reporting these
-// as failures.
-func requireLuxd(t *testing.T) {
-	t.Helper()
-	conn, err := net.DialTimeout("tcp", "localhost:9650", 100*time.Millisecond)
-	if err != nil {
-		t.Skipf("luxd not reachable on localhost:9650 (%v); skipping integration test", err)
-	}
-	conn.Close()
-}
 
 // =============================================================================
 // OrderbookSource Tests
@@ -668,40 +654,52 @@ func TestCChainSourceStartIdempotent(t *testing.T) {
 }
 
 func TestCChainSourcePrices(t *testing.T) {
-	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
-	src.Start()
-	defer src.Close()
+	src.poll()
 
-	time.Sleep(200 * time.Millisecond)
+	// Collect two pairs the source is configured to track plus one it is not.
+	var tracked []string
+	for sym := range src.tokens {
+		tracked = append(tracked, sym)
+		if len(tracked) == 2 {
+			break
+		}
+	}
+	if len(tracked) < 2 {
+		t.Fatalf("source tracks only %d pairs; need >= 2", len(tracked))
+	}
+	query := append([]string{}, tracked...)
+	query = append(query, "NONEXISTENT")
 
-	prices, err := src.Prices([]string{"LUX-USDC", "LETH-USDC", "NONEXISTENT"})
+	prices, err := src.Prices(query)
 	if err != nil {
 		t.Fatalf("Prices failed: %v", err)
 	}
 
-	if len(prices) < 2 {
-		t.Errorf("Expected at least 2 prices, got %d", len(prices))
+	// Prices returns entries for tracked symbols and omits the untracked one.
+	if len(prices) != len(tracked) {
+		t.Errorf("got %d prices, want %d (tracked pairs only)", len(prices), len(tracked))
+	}
+	if _, ok := prices["NONEXISTENT"]; ok {
+		t.Error("Prices returned an entry for an untracked symbol")
 	}
 }
 
 func TestCChainSourceStalePrice(t *testing.T) {
-	requireLuxd(t)
 	src := NewCChainSource("http://localhost:9650", "ws://localhost:9650")
-	src.Start()
-	time.Sleep(200 * time.Millisecond)
-	src.Close()
+	src.poll()
 
-	// Manually set old timestamp
+	sym := firstPolledSymbol(t, src)
+
+	// Backdate the last-update so the staleness window (5s) is exceeded.
 	src.mu.Lock()
-	src.last["LUX-USDC"] = time.Now().Add(-10 * time.Second)
+	src.last[sym] = time.Now().Add(-10 * time.Second)
 	src.mu.Unlock()
 
-	p, err := src.Price("LUX-USDC")
+	p, err := src.Price(sym)
 	if err != nil {
-		t.Fatalf("Price failed: %v", err)
+		t.Fatalf("Price(%q): %v", sym, err)
 	}
-
 	if !p.Stale {
 		t.Error("Expected price to be stale")
 	}
