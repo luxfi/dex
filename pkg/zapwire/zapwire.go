@@ -278,11 +278,47 @@ func DecodeAck(resp []byte) (orderID uint64, status uint8, err error) {
 // the same sense — the precompile/proxy/d-chain re-define identical constants —
 // just newer.
 //
-// Asset identity is an 8-byte handle (AssetIDSize). On the EVM side the real
-// 20-byte ERC-20 / address(0) currency is folded to this handle by the
-// adapter (a stable map); inside the d-chain the handle IS the asset for
-// balance keying. 8 bytes matches the d-chain balance-key width and the
-// DEXOrder/DEXTrade UserID width — one consistent identity size end to end.
+// Asset identity is the FULL 32-byte asset id (AssetIDSize), NOT a truncated
+// handle. Keying a value-bearing custody ledger by a truncated id is unsound: a
+// truncation maps distinct assets to the same key, so a worthless token whose id
+// folds to the native-LUX key could mint a native claim and drain the native
+// vault (and two tokens sharing the truncated prefix collide). The id is
+// therefore carried and keyed at FULL width, derived by an INJECTIVE map on each
+// rail so distinct assets NEVER collide:
+//   - native LUX  = a reserved all-zero id (ids.Empty on the proxy rail);
+//   - ERC-20      = the 20-byte C-Chain address embedded in 32 bytes (left-pad),
+//                   so two distinct token addresses — or a token vs native — map
+//                   to two distinct ids.
+// The d-chain keys balance:/locked: (and the market (base,quote) binding and the
+// per-order reserve) by this full 32-byte id. The DEXOrder/DEXTrade matcher rows
+// carry NO asset field (they key by user+order id), so widening the asset leaves
+// the FROZEN matcher row ABI byte-identical — the asset lives only in the ledger
+// keyspace, never on the hot order/trade frames.
+//
+// IDEMPOTENCY REFERENCE (ref[32]) — the funds-safety field. A deposit (mint)
+// and a withdraw (burn + vault release) are IRREVERSIBLE, so "is this the same
+// operation?" MUST mean the same thing on BOTH sides of the rail: the EVM
+// precompile, which keys replay-idempotency on the executing tx, and the
+// d-chain, which content-addresses its dedup index (seen:<txID>) on the FULL
+// frame. The custody frames therefore carry a 32-byte ref — the originating
+// transaction's identity (EVM txHash on the precompile rail; the consumed
+// import / settlement reference on the chains/dexvm atomic rail). Because the
+// d-chain txID = Checksum256(type‖body) hashes the WHOLE body, the ref is folded
+// into the seen: key automatically: two GENUINELY distinct custody ops (distinct
+// originating tx, hence distinct ref) are distinct on the d-chain too — so a
+// second genuine withdraw re-clamps to CURRENT available (0 after the first) and
+// releases nothing, instead of the seen: index replaying the first realized
+// amount against a vault that already paid (the drain). A byte-identical retry of
+// ONE op (same ref) still dedups to exactly-once. The ref is ASSET-GENERIC: it is
+// opaque 32 bytes that serves the native (address(0)) and ERC-20 rails identically
+// — the asset[8] handle distinguishes the currency, the ref distinguishes the op.
+//
+// The ref is APPENDED at the tail of the custody body, so user[16]/asset[8]/
+// amount[8] keep their original offsets (0/16/24) — every existing decode site is
+// unchanged; only the body grows by 32 and a new ref read is added. The four
+// FROZEN order frames are NOT touched: their sizes, offsets, and codecs are
+// byte-identical to before (the matchers byte-match on them), and this block adds
+// nothing to them.
 const (
 	// MethodDeposit credits an account's available balance from value the proxy
 	// atomically imported (shared-memory ImportTx). Funds-IN leg.
@@ -296,88 +332,119 @@ const (
 )
 
 const (
-	// AssetIDSize is the on-wire asset handle width (matches the balance-key and
-	// DEXOrder.UserID width).
-	AssetIDSize = 8
+	// AssetIDSize is the on-wire asset id width: the FULL 32-byte injective asset
+	// id (NOT a truncated handle). It keys the d-chain balance:/locked: ledger and
+	// the market (base,quote) binding. See the custody block comment for why a
+	// truncated key is unsound (native-vault drain via id collision).
+	AssetIDSize = 32
 
-	// DepositReqSize: user[16] + asset[8] + amount[8].
-	DepositReqSize = UserSize + AssetIDSize + 8 // 32
+	// RefSize is the on-wire idempotency-reference width: the 32-byte identity of
+	// the originating transaction (EVM txHash / atomic import reference) that the
+	// d-chain folds into its content-addressed seen: dedup key. See the custody
+	// block comment above.
+	RefSize = 32
 
-	// WithdrawReqSize: user[16] + asset[8] + amount[8].
-	WithdrawReqSize = UserSize + AssetIDSize + 8 // 32
+	// DepositReqSize: user[16] + asset[32] + amount[8] + ref[32].
+	DepositReqSize = UserSize + AssetIDSize + 8 + RefSize // 88
 
-	// OpenMarketReqSize: poolId[32] + baseAsset[8] + quoteAsset[8].
-	OpenMarketReqSize = PoolIDSize + AssetIDSize + AssetIDSize // 48
+	// WithdrawReqSize: user[16] + asset[32] + amount[8] + ref[32].
+	WithdrawReqSize = UserSize + AssetIDSize + 8 + RefSize // 88
+
+	// OpenMarketReqSize: poolId[32] + baseAsset[32] + quoteAsset[32].
+	OpenMarketReqSize = PoolIDSize + AssetIDSize + AssetIDSize // 96
+
+	// BalanceReqSize: user[16] + asset[32]. The read-only balance observation.
+	BalanceReqSize = UserSize + AssetIDSize // 48
 
 	// BalanceRespSize: status[1] + amount[8]. A deposit/withdraw response reports
 	// the amount actually credited/debited (a withdraw clamps to available, so the
 	// caller — the proxy export leg — learns the exact realized amount to export).
 	BalanceRespSize = 1 + 8
+
+	// custodyRefOff is the byte offset of ref[32] within a deposit/withdraw body
+	// (after user[16]+asset[32]+amount[8]).
+	custodyRefOff = UserSize + AssetIDSize + 8 // 56
+
+	// custodyAmountOff is the byte offset of amount[8] within a deposit/withdraw
+	// body (after user[16]+asset[32]).
+	custodyAmountOff = UserSize + AssetIDSize // 48
 )
 
-// EncodeDeposit builds a deposit request: user[16] + asset[8] + amount[8].
-func EncodeDeposit(user string, asset uint64, amount uint64) []byte {
+// EncodeDeposit builds a deposit request: user[16] + asset[32] + amount[8] +
+// ref[32]. asset is the FULL 32-byte injective asset id (see the custody block
+// comment). ref is the originating-tx idempotency reference; it folds into the
+// d-chain seen: key via the content-addressed txID.
+func EncodeDeposit(user string, asset [32]byte, amount uint64, ref [32]byte) []byte {
 	out := make([]byte, DepositReqSize)
 	copy(out[0:UserSize], padNull(user, UserSize))
-	binary.BigEndian.PutUint64(out[UserSize:UserSize+AssetIDSize], asset)
-	binary.BigEndian.PutUint64(out[UserSize+AssetIDSize:], amount)
+	copy(out[UserSize:custodyAmountOff], asset[:])
+	binary.BigEndian.PutUint64(out[custodyAmountOff:custodyRefOff], amount)
+	copy(out[custodyRefOff:custodyRefOff+RefSize], ref[:])
 	return out
 }
 
-// DecodeDeposit parses a deposit request.
-func DecodeDeposit(payload []byte) (user string, asset uint64, amount uint64, err error) {
+// DecodeDeposit parses a deposit request, returning the full 32-byte asset id and
+// the idempotency ref.
+func DecodeDeposit(payload []byte) (user string, asset [32]byte, amount uint64, ref [32]byte, err error) {
 	if len(payload) < DepositReqSize {
 		err = fmt.Errorf("zapwire: deposit payload too short: %d", len(payload))
 		return
 	}
 	user = string(trimNull(payload[0:UserSize]))
-	asset = binary.BigEndian.Uint64(payload[UserSize : UserSize+AssetIDSize])
-	amount = binary.BigEndian.Uint64(payload[UserSize+AssetIDSize : UserSize+AssetIDSize+8])
+	copy(asset[:], payload[UserSize:custodyAmountOff])
+	amount = binary.BigEndian.Uint64(payload[custodyAmountOff:custodyRefOff])
+	copy(ref[:], payload[custodyRefOff:custodyRefOff+RefSize])
 	return
 }
 
-// EncodeWithdraw builds a withdraw request: user[16] + asset[8] + amount[8].
-// amount is the requested withdrawal; the d-chain clamps it to the account's
-// available balance and reports the realized amount in the response.
-func EncodeWithdraw(user string, asset uint64, amount uint64) []byte {
+// EncodeWithdraw builds a withdraw request: user[16] + asset[32] + amount[8] +
+// ref[32]. asset is the FULL 32-byte injective asset id; amount is the requested
+// withdrawal (the d-chain clamps it to available and reports the realized amount
+// in the response). ref is the originating-tx idempotency reference.
+func EncodeWithdraw(user string, asset [32]byte, amount uint64, ref [32]byte) []byte {
 	out := make([]byte, WithdrawReqSize)
 	copy(out[0:UserSize], padNull(user, UserSize))
-	binary.BigEndian.PutUint64(out[UserSize:UserSize+AssetIDSize], asset)
-	binary.BigEndian.PutUint64(out[UserSize+AssetIDSize:], amount)
+	copy(out[UserSize:custodyAmountOff], asset[:])
+	binary.BigEndian.PutUint64(out[custodyAmountOff:custodyRefOff], amount)
+	copy(out[custodyRefOff:custodyRefOff+RefSize], ref[:])
 	return out
 }
 
-// DecodeWithdraw parses a withdraw request.
-func DecodeWithdraw(payload []byte) (user string, asset uint64, amount uint64, err error) {
+// DecodeWithdraw parses a withdraw request, returning the full 32-byte asset id
+// and the idempotency ref.
+func DecodeWithdraw(payload []byte) (user string, asset [32]byte, amount uint64, ref [32]byte, err error) {
 	if len(payload) < WithdrawReqSize {
 		err = fmt.Errorf("zapwire: withdraw payload too short: %d", len(payload))
 		return
 	}
 	user = string(trimNull(payload[0:UserSize]))
-	asset = binary.BigEndian.Uint64(payload[UserSize : UserSize+AssetIDSize])
-	amount = binary.BigEndian.Uint64(payload[UserSize+AssetIDSize : UserSize+AssetIDSize+8])
+	copy(asset[:], payload[UserSize:custodyAmountOff])
+	amount = binary.BigEndian.Uint64(payload[custodyAmountOff:custodyRefOff])
+	copy(ref[:], payload[custodyRefOff:custodyRefOff+RefSize])
 	return
 }
 
-// EncodeOpenMarket builds an open-market request: poolId[32] + baseAsset[8] +
-// quoteAsset[8].
-func EncodeOpenMarket(poolID [32]byte, baseAsset, quoteAsset uint64) []byte {
+// EncodeOpenMarket builds an open-market request: poolId[32] + baseAsset[32] +
+// quoteAsset[32]. The assets are the FULL 32-byte injective ids the d-chain keys
+// the ledger by, so an order's locked spend names the SAME asset key a deposit
+// credited.
+func EncodeOpenMarket(poolID [32]byte, baseAsset, quoteAsset [32]byte) []byte {
 	out := make([]byte, OpenMarketReqSize)
 	copy(out[0:PoolIDSize], poolID[:])
-	binary.BigEndian.PutUint64(out[PoolIDSize:PoolIDSize+AssetIDSize], baseAsset)
-	binary.BigEndian.PutUint64(out[PoolIDSize+AssetIDSize:], quoteAsset)
+	copy(out[PoolIDSize:PoolIDSize+AssetIDSize], baseAsset[:])
+	copy(out[PoolIDSize+AssetIDSize:], quoteAsset[:])
 	return out
 }
 
 // DecodeOpenMarket parses an open-market request.
-func DecodeOpenMarket(payload []byte) (poolID [32]byte, baseAsset, quoteAsset uint64, err error) {
+func DecodeOpenMarket(payload []byte) (poolID [32]byte, baseAsset, quoteAsset [32]byte, err error) {
 	if len(payload) < OpenMarketReqSize {
 		err = fmt.Errorf("zapwire: open-market payload too short: %d", len(payload))
 		return
 	}
 	copy(poolID[:], payload[0:PoolIDSize])
-	baseAsset = binary.BigEndian.Uint64(payload[PoolIDSize : PoolIDSize+AssetIDSize])
-	quoteAsset = binary.BigEndian.Uint64(payload[PoolIDSize+AssetIDSize : PoolIDSize+2*AssetIDSize])
+	copy(baseAsset[:], payload[PoolIDSize:PoolIDSize+AssetIDSize])
+	copy(quoteAsset[:], payload[PoolIDSize+AssetIDSize:PoolIDSize+2*AssetIDSize])
 	return
 }
 

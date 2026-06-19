@@ -55,11 +55,12 @@ type applyResult struct {
 	TakerSide lx.Side
 	// Placed is the order a TxPlace rested (nil otherwise).
 	Placed *lx.Order
-	// Canceled is the order id a TxCancel removed (0 otherwise).
+	// Canceled is the order id a TxCancel removed (0 otherwise). The cancelled
+	// order's SETTLEMENT identity is NOT carried here: the custody unlock resolves
+	// it exclusively through the orderuser: index by this order id (settle.go /
+	// settleOrderEffects), never from the matcher's 8-byte in-RAM owner — so a
+	// post-restart cancel unlocks to the SAME full account the lock lives under.
 	Canceled uint64
-	// CanceledOwner is the user identity of the cancelled order (so the custody
-	// ledger unlocks its reserve to the right account). Empty unless Canceled != 0.
-	CanceledOwner string
 	// Touched are resting orders whose remaining changed due to a submit cross
 	// (the makers); their rows must be rewritten/deleted.
 	Touched []*lx.Order
@@ -127,24 +128,20 @@ func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex
 
 // applyCancel decodes a zapwire Cancel body and removes the resting order. A
 // cancel of an unknown order is a deterministic no-op (the matcher returns an
-// error which we map to an empty result — every validator sees the same).
+// error which we map to an empty result — every validator sees the same). The
+// cancelled order's owner is NOT captured here: the custody unlock resolves the
+// full settlement identity through the orderuser: index (settleOrderEffects), so
+// the matcher's 8-byte in-RAM owner never participates in a value move.
 func applyCancel(book *lx.OrderBook, tx *Tx) (applyResult, error) {
 	orderID := binary.BigEndian.Uint64(tx.Body[zapwire.PoolIDSize : zapwire.PoolIDSize+8])
-	// Snapshot the order before cancel so we know it existed (for the delta) and
-	// capture its owner so the custody ledger unlocks the reserve to the right
-	// account.
-	o := book.GetOrder(orderID)
-	if o == nil {
+	// Snapshot the order before cancel so we know it existed (for the delta).
+	if book.GetOrder(orderID) == nil {
 		return applyResult{}, nil
-	}
-	owner := o.User
-	if owner == "" {
-		owner = o.UserID
 	}
 	if err := book.CancelOrder(orderID); err != nil {
 		return applyResult{}, nil
 	}
-	return applyResult{Canceled: orderID, CanceledOwner: owner}, nil
+	return applyResult{Canceled: orderID}, nil
 }
 
 // applySubmit decodes a zapwire Submit body and crosses the book. The marketable
