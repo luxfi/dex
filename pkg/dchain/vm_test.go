@@ -92,10 +92,17 @@ func buildVerifyAccept(t *testing.T, vm *VM) *Block {
 	if err := reparsed.Verify(ctx); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
+	// Snapshot the per-tx outcomes set at Verify so the accepted block retains them
+	// for test inspection (Accept clears blk.outcomes after resolving waiters). The
+	// ownership harness reads a submit block's fills from here.
+	blk := reparsed.(*Block)
+	snap := make([]txOutcome, len(blk.outcomes))
+	copy(snap, blk.outcomes)
 	if err := reparsed.Accept(ctx); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	return reparsed.(*Block)
+	blk.outcomes = snap
+	return blk
 }
 
 // TestVMLifecycle is the step-3 end-to-end proof: Initialize a fresh VM, place
