@@ -95,8 +95,8 @@ build-fpga-f2:
 
 build-tools:
 	@echo "🔨 Building tools..."
-	@$(GOBUILD) -o $(BINARY_DIR)/lx-trader ./cmd/trader 2>/dev/null || true
-	@$(GOBUILD) -o $(BINARY_DIR)/lx-metrics ./cmd/lx-metrics 2>/dev/null || true
+	@$(GOBUILD) -o $(BINARY_DIR)/price-feed ./cmd/price-feed
+	@$(GOBUILD) -o $(BINARY_DIR)/monitor ./cmd/monitor
 
 # Test targets
 test:
