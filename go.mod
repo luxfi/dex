@@ -5,12 +5,10 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/luxfi/accel v1.2.4
-	github.com/luxfi/consensus v1.25.17
+	github.com/luxfi/consensus v1.25.18
 	github.com/luxfi/crypto v1.19.21
-	github.com/luxfi/czmq/v4 v4.2.2
 	github.com/luxfi/database v1.19.0
-	github.com/luxfi/geth v1.16.98
+	github.com/luxfi/geth v1.17.11
 	github.com/luxfi/ids v1.2.15
 	github.com/luxfi/log v1.4.3
 	github.com/luxfi/pq v1.0.3
@@ -64,6 +62,7 @@ require (
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/luxfi/accel v1.2.4 // indirect
 	github.com/luxfi/age v1.5.0 // indirect
 	github.com/luxfi/api v1.0.15 // indirect
 	github.com/luxfi/atomic v1.0.0 // indirect
@@ -87,7 +86,7 @@ require (
 	github.com/luxfi/upgrade v1.0.1 // indirect
 	github.com/luxfi/utils v1.2.0 // indirect
 	github.com/luxfi/validators v1.2.0 // indirect
-	github.com/luxfi/warp v1.19.2 // indirect
+	github.com/luxfi/warp v1.19.3 // indirect
 	github.com/luxfi/zap v0.7.2 // indirect
 	github.com/luxfi/zapdb v1.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
