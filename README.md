@@ -86,6 +86,12 @@ chmod +x lx-dex
 
 ## Architecture
 
+On-chain settlement follows **D matches · C settles**: the D-Chain (`dexvm`)
+matches and BLS-signs a `DFillReceipt`; the C-Chain receipt-settlement precompile
+`0x9999` (Uniswap-V4 `PoolManager` ABI) verifies the certificate inline and settles
+under Block-STM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#on-chain-settlement-cd)
+and the normative spec **LP-9999**.
+
 The DEX uses a multi-engine architecture:
 
 - **Pure Go Engine**: Portable, 830K orders/sec

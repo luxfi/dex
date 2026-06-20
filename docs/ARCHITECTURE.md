@@ -143,6 +143,48 @@ func (c *Clearinghouse) SettleTrade(trade *Trade) error {
 }
 ```
 
+### On-chain settlement (C↔D)
+
+The matching engine above runs on the **D-Chain** (`dexvm`). It does not move
+EVM balances directly. Instead, **D matches and C settles**: the D-Chain matches
+an order, emits a `DFillReceipt`, and a D-validator quorum BLS-signs the receipt
+root; the **C-Chain** receipt-settlement precompile at `0x9999` then verifies that
+certificate inline and debits/credits EVM balances.
+
+```
+┌──────────────── D-CHAIN (dexvm, ~10 validators) ────────────────┐
+│  match order  →  fill  →  DFillReceipt  →  BLS-sign receipt root │
+└───────────────────────────────┬─────────────────────────────────┘
+                                 │ receipt + Merkle proof + BLS cert
+                                 │ (in V4 hookData / predicate rail)
+┌───────────────────────────────▼─────────────────────────────────┐
+│  C-CHAIN 0x9999 (cEVM, ~1000 validators)                        │
+│    verify cert INLINE (deterministic → fork-safe)               │
+│    debit tokenIn(sender) · credit tokenOut(recipient)           │
+│    mark consumedReceipt[receiptID]  ·  Block-STM parallel        │
+└──────────────────────────────────────────────────────────────────┘
+
+   D matches · C settles · BLS certifies day-1 · Q later · X finalizes
+```
+
+Key properties:
+
+- **Build vs verify**: only the build/propose path touches a live matcher; the
+  C-Chain verify path settles **solely** from the certificate, never calling a
+  live matcher — this is what keeps a single-tx synchronous swap fork-safe.
+- **Uniswap-V4 ABI**: `0x9999` exposes the V4 `PoolManager` ABI unchanged, so
+  existing routers/clients work with only an address change (`0x9010` is
+  deprecated; same impl, same namespace).
+- **Block-STM**: fine-grained per-account/asset/receipt/pool keys, no global hot
+  slots, so thousands of independent fills settle in parallel.
+- **Upgradeable cert**: `certType` (BLS day-1 → Q / PQ / ZK) is resolved via an
+  on-chain verifier registry with no ABI change.
+- **Halt**: multi-layer, fund-preserving default (stop new swaps; allow cancel,
+  settle of safe receipts, and withdrawals).
+
+The normative specification is **LP-9999** (`DEX V4 Receipt-Settlement
+Precompile`); this document references it and does not duplicate it.
+
 ### 5. DAG Consensus
 
 Directed Acyclic Graph consensus for parallel processing.
