@@ -36,7 +36,6 @@ echo -e "${GREEN}✅ Staking keys generated${NC}"
 mkdir -p $DATA_DIR/configs/chains/C
 cat > $DATA_DIR/configs/chains/C/config.json << 'EOF'
 {
-  "snowman-api-enabled": false,
   "coreth-admin-api-enabled": false,
   "eth-apis": ["public-eth","public-eth-filter","net","web3","internal-public-eth","internal-public-blockchain","internal-public-transaction-pool"],
   "rpc-gas-cap": 50000000,
