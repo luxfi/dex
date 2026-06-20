@@ -18,6 +18,26 @@ LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Net
 4. **Multi-Engine Performance**: Go (1M ops/s), C++ (500K ops/s), GPU/MLX (434M ops/s)
 5. **Universal Protocol Support**: JSON-RPC, gRPC, WebSocket, QZMQ, ZAP (HFT)
 
+## On-Chain Settlement: D matches · C settles (0x9999)
+
+The DEX matching engine runs on the **D-Chain** (`dexvm`) and does not move EVM
+balances directly. Settlement uses a strict **D matches · C settles** split:
+
+- **D-Chain** matches the order, emits a `DFillReceipt`, and a D-validator quorum
+  BLS-signs the receipt root.
+- **C-Chain** precompile `0x9999` (Uniswap-V4 `PoolManager` ABI, receipt-settlement
+  only — **not** a matcher) verifies that certificate **inline** (BLS verify is
+  deterministic → fork-safe), debits/credits balances, and marks the receipt
+  consumed. Settlement is Block-STM-parallel with fine-grained keys (no global hot
+  slots). The verify path NEVER calls a live matcher.
+- `certType` (BLS day-1 → Q / PQ / ZK) upgrades via an on-chain verifier registry
+  with no ABI change. `0x9010` is **deprecated** (alias/disabled, same impl +
+  `dex.precompile.v1.9999.*` namespace).
+
+> Slogan: **D matches · C settles · BLS certifies day-1 · Q later · X finalizes.**
+> Normative spec: **LP-9999** (`~/work/lux/lps/LPs/lp-9999-dex-v4-receipt-settlement-precompile.md`).
+> This file summarizes; it does not duplicate the spec.
+
 ## Architecture Overview
 
 ```

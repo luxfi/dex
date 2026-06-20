@@ -312,13 +312,13 @@ func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
 	order.RemainingSize = order.Size
 	order.Filled = 0
 
-	// Capture the trade-log tail BEFORE matching so we can slice off exactly the
-	// trades this order produced. tryMatchImmediateLocked appends each fill to
-	// ob.Trades; we hold ob.mu for the whole window, so nothing else interleaves.
-	startTrades := len(ob.Trades)
-	ob.tryMatchImmediateLocked(order)
-
-	produced := ob.Trades[startTrades:]
+	// tryMatchImmediateLocked returns exactly this order's fills, captured as they
+	// are produced — NOT re-sliced from ob.Trades, whose 100k->50k self-truncation
+	// would make a pre-match offset stale (and panic) once a hot market crosses the
+	// boundary mid-match. We hold ob.mu for the whole window, so the match is atomic.
+	// Copy into an exactly-sized slice so the returned value does not alias the
+	// matcher's internal append buffer.
+	produced := ob.tryMatchImmediateLocked(order)
 	fills := make([]Trade, len(produced))
 	copy(fills, produced)
 	return fills, nil
@@ -386,7 +386,7 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 	// Only match immediately for IOC/FOK orders
 	// Regular limit orders are added to book and matched via MatchOrders()
 	if order.TimeInForce == ImmediateOrCancel || order.TimeInForce == FillOrKill {
-		numTrades = ob.tryMatchImmediateLocked(order)
+		numTrades = uint64(len(ob.tryMatchImmediateLocked(order)))
 
 		if order.TimeInForce == FillOrKill && order.RemainingSize > 0 {
 			order.Status = Rejected
@@ -427,7 +427,7 @@ func (ob *OrderBook) AddOrder(order *Order) uint64 {
 
 		// Match immediately if enabled (for optimized order book)
 		if ob.EnableImmediateMatching {
-			numTrades += ob.tryMatchImmediateLocked(order)
+			numTrades += uint64(len(ob.tryMatchImmediateLocked(order)))
 		}
 
 		// Publish market data update
@@ -669,9 +669,18 @@ func (tree *OrderTree) getBestOrderViaHeap() *Order {
 	return nil
 }
 
-// tryMatchImmediateLocked with optimized matching
-func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
-	numTrades := uint64(0)
+// tryMatchImmediateLocked matches order against the opposite side and returns the
+// fills it produced, in match order. The returned slice is built up locally as
+// each fill is created, so it is exactly this call's fills and is INDEPENDENT of
+// ob.Trades: the shared trade log self-truncates at 100k entries (keeps the last
+// 50k), so any offset captured into ob.Trades before matching goes stale the
+// moment a sustained-hot market crosses that boundary mid-match — re-slicing
+// ob.Trades[offset:] then panics with "slice bounds out of range". Capturing fills
+// here, before they reach the log, decomplects "this match's fills" (a value the
+// caller needs) from "the trade log" (a bounded-retention buffer): correct across
+// the truncation boundary and deterministic across validators by construction.
+func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
+	var fills []Trade
 
 	if order.RemainingSize == 0 && order.Size > 0 {
 		order.RemainingSize = order.Size
@@ -798,7 +807,10 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 			bestOrder.Status = PartiallyFilled
 		}
 
-		// Add trade
+		// Capture this fill for the caller BEFORE it enters the shared log, then
+		// append to the log. fills is this call's authoritative return value and is
+		// never re-derived from ob.Trades, so the truncation below cannot corrupt it.
+		fills = append(fills, trade)
 		ob.Trades = append(ob.Trades, trade)
 		if ob.tradesBuffer != nil {
 			ob.tradesBuffer.Add(trade)
@@ -808,11 +820,9 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) uint64 {
 		if len(ob.Trades) > 100000 {
 			ob.Trades = ob.Trades[len(ob.Trades)-50000:]
 		}
-
-		numTrades++
 	}
 
-	return numTrades
+	return fills
 }
 
 // processMarketOrderOptimized handles market orders
@@ -859,9 +869,11 @@ func (ob *OrderBook) MatchOrders() []Trade {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
-	// Clear existing trades for this matching session
-	startingTradeCount := len(ob.Trades)
-
+	// trades accumulates this session's fills as they are produced; it is the
+	// authoritative return value. We deliberately do NOT re-slice ob.Trades[start:]
+	// at the end: ob.Trades self-truncates at 100k entries (keeps the last 50k), so
+	// an offset captured here goes stale and panics ("slice bounds out of range")
+	// the moment the log crosses that boundary inside this loop on a hot market.
 	trades := make([]Trade, 0)
 
 	for {
@@ -954,6 +966,9 @@ func (ob *OrderBook) MatchOrders() []Trade {
 			trade.MatchType = "full"
 		}
 
+		// Capture the fill for the caller BEFORE it enters the shared log, then
+		// append to the log. trades is independent of ob.Trades, so the truncation
+		// below cannot corrupt this session's returned fills.
 		trades = append(trades, trade)
 		ob.Trades = append(ob.Trades, trade)
 
@@ -963,10 +978,7 @@ func (ob *OrderBook) MatchOrders() []Trade {
 		}
 	}
 
-	// Return only trades generated in this MatchOrders call
-	if startingTradeCount < len(ob.Trades) {
-		return ob.Trades[startingTradeCount:]
-	}
+	// Return exactly the fills generated in this MatchOrders call.
 	return trades
 }
 
