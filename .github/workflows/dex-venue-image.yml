@@ -1,4 +1,4 @@
-# Build + push the D-Chain VENUE image — ghcr.io/luxfi/dchain-venue.
+# Build + push the D-Chain VENUE image (dex family) — ghcr.io/luxfi/dex-venue.
 #
 # This is the missing artifact that blocks D-Chain turn-on: the dchain-tagged
 # luxd + the dvenue GPU matching engine in one image (see Dockerfile.dvenue).
@@ -14,7 +14,7 @@
 # PREREQUISITE: luxcpp/dex dex-gpu-release must have published
 #   luxdex-venue-<VENUE_DEPS_VERSION>-linux-arm64.tar.gz
 # first, or the Dockerfile's dep fetch 404s. See Dockerfile.dvenue.
-name: dchain-venue-image
+name: dex-venue-image
 
 on:
   workflow_dispatch:
@@ -66,7 +66,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/luxfi/dchain-venue
+          images: ghcr.io/luxfi/dex-venue
           # Semver-only published tags + an immutable sha tag for traceability.
           # No floating :latest (matches node/docker.yml policy; K8s image
           # caching makes :latest unsafe for the operator overlays).
@@ -116,5 +116,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
-          cache-from: type=registry,ref=ghcr.io/luxfi/dchain-venue:buildcache-arm64
-          cache-to: type=registry,ref=ghcr.io/luxfi/dchain-venue:buildcache-arm64,mode=max
+          cache-from: type=registry,ref=ghcr.io/luxfi/dex-venue:buildcache-arm64
+          cache-to: type=registry,ref=ghcr.io/luxfi/dex-venue:buildcache-arm64,mode=max
