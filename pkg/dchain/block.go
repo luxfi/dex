@@ -221,6 +221,14 @@ func (b *Block) Accept(ctx context.Context) error {
 		b.overlay.Abort()
 		return err
 	}
+	// Persist the head block's canonical bytes in the SAME overlay so the head
+	// pointer and the block it names commit atomically. loadHead reconstructs this
+	// block on restart so GetBlock(lastAccepted) — called by the engine right after
+	// Initialize — succeeds once the chain has advanced past genesis.
+	if err := writeHeadBlock(b.overlay, b.bytes); err != nil {
+		b.overlay.Abort()
+		return err
+	}
 
 	if err := b.overlay.Commit(); err != nil {
 		return fmt.Errorf("dchain: commit block %s: %w", b.id, err)
