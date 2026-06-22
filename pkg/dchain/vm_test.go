@@ -414,6 +414,115 @@ func drainSignals(ch chan block.Message) {
 	}
 }
 
+// TestVMRestartGetBlockHead reproduces the production restart failure: after a
+// chain advances past genesis and the VM restarts (fresh VM, same DB), the
+// consensus engine calls GetBlock(lastAccepted) immediately after Initialize.
+// The block store is the in-RAM acceptedBlocks map (empty after restart), so
+// before head blocks were persisted this returned ErrNotFound and luxd reported
+// "zap initialize: remote error: get last accepted block: not found", taking the
+// D-Chain down on the first validator to restart. loadHead now reconstructs the
+// head block from durable bytes, so GetBlock(head) succeeds at every height.
+func TestVMRestartGetBlockHead(t *testing.T) {
+	ctx := context.Background()
+	db := memdb.New()
+	pool := [32]byte{0x07}
+
+	vm, toEngine := newTestVM(t, db)
+
+	// The engine queries the head block right after Initialize even on a FRESH
+	// (genesis) chain — that must already work.
+	genesisID := vm.lastAcceptedID
+	if blk, err := vm.GetBlock(ctx, genesisID); err != nil {
+		t.Fatalf("GetBlock(genesis) on fresh VM: %v", err)
+	} else if blk.ID() != genesisID {
+		t.Fatalf("GetBlock(genesis) id = %s, want %s", blk.ID(), genesisID)
+	}
+
+	// Advance two blocks so the head is well past genesis.
+	vm.mempool.Add(ensureMarketTx(t, pool))
+	vm.mempool.Add(placePoolTx(t, pool, zapwire.SideSell, 101.0, 5.0, "maker-a"))
+	drainSignals(toEngine)
+	buildVerifyAccept(t, vm)
+
+	vm.mempool.Add(placePoolTx(t, pool, zapwire.SideBuy, 99.0, 3.0, "maker-c"))
+	drainSignals(toEngine)
+	blk2 := buildVerifyAccept(t, vm)
+
+	headID := vm.lastAcceptedID
+	headHeight := vm.lastAcceptedHeight
+	headBytes := append([]byte(nil), blk2.Bytes()...)
+	if headHeight != 2 {
+		t.Fatalf("head height = %d, want 2", headHeight)
+	}
+
+	if err := vm.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	// RESTART: fresh VM, same DB — mirrors the rpc.Serve harness reopening the
+	// persistent store. This is exactly what failed in production.
+	vm2, _ := newTestVM(t, db)
+	if vm2.lastAcceptedID != headID {
+		t.Fatalf("restart head = %s, want %s", vm2.lastAcceptedID, headID)
+	}
+
+	// THE REGRESSION ASSERTION: the engine's first call after Initialize.
+	got, err := vm2.GetBlock(ctx, headID)
+	if err != nil {
+		t.Fatalf("GetBlock(head) after restart: %v (the production failure)", err)
+	}
+	if got.ID() != headID {
+		t.Fatalf("GetBlock(head) id = %s, want %s", got.ID(), headID)
+	}
+	if got.Height() != headHeight {
+		t.Fatalf("GetBlock(head) height = %d, want %d", got.Height(), headHeight)
+	}
+	if string(got.Bytes()) != string(headBytes) {
+		t.Fatalf("GetBlock(head) bytes differ from the accepted block")
+	}
+	if got.Status() != statusAccepted {
+		t.Fatalf("GetBlock(head) status = %d, want accepted(%d)", got.Status(), statusAccepted)
+	}
+}
+
+// TestVMRestartLegacyGenesisDB proves loadHead recovers a DB written before head
+// blocks were persisted (no metaHeadBlock) when the head is genesis: it
+// reconstructs the deterministic genesis block and serves it over GetBlock. A
+// non-genesis legacy head (no recoverable bytes) must error loudly instead of
+// silently resetting the chain.
+func TestVMRestartLegacyGenesisDB(t *testing.T) {
+	ctx := context.Background()
+	db := memdb.New()
+
+	// Simulate a legacy genesis DB: write the head META (lastAccepted/height/root)
+	// for genesis but NOT the head-block bytes, exactly as the pre-persistence code
+	// left a fresh chain.
+	gen, root := (&VM{}).genesisBlock()
+	batch := db.NewBatch()
+	if err := writeLastAccepted(batch, gen.id); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHeight(batch, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRoot(batch, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := batch.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initialize over that legacy DB: loadHead's genesis recovery must rebuild the
+	// head block so GetBlock(genesis) works.
+	vm2, _ := newTestVM(t, db)
+	if vm2.lastAcceptedID != gen.id {
+		t.Fatalf("legacy-DB head = %s, want genesis %s", vm2.lastAcceptedID, gen.id)
+	}
+	if _, err := vm2.GetBlock(ctx, gen.id); err != nil {
+		t.Fatalf("GetBlock(genesis) on legacy DB: %v", err)
+	}
+}
+
 // ensure the VM satisfies the consensus ChainVM interface at compile time.
 var _ block.ChainVM = (*VM)(nil)
 
