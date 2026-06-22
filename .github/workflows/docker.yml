@@ -25,7 +25,10 @@ jobs:
     with:
       image: ${{ matrix.image }}
       dockerfile: ${{ matrix.dockerfile }}
-      runner-amd64: luxfi-amd64
-      runner-arm64: luxfi-arm64
-      runner-deploy: lux-deploy-linux-amd64
+      # runner-* inputs are JSON-array strings decoded via fromJson() in the
+      # reusable workflow. The prior bare-string overrides ("luxfi-amd64", …)
+      # made fromJson() fail -> 0s "workflow file issue" (broken since 2026-06-19).
+      # The lux arcd pool registers on the canonical [self-hosted,linux,<arch>]
+      # labels (same as node's lux-build); org runner-group + arcd repo allowlist
+      # provide isolation on the shared labels, so the defaults are correct here.
     secrets: inherit
