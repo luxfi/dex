@@ -38,6 +38,59 @@ balances directly. Settlement uses a strict **D matches · C settles** split:
 > Normative spec: **LP-9999** (`~/work/lux/lps/LPs/lp-9999-dex-v4-receipt-settlement-precompile.md`).
 > This file summarizes; it does not duplicate the spec.
 
+> NOTE (shipped model, precompile v0.5.56 / evm v1.99.36): the BLS-cert/`DFillReceipt`
+> wording above is the OLD design. The code that ships is the **native C↔D atomic
+> two-phase seam** (`precompile/dex/settle9999.go`): there is NO BLS certificate, NO
+> VerifierRegistry, NO DFillReceipt in the value path. Value crosses ONLY as a
+> primary-network atomic shared-memory object (the same import/export primitive
+> platformvm + dexvm use). `0x9999` swap is two-phase on the unchanged V4 ABI, keyed on
+> hookData: **Phase A (INTENT)** locks tokenIn on C, stages a C→D atomic object, emits
+> `IntentSubmitted`, returns the intent id — **no fill, no DEXFill log**. **Phase B
+> (SETTLEMENT)** consumes a D→C atomic proceeds object (named by a `DS01` hookData ref),
+> credits C, and emits `DEXFill(bytes32,address,uint256,uint256)` — the SOLE on-chain
+> source the dex subgraph indexes. A DEXFill therefore requires the FULL cycle:
+> C Phase-A → dexvm `ImportTx` (consume C→D) → `RelayOrderTx` clob_submit (proposer
+> relays once, carries fills) → dexvm `settleCarried` `ExportTx` (D→C proceeds) →
+> C Phase-B settle.
+
+## DEVNET on-chain-DEX status (diagnosed 2026-06-22, node v1.30.29)
+
+Why `eth_getLogs(0x9999)=[]` and the dex subgraph shows `markets:null` while AMM shows
+4 pools: **the on-chain 0x9999 path has never been exercised end-to-end on devnet.** The
+four-path tool (`dex/cmd/fourpath-live`) drives only the standalone D-Chain VENUE's ZAP
+CLOB seam (`dchain-venue:9099`, `clob_*`) — it never calls C-Chain `swap()`→0x9999, so no
+`SettleSwap`→`emitDEXFillEvent` ever fires. Verified state + the two real deployment
+blockers (NOT code bugs — the seam code is sound on v1.30.29):
+
+- **Seam is OPEN**: `0x9999` `eth_getCode=0x01`; the `"D"` alias resolves on every
+  validator (`admin.getChainAliases` → `["D","dex","dexvm",28mZwm…2SX]`); D-Chain
+  bootstrapped; `DexSettleActivationTime=1766704800` is in the past so `dexLogsActive`=true.
+  C-Chain (chainID 96370 / 0x17872) carries the atomic capability in BLOCK execution
+  (`manager.go:1124` `vm.Init{Runtime:chainRuntime}` with `SharedMemory`; miner
+  `worker.go:214/366` uses `blockChain` as ChainContext whose `SetConsensusContext`
+  embeds `runtime.WithContext`). So a MINED Phase-A tx locks+stages; only `eth_call`/
+  `eth_estimateGas` revert `ErrSettleNoAtomicState` — those use `NewChainContext` whose
+  `ConsensusContext()` returns a bare ctx with no runtime (api.go:1086). **eth_call cannot
+  simulate the 0x9999 atomic seam — expected, not a bug. Must drive with a signed tx.**
+- **BLOCKER 1 — dexvm relay is INERT on all 5 validators**: luxd logs show
+  `"dexZapEndpoint":"<inert>","relayConfigured":false`. The dexvm's `RelayClient`
+  (`chains/dexvm/relay.go`) is unconfigured, so the proposer's `obtainFills` relays to
+  nothing → zero fills → no D→C proceeds export → no Phase B → no DEXFill. FIX: set the
+  dexvm Config `DexZapEndpoint` (genesis `dexZapEndpoint` or per-chain config) to the
+  venue (`dchain-venue:9099`). NEVER point validators at a SYNCHRONOUS venue on the
+  forking path — the safe model is proposer-relays-once + carried-fills, which the
+  dexvm already implements.
+- **BLOCKER 2 — no keeper deployed**: nothing watches C `IntentSubmitted` to build the
+  D-Chain `ImportTx`+`RelayOrderTx`, nor builds the C Phase-B settle tx after the dexvm
+  exports D→C. The dexvm does NOT autonomously scan shared memory; the orchestrator is
+  `zap/dexsession` (`FullServiceNode`/`DexSession`: `PrepareSwapIntent`→Phase-A calldata,
+  `NotifyIntent`→D import, `ImportSettlement`→Phase-B calldata). `dex-e2e-runner` is just
+  an idle `alpine sleep` debug pod, not the keeper. FIX: deploy a keeper backing the
+  `dexsession.Venue` interface against `dchain-venue` + a C/D state reader.
+- Signing: maker/treasury `0x9011E888251AB053B7bD1cdB598Db4f9DEd94714` = C-Chain treasury
+  (~2T LUX, nonce 29), derived from the devnet mnemonic (`genesis/pkg/genesis/keys.go`
+  path m/44'/9000'/0'/0/i). Use KMS / the configured signer; never derive/paste.
+
 ## Architecture Overview
 
 ```
