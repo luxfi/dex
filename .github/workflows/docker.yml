@@ -20,9 +20,6 @@ jobs:
             dockerfile: Dockerfile
           - image: ghcr.io/luxfi/dex-gateway
             dockerfile: Dockerfile.gateway
-          # NOTE: ghcr.io/luxfi/dexkeeper builds via the self-contained
-          # docker-dexkeeper.yml (inline, lux-build pool) — this reusable-workflow
-          # path cannot resolve hanzoai/.github cross-org ("workflow was not found").
     uses: hanzoai/.github/.github/workflows/docker-build.yml@main
     with:
       image: ${{ matrix.image }}
