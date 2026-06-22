@@ -3,6 +3,12 @@
 //
 // Anchor for the secp256k1 Metal driver symbol. See cpp/ecrecover.cpp in
 // luxcpp/crypto for the dispatch logic that resolves this symbol via dlsym.
+//
+// Gated by the `lux_secp256k1_metal` build tag (matching the .go anchor) so
+// cgo only compiles this — and only then references the Metal-only extern
+// symbol — when the operator has opted into linking libsecp256k1_metal.a.
+
+//go:build cgo && darwin && lux_secp256k1_metal
 
 #include <stddef.h>
 #include <stdint.h>
