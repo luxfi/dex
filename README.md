@@ -12,15 +12,46 @@ JSON-RPC / WebSocket / gRPC SDKs.
 
 This repository is the **public, pure-Go reference implementation** of
 the Lux DEX matching engine. It is fully functional, runs standalone,
-and underpins every Lux DEX deployment.
+and underpins every Lux DEX deployment. Built with `CGO_ENABLED=0` it is
+a self-contained pure-Go binary with zero native dependencies.
 
-For commercial deployments that need hardware acceleration (NUMA-aware
-C++ order book, CUDA / Metal batched verification, FPGA fast paths)
-the same Go interfaces are implemented by `lux-private/dex` and
-selected at build time via the `dex_gpu` build tag. The accelerated
-backend fails closed unless the operator's environment carries a Lux
-commercial license token whose scope list includes `dex`. Contact
-`licensing@lux.network` for commercial licensing.
+### GPU acceleration is a runtime decision, not a build tag
+
+The batched GPU paths (constant-product AMM curve evaluation and the
+flat-buffer CLOB match primitive) live **in this repository** under
+`pkg/lx/` and are compiled into the `CGO_ENABLED=1` build. They bind to
+the luxcpp DEX kernels through pkg-config:
+
+| pkg-config bundle    | backend        | consumed by                     |
+| -------------------- | -------------- | ------------------------------- |
+| `lux-dex-amm-metal`  | Metal (macOS)  | `pkg/lx/amm_gpu_metal.go`        |
+| `lux-dex-amm-cuda`   | CUDA (Linux)   | `pkg/lx/amm_gpu_cuda.go`         |
+| `lux-dex-clob-cuda`  | CUDA (Linux)   | `pkg/lx/orderbook_cuda.go`       |
+
+These bundles ship from `luxcpp/dex` (`cmake --install`). Whether a GPU is
+actually used is decided **at runtime** by `github.com/luxfi/crypto/backend`
+detection, never by a build tag:
+
+- `GPU_DISABLE=1` forces the CPU path (recorded as `reason=disabled`).
+- No Metal/CUDA device, or the runtime kernel/metallib is absent → the
+  per-platform dispatch returns its `unsupported` sentinel and the call
+  transparently falls back to the pure-Go CPU CLOB / AMM oracle (recorded
+  as `reason=unsupported`). The fallback is logged — a CPU result is never
+  mislabeled as GPU.
+- macOS resolves the AMM metallib at runtime via `LUX_DEX_AMM_METALLIB`
+  (default: the installed `share/lux/dex/amm_xyk.metallib`).
+
+There is no `dex_gpu` build tag. The one optional opt-in tag is
+`lux_secp256k1_metal`, which force-links the Apple-only batched
+secp256k1-ecrecover Metal archive; without it the signed-order batch
+verifier runs the secp256k1 **CPU** pipeline. See
+`pkg/lx/signed_order_metal_anchor_darwin.go` for the build + opt-in recipe.
+
+For commercial deployments that need the heavier accelerators (NUMA-aware
+C++ order book, FPGA fast paths) the same Go interfaces are implemented by
+the private `lux-private/dex` tier, which fails closed unless the operator's
+environment carries a Lux commercial license token whose scope list
+includes `dex`. Contact `licensing@lux.network` for commercial licensing.
 
 ## Features
 
