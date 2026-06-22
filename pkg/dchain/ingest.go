@@ -51,10 +51,17 @@ const maxIngestBody = 4 << 10
 // the ZAP socket transport uses — one method->handler table, two transports — so a
 // method added to clobMethods is reachable over HTTP automatically. luxd registers
 // each key as an exact route under /ext/bc/<chainID> (see file doc).
+//
+// It ALSO folds the read surface (vm.readMethods, read.go): the clob_get_* query
+// endpoints that return committed state as JSON. Reads are mounted on the same
+// route group but never touch the mempool/consensus — orthogonal to the writes.
 func (vm *VM) httpHandlers() map[string]http.Handler {
-	out := make(map[string]http.Handler, len(vm.clobMethods()))
+	out := make(map[string]http.Handler, len(vm.clobMethods())+len(vm.readMethods()))
 	for _, m := range vm.clobMethods() {
 		out["/"+ingestNamespace+"/"+m.method] = rawHandlerHTTP(m.handler)
+	}
+	for _, m := range vm.readMethods() {
+		out["/"+ingestNamespace+"/"+m.method] = m.handler
 	}
 	return out
 }
