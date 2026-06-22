@@ -211,6 +211,82 @@ func tradeKey(height, seq uint64) []byte {
 	return k
 }
 
+// tradePrefixForHeight builds trade:<height:8> — the iterator START key for
+// reading committed fills from a given accepted height upward (every fill in a
+// block shares the height; seq disambiguates within it).
+func tradePrefixForHeight(height uint64) []byte {
+	k := make([]byte, len(prefixTrade)+8)
+	copy(k, prefixTrade)
+	binary.BigEndian.PutUint64(k[len(prefixTrade):], height)
+	return k
+}
+
+// committedTrade pairs a decoded DEXTrade with the (height, seq) coordinates of
+// the trade:<height><seq> row it was read from, so a reader can page by height
+// and a cross-validator diff can compare exact committed coordinates.
+type committedTrade struct {
+	Height uint64
+	Seq    uint64
+	Trade  lx.DEXTrade
+}
+
+// readTrades streams committed trade:<height><seq> rows in height-then-seq order
+// (the matcher's production order), from sinceHeight (inclusive) up to limit rows
+// (limit<=0 means no cap). It reads the authoritative durable log — NOT the in-RAM
+// book — so every validator returns the identical sequence for the identical
+// accepted state. The trade: key is big-endian (height then seq), so the KV
+// iterator already yields ascending (height, seq); we skip rows below sinceHeight
+// and stop at limit. A zero-length result is the normal "no fills yet" answer.
+func readTrades(db database.Iteratee, sinceHeight uint64, limit int) ([]committedTrade, error) {
+	it := db.NewIteratorWithStartAndPrefix(tradePrefixForHeight(sinceHeight), []byte(prefixTrade))
+	defer it.Release()
+	out := make([]committedTrade, 0, 64)
+	for it.Next() {
+		key := it.Key()
+		if len(key) != len(prefixTrade)+16 {
+			continue // not a trade:<height:8><seq:8> row
+		}
+		height := binary.BigEndian.Uint64(key[len(prefixTrade) : len(prefixTrade)+8])
+		seq := binary.BigEndian.Uint64(key[len(prefixTrade)+8:])
+		row, ok := lx.DecodeTrade(it.Value())
+		if !ok {
+			return nil, fmt.Errorf("dchain: corrupt trade row at h=%d seq=%d (len %d)", height, seq, len(it.Value()))
+		}
+		out = append(out, committedTrade{Height: height, Seq: seq, Trade: row})
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, it.Error()
+}
+
+// listMarkets streams every committed market:<poolID:32> row, returning each
+// market's poolID and symbol in poolID order. It reads durable state directly so
+// the set is exactly what consensus has recorded (the in-RAM books map is the
+// same set once Initialize has folded it, but the durable rows are the truth and
+// are also correct mid-restart before the fold).
+func listMarkets(db database.Iteratee) ([]marketRow, error) {
+	it := db.NewIteratorWithPrefix([]byte(prefixMarket))
+	defer it.Release()
+	var out []marketRow
+	for it.Next() {
+		key := it.Key()
+		if len(key) != len(prefixMarket)+32 {
+			continue
+		}
+		var poolID [32]byte
+		copy(poolID[:], key[len(prefixMarket):])
+		out = append(out, marketRow{PoolID: poolID, Symbol: string(it.Value())})
+	}
+	return out, it.Error()
+}
+
+// marketRow is one market's durable identity: its poolID and recorded symbol.
+type marketRow struct {
+	PoolID [32]byte
+	Symbol string
+}
+
 // putOrderRow writes a resting order row, or deletes it when the order is no
 // longer live (filled or cancelled or zero remaining). The book is the live
 // resting set; spent rows are removed so iteration over order:* yields exactly
