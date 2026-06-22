@@ -13,6 +13,11 @@ import (
 // order it recomputes the signing hash, recovers the pubkey from the sig,
 // derives the 20-byte address and compares with order.Sender.
 func verifyOrdersCPU(orders []SignedOrder) ([]bool, error) {
+	// Empty input round-trips as nil, matching the cgo BatchVerifyOrders
+	// contract (signed_order_gpu.go) so both paths agree byte-for-byte.
+	if len(orders) == 0 {
+		return nil, nil
+	}
 	out := make([]bool, len(orders))
 	for i := range orders {
 		hash, err := orders[i].SigningHash()
