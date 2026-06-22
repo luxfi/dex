@@ -10,13 +10,15 @@ package lx
 // The C primitive lives in luxcpp/crypto:
 //   header: $LUXCPP_PREFIX/include/lux/crypto/secp256k1.h
 //   body:   libsecp256k1_cpu.a in $LUXCPP_PREFIX/lib (CPU oracle)
-//   metal:  libsecp256k1_metal.a in luxcpp/crypto/build/secp256k1
-//           (still consumed from the build tree — Metal-only, no .pc yet)
+//   metal:  libsecp256k1_metal.a (Apple-only GPU accelerator; OPTIONAL)
 //
 // The CPU/oracle entry point is `secp256k1_ecrecover_address_batch`: it
 // takes (hash, r||s||v) tuples and writes 20-byte Ethereum addresses out.
 // We then compare each recovered address with order.Sender and emit the
-// per-order bool.
+// per-order bool. This entry point is ALWAYS the CPU pipeline; the Metal
+// accelerator, when present, is resolved by cpp/ecrecover.cpp via
+// dlsym(RTLD_DEFAULT, ...) at RUNTIME — backend selection is a runtime
+// decision, never a build tag.
 //
 // CPU linkage goes through the lux-crypto-secp256k1 pkg-config bundle
 // (libsecp256k1_cpu + libkeccak_cpu). Build + install once with:
@@ -26,21 +28,16 @@ package lx
 //   cmake --build $HOME/work/luxcpp/crypto/build \
 //         --target secp256k1_cpu keccak_cpu
 //   cmake --install $HOME/work/luxcpp/crypto/build
+//
+// The Metal accelerator archive (libsecp256k1_metal.a) is NOT in the
+// lux-crypto-secp256k1 .pc bundle and is not built by default. Its
+// force-link anchor lives in signed_order_metal_anchor_darwin.go behind the
+// `lux_secp256k1_metal` build tag, so a default CGO build links and runs
+// CPU-only without requiring the archive to exist. See that file's header
+// for how to build the archive and opt in.
 
 /*
 #cgo pkg-config: lux-crypto-secp256k1
-//
-// Metal driver: dispatch in cpp/ecrecover.cpp resolves the GPU symbol via
-// dlsym(RTLD_DEFAULT, ...). The anchor file signed_order_metal_anchor_darwin.c
-// takes its address so the linker pulls libsecp256k1_metal.a into the final
-// binary. Set LUX_SECP256K1_METALLIB to enable GPU dispatch; unset or
-// LUX_SECP256K1_BACKEND=cpu uses the CPU pipeline.
-//
-// libsecp256k1_metal is NOT in the lux-crypto-secp256k1 .pc bundle (Apple
-// only, Metal/Foundation frameworks required). Keep the build-tree path
-// until a separate lux-crypto-secp256k1-metal .pc lands.
-#cgo darwin LDFLAGS: -L${SRCDIR}/../../../../luxcpp/crypto/build/secp256k1
-#cgo darwin LDFLAGS: -lsecp256k1_metal -framework Metal -framework Foundation
 
 #include <stdint.h>
 #include <stddef.h>
