@@ -11,7 +11,7 @@ LX delivers **institutional-grade HFT infrastructure** with the lowest latency i
 
 ## Why LX for HFT
 
-| Metric | LX | Hyperliquid | dYdX | Traditional CEX |
+| Metric | LX | Perps DEX | dYdX | Traditional CEX |
 |--------|--------|-------------|------|-----------------|
 | **Order Latency** | **2ns** (GPU) | ~1ms | ~50ms | 10-50us |
 | **Throughput** | **434M/sec** | ~100K/sec | ~10K/sec | 1-10M/sec |
@@ -227,7 +227,7 @@ Arbitrage exploits price differences for the same asset across different markets
     Price Discovery Timeline
     ─────────────────────────────────────────────────────────────►
 
-    |← LX sees price →|← Hyperliquid sees →|← dYdX sees →|
+    |← LX sees price →|← Perps DEX sees →|← dYdX sees →|
     |       2ns           |       1ms           |    50ms     |
 
     ╔═══════════════════════════════════════════════════════════╗
@@ -251,7 +251,7 @@ Timeline:
 ├── T+0.003ms    Your algo detects $100 arb opportunity
 ├── T+0.005ms    Submit buy on LX @ $50,000
 ├── T+0.007ms    Order filled on LX
-├── T+1.000ms    Hyperliquid updates price
+├── T+1.000ms    Perps DEX updates price
 ├── T+5.000ms    dYdX updates price
 ├── T+10.00ms    Retail sees new price
 └── T+10.01ms    Submit sell on slower venue @ $50,100
@@ -266,12 +266,12 @@ Result: $100 profit per BTC, captured in 10ms
 Three-way arbitrage across correlated pairs:
 
 LX (T+2ns):     ETH/USD = $2,500    BTC/USD = $50,000
-Hyperliquid (T+1ms): ETH/USD = $2,505    BTC/USD = $50,000
-Implied ETH/BTC:     0.0500 (LX) vs 0.0501 (Hyperliquid)
+Perps DEX (T+1ms): ETH/USD = $2,505    BTC/USD = $50,000
+Implied ETH/BTC:     0.0500 (LX) vs 0.0501 (Perps DEX)
 
 Strategy:
 1. Buy ETH on LX      → $2,500
-2. Sell ETH on Hyperliquid → $2,505
+2. Sell ETH on Perps DEX → $2,505
 3. Profit: $5/ETH (0.2%)
 
 At 10,000 ETH/day = $50,000/day profit
@@ -411,7 +411,7 @@ LX DEX operates the **fastest trading infrastructure in finance**—faster than 
     CME             ████                                       20 Gbps
 
     Binance         ██                                         10 Gbps
-    Hyperliquid     █                                          ~1 Gbps
+    Perps DEX     █                                          ~1 Gbps
 
     ═══════════════════════════════════════════════════════════════════
     LX DEX: 20x MORE BANDWIDTH THAN NYSE
@@ -419,7 +419,7 @@ LX DEX operates the **fastest trading infrastructure in finance**—faster than 
 
 ### Comprehensive Exchange Comparison
 
-| Metric | **LX DEX** | NYSE | Nasdaq | CME | Binance | Hyperliquid | dYdX |
+| Metric | **LX DEX** | NYSE | Nasdaq | CME | Binance | Perps DEX | dYdX |
 |--------|------------|------|--------|-----|---------|-------------|------|
 | **Network Bandwidth** | **800 Gbps** | 40 Gbps | 32 Gbps | 20 Gbps | 10 Gbps | ~1 Gbps | ~1 Gbps |
 | **Matching Latency** | **2ns** (GPU) | 30-50us | 40-60us | 50-100us | 10-50us | ~1ms | ~50ms |
@@ -453,9 +453,9 @@ LX DEX outperforms Wall Street's most advanced infrastructure:
 **Why 800Gbps matters**: NYSE's 40Gbps infrastructure handles ~$20T annually. LX DEX's 800Gbps enables 20x the capacity—enough for every financial market on Earth to trade simultaneously.
 </Callout>
 
-### vs Crypto DEXs (Hyperliquid, dYdX, Aster)
+### vs Crypto DEXs (Perps DEX, dYdX, Aster)
 
-| Feature | LX DEX | Hyperliquid | dYdX v4 | Aster |
+| Feature | LX DEX | Perps DEX | dYdX v4 | Aster |
 |---------|--------|-------------|---------|-------|
 | **Matching Latency** | **2ns** | ~1ms | ~50ms | ~100ms |
 | **Throughput** | **434M/sec** | ~100K/sec | ~10K/sec | ~50K/sec |
@@ -489,7 +489,7 @@ LX DEX outperforms Wall Street's most advanced infrastructure:
     LX DEX         |████| 1 millisecond
                     └── Trade, match, settle, finalized
 
-    Hyperliquid    |████████| ~400ms
+    Perps DEX    |████████| ~400ms
                     └── L1 consensus required
 
     dYdX           |████████████| ~1 second
@@ -510,7 +510,7 @@ LX DEX outperforms Wall Street's most advanced infrastructure:
 | Advantage | Technical Detail | Impact |
 |-----------|------------------|--------|
 | **800 Gbps Fiber** | Dark fiber with 20x NYSE capacity | Never bandwidth constrained |
-| **2ns GPU Engine** | Apple M2 Ultra / NVIDIA A100 | 500,000x faster than Hyperliquid |
+| **2ns GPU Engine** | Apple M2 Ultra / NVIDIA A100 | 500,000x faster than Perps DEX |
 | **Central Geography** | Kansas City equidistant to coasts | Optimal US latency |
 | **Microwave Links** | Sub-ms to SF and NYC | Faster than fiber for arbitrage |
 | **Kernel Bypass** | DPDK/RDMA networking | Zero OS overhead |
@@ -541,7 +541,7 @@ LX DEX is the **only exchange in the world**—traditional or crypto—with post
 
     NYSE/Nasdaq:    All historical trades compromised
     Binance:        All user keys vulnerable
-    Hyperliquid:    Entire chain at risk
+    Perps DEX:    Entire chain at risk
     dYdX:           Cosmos keys broken
 
     LX DEX:         ✓ Secure - Post-quantum from genesis
