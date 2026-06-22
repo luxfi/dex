@@ -31,15 +31,22 @@ import (
 // identical constants (they cannot import this cgo-tagged package), so a frame
 // built by any of them is byte-identical to what this server consumes/produces.
 
-// RegisterCLOB wires the four clob_* handlers onto an rpc.Server. It is the
-// integration seam the venue entrypoint (cmd/dchain) and tests use to expose the
-// d-chain matcher over ZAP. Additive: the caller may register other methods on
-// the same server.
-func (vm *VM) RegisterCLOB(server rpc.Server) error {
-	regs := []struct {
-		method  string
-		handler rpc.RawHandler
-	}{
+// clobMethod pairs a frozen ZAP method name with its raw handler. The handler
+// signature is github.com/luxfi/rpc.RawHandler (func(ctx, payload) (resp, err)) —
+// the SAME func value whether it is reached over the ZAP socket transport
+// (RegisterCLOB) or over the node's HTTP router (CreateHandlers / ingest.go). One
+// table, two transports: the ingestion seam never duplicates the handler set.
+type clobMethod struct {
+	method  string
+	handler rpc.RawHandler
+}
+
+// clobMethods is the single authoritative method->handler table for the CLOB
+// surface. Both transports fold over it: RegisterCLOB registers each on a ZAP
+// rpc.Server; the HTTP mux (ingest.go) routes POST .../<method> to the same
+// handler. A method added here is reachable over both transports automatically.
+func (vm *VM) clobMethods() []clobMethod {
+	return []clobMethod{
 		{zapwire.MethodEnsureMarket, vm.handleEnsureMarket},
 		{zapwire.MethodPlace, vm.handlePlace},
 		{zapwire.MethodCancel, vm.handleCancel},
@@ -48,9 +55,17 @@ func (vm *VM) RegisterCLOB(server rpc.Server) error {
 		{zapwire.MethodDeposit, vm.handleDeposit},
 		{zapwire.MethodWithdraw, vm.handleWithdraw},
 	}
-	for _, r := range regs {
-		if err := server.RegisterRaw(r.method, r.handler); err != nil {
-			return fmt.Errorf("dchain: register %s: %w", r.method, err)
+}
+
+// RegisterCLOB wires the clob_* handlers onto an rpc.Server (the ZAP socket
+// transport). It is the seam the standalone venue entrypoint (cmd/dvenue) and the
+// socket-level tests use. The in-luxd plugin does NOT use this path — it exposes
+// the SAME handlers over the node's HTTP router via CreateHandlers (ingest.go).
+// Additive: the caller may register other methods on the same server.
+func (vm *VM) RegisterCLOB(server rpc.Server) error {
+	for _, m := range vm.clobMethods() {
+		if err := server.RegisterRaw(m.method, m.handler); err != nil {
+			return fmt.Errorf("dchain: register %s: %w", m.method, err)
 		}
 	}
 	return nil
