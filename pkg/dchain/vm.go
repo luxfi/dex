@@ -64,6 +64,16 @@ type VM struct {
 	lastAcceptedHeight uint64
 	lastRoot          [Size]byte
 
+	// processingBlocks indexes built/verified blocks not yet accepted, so a
+	// plugin-transport Accept — which carries only the block ID and re-resolves
+	// the block via GetBlock (vm/rpc handleBlockAccept), unlike Verify which
+	// carries the full bytes — can find the SAME instance (and its stashed Verify
+	// overlay) to commit. Without it GetBlock(builtID) returns ErrNotFound, the
+	// engine's self-finalize Accept is a silent no-op, and the submitTx waiter
+	// hangs forever. The EVM gets this for free from geth's block cache. Pruned on
+	// Accept/Reject. Guarded by vm.mu.
+	processingBlocks map[ids.ID]*Block
+
 	// preferred is the block the engine asked us to build on next.
 	preferred ids.ID
 
@@ -94,6 +104,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	vm.outcomes = newOutcomeRegistry()
 	vm.books = map[[32]byte]*lx.OrderBook{}
 	vm.acceptedBlocks = map[ids.ID]*Block{}
+	vm.processingBlocks = map[ids.ID]*Block{}
 	vm.heightIndex = map[uint64]ids.ID{}
 
 	// Load the head, or bootstrap genesis.
@@ -386,6 +397,9 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	}
 
 	blk := newBlock(vm, vm.lastAcceptedID, height, ts, res.root, txs)
+	// Index the built block so a later Accept (which the plugin transport resolves
+	// by ID via GetBlock, not by bytes) finds THIS instance to commit.
+	vm.processingBlocks[blk.id] = blk
 	vm.log.Debug("dchain built block", "height", height, "txs", len(txs), "fills", len(res.fills))
 	return blk, nil
 }
@@ -407,26 +421,40 @@ func (vm *VM) blockTimestamp() time.Time {
 }
 
 // ParseBlock decodes block bytes into a Block. Used by the engine to reconstruct
-// a peer's proposed block; Verify then re-executes it.
+// a peer's proposed block; Verify then re-executes it. It returns a STABLE
+// instance per id: the accepted block if already accepted, else the processing
+// block already indexed (so the overlay Verify stashes on it is the one a later
+// Accept commits), else a freshly parsed block which it records as processing.
 func (vm *VM) ParseBlock(ctx context.Context, b []byte) (block.Block, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
-	// Return the cached accepted block if we already have it (stable identity).
 	blk, err := parseBlock(vm, b)
 	if err != nil {
 		return nil, err
 	}
+	// Return the cached accepted block if we already have it (stable identity).
 	if existing, ok := vm.acceptedBlocks[blk.id]; ok {
 		return existing, nil
 	}
+	// Reuse the processing instance if present, so Verify's stashed overlay is the
+	// same one Accept commits; otherwise record this one as processing.
+	if existing, ok := vm.processingBlocks[blk.id]; ok {
+		return existing, nil
+	}
+	vm.processingBlocks[blk.id] = blk
 	return blk, nil
 }
 
-// GetBlock returns an accepted block by id, or database.ErrNotFound.
+// GetBlock returns a block by id — accepted or still processing (built/verified
+// but not yet accepted) — or database.ErrNotFound. The processing lookup is what
+// lets the plugin transport's ID-only Accept resolve the block it must commit.
 func (vm *VM) GetBlock(ctx context.Context, id ids.ID) (block.Block, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	if blk, ok := vm.acceptedBlocks[id]; ok {
+		return blk, nil
+	}
+	if blk, ok := vm.processingBlocks[id]; ok {
 		return blk, nil
 	}
 	return nil, database.ErrNotFound
