@@ -1,0 +1,62 @@
+# One-shot Job: seed venue liquidity + drive the FIRST Phase-A 0x9999 swap from the
+# maker, in-cluster (the maker key is derived from the KMS-synced LUX_MNEMONIC; nothing
+# is handled out-of-band). The running dexkeeper Deployment then drives Phase B -> the
+# first DEXFill. Use this to seed + kick the first trade; delete after it Completes.
+#
+# Modes (--mode):
+#   seed     — only seed the venue (clob_deposit + maker resting ask) over ZAP.
+#   phase-a  — seed + send ONE Phase-A intent swap from the maker; prints intentID + txHash.
+#
+# After this Completes, verify:
+#   eth_getLogs(address=0x9999, IntentSubmitted) on devnet C returns the intent;
+#   the dexkeeper logs show ImportTx + RelayOrderTx submitted + Phase-B settle;
+#   eth_getLogs(address=0x9999, DEXFill) returns the first fill.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dexkeeper-drive-first-swap
+  namespace: lux-devnet
+  labels:
+    app.kubernetes.io/name: dexkeeper
+    app.kubernetes.io/part-of: lux-dex
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dexkeeper
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-luxfi
+      containers:
+        - name: dexkeeper
+          image: ghcr.io/luxfi/dexkeeper:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --mode=phase-a
+            - --c-rpc=http://luxd-0.luxd-headless.lux-devnet.svc.cluster.local:9650/ext/bc/C/rpc
+            - --d-rpc=http://luxd-0.luxd-headless.lux-devnet.svc.cluster.local:9650/ext/bc/28mZwmZtKAdGWoJRWSYw8RXxUcHZUDVsNgjMH4nnMfoJGJi2SX/rpc
+            - --d-chain-id=28mZwmZtKAdGWoJRWSYw8RXxUcHZUDVsNgjMH4nnMfoJGJi2SX
+            - --venue=dchain-venue.lux-devnet.svc.cluster.local:9099
+            - --maker=0x9011E888251AB053B7bD1cdB598Db4f9DEd94714
+          env:
+            - name: LUX_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: dexkeeper-mnemonic
+                  key: LUX_MNEMONIC
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
