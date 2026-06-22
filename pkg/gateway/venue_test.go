@@ -23,7 +23,7 @@ func e18() *big.Int {
 //   - V4 pool: LUSD/WETH at ~3000 LUSD per WETH (30 bps fee)
 //   - V4 pool: WBTC/WETH at ~20 WETH per WBTC (5 bps fee)
 //   - Alpaca broker: LUSD/WBTC at ~59800 (slightly worse than V4)
-//   - Hyperliquid broker: LUSD/WBTC at ~59500 (worst of three)
+//   - Perps broker: LUSD/WBTC at ~59500 (worst of three)
 func newTestVenues() (*V4Venue, *BrokerVenue, *BrokerVenue) {
 	unit := e18()
 
@@ -55,13 +55,13 @@ func newTestVenues() (*V4Venue, *BrokerVenue, *BrokerVenue) {
 	alpaca.SetMockPrice(alpacaPrice)
 	alpaca.SetFees(10, 25)
 
-	// Hyperliquid broker: mock price of ~59500 LUSD per WBTC
-	hyper := NewBrokerVenue("http://broker.lux.svc.cluster.local:8090", "hyperliquid")
-	hyperPrice := new(big.Int).Mul(big.NewInt(59500), unit)
-	hyper.SetMockPrice(hyperPrice)
-	hyper.SetFees(15, 20)
+	// Perps broker: mock price of ~59500 LUSD per WBTC
+	perps := NewBrokerVenue("http://broker.lux.svc.cluster.local:8090", "perps")
+	perpsPrice := new(big.Int).Mul(big.NewInt(59500), unit)
+	perps.SetMockPrice(perpsPrice)
+	perps.SetFees(15, 20)
 
-	return v4, alpaca, hyper
+	return v4, alpaca, perps
 }
 
 func TestV4VenueExactInput(t *testing.T) {
@@ -184,8 +184,8 @@ func TestBrokerVenueNoPrice(t *testing.T) {
 // --- VenueRouter tests ---
 
 func TestVenueRouterQueryAllVenues(t *testing.T) {
-	v4, alpaca, hyper := newTestVenues()
-	vr := NewVenueRouter(v4, alpaca, hyper)
+	v4, alpaca, perps := newTestVenues()
+	vr := NewVenueRouter(v4, alpaca, perps)
 	ctx := context.Background()
 	unit := e18()
 
@@ -224,7 +224,7 @@ func TestVenueRouterQueryAllVenues(t *testing.T) {
 			if !v.Executable {
 				t.Error("v4_native should be executable")
 			}
-		case "alpaca", "hyperliquid":
+		case "alpaca", "perps":
 			if v.Executable {
 				t.Errorf("%s should not be executable", v.Venue)
 			}
@@ -233,8 +233,8 @@ func TestVenueRouterQueryAllVenues(t *testing.T) {
 }
 
 func TestVenueRouterPreferredVenue(t *testing.T) {
-	v4, alpaca, hyper := newTestVenues()
-	vr := NewVenueRouter(v4, alpaca, hyper)
+	v4, alpaca, perps := newTestVenues()
+	vr := NewVenueRouter(v4, alpaca, perps)
 	ctx := context.Background()
 	unit := e18()
 
@@ -273,8 +273,8 @@ func TestVenueRouterNoLiquidity(t *testing.T) {
 }
 
 func TestListVenueInfo(t *testing.T) {
-	v4, alpaca, hyper := newTestVenues()
-	vr := NewVenueRouter(v4, alpaca, hyper)
+	v4, alpaca, perps := newTestVenues()
+	vr := NewVenueRouter(v4, alpaca, perps)
 
 	infos := vr.ListVenueInfo()
 	if len(infos) != 3 {
@@ -289,7 +289,7 @@ func TestListVenueInfo(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"v4_native", "alpaca", "hyperliquid"} {
+	for _, name := range []string{"v4_native", "alpaca", "perps"} {
 		if !names[name] {
 			t.Errorf("missing venue: %s", name)
 		}

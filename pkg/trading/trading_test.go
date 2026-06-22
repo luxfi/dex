@@ -60,12 +60,12 @@ func newTestAPI() (*TradingAPI, *http.ServeMux) {
 	alpaca.SetMockPrice(alpacaPrice)
 	alpaca.SetFees(10, 25)
 
-	hyper := NewBrokerVenue("http://broker:8090", "hyperliquid")
-	hyperPrice := new(big.Int).Mul(big.NewInt(59500), e18)
-	hyper.SetMockPrice(hyperPrice)
-	hyper.SetFees(15, 20)
+	perps := NewBrokerVenue("http://broker:8090", "perps")
+	perpsPrice := new(big.Int).Mul(big.NewInt(59500), e18)
+	perps.SetMockPrice(perpsPrice)
+	perps.SetFees(15, 20)
 
-	api := New(testConfig(), v4, alpaca, hyper)
+	api := New(testConfig(), v4, alpaca, perps)
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
 	return api, mux
@@ -756,7 +756,7 @@ func TestVenuesEndpoint(t *testing.T) {
 	for _, v := range venues {
 		names[v.Name] = true
 	}
-	for _, n := range []string{"v4_native", "alpaca", "hyperliquid"} {
+	for _, n := range []string{"v4_native", "alpaca", "perps"} {
 		if !names[n] {
 			t.Errorf("missing venue: %s", n)
 		}
