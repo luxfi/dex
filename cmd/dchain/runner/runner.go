@@ -1,14 +1,11 @@
 // Copyright (C) 2019-2025, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build dchain && cgo
-// +build dchain,cgo
-
-// Package runner boots the standalone D-Chain DEX VM as a ZAP plugin process,
-// mirroring github.com/luxfi/evm/plugin/runner. It is the //go:build dchain &&
-// cgo VENUE entrypoint: the binary links the cgo/GPU matching engine (the venue
-// accelerator) alongside the pure-Go consensus VM, so it is built and shipped by
-// CI for each org+arch, never linked in the pure-Go test path.
+// Package runner boots the native D-Chain DEX VM as a ZAP plugin process,
+// mirroring github.com/luxfi/evm/plugin/runner. rpc.Serve hands the VM the
+// chain's own zapdb and serves block requests to luxd's consensus engine, so
+// BuildBlock/Verify/Accept run inside luxd's multi-validator consensus. The VM
+// is pure-Go (CGO=0); this entrypoint links no native code.
 package runner
 
 import (
