@@ -171,8 +171,25 @@ func main() {
 	var quote [32]byte
 	binary.BigEndian.PutUint64(quote[24:32], 0x4c555344_000001) // "LUSD" label
 	const aliceUser, bobUser = "alice", "bob"
-	const askPrice, askSize = 12.50, 2.0
-	const buyLimit, buySize = 13.0, 1.0
+	const askPrice, buyLimit = 12.50, 13.0
+
+	// EVERY write frame MUST be unique per invocation. The d-chain is content-
+	// addressed: it dedups a tx by the hash of its full frame (the seen: key). A
+	// deposit, a place, AND a submit re-sent with identical bytes across runs all
+	// resolve to the SAME tx id and are deduped — NOT re-applied — returning the
+	// FIRST run's cached outcome (a place returns its old orderId; a submit returns
+	// its old, possibly-empty, fills). So a second run that re-sends the same
+	// frames proves nothing. We thread a per-run nonce into the SIZE so the ask and
+	// the crossing buy are genuinely new orders each run (same size on both sides so
+	// they fully cross), and into the deposit AMOUNT so the credit is fresh and
+	// generous. The nonce is the wall clock so back-to-back runs never collide.
+	runNonce := uint64(time.Now().UnixNano())
+	// A small, unique whole-unit size per run (1..50 base units): distinct enough to
+	// dodge dedup, small enough that a generous deposit always funds the lock.
+	xsize := float64(runNonce%50 + 1)
+	askSize, buySize := xsize, xsize
+	aliceDeposit := uint64(xsize) + 1 + (runNonce & 0xffff)            // base, funds the sell lock (floor(askSize))
+	bobDeposit := uint64(xsize*buyLimit) + 10 + (runNonce & 0xffff)    // quote, funds the buy lock (ceil(buySize*buyLimit))
 
 	target := strings.TrimRight(nodes[*submitTo], "/")
 	fmt.Printf("=== clobverify: %d node(s), submit-to=%d (%s), symbol=%s ===\n", len(nodes), *submitTo, target, *symbol)
@@ -197,9 +214,9 @@ func main() {
 			st, credited, _ := zapwire.DecodeBalanceResp(resp)
 			fmt.Printf("      deposit %s amt=%d -> status=%d credited=%d\n", user, amt, st, credited)
 		}
-		dep(aliceUser, base, 2)
-		dep(bobUser, quote, 53)
-		fmt.Println("[2/4] clob_deposit: alice base, bob quote credited")
+		dep(aliceUser, base, aliceDeposit)
+		dep(bobUser, quote, bobDeposit)
+		fmt.Printf("[2/4] clob_deposit: alice base=%d bob quote=%d (run-nonce=%d, fresh credit)\n", aliceDeposit, bobDeposit, runNonce)
 
 		askResp := mustPost(zapwire.MethodPlace, zapwire.EncodePlace(pool, zapwire.SideSell, askPrice, askSize, aliceUser))
 		if len(askResp) < 9 || askResp[8] != zapwire.StatusPlaced {
