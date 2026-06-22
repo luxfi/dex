@@ -799,7 +799,6 @@ Planned cross-chain DEX integrations for comprehensive price discovery:
 |-----|-------|------|----------|
 | **Uniswap V3** | Ethereum | AMM | P1 |
 | **SushiSwap** | Multi-chain | AMM | P1 |
-| **Hyperliquid** | Arbitrum | Perps DEX | P1 |
 | **Astar** | Polkadot | DEX | P2 |
 | **dYdX** | Cosmos | Perps | P2 |
 | **GMX** | Arbitrum | Perps | P2 |
@@ -982,7 +981,7 @@ Quantum finality latency: 50ms
 - [x] Symbol normalization layer
 - [x] Adjust weights: DEX > AMM > Attestations > Oracles
 - [ ] Implement adaptive latency-based weighting
-- [ ] Add Uniswap/SushiSwap/Hyperliquid sources (omni-DEX)
+- [ ] Add Uniswap/SushiSwap/perps-DEX sources (omni-DEX)
 - [ ] Add REST API endpoints for price feeds
 - [ ] Complete WebSocket real-time streaming
 - [ ] Add Prometheus metrics endpoints
