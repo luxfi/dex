@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/luxfi/consensus v1.25.18
 	github.com/luxfi/crypto v1.19.21
-	github.com/luxfi/database v1.20.3
+	github.com/luxfi/database v1.20.4
 	github.com/luxfi/geth v1.17.12
 	github.com/luxfi/ids v1.2.15
 	github.com/luxfi/log v1.4.3
