@@ -5,11 +5,11 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/luxfi/chains v1.3.15
+	github.com/luxfi/chains v1.3.16
 	github.com/luxfi/consensus v1.25.18
 	github.com/luxfi/crypto v1.19.21
 	github.com/luxfi/database v1.20.3
-	github.com/luxfi/genesis v1.13.8
+	github.com/luxfi/genesis v1.13.14
 	github.com/luxfi/geth v1.17.12
 	github.com/luxfi/go-bip32 v1.0.2
 	github.com/luxfi/go-bip39 v1.1.2
@@ -19,7 +19,7 @@ require (
 	github.com/luxfi/rpc v1.1.0
 	github.com/luxfi/version v1.0.1
 	github.com/luxfi/vm v1.2.5
-	github.com/luxfi/zap v0.8.9
+	github.com/luxfi/zap v0.8.10
 	github.com/nats-io/nats.go v1.52.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
