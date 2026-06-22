@@ -523,6 +523,112 @@ func TestVMRestartLegacyGenesisDB(t *testing.T) {
 	}
 }
 
+// TestVMAcceptViaGetBlock reproduces the production consensus stall: the luxd
+// plugin transport (vm/rpc) resolves Block.Accept by ID via VM.GetBlock — unlike
+// Verify, which carries the full block bytes — and then calls Accept on whatever
+// GetBlock returns. Before the processing-block index, GetBlock(builtID) returned
+// ErrNotFound (only accepted blocks were indexed), so the engine's self-finalize
+// Accept was a silent no-op, the clob_* submitTx waiter hung forever, and no
+// further blocks were built. This drives the EXACT plugin-shaped path the live
+// node uses — BuildBlock -> GetBlock(id) -> Accept — which every existing test
+// skipped by accepting the *Block returned from BuildBlock directly.
+func TestVMAcceptViaGetBlock(t *testing.T) {
+	ctx := context.Background()
+	db := memdb.New()
+	pool := [32]byte{0x09}
+
+	vm, toEngine := newTestVM(t, db)
+
+	// A clob tx in the mempool, then the proposer's lifecycle exactly as the
+	// engine drives it over the plugin transport.
+	vm.mempool.Add(ensureMarketTx(t, pool))
+	vm.mempool.Add(placePoolTx(t, pool, zapwire.SideSell, 101.0, 5.0, "maker-a"))
+	drainSignals(toEngine)
+
+	built, err := vm.BuildBlock(ctx)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	builtID := built.ID()
+
+	// THE PLUGIN-TRANSPORT CONTRACT: Verify the built block, then resolve it by ID
+	// (not by holding the BuildBlock return) and Accept that instance.
+	if err := built.Verify(ctx); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	got, err := vm.GetBlock(ctx, builtID)
+	if err != nil {
+		t.Fatalf("GetBlock(builtID) before accept: %v (the production stall)", err)
+	}
+	if got.ID() != builtID {
+		t.Fatalf("GetBlock returned %s, want %s", got.ID(), builtID)
+	}
+	if err := got.Accept(ctx); err != nil {
+		t.Fatalf("Accept via GetBlock: %v", err)
+	}
+
+	// The head advanced and the accepted block is now resolvable by id; the
+	// processing entry was pruned.
+	if vm.lastAcceptedID != builtID {
+		t.Fatalf("head = %s, want %s", vm.lastAcceptedID, builtID)
+	}
+	if _, ok := vm.processingBlocks[builtID]; ok {
+		t.Fatalf("processing entry not pruned after Accept")
+	}
+	if _, err := vm.GetBlock(ctx, builtID); err != nil {
+		t.Fatalf("GetBlock(head) after accept: %v", err)
+	}
+	if len(vm.books[pool].Orders) != 1 {
+		t.Fatalf("resting orders = %d, want 1", len(vm.books[pool].Orders))
+	}
+}
+
+// TestVMParseVerifyAcceptByID covers the follower path: ParseBlock(bytes) ->
+// Verify -> Accept resolved by ID through GetBlock. ParseBlock must return a
+// STABLE instance so the overlay Verify stashes is the one Accept commits.
+func TestVMParseVerifyAcceptByID(t *testing.T) {
+	ctx := context.Background()
+	pool := [32]byte{0x0A}
+
+	// Proposer builds the block bytes.
+	dbP := memdb.New()
+	vmP, engP := newTestVM(t, dbP)
+	vmP.mempool.Add(ensureMarketTx(t, pool))
+	vmP.mempool.Add(placePoolTx(t, pool, zapwire.SideBuy, 99.0, 4.0, "maker-c"))
+	drainSignals(engP)
+	prop, err := vmP.BuildBlock(ctx)
+	if err != nil {
+		t.Fatalf("proposer BuildBlock: %v", err)
+	}
+	raw := prop.Bytes()
+	propID := prop.ID()
+
+	// Follower adopts the bytes the way the engine does: ParseBlock, Verify, then
+	// resolve by ID and Accept.
+	dbF := memdb.New()
+	vmF, _ := newTestVM(t, dbF)
+	parsed, err := vmF.ParseBlock(ctx, raw)
+	if err != nil {
+		t.Fatalf("follower ParseBlock: %v", err)
+	}
+	if parsed.ID() != propID {
+		t.Fatalf("parsed id %s, want %s", parsed.ID(), propID)
+	}
+	if err := parsed.Verify(ctx); err != nil {
+		t.Fatalf("follower Verify: %v", err)
+	}
+	got, err := vmF.GetBlock(ctx, propID)
+	if err != nil {
+		t.Fatalf("follower GetBlock(id): %v", err)
+	}
+	if err := got.Accept(ctx); err != nil {
+		t.Fatalf("follower Accept via GetBlock: %v", err)
+	}
+	if vmF.lastAcceptedID != propID {
+		t.Fatalf("follower head = %s, want %s", vmF.lastAcceptedID, propID)
+	}
+}
+
 // ensure the VM satisfies the consensus ChainVM interface at compile time.
 var _ block.ChainVM = (*VM)(nil)
 

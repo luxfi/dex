@@ -240,6 +240,7 @@ func (b *Block) Accept(ctx context.Context) error {
 	b.vm.lastRoot = b.execRoot
 	b.vm.acceptedBlocks[b.id] = b
 	b.vm.heightIndex[b.height] = b.id
+	delete(b.vm.processingBlocks, b.id) // now accepted; drop the processing entry
 	b.applyToMemBooks()
 	b.status = statusAccepted
 	b.overlay = nil
@@ -271,6 +272,7 @@ func (b *Block) Reject(ctx context.Context) error {
 		b.overlay = nil
 	}
 	b.status = statusRejected
+	delete(b.vm.processingBlocks, b.id) // rejected; drop the processing entry
 	b.vm.mempool.Requeue(b.txs)
 	return nil
 }
