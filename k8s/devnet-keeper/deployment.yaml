@@ -1,0 +1,68 @@
+# dexkeeper Deployment (lux-devnet): the off-chain keeper that drives the on-chain
+# 0x9999 two-phase atomic DEX seam so DEXFill lands on the devnet C-Chain.
+#
+# It watches the C-Chain 0x9999 IntentSubmitted event, submits the dexvm ImportTx +
+# settling RelayOrderTx (via dex.submitTx), polls dex.getSettlement for the D->C
+# proceeds object, then has the maker sign + send the C-side Phase-B settle (which
+# emits DEXFill). The maker key is derived in-process from LUX_MNEMONIC (KMS-synced;
+# see kmssecret-mnemonic.yaml).
+#
+# PRECONDITIONS (all in this work's branches):
+#   - luxd validators on a node image whose dexvm includes dex.submitTx + dex.getSettlement
+#     (chains feat/dexvm-submit-tx-rpc) and relayConfigured:true (done — luxd-startup CM).
+#   - dchain-venue:9099 reachable (done).
+#   - dexkeeper image built (ghcr.io/luxfi/dexkeeper, docker.yml matrix).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dexkeeper
+  namespace: lux-devnet
+  labels:
+    app.kubernetes.io/name: dexkeeper
+    app.kubernetes.io/part-of: lux-dex
+spec:
+  replicas: 1 # single keeper: relays are proposer-relays-once; a 2nd keeper would
+              # double-submit ImportTx/RelayOrderTx (idempotent on the dexvm side by
+              # content-addressed UTXO/receipt, but no need). Scale only with leader-election.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dexkeeper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dexkeeper
+        app.kubernetes.io/part-of: lux-dex
+    spec:
+      imagePullSecrets:
+        - name: ghcr-luxfi
+      containers:
+        - name: dexkeeper
+          image: ghcr.io/luxfi/dexkeeper:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --mode=watch
+            - --c-rpc=http://luxd-0.luxd-headless.lux-devnet.svc.cluster.local:9650/ext/bc/C/rpc
+            - --d-rpc=http://luxd-0.luxd-headless.lux-devnet.svc.cluster.local:9650/ext/bc/28mZwmZtKAdGWoJRWSYw8RXxUcHZUDVsNgjMH4nnMfoJGJi2SX/rpc
+            - --d-chain-id=28mZwmZtKAdGWoJRWSYw8RXxUcHZUDVsNgjMH4nnMfoJGJi2SX
+            - --venue=dchain-venue.lux-devnet.svc.cluster.local:9099
+            - --maker=0x9011E888251AB053B7bD1cdB598Db4f9DEd94714
+          env:
+            # The BIP-39 mnemonic the keeper derives the maker key from (KMS-synced).
+            - name: LUX_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: dexkeeper-mnemonic
+                  key: LUX_MNEMONIC
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
