@@ -271,19 +271,25 @@ func (k *keeper) handleIntent(ctx context.Context, ev intentEvent) error {
 	size := float64(ev.AmountIn)
 	frame := submitFrameFor(poolIDFromMarket(ev.MarketID), side, true /*isMarket*/, limitPrice, size, makerHandle(k.cfg.Maker))
 	assetOut := k.assetOutFor(ev.MarketID, ev.AssetIn)
-	relay := dextxs.NewSettlingRelayOrderTx(owner, ev.AmountIn+1, frame, importTx.ID(), assetOut, ev.PriceLimit, ev.LimitIsUpper)
+	// CollateralRef MUST be the C->D object's UTXOID (== ev.IntentID), NOT importTx.ID():
+	// executeImport keys the escrow by tx.ImportedInputs[0].UTXOID (atomic.go), and
+	// settleFromFills looks the escrow up by RelayOrderTx.CollateralRef. They MUST be the
+	// same id or the settle finds no escrow (proceeds-only, no refund) and the authority
+	// bind degrades. The import's single input is ev.IntentID, so that is the collateral ref.
+	collateralRef := ev.IntentID
+	relay := dextxs.NewSettlingRelayOrderTx(owner, ev.AmountIn+1, frame, collateralRef, assetOut, ev.PriceLimit, ev.LimitIsUpper)
 	relayID, err := k.submitDexTx(ctx, relay)
 	if err != nil {
 		return fmt.Errorf("submit RelayOrderTx: %w", err)
 	}
 	log.Info("submitted settling RelayOrderTx (unsigned; From=escrow owner)", "txID", relayID)
 
-	// 3) Discover the D->C export proceeds object and build Phase-B. This is the single
-	//    step that requires a settlement-coordinate query the current dexvm RPC does not
-	//    yet expose (see getExportedOutput); until it is wired, the keeper has driven the
-	//    intent through the relay and the D->C proceeds object IS staged — the maker (or a
-	//    later keeper pass) completes Phase-B once the outputID is discoverable.
-	outputID, amountOut, err := k.getExportedOutput(ctx, ev, relay, importTx.ID())
+	_ = relayID
+	// 3) Poll the dexvm for the D->C proceeds object's coordinate (dex.getSettlement),
+	//    keyed by the collateral ref (== ev.IntentID). Once the proposer relays and the
+	//    settling block accepts, settleFromFills records (outputID, amount); the keeper
+	//    reads them and builds Phase-B.
+	outputID, amountOut, err := k.getExportedOutput(ctx, collateralRef)
 	if err != nil {
 		return fmt.Errorf("discover D->C export (intent driven through relay; Phase-B pending): %w", err)
 	}
@@ -399,14 +405,88 @@ func (k *keeper) submitDexTx(ctx context.Context, tx dextxs.Tx) (string, error) 
 //   - a C-Chain view that lists importable D->C railSwap UTXOs for an address+sourceChain,
 //     and select the one whose recorded (owner==maker, asset==assetOut) matches this intent.
 //
-// Until then this returns an error; handleIntent has already driven the intent through the
-// relay, so the D->C proceeds object is staged and Phase-B is the only remaining leg.
-func (k *keeper) getExportedOutput(ctx context.Context, ev intentEvent, relay *dextxs.RelayOrderTx, collateralRef ids.ID) (outputID ids.ID, amount uint64, err error) {
-	_ = ctx
-	_ = ev
-	_ = relay
-	_ = collateralRef
-	return ids.Empty, 0, fmt.Errorf("export discovery not wired: dexvm exposes no settlement-coordinate query (need dex.getSettlement(relayTxID) -> {blockHash,txIndex,fills} or a C-Chain importable-UTXO view)")
+// IT IS NOW WIRED via dex.getSettlement(collateralRef): settleFromFills records the
+// proceeds export's (outputID, amount) under the collateral ref (== ev.IntentID) in the
+// versiondb when the settling block accepts (chains/dexvm state.PutSettlement /
+// vm.GetSettlement / api dex.getSettlement). The keeper polls it: until the proposer
+// relays + the block accepts, Settled is false (keep polling); once true, the
+// (outputID, amount) are the Phase-B DS01 body inputs.
+const (
+	settlePollInterval = 1 * time.Second
+	settlePollMax      = 60 // ~60s: the proposer relays at the next BuildBlock and settles at accept
+)
+
+// getSettlementRequest / getSettlementResponse mirror the gorilla-rpc envelope of the
+// dexvm's dex.getSettlement (chains/dexvm/api/service.go GetSettlementArgs/Reply).
+type getSettlementRequest struct {
+	JSONRPC string                 `json:"jsonrpc"`
+	ID      int                    `json:"id"`
+	Method  string                 `json:"method"`
+	Params  [1]getSettlementParams `json:"params"`
+}
+
+type getSettlementParams struct {
+	CollateralRef string `json:"collateralRef"`
+}
+
+type getSettlementResponse struct {
+	Result *struct {
+		Settled  bool   `json:"settled"`
+		OutputID string `json:"outputID"`
+		Amount   uint64 `json:"amount"`
+	} `json:"result"`
+	Error *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// getExportedOutput polls dex.getSettlement(collateralRef) until the dexvm has settled the
+// relay and recorded the proceeds object's coordinate, returning its outputID + amount for
+// Phase-B. collateralRef is ev.IntentID (the escrow + settlement key).
+func (k *keeper) getExportedOutput(ctx context.Context, collateralRef ids.ID) (outputID ids.ID, amount uint64, err error) {
+	body, merr := json.Marshal(getSettlementRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "dex.getSettlement",
+		Params:  [1]getSettlementParams{{CollateralRef: collateralRef.String()}},
+	})
+	if merr != nil {
+		return ids.Empty, 0, fmt.Errorf("marshal getSettlement request: %w", merr)
+	}
+	for attempt := 0; attempt < settlePollMax; attempt++ {
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, k.cfg.DRPC, bytes.NewReader(body))
+		if rerr != nil {
+			return ids.Empty, 0, fmt.Errorf("new getSettlement request: %w", rerr)
+		}
+		req.Header.Set("content-type", "application/json")
+		resp, derr := k.http.Do(req)
+		if derr != nil {
+			return ids.Empty, 0, fmt.Errorf("POST dex.getSettlement: %w", derr)
+		}
+		var out getSettlementResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if decErr != nil {
+			return ids.Empty, 0, fmt.Errorf("decode getSettlement response: %w", decErr)
+		}
+		if out.Error != nil {
+			return ids.Empty, 0, fmt.Errorf("dex.getSettlement error %d: %s", out.Error.Code, out.Error.Message)
+		}
+		if out.Result != nil && out.Result.Settled {
+			oid, perr := ids.FromString(out.Result.OutputID)
+			if perr != nil {
+				return ids.Empty, 0, fmt.Errorf("getSettlement returned bad outputID %q: %w", out.Result.OutputID, perr)
+			}
+			return oid, out.Result.Amount, nil
+		}
+		select {
+		case <-ctx.Done():
+			return ids.Empty, 0, ctx.Err()
+		case <-time.After(settlePollInterval):
+		}
+	}
+	return ids.Empty, 0, fmt.Errorf("dex.getSettlement: no proceeds recorded for %s after %d polls (relay may have zero-filled; taker can reclaim after deadline)", collateralRef, settlePollMax)
 }
 
 // ---- market mapping helpers ----
