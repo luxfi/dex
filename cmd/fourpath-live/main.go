@@ -432,7 +432,8 @@ func wsCross(wsURL, user, symbol string, limit, size float64) []zapwire.Fill {
 func main() {
 	var (
 		venueAddr = flag.String("venue", "127.0.0.1:9099", "live D-Chain venue ZAP address (host:port)")
-		cchainRPC = flag.String("cchain-rpc", "", "optional C-Chain EVM JSON-RPC; if set, assert code at 0x9010")
+		cchainRPC = flag.String("cchain-rpc", "", "optional C-Chain EVM JSON-RPC; if set, assert code at the settlement precompile")
+		v4Addr    = flag.String("v4-addr", "0x0000000000000000000000000000000000009999", "canonical V4 settlement precompile address on C-Chain (0x9999; 0x9010 deprecated)")
 		runTag    = flag.String("run", "", "unique run tag (default: wall-clock ns) to namespace symbol+users")
 	)
 	flag.Parse()
@@ -468,9 +469,9 @@ func main() {
 	fmt.Printf("=== FOUR-PATH LIVE PROOF (devnet) ===\n")
 	fmt.Printf("  venue=%s  symbol=%s\n", *venueAddr, symbol)
 
-	// Optional: assert the on-chain V4 precompile is present at 0x9010.
+	// Optional: assert the on-chain V4 settlement precompile is present (0x9999 canonical).
 	if *cchainRPC != "" {
-		assertPrecompile(*cchainRPC)
+		assertPrecompile(*cchainRPC, *v4Addr)
 	}
 
 	cli, closeCli := dialVenue(*venueAddr)
@@ -621,16 +622,18 @@ func hashTag(s string) uint64 {
 	return h & 0xffffff
 }
 
-// assertPrecompile confirms the V4 precompile is deployed at 0x9010 on the
-// C-Chain EVM (eth_getCode returns non-empty), proving the on-chain leg of the
-// V4 path exists where the engine_zap frame is relayed from.
-func assertPrecompile(rpcURL string) {
-	body := `{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0x0000000000000000000000000000000000009010","latest"]}`
+// assertPrecompile confirms the V4 settlement precompile is deployed at addr on
+// the C-Chain EVM (eth_getCode returns non-empty), proving the on-chain leg of
+// the V4 path exists where the engine_zap frame is relayed from. The canonical
+// address is 0x9999 (the V4-shaped receipt-settlement precompile); 0x9010 was
+// deprecated and removed in precompile v0.5.53.
+func assertPrecompile(rpcURL, addr string) {
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["%s","latest"]}`, addr)
 	req, _ := http.NewRequest("POST", rpcURL, strings.NewReader(body))
 	req.Header.Set("content-type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		die("eth_getCode 0x9010: %v", err)
+		die("eth_getCode %s: %v", addr, err)
 	}
 	defer resp.Body.Close()
 	var out struct {
@@ -640,7 +643,7 @@ func assertPrecompile(rpcURL string) {
 		die("eth_getCode decode: %v", err)
 	}
 	if out.Result == "" || out.Result == "0x" {
-		die("V4 precompile 0x9010 has no code on C-Chain (%q)", out.Result)
+		die("V4 settlement precompile %s has no code on C-Chain (%q)", addr, out.Result)
 	}
-	fmt.Printf("  [V4] on-chain precompile 0x9010 present on C-Chain (eth_getCode=%s)\n", out.Result)
+	fmt.Printf("  [V4] on-chain settlement precompile %s present on C-Chain (eth_getCode=%s)\n", addr, out.Result)
 }
