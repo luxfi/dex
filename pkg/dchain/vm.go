@@ -122,12 +122,21 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	return nil
 }
 
+// genesisBlock deterministically reconstructs the genesis block (height 0, empty,
+// zero parent root). It is a pure function of the VM binding — every validator and
+// every restart computes the identical id — so it is the single source of the
+// genesis block for both bootstrapGenesis (fresh DB) and loadHead's legacy-DB
+// recovery (a DB written before head blocks were persisted).
+func (vm *VM) genesisBlock() (*Block, [Size]byte) {
+	var parentRoot [Size]byte // zero
+	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, 0)
+	return newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil), root
+}
+
 // bootstrapGenesis writes the genesis block (height 0, empty, zero parent root)
 // and sets it as the accepted head. Must be called under vm.mu on a fresh DB.
 func (vm *VM) bootstrapGenesis() error {
-	var parentRoot [Size]byte // zero
-	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, 0)
-	gen := newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil)
+	gen, root := vm.genesisBlock()
 
 	batch := vm.db.NewBatch()
 	if err := writeLastAccepted(batch, gen.id); err != nil {
@@ -137,6 +146,9 @@ func (vm *VM) bootstrapGenesis() error {
 		return err
 	}
 	if err := writeRoot(batch, root); err != nil {
+		return err
+	}
+	if err := writeHeadBlock(batch, gen.bytes); err != nil {
 		return err
 	}
 	if err := batch.Write(); err != nil {
@@ -152,8 +164,12 @@ func (vm *VM) bootstrapGenesis() error {
 	return nil
 }
 
-// loadHead reads the accepted head (id, height, root) from durable meta. Must be
-// called under vm.mu.
+// loadHead reads the accepted head (id, height, root) from durable meta AND
+// reconstructs the head Block into the in-RAM acceptedBlocks map. The block store
+// is the acceptedBlocks map (empty after a restart), so without this the engine's
+// GetBlock(lastAccepted) — invoked immediately after Initialize — returns
+// ErrNotFound and VM init fails ("get last accepted block: not found") on any
+// chain that advanced past genesis. Must be called under vm.mu.
 func (vm *VM) loadHead() error {
 	id, err := readLastAccepted(vm.db)
 	if err != nil {
@@ -167,11 +183,58 @@ func (vm *VM) loadHead() error {
 	if err != nil {
 		return fmt.Errorf("dchain: load head root: %w", err)
 	}
+
+	head, err := vm.loadHeadBlock(id, height)
+	if err != nil {
+		return err
+	}
+
 	vm.lastAcceptedID = id
 	vm.lastAcceptedHeight = height
 	vm.lastRoot = root
 	vm.heightIndex[height] = id
+	vm.acceptedBlocks[id] = head
 	return nil
+}
+
+// loadHeadBlock reconstructs the accepted head block named by (id, height). It
+// reads the persisted head-block bytes and parses them, asserting the reconstructed
+// id matches the head pointer. For a DB written before head blocks were persisted
+// (legacy), the bytes are absent: a height-0 head is recovered from the
+// deterministic genesis block (verified to match the stored id); a height>0 head
+// with no persisted block is unrecoverable corruption and errors loudly rather
+// than silently resetting the chain. Must be called under vm.mu.
+func (vm *VM) loadHeadBlock(id ids.ID, height uint64) (*Block, error) {
+	raw, err := readHeadBlock(vm.db)
+	if err == database.ErrNotFound {
+		// Legacy DB (head block never persisted). Only genesis is reconstructible
+		// without the bytes.
+		if height != 0 {
+			return nil, fmt.Errorf("dchain: head block missing at height %d (corrupt or pre-persistence state); cannot recover", height)
+		}
+		gen, _ := vm.genesisBlock()
+		if gen.id != id {
+			return nil, fmt.Errorf("dchain: genesis id mismatch on legacy DB: stored %s computed %s", id, gen.id)
+		}
+		gen.status = statusAccepted
+		return gen, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("dchain: read head block: %w", err)
+	}
+
+	head, err := parseBlock(vm, raw)
+	if err != nil {
+		return nil, fmt.Errorf("dchain: parse head block: %w", err)
+	}
+	if head.id != id {
+		return nil, fmt.Errorf("dchain: head block id mismatch: pointer %s parsed %s", id, head.id)
+	}
+	if head.height != height {
+		return nil, fmt.Errorf("dchain: head block height mismatch: meta %d block %d", height, head.height)
+	}
+	head.status = statusAccepted
+	return head, nil
 }
 
 // rebuildAllBooks folds every market's book from its order:* rows. This is the

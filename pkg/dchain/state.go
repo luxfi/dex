@@ -80,6 +80,7 @@ const (
 	metaLastAccepted = prefixMeta + "lastAccepted"
 	metaHeight       = prefixMeta + "height"
 	metaRoot         = prefixMeta + "root"
+	metaHeadBlock    = prefixMeta + "headBlock" // canonical bytes of the accepted head block
 )
 
 // seenKey builds seen:<txID:32>. A tx id committed here has been applied by an
@@ -656,6 +657,23 @@ func readRoot(db database.KeyValueReader) ([32]byte, error) {
 
 func writeRoot(db database.KeyValueWriter, root [32]byte) error {
 	return db.Put([]byte(metaRoot), root[:])
+}
+
+// readHeadBlock returns the canonical bytes of the accepted head block, or
+// database.ErrNotFound if none recorded. The block objects are otherwise held only
+// in the in-RAM acceptedBlocks map, which is empty after a restart; persisting the
+// head's bytes lets loadHead reconstruct it so GetBlock(lastAccepted) — which the
+// consensus engine calls immediately after Initialize — succeeds on a chain that
+// has advanced past genesis.
+func readHeadBlock(db database.KeyValueReader) ([]byte, error) {
+	return db.Get([]byte(metaHeadBlock))
+}
+
+// writeHeadBlock persists the canonical bytes of the accepted head block. It is
+// written in the SAME atomic batch/overlay as the head meta (lastAccepted/height/
+// root) so the head pointer and the block it names always commit together.
+func writeHeadBlock(db database.KeyValueWriter, blockBytes []byte) error {
+	return db.Put([]byte(metaHeadBlock), blockBytes)
 }
 
 // =========================================================================
