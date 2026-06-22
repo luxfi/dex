@@ -420,9 +420,16 @@ func (vm *VM) Version(ctx context.Context) (string, error) { return Version, nil
 // over the ZAP gateway (handler.go), not HTTP, so this is nil.
 func (vm *VM) NewHTTPHandler(ctx context.Context) (http.Handler, error) { return nil, nil }
 
-// CreateHandlers returns named HTTP handlers. None — the CLOB surface is ZAP.
+// CreateHandlers returns the VM's named HTTP handlers for luxd to mount under
+// /ext/bc/<DCHAIN_ID>/ (and the "D" alias). It returns one handler per CLOB method
+// keyed by its full sub-path ("/dex/<method>"), so an order POSTed to
+// /ext/bc/D/dex/clob_submit reaches the matcher through the node's own router —
+// the in-luxd ingestion seam (ingest.go). This is how an order enters the native
+// VM: submitTx -> mempool -> consensus -> Verify-match. The plugin transport
+// (github.com/luxfi/vm/rpc) serves these handlers from a local http.Server inside
+// the plugin process and the node reverse-proxies to it.
 func (vm *VM) CreateHandlers(ctx context.Context) (map[string]http.Handler, error) {
-	return map[string]http.Handler{}, nil
+	return vm.httpHandlers(), nil
 }
 
 // Connected/Disconnected are p2p lifecycle callbacks; the d-chain matcher needs
