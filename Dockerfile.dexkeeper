@@ -17,13 +17,13 @@ ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*
 
 WORKDIR /app
 COPY go.mod go.sum ./
-# Private cross-repo Go modules (luxfi/*): the reusable docker-build workflow
-# exposes the org PAT as a BuildKit secret id=gh_token. Mount it for the module
-# fetch only (never baked into a layer). ARG GITHUB_TOKEN remains a fallback for
-# local `--build-arg` builds; the secret takes precedence when present.
+# Private cross-repo Go modules (luxfi/*): the docker-dexkeeper workflow exposes
+# the org PAT as a BuildKit secret id=ghtok (luxfi/node's convention). Mount it
+# for the module fetch only (never baked into a layer). ARG GITHUB_TOKEN remains
+# a fallback for local `--build-arg` builds; the secret takes precedence.
 ARG GITHUB_TOKEN
-RUN --mount=type=secret,id=gh_token \
-    TOKEN="$(cat /run/secrets/gh_token 2>/dev/null || echo "${GITHUB_TOKEN}")" && \
+RUN --mount=type=secret,id=ghtok \
+    TOKEN="$(cat /run/secrets/ghtok 2>/dev/null || echo "${GITHUB_TOKEN}")" && \
     if [ -n "$TOKEN" ]; then \
       git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"; \
     fi && \
