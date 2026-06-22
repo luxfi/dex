@@ -5,21 +5,16 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/luxfi/chains v1.3.16
 	github.com/luxfi/consensus v1.25.18
 	github.com/luxfi/crypto v1.19.21
 	github.com/luxfi/database v1.20.3
-	github.com/luxfi/genesis v1.13.14
 	github.com/luxfi/geth v1.17.12
-	github.com/luxfi/go-bip32 v1.0.2
-	github.com/luxfi/go-bip39 v1.1.2
 	github.com/luxfi/ids v1.2.15
 	github.com/luxfi/log v1.4.3
 	github.com/luxfi/pq v1.0.3
 	github.com/luxfi/rpc v1.1.0
 	github.com/luxfi/version v1.0.1
 	github.com/luxfi/vm v1.2.5
-	github.com/luxfi/zap v0.8.10
 	github.com/nats-io/nats.go v1.52.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
@@ -52,7 +47,6 @@ require (
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
-	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
@@ -89,7 +83,6 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/luxfi/accel v1.2.4 // indirect
-	github.com/luxfi/address v1.0.1 // indirect
 	github.com/luxfi/age v1.5.0 // indirect
 	github.com/luxfi/api v1.0.15 // indirect
 	github.com/luxfi/atomic v1.0.0 // indirect
@@ -106,15 +99,16 @@ require (
 	github.com/luxfi/metric v1.5.9 // indirect
 	github.com/luxfi/mock v0.1.1 // indirect
 	github.com/luxfi/p2p v1.21.1 // indirect
+	github.com/luxfi/precompile v0.5.56 // indirect
 	github.com/luxfi/proto v1.3.5 // indirect
 	github.com/luxfi/resource v0.0.1 // indirect
 	github.com/luxfi/runtime v1.1.1 // indirect
 	github.com/luxfi/sampler v1.1.0 // indirect
-	github.com/luxfi/tls v1.0.3 // indirect
 	github.com/luxfi/upgrade v1.0.1 // indirect
 	github.com/luxfi/utils v1.2.0 // indirect
 	github.com/luxfi/validators v1.2.0 // indirect
 	github.com/luxfi/warp v1.19.5 // indirect
+	github.com/luxfi/zap v0.8.10 // indirect
 	github.com/luxfi/zapdb v1.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
