@@ -83,13 +83,23 @@ func floatToFixedPrice(price float64) DEXPrice {
 	return DEXPrice{Integer: uint64(intPart), Fraction: fraction}
 }
 
-// fixedPriceToFloat converts a Q64.64 DEXPrice back to float64. This is the
-// inverse used only to repopulate the in-RAM Order.Price when rebuilding the
-// book from rows; the deterministic state (rows, merkle leaves) always uses the
-// integer form, so any float rounding here never affects consensus.
-func fixedPriceToFloat(p DEXPrice) float64 {
+// Float converts a Q64.64 DEXPrice to float64 — the single inverse of the
+// fixed-point price form, used to repopulate the in-RAM Order.Price on rebuild
+// and to render a committed price for display/read APIs. The deterministic state
+// (rows, merkle leaves) always uses the integer form, so this float projection
+// never affects consensus.
+func (p DEXPrice) Float() float64 {
 	return float64(p.Integer) + float64(p.Fraction)/18446744073709551616.0 // /2^64
 }
+
+// fixedPriceToFloat is the package-internal alias for DEXPrice.Float (one
+// implementation; the existing call sites keep their name).
+func fixedPriceToFloat(p DEXPrice) float64 { return p.Float() }
+
+// FixedQtyToFloat converts an integer 1e8 fixed-unit base quantity back to
+// float64 — the single inverse of floatToFixedQty, exported so read APIs render
+// a committed quantity through the SAME conversion the rebuild path uses.
+func FixedQtyToFloat(q uint64) float64 { return float64(q) / QuantityScale }
 
 // floatToFixedQty converts a float64 base quantity to the integer 1e8 fixed-unit
 // form stored in a row. Rounds to nearest; clamps a negative/NaN to zero.
@@ -104,10 +114,9 @@ func floatToFixedQty(qty float64) uint64 {
 	return uint64(scaled)
 }
 
-// fixedQtyToFloat converts an integer 1e8 fixed-unit quantity back to float64.
-func fixedQtyToFloat(q uint64) float64 {
-	return float64(q) / QuantityScale
-}
+// fixedQtyToFloat is the package-internal alias for FixedQtyToFloat (one
+// implementation; the existing call sites keep their name).
+func fixedQtyToFloat(q uint64) float64 { return FixedQtyToFloat(q) }
 
 // userToUint64 folds a user identity string to the row's 8-byte UserID
 // (big-endian over the leading 8 bytes, zero-padded). Deterministic and total.
