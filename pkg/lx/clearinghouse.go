@@ -173,17 +173,17 @@ func NewClearingHouse(marginEngine *MarginEngine, riskEngine *RiskEngine) *Clear
 }
 
 // initializeOracleSources sets up weighted oracle sources
-// Weights: Binance(3), OKX(2), Bybit(2), Kraken(1), Kucoin(1), Gate(1), MEXC(1), Hyperliquid(1)
+// Weights: Binance(3), OKX(2), Bybit(2), Kraken(1), Kucoin(1), Gate(1), MEXC(1), Coinbase(1)
 func (ch *ClearingHouse) initializeOracleSources() {
 	exchanges := map[string]int{
-		"Binance":     3,
-		"OKX":         2,
-		"Bybit":       2,
-		"Kraken":      1,
-		"Kucoin":      1,
-		"Gate":        1,
-		"MEXC":        1,
-		"Hyperliquid": 1,
+		"Binance":  3,
+		"OKX":      2,
+		"Bybit":    2,
+		"Kraken":   1,
+		"Kucoin":   1,
+		"Gate":     1,
+		"MEXC":     1,
+		"Coinbase": 1,
 	}
 
 	// Initialize for major assets
