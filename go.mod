@@ -5,16 +5,21 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/luxfi/chains v1.3.15
 	github.com/luxfi/consensus v1.25.18
 	github.com/luxfi/crypto v1.19.21
-	github.com/luxfi/database v1.19.0
-	github.com/luxfi/geth v1.17.11
+	github.com/luxfi/database v1.20.3
+	github.com/luxfi/genesis v1.13.8
+	github.com/luxfi/geth v1.17.12
+	github.com/luxfi/go-bip32 v1.0.2
+	github.com/luxfi/go-bip39 v1.1.2
 	github.com/luxfi/ids v1.2.15
 	github.com/luxfi/log v1.4.3
 	github.com/luxfi/pq v1.0.3
 	github.com/luxfi/rpc v1.1.0
 	github.com/luxfi/version v1.0.1
-	github.com/luxfi/vm v1.2.4
+	github.com/luxfi/vm v1.2.5
+	github.com/luxfi/zap v0.8.9
 	github.com/nats-io/nats.go v1.52.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
@@ -26,8 +31,28 @@ require (
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/DataDog/zstd v1.5.7 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.32.13 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.13 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.10 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.14 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
+	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
+	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
@@ -55,6 +80,7 @@ require (
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/gorilla/rpc v1.2.1 // indirect
 	github.com/grandcat/zeroconf v1.0.0 // indirect
+	github.com/hanzoai/vfs v0.4.3 // indirect
 	github.com/hanzos3/go-sdk v1.0.2 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
@@ -63,6 +89,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/luxfi/accel v1.2.4 // indirect
+	github.com/luxfi/address v1.0.1 // indirect
 	github.com/luxfi/age v1.5.0 // indirect
 	github.com/luxfi/api v1.0.15 // indirect
 	github.com/luxfi/atomic v1.0.0 // indirect
@@ -76,18 +103,18 @@ require (
 	github.com/luxfi/math v1.4.1 // indirect
 	github.com/luxfi/math/big v0.1.0 // indirect
 	github.com/luxfi/mdns v0.1.1 // indirect
-	github.com/luxfi/metric v1.5.8 // indirect
+	github.com/luxfi/metric v1.5.9 // indirect
 	github.com/luxfi/mock v0.1.1 // indirect
 	github.com/luxfi/p2p v1.21.1 // indirect
-	github.com/luxfi/proto v1.3.4 // indirect
+	github.com/luxfi/proto v1.3.5 // indirect
 	github.com/luxfi/resource v0.0.1 // indirect
 	github.com/luxfi/runtime v1.1.1 // indirect
 	github.com/luxfi/sampler v1.1.0 // indirect
+	github.com/luxfi/tls v1.0.3 // indirect
 	github.com/luxfi/upgrade v1.0.1 // indirect
 	github.com/luxfi/utils v1.2.0 // indirect
 	github.com/luxfi/validators v1.2.0 // indirect
-	github.com/luxfi/warp v1.19.3 // indirect
-	github.com/luxfi/zap v0.7.2 // indirect
+	github.com/luxfi/warp v1.19.5 // indirect
 	github.com/luxfi/zapdb v1.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -109,16 +136,16 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/supranational/blst v0.3.16 // indirect
-	github.com/syndtr/goleveldb v1.0.1-0.20220614013038-64ee5596c38a // indirect
+	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.uber.org/mock v0.6.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
