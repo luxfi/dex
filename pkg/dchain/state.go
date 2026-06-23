@@ -664,8 +664,12 @@ func deleteOrderUser(db database.KeyValueWriterDeleter, poolID [32]byte, orderID
 // (makerSettleKey, the cancel unlock) FAIL CLOSED with ErrMissingSettlementUser when
 // ok=false — there is NO fallback to the matcher's 8-byte handle, because a compact-
 // handle fallback would make handle collisions value-bearing (a theft bug). The
-// boot audit (assertOrderUserCoverage) guarantees ok=true for every resting custody
-// order, so ok=false at settle time is state corruption, not a normal path.
+// atomic commit path guarantees ok=true for every resting custody order — the
+// orderuser: row (lockOrderSpend) and the order: row (putOrderRow) are written to the
+// same versiondb overlay and committed in one batch (Block.Accept), so a resting
+// order without its row is unrepresentable in committed state. ok=false at settle time
+// is therefore state corruption, not a normal path (pinned by
+// TestCommittedStateNeverHasOrderWithoutIdentity).
 func getOrderUser(db database.KeyValueReader, poolID [32]byte, orderID uint64) (user userKey, ok bool, err error) {
 	v, gerr := db.Get(orderUserKey(poolID, orderID))
 	if gerr == database.ErrNotFound {
