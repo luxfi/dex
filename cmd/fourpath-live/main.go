@@ -19,15 +19,27 @@
 // client — it needs no in-process VM handle.
 //
 // Every run uses a UNIQUE market symbol + unique user handles (seeded from -run
-// or the wall clock) so repeated runs against the same shared live venue never
-// collide on content-addressed dedup, resting book, or custody rows.
+// or the wall clock) so repeated runs against the same venue never collide on
+// content-addressed dedup, resting book, or custody rows.
 //
-// Usage:
+// LOCAL-ONLY SYNTHETIC-DATA HARNESS — DO NOT POINT AT A SHARED/LIVE CHAIN.
+// It seeds a market + custody with ASCII-of-symbol SYNTHETIC identities: the
+// poolID is the symbol bytes (poolIDForSymbol) and the asset ids are the ASCII
+// of "LUX"/"LUSD" (assetLUX = 0x4c5558.., assetLUSD = 0x4c5553..). If those
+// frames reach a shared D-Chain validator set they persist into the replication
+// snapshot, and the native D-Chain VM (dex/pkg/dchain) then REFUSES TO BOOT on
+// it: assertOrderUserCoverage sees a resting order on a market with no orderuser
+// row and rejects the degraded settlement path, bricking the chain. The
+// internal/localguard guard therefore refuses to run unless the explicit opt-in
+// flag is set AND -venue (and -cchain-rpc, if given) are loopback.
+//
+// Usage (loopback only):
 //
 //	go run ./cmd/fourpath-live \
+//	  --i-understand-this-seeds-synthetic-test-data \
 //	  -venue 127.0.0.1:9099 \
 //	  -cchain-rpc http://127.0.0.1:9650/ext/bc/C/rpc \
-//	  -run devnet-$(date +%s)
+//	  -run local-$(date +%s)
 package main
 
 import (
@@ -47,6 +59,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luxfi/dex/internal/localguard"
 	dexapi "github.com/luxfi/dex/pkg/api"
 	"github.com/luxfi/dex/pkg/fix"
 	dexvenue "github.com/luxfi/dex/pkg/venue"
@@ -435,8 +448,20 @@ func main() {
 		cchainRPC = flag.String("cchain-rpc", "", "optional C-Chain EVM JSON-RPC; if set, assert code at the settlement precompile")
 		v4Addr    = flag.String("v4-addr", "0x0000000000000000000000000000000000009999", "canonical V4 settlement precompile address on C-Chain (0x9999; 0x9010 deprecated)")
 		runTag    = flag.String("run", "", "unique run tag (default: wall-clock ns) to namespace symbol+users")
+		optIn     = flag.Bool(localguard.OptInFlag, false, "REQUIRED: acknowledge this seeds SYNTHETIC ascii-of-symbol test data; only allowed against loopback")
 	)
 	flag.Parse()
+
+	// LOCAL-ONLY guard: this harness seeds a synthetic ascii-of-symbol market +
+	// custody that bricks the native D-Chain VM if it reaches a shared chain.
+	// Refuse any non-loopback target BEFORE dialing the venue or sending a frame.
+	guardTargets := []string{*venueAddr}
+	if *cchainRPC != "" {
+		guardTargets = append(guardTargets, *cchainRPC)
+	}
+	if err := localguard.AssertLocalOnly(guardTargets, *optIn); err != nil {
+		die("%v", err)
+	}
 
 	tag := *runTag
 	if tag == "" {
