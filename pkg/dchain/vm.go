@@ -253,15 +253,21 @@ func (vm *VM) loadHeadBlock(id ids.ID, height uint64) (*Block, error) {
 // durable resting set, so trading resumes with the committed state. Must be
 // called under vm.mu.
 //
-// SETTLEMENT-IDENTITY BOOT ASSERTION: for every market whose (base,quote) assets
-// are bound (a CUSTODY market that locks/settles value), every resting order MUST
-// have an orderuser: mapping to its full 16-byte settlement identity. An order
-// reaching this point on a custody market always has one (lockOrderSpend persists
-// orderuser: BEFORE the order is matchable, and a custody order with no lock is
-// rejected), so a missing row is state corruption: FAIL BOOT rather than continue
-// on a degraded 8-byte path where a maker fill/cancel could only fall back to the
-// compact handle. (Asset-less / pre-custody markets never lock or settle value, so
-// their orders legitimately carry no orderuser: row and are not asserted.)
+// SETTLEMENT-IDENTITY HOLDS BY CONSTRUCTION — no boot scan. A resting custody order
+// without its orderuser: row is UNREPRESENTABLE in committed state: a place's lock,
+// its per-order reserve, AND its orderuser: identity row are written in lockOrderSpend
+// (block.go) against the SAME versiondb overlay as the order:* row (putOrderRow), and
+// the whole block commits in ONE atomic overlay.Commit() (Block.Accept). An unfunded
+// place never rests (lockOrderSpend returns !ok, execute skips applyTx), so the order
+// row is never written without the matching orderuser: row — they land together or
+// not at all. There is therefore no degraded-boot state to scan for, so no boot-brick:
+// the invariant is enforced where the state is created, not re-checked where it is
+// loaded (illegal state unrepresentable; see TestOrderUserPersistedBeforeBookInsert and
+// TestCommittedStateNeverHasOrderWithoutIdentity). The single remaining settlement-
+// identity guard is the consensus-time fail-closed in settleOrderEffects: a fill/cancel
+// that cannot resolve an orderuser: row aborts the block with ErrMissingSettlementUser.
+// On honest committed state it can never fire (the row is always present by the above);
+// it stands only as a defense against an in-block hazard, never as a boot gate.
 func (vm *VM) rebuildAllBooks() error {
 	it := vm.db.NewIteratorWithPrefix([]byte(prefixMarket))
 	defer it.Release()
@@ -277,42 +283,9 @@ func (vm *VM) rebuildAllBooks() error {
 		if err != nil {
 			return fmt.Errorf("dchain: rebuild book %x: %w", poolID[:8], err)
 		}
-		if err := vm.assertOrderUserCoverage(poolID, ob); err != nil {
-			return err
-		}
 		vm.books[poolID] = ob
 	}
 	return it.Error()
-}
-
-// assertOrderUserCoverage enforces the settlement-identity boot invariant for one
-// market: if the market's assets are bound (custody market), every resting order
-// in the rebuilt book MUST have an orderuser: row. A missing row on a custody
-// market is unrecoverable state corruption (a maker fill/cancel could not resolve
-// the full account) — return an error so Initialize FAILS rather than booting a VM
-// that would settle on the degraded 8-byte handle. Asset-less markets are skipped:
-// they never lock or settle value, so their orders carry no orderuser: row by
-// design. Must be called under vm.mu.
-func (vm *VM) assertOrderUserCoverage(poolID [32]byte, ob *lx.OrderBook) error {
-	_, _, assetsBound, err := readMarketAssets(vm.db, poolID)
-	if err != nil {
-		return fmt.Errorf("dchain: read market %x assets for orderuser audit: %w", poolID[:8], err)
-	}
-	if !assetsBound {
-		return nil // asset-less / pre-custody market: no settlement, no orderuser invariant
-	}
-	for _, o := range ob.Orders {
-		if o == nil {
-			continue
-		}
-		if _, ok, gerr := getOrderUser(vm.db, poolID, o.ID); gerr != nil {
-			return fmt.Errorf("dchain: orderuser audit market %x order %d: %w", poolID[:8], o.ID, gerr)
-		} else if !ok {
-			return fmt.Errorf("dchain: %w: resting order %d on custody market %x has no orderuser row at boot (refusing to start on a degraded settlement path)",
-				ErrMissingSettlementUser, o.ID, poolID[:8])
-		}
-	}
-	return nil
 }
 
 // BookDepth reports the authoritative resting-book state for a market: the count
