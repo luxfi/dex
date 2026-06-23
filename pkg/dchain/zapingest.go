@@ -72,9 +72,10 @@ func parseConfig(b []byte) (vmConfig, error) {
 // VM serves HTTP only). It is ADDITIVE: it reuses RegisterCLOB (the existing socket
 // seam cmd/dvenue uses) and adds no new handler logic. Must be called under vm.mu,
 // after the durable state is loaded (so the socket never accepts an order before
-// the VM can sequence it). The server runs in its own goroutine, cancelled by
-// Shutdown via zapIngestCancel.
-func (vm *VM) startZAPIngest(ctx context.Context, addr string) error {
+// the VM can sequence it). The server runs in its own goroutine whose lifetime is
+// the VM's — it is cancelled by Shutdown via zapIngestCancel, NOT by the (short-lived)
+// Initialize context, so no Initialize ctx is taken.
+func (vm *VM) startZAPIngest(addr string) error {
 	if addr == "" {
 		return nil // HTTP-compat-only: canonical socket not served in this environment
 	}

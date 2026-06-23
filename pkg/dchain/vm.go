@@ -142,7 +142,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	if err != nil {
 		return err
 	}
-	if err := vm.startZAPIngest(ctx, cfg.ZAPIngestAddr); err != nil {
+	if err := vm.startZAPIngest(cfg.ZAPIngestAddr); err != nil {
 		return err
 	}
 
