@@ -14,9 +14,19 @@
 // proposer) shows it, replication did not reach the followers.
 //
 // It is pure-Go (CGO=0), links only pkg/zapwire (the one source of frame truth)
-// and the stdlib, so it builds static for in-cluster use. It does NOT depend on
-// the dexvm package (the read responses are decoded as open JSON), so the read
-// schema is exercised exactly as an external consumer (the indexer) would.
+// and the stdlib, so it builds static. It does NOT depend on the dexvm package
+// (the read responses are decoded as open JSON), so the read schema is exercised
+// exactly as an external consumer (the indexer) would.
+//
+// LOCAL-ONLY SYNTHETIC-DATA HARNESS — DO NOT POINT AT A SHARED/LIVE CHAIN.
+// The market it seeds uses an ASCII-of-symbol SYNTHETIC poolID (poolIDForSymbol
+// copies the symbol bytes into the 32-byte id, e.g. "LUX/LUSD" -> 4c55582f4c555344...).
+// If those frames reach a shared D-Chain validator set they persist into the
+// replication snapshot, and the native D-Chain VM (dex/pkg/dchain) then REFUSES
+// TO BOOT on that snapshot: assertOrderUserCoverage sees a resting order on a
+// market with no orderuser row and rejects the degraded settlement path,
+// bricking the chain. The internal/localguard guard therefore refuses to run
+// unless the explicit opt-in flag is set AND every -nodes target is loopback.
 package main
 
 import (
@@ -32,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luxfi/dex/internal/localguard"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -155,6 +166,7 @@ func main() {
 		submitTo = flag.Int("submit-to", 0, "index into -nodes of the validator to SUBMIT the crossing order to (the proposer)")
 		symbol   = flag.String("symbol", "LUX/LUSD", "market symbol")
 		readOnly = flag.Bool("read-only", false, "skip the write; only read clob_get_trades/markets from every node and compare")
+		optIn    = flag.Bool(localguard.OptInFlag, false, "REQUIRED to write: acknowledge this seeds SYNTHETIC ascii-of-symbol test data; only allowed against loopback")
 	)
 	flag.Parse()
 
@@ -164,6 +176,16 @@ func main() {
 	}
 	if *submitTo < 0 || *submitTo >= len(nodes) {
 		die("-submit-to %d out of range for %d nodes", *submitTo, len(nodes))
+	}
+
+	// LOCAL-ONLY guard: the write path seeds a synthetic ascii-of-symbol market
+	// that bricks the native D-Chain VM if it reaches a shared chain. Refuse any
+	// non-loopback target BEFORE sending a single frame. Read-only is harmless
+	// (it never seeds), so it is exempt.
+	if !*readOnly {
+		if err := localguard.AssertLocalOnly(nodes, *optIn); err != nil {
+			die("%v", err)
+		}
 	}
 
 	pool := poolIDForSymbol(*symbol)
