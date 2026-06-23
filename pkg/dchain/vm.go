@@ -16,6 +16,7 @@ import (
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
+	"github.com/luxfi/rpc"
 	"github.com/luxfi/version"
 )
 
@@ -80,6 +81,12 @@ type VM struct {
 	// toEngine is retained for the mempool signal path.
 	toEngine chan<- block.Message
 
+	// zapIngest is the canonical co-located ZAP CLOB socket (zapingest.go), served
+	// in-plugin when init Config sets zapIngestAddr. nil when HTTP-compat-only.
+	// zapIngestCancel stops its serve goroutine on Shutdown. Both guarded by vm.mu.
+	zapIngest       rpc.Server
+	zapIngestCancel context.CancelFunc
+
 	initialized bool
 }
 
@@ -124,11 +131,27 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	}
 
 	vm.preferred = vm.lastAcceptedID
+
+	// Start the canonical co-located ZAP CLOB ingestion socket if the chain config
+	// names a listen address (zapingest.go). This runs AFTER the durable state is
+	// loaded so the socket never accepts an order the VM cannot yet sequence. It is
+	// a no-op (HTTP-compat-only) when no address is configured. Transport ⟂
+	// consensus: orders from this socket take the identical submitTx -> mempool ->
+	// Verify-match path as the HTTP route.
+	cfg, err := parseConfig(init.Config)
+	if err != nil {
+		return err
+	}
+	if err := vm.startZAPIngest(ctx, cfg.ZAPIngestAddr); err != nil {
+		return err
+	}
+
 	vm.initialized = true
 	vm.log.Info("dchain VM initialized",
 		"height", vm.lastAcceptedHeight,
 		"lastAccepted", vm.lastAcceptedID,
 		"markets", len(vm.books),
+		"zapIngest", cfg.ZAPIngestAddr != "",
 	)
 	return nil
 }
@@ -543,6 +566,7 @@ func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 func (vm *VM) Shutdown(ctx context.Context) error {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
+	vm.stopZAPIngest()
 	vm.books = nil
 	vm.acceptedBlocks = nil
 	vm.heightIndex = nil
