@@ -7,21 +7,15 @@
 // identities — dexcore.DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — for
 // every side of every market.
 //
-// CONTRAST WITH cmd/clobverify: clobverify is a LOCAL-ONLY SYNTHETIC harness. It seeds
-// an ASCII-of-symbol poolID and an all-zero / label-shaped asset (e.g. "LUX/LUSD" ->
-// 0x4c55582f4c555344...). If those synthetic frames reach a shared D-Chain validator
-// set they persist into the replication snapshot and BRICK the native VM on the next
-// boot (assertOrderUserCoverage refuses a resting order on a market with no real asset
-// row). clobverify is therefore gated by internal/localguard to loopback only.
-//
-// dexseed is DIFFERENT and SAFE against a shared cluster: it NEVER builds an
-// ascii-of-symbol id. Every asset it opens is admitted ONLY if its (kind, ref) derives
-// a well-formed canonical AssetID via dexcore.DeriveAssetID — the SAME identity the
-// chain's resolver computes — and the chain's own permissionless resolver additionally
-// proves each side is backed by live on-chain code (the EXTCODESIZE reality gate)
-// before binding the market. A synthetic/malformed ref is refused HERE, at frame-build
-// time, before a single frame is sent. So dexseed needs no localguard opt-in; its
-// safety is structural, not a loopback fence.
+// SAFE AGAINST A SHARED CLUSTER BY CONSTRUCTION (no guard, no loopback fence): dexseed
+// NEVER builds an ascii-of-symbol id. Every asset it opens is admitted ONLY if its
+// (kind, ref) derives a well-formed canonical AssetID via dexcore.DeriveAssetID — the
+// SAME identity the chain's resolver computes — and the chain's own permissionless
+// resolver additionally proves each side is backed by live on-chain code (the
+// EXTCODESIZE reality gate) before binding the market. A synthetic/malformed ref is
+// refused HERE, at frame-build time, before a single frame is sent. There is no
+// synthetic seeder to fence off any more: the footgun (ascii-of-symbol markets with no
+// settlement identity) was removed, not guarded — dexseed's safety is structural.
 //
 // END-TO-END SMOKE PATH (one real market):
 //
@@ -65,8 +59,7 @@ import (
 // Read endpoint sub-path keys. These mirror pkg/dchain.MethodGetMarkets / MethodGetBook
 // — the external HTTP routes the native VM registers under /ext/bc/D/dex/. They are
 // declared here (not imported) so the seeder reads the JSON schema exactly as an
-// external consumer (the indexer) would, never coupling to the VM package — the same
-// discipline cmd/clobverify uses for the read surface.
+// external consumer (the indexer) would, never coupling to the VM package.
 const (
 	methodGetMarkets = "clob_get_markets"
 	methodGetBook    = "clob_get_book"
@@ -74,7 +67,7 @@ const (
 
 // httpClient is a short-timeout client. A write blocks in the VM's submitTx until the
 // order's block is accepted, so the timeout must comfortably exceed one consensus
-// round; 30s is the same bound cmd/clobverify uses.
+// round (30s).
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // chainHead mirrors pkg/dchain.chainHead — the accepted-block anchor every read body
@@ -129,8 +122,8 @@ func die(format string, args ...any) {
 
 // postFrame POSTs a FROZEN zapwire frame to <base>/ext/bc/D/dex/<method> as
 // application/octet-stream and returns the raw response bytes (the zapwire ack / fills
-// / balance frame). base is http://host:port (no trailing slash). This is the exact
-// posting style cmd/clobverify uses, pointed at the same in-luxd ingestion seam.
+// / balance frame). base is http://host:port (no trailing slash), pointed at the
+// in-luxd CLOB ingestion seam.
 func postFrame(base, method string, payload []byte) ([]byte, error) {
 	url := base + "/ext/bc/D/dex/" + method
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
