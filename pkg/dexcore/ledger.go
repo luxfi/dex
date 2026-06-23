@@ -33,7 +33,6 @@ import (
 	"fmt"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/zapwire"
 )
 
 // Store is the key/value surface dexcore reads and writes its state over. It is
@@ -54,22 +53,40 @@ type Store interface {
 // drain fix on the asset axis).
 type AssetID = [32]byte
 
-// AccountID is the FULL 16-byte injective wire identity the ledger keys an
-// account by — NEVER a folded 8-byte handle. Keeping the account at full width
-// makes two addresses sharing a leading 8-byte prefix DISTINCT accounts so
-// neither can withdraw the other's balance (the cross-user native-drain fix on
-// the account axis). It is byte-identical to the wire user[16] field.
-type AccountID = [zapwire.UserSize]byte
+// AccountID is the FULL 32-byte injective settlement identity the ledger keys an
+// account by — the AccountID32 width both homes map their native identity into
+// WITHOUT a lossy fold:
+//
+//   - the cEVM home left-pads the 20-byte EVM address into 32 bytes (12 zero bytes
+//     + the 20 address bytes), so two distinct addresses are ALWAYS distinct
+//     accounts — no address pair can collide and drain each other's resting-order
+//     proceeds (the cross-user-drain guard, made injective for 20-byte addresses
+//     that a 16-byte identity could alias);
+//   - the dchain home maps its 16-byte wire user into the same 32-byte space.
+//
+// 32 bytes is birthday-safe at 2^128 and injective for every real identity. It is
+// NEVER the matcher's 8-byte STP handle (which may collide and is purely a matching
+// hint); settlement resolves the taker from the explicit AccountID and the maker
+// from the orderuser: row, both full-width.
+type AccountID = [32]byte
 
-// AccountFromString folds a user-identity string to the canonical 16-byte ledger
-// identity: the leading 16 bytes, zero-padded — byte-identical to the wire's
-// user[16] null-padding so the account the ledger credits is the SAME account the
-// orders/deposits name. This is the ONE fold from a user string to the settlement
-// identity; there is no 8-byte fold anywhere on the value path.
-func AccountFromString(user string) AccountID {
+// AccountFromBytes maps a raw identity (an EVM address, a wire user) to the
+// canonical 32-byte account by left-padding into the low bytes — injective for any
+// identity up to 32 bytes. This is the ONE map from a native identity to the
+// settlement identity; there is no lossy fold anywhere on the value path.
+func AccountFromBytes(id []byte) AccountID {
 	var k AccountID
-	copy(k[:], user)
+	if len(id) > 32 {
+		id = id[len(id)-32:]
+	}
+	copy(k[32-len(id):], id)
 	return k
+}
+
+// AccountFromString maps a user-identity string to the canonical 32-byte account
+// (left-padded). Used by the dchain home where the identity arrives as a string.
+func AccountFromString(user string) AccountID {
+	return AccountFromBytes([]byte(user))
 }
 
 // KEY SCHEMA — the durable ledger rows. Identical in both homes; the precompile
