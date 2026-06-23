@@ -120,6 +120,17 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	if serr := SpendLocked(db, req.TakerUser, inAsset, inUsed); serr != nil {
 		return Fill{}, 0, 0, serr
 	}
+	// Credit the taker's dexcore AVAILABLE with the proceeds — SYMMETRIC with the CLOB
+	// source (whose SettleFills credits the taker's available). This makes the D-surface
+	// settlement consistent across BOTH sources: after any swap the taker's available
+	// holds exactly the proceeds the journal records, so a caller that drains the
+	// transient by the journal amount drains correctly regardless of which source(s)
+	// filled. Conservation holds across (ledger + pool reserves): the input left the
+	// taker's locked into the pool's base reserve; the output left the pool's quote
+	// reserve into the taker's available — both legs balance to the unit.
+	if cerr := CreditAvailable(db, req.TakerUser, outAsset, outGot); cerr != nil {
+		return Fill{}, 0, 0, cerr
+	}
 	// Mirror the proceeds to the C surface: the 0x9999 vault releases outGot of the
 	// output asset to the taker's EVM balance.
 	j.CreditTakerOutput(outAsset, outGot)
