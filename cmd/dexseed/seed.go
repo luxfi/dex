@@ -18,7 +18,7 @@ import (
 // main.go is the thin transport that POSTs these frames over HTTP.
 //
 // THE IDENTITY RULE this file enforces (and the reason this seeder is SAFE against a
-// shared cluster, unlike cmd/clobverify): every asset handle is the dexcore CANONICAL
+// shared cluster, with no guard needed): every asset handle is the dexcore CANONICAL
 // AssetID — DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — the SAME
 // consensus-native identity primitive the on-chain resolver computes. It is NEVER an
 // ascii-of-symbol id (the synthetic form, e.g. 0x4c5558 = "LUX", that bricked the
