@@ -164,8 +164,8 @@ func buildMarketableOrder(req SwapRequest, remainingIn uint64) *lx.Order {
 	order := &lx.Order{
 		ID:        req.OrderID,
 		Side:      req.Side,
-		User:      string(trimTrailingZeros(req.TakerUser[:])),
-		UserID:    string(trimTrailingZeros(req.TakerUser[:])),
+		User:      matcherHint(req.TakerUser),
+		UserID:    matcherHint(req.TakerUser),
 		Symbol:    PoolSymbol(req.PoolID),
 		Timestamp: time.Unix(0, req.TimestampN),
 	}
@@ -256,14 +256,11 @@ func persistTouchedMakers(db Store, poolID [32]byte, book *lx.OrderBook, fills [
 	return nil
 }
 
-// trimTrailingZeros returns b with trailing NUL bytes removed (the inverse of the
-// wire's user[16] null-padding), so the matcher's user string round-trips to the
-// same 16-byte AccountID via AccountFromString.
-func trimTrailingZeros(b []byte) []byte {
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] != 0 {
-			return b[:i+1]
-		}
-	}
-	return b[:0]
-}
+// matcherHint renders an AccountID to the matcher's User/UserID string. This string
+// is ONLY a matching hint: the matcher derives its 8-byte STP collision handle from
+// it, and that handle is NEVER authoritative for value (settlement resolves the taker
+// from the explicit AccountID and the maker from the orderuser: row). So the hint
+// only needs to be a deterministic, injective-enough function of the account — the
+// raw 32 account bytes as a string serve exactly that, with no lossy round-trip
+// concern because settlement never reads it back.
+func matcherHint(a AccountID) string { return string(a[:]) }
