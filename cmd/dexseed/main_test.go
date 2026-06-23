@@ -144,7 +144,7 @@ func TestResolveID_RejectsSynthetic(t *testing.T) {
 }
 
 // TestPoolIDDeterministicAndNonAscii proves the poolID derivation is (a) deterministic
-// and (b) structurally NOT an ascii-of-symbol id like cmd/clobverify's poolIDForSymbol.
+// and (b) structurally NOT an ascii-of-symbol id (the removed synthetic-seeder form).
 func TestPoolIDDeterministicAndNonAscii(t *testing.T) {
 	cid := mustCChain(t)
 	baseID, err := nativeSpec().resolveID(3, cid)
@@ -167,9 +167,9 @@ func TestPoolIDDeterministicAndNonAscii(t *testing.T) {
 		t.Fatal("poolIDFor(base,quote) must differ from poolIDFor(quote,base)")
 	}
 
-	// NOT ascii-of-symbol: the synthetic form copies a ticker into the high bytes and sets
-	// the last byte to 0xD0 (clobverify.poolIDForSymbol). Our derivation must match neither
-	// the "LUX/<ERC20>" ascii prefix nor the 0xD0 suffix sentinel.
+	// NOT ascii-of-symbol: the removed synthetic-seeder form copied a ticker into the high
+	// bytes and set the last byte to 0xD0. Our derivation must match neither the
+	// "LUX/<ERC20>" ascii prefix nor the 0xD0 suffix sentinel.
 	ascii := asciiPoolID("LUX/ERC20")
 	if p1 == ascii {
 		t.Fatal("poolID collided with an ascii-of-symbol poolID")
@@ -192,8 +192,8 @@ func TestPoolIDDeterministicAndNonAscii(t *testing.T) {
 	}
 }
 
-// asciiPoolID mirrors cmd/clobverify.poolIDForSymbol — the SYNTHETIC form dexseed must
-// never produce.
+// asciiPoolID reproduces the removed synthetic-seeder poolID form — the SYNTHETIC shape
+// dexseed must never produce (kept here only as the negative oracle for the test above).
 func asciiPoolID(sym string) [32]byte {
 	var p [32]byte
 	copy(p[:], sym)

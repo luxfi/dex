@@ -5,7 +5,9 @@ package dchain
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/luxfi/consensus/engine/chain/block"
@@ -445,11 +447,14 @@ func TestCollidingUserID8CannotWithdrawVictimFunds(t *testing.T) {
 // 8. Every resting book order has an orderuser mapping after a restart.
 // ---------------------------------------------------------------------------
 
-// TestEveryBookOrderHasOrderUserMappingAfterRestart proves the boot-time
-// settlement-identity audit: after a restart over a healthy custody chain, EVERY
-// resting order on EVERY custody market has an orderuser: row, and Initialize
-// succeeds. The negative half — a missing row makes Initialize FAIL — is pinned in
-// TestRestartRefusesBootWhenOrderUserMissing.
+// TestEveryBookOrderHasOrderUserMappingAfterRestart proves the settlement-identity
+// invariant holds across a restart: after rebooting over a healthy custody chain,
+// EVERY resting order on EVERY custody market has an orderuser: row, and Initialize
+// succeeds — with NO boot scan (the rows are present because the commit path wrote
+// them atomically, not because Initialize re-checks them). That committed state can
+// never lack a row is pinned by construction in
+// TestCommittedStateNeverHasOrderWithoutIdentity; that boot no longer bricks on a
+// state that the commit path cannot produce is pinned in TestRestartDoesNotBrickBoot.
 func TestEveryBookOrderHasOrderUserMappingAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	db := memdb.New()
@@ -471,7 +476,7 @@ func TestEveryBookOrderHasOrderUserMappingAfterRestart(t *testing.T) {
 	)
 	vm.Shutdown(ctx)
 
-	// Restart: the boot audit (assertOrderUserCoverage) runs inside Initialize.
+	// Restart: books are folded from the committed order:* rows (no boot scan).
 	vm2, _ := newTestVM(t, db)
 	defer vm2.Shutdown(ctx)
 
@@ -544,12 +549,75 @@ func TestMultiPlaceInBlockKeysOrderUserByMatcherIndex(t *testing.T) {
 	assertBalance(t, vm, m2, assetLUSD, 0, 0)
 }
 
-// TestRestartRequiresOrderUserForEveryRestingOrder is the NEGATIVE half of the boot
-// audit: if a resting order on a custody market lacks its orderuser: row, a restart
-// (Initialize) FAILS rather than booting onto a degraded 8-byte settlement path.
-// The POSITIVE half — every resting order DOES have a row after a healthy restart —
-// is TestEveryBookOrderHasOrderUserMappingAfterRestart.
-func TestRestartRequiresOrderUserForEveryRestingOrder(t *testing.T) {
+// TestCommittedStateNeverHasOrderWithoutIdentity is the DECOMPLECT proof: it
+// demonstrates the settlement-identity invariant is enforced BY CONSTRUCTION at
+// order creation, so a resting custody order WITHOUT its orderuser: row is
+// unrepresentable in committed state. It drives the ONLY path that writes committed
+// state — funded places that REST, an unfunded place that is REJECTED (never rests),
+// and a cross that removes a maker — then scans the committed key space and asserts
+// the set of order:<pool> rows is EXACTLY the set of orderuser:<pool> rows. There is
+// no order row without its identity row and no identity row without its order row,
+// because lockOrderSpend (orderuser:) and putOrderRow (order:) write to the SAME
+// versiondb overlay and the block commits in ONE atomic overlay.Commit() — they land
+// together or not at all. This is why the boot scan (formerly assertOrderUserCoverage)
+// is provably dead and was deleted: the bad state it scanned for cannot exist.
+func TestCommittedStateNeverHasOrderWithoutIdentity(t *testing.T) {
+	ctx := context.Background()
+	db := memdb.New()
+	vm, _ := newTestVM(t, db)
+	defer vm.Shutdown(ctx)
+
+	const m1, m2, poor, taker = "ci-m1", "ci-m2", "ci-poor", "ci-tk"
+	pool := [32]byte{0xc1, 0x07}
+
+	addBlock(t, vm,
+		depositTx(t, m1, assetLUX, 100),
+		depositTx(t, m2, assetLUX, 100),
+		depositTx(t, poor, assetLUX, 0), // funded with NOTHING: its place cannot lock, so it cannot rest
+		depositTx(t, taker, assetLUSD, 1000),
+		openMarketTx(t, pool, assetLUX, assetLUSD),
+	)
+	// Two funded maker places (rest) + one unfunded place (rejected, never rests) in
+	// ONE block. The unfunded order is the hostile case: if a rejected place could
+	// leave an order: row, it would be one with no orderuser: row — exactly the state
+	// the deleted boot-brick guarded against. It cannot: lockOrderSpend returns !ok
+	// and execute skips applyTx, so no order row is written.
+	addBlock(t, vm,
+		placePoolTx(t, pool, zapwire.SideSell, 5.0, 10.0, m1),
+		placePoolTx(t, pool, zapwire.SideSell, 6.0, 12.0, m2),
+		placePoolTx(t, pool, zapwire.SideSell, 7.0, 5.0, poor), // unfunded -> rejected
+	)
+	// Cross m1 fully (taker buys 10@5): m1's order leaves the book — its order: row
+	// AND its orderuser: row must be removed in lockstep (no orphan either way).
+	addBlock(t, vm, submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker))
+
+	// Scan committed state: collect every order:<pool> id and every orderuser:<pool> id.
+	orderIDs := scanIDs(t, vm, orderPrefixFor(pool), len(prefixOrder))
+	userIDs := scanIDs(t, vm, append([]byte(prefixOrderUser), pool[:]...), len(prefixOrderUser))
+
+	// The two sets are IDENTICAL: every resting order has an identity row, and no
+	// identity row is orphaned. (m2 rests -> present in both; m1 fully filled -> in
+	// neither; poor rejected -> in neither.)
+	if !idSetsEqual(orderIDs, userIDs) {
+		t.Fatalf("committed order: set %v != orderuser: set %v — illegal state (order without identity, or orphan identity) is representable",
+			sortedIDs(orderIDs), sortedIDs(userIDs))
+	}
+	// Exactly one resting order survives (m2); sanity that the path actually exercised
+	// rest + reject + fill, not a degenerate empty book.
+	if len(orderIDs) != 1 {
+		t.Fatalf("expected exactly 1 resting order after rest+reject+fill, got %d (%v)", len(orderIDs), sortedIDs(orderIDs))
+	}
+}
+
+// TestRestartDoesNotBrickBoot proves the boot-brick is GONE. It forces the EXACT
+// corrupt state the deleted assertOrderUserCoverage scanned for — a resting custody
+// order whose orderuser: row is removed by a raw db.Delete (a state the commit path
+// can never produce; see TestCommittedStateNeverHasOrderWithoutIdentity) — and shows
+// that a restart now SUCCEEDS instead of bricking. The settlement-identity guarantee
+// has not weakened: the single remaining guard is consensus-time, so a fill or cancel
+// that actually TOUCHES the corrupt order still fails closed with
+// ErrMissingSettlementUser. Boot is no longer a place where that invariant is checked.
+func TestRestartDoesNotBrickBoot(t *testing.T) {
 	ctx := context.Background()
 	db := memdb.New()
 	vm, _ := newTestVM(t, db)
@@ -559,19 +627,83 @@ func TestRestartRequiresOrderUserForEveryRestingOrder(t *testing.T) {
 	makerOrderID := fundOpenAndRestMaker(t, vm, pool, maker, taker, 100, 1000, 5.0, 10.0)
 	vm.Shutdown(ctx)
 
-	// Corrupt the durable state: drop the resting order's orderuser row while its
-	// book row survives.
+	// Corrupt the durable state by hand: drop the resting order's orderuser: row while
+	// its order: row survives. This is unreachable through the commit path — we reach
+	// in past it purely to prove boot no longer scans for (and bricks on) it.
 	if err := db.Delete(orderUserKey(pool, makerOrderID)); err != nil {
 		t.Fatalf("delete orderuser row: %v", err)
 	}
 
-	// A restart must REFUSE to boot.
+	// A restart now SUCCEEDS (no boot-brick): the VM folds the book and comes up.
 	toEngine := make(chan block.Message, 16)
 	vm2 := &VM{}
-	err := vm2.Initialize(ctx, block.Init{DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine})
-	if !errors.Is(err, ErrMissingSettlementUser) {
-		t.Fatalf("Initialize over corrupt custody state err = %v, want ErrMissingSettlementUser (must refuse to boot on a degraded settlement path)", err)
+	if err := vm2.Initialize(ctx, block.Init{DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine}); err != nil {
+		t.Fatalf("Initialize over (hand-)corrupted custody state err = %v, want nil (boot must NOT brick — the invariant lives at creation + consensus-time, not boot)", err)
 	}
+	defer vm2.Shutdown(ctx)
+
+	// The book rebuilt with the maker order resting.
+	vm2.mu.Lock()
+	ob := vm2.books[pool]
+	vm2.mu.Unlock()
+	if ob == nil || ob.GetOrder(makerOrderID) == nil {
+		t.Fatal("maker order did not rebuild after restart")
+	}
+
+	// Settlement identity is STILL enforced where it matters: a taker that crosses the
+	// corrupt maker order fails closed at consensus-time (Verify), not at boot.
+	vm2.mempool.Add(submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 10.0, taker))
+	if _, verr := buildVerify(t, vm2); !errors.Is(verr, ErrMissingSettlementUser) {
+		t.Fatalf("crossing the corrupt maker err = %v, want ErrMissingSettlementUser (consensus-time guard must still fail closed)", verr)
+	}
+}
+
+// scanIDs returns the orderID suffix of every key under prefix in the VM's committed
+// db. keyHeadLen is the length of the constant key head BEFORE the 8-byte big-endian
+// orderID (i.e. len(prefix)+32 for an order:/orderuser: key, since the caller passes
+// the prefix INCLUDING the 32-byte poolID).
+func scanIDs(t *testing.T, vm *VM, prefix []byte, keyHeadLen int) map[uint64]struct{} {
+	t.Helper()
+	_ = keyHeadLen // the prefix already includes the poolID; the id is the trailing 8 bytes
+	ids := map[uint64]struct{}{}
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	it := vm.db.NewIteratorWithPrefix(prefix)
+	defer it.Release()
+	for it.Next() {
+		k := it.Key()
+		if len(k) < 8 {
+			continue
+		}
+		ids[binary.BigEndian.Uint64(k[len(k)-8:])] = struct{}{}
+	}
+	if err := it.Error(); err != nil {
+		t.Fatalf("scan %q: %v", prefix, err)
+	}
+	return ids
+}
+
+// idSetsEqual reports whether two orderID sets are identical.
+func idSetsEqual(a, b map[uint64]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// sortedIDs renders an id set as a sorted slice for stable failure messages.
+func sortedIDs(s map[uint64]struct{}) []uint64 {
+	out := make([]uint64, 0, len(s))
+	for id := range s {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // ---------------------------------------------------------------------------
