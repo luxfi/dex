@@ -118,7 +118,7 @@ func (vm *VM) submitTx(ctx context.Context, t TxType, payload []byte) (txOutcome
 // and returns ack(0, placed) once consensus records the market.
 func (vm *VM) handleEnsureMarket(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < zapwire.EnsureMarketReqSize {
-		return encodeReject(0, "clob_ensure_market: short payload"), nil
+		return encodeReject(0, "dex_ensure_market: short payload"), nil
 	}
 	o, err := vm.submitTx(ctx, TxEnsureMarket, payload)
 	if err != nil {
@@ -131,14 +131,14 @@ func (vm *VM) handleEnsureMarket(ctx context.Context, payload []byte) ([]byte, e
 // returns ack(orderId, placed|rejected) with the CONSENSUS-assigned order id.
 func (vm *VM) handlePlace(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < zapwire.PlaceReqSize {
-		return encodeReject(0, "clob_place: short payload"), nil
+		return encodeReject(0, "dex_place: short payload"), nil
 	}
 	o, err := vm.submitTx(ctx, TxPlace, payload)
 	if err != nil {
 		return nil, err
 	}
 	if o.status == zapwire.StatusRejected {
-		return encodeReject(0, "clob_place: order rejected"), nil
+		return encodeReject(0, "dex_place: order rejected"), nil
 	}
 	return zapwire.EncodeAck(o.orderID, o.status, 0), nil
 }
@@ -147,14 +147,14 @@ func (vm *VM) handlePlace(ctx context.Context, payload []byte) ([]byte, error) {
 // ack(orderId, canceled|rejected).
 func (vm *VM) handleCancel(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < zapwire.CancelReqSize {
-		return encodeReject(0, "clob_cancel: short payload"), nil
+		return encodeReject(0, "dex_cancel: short payload"), nil
 	}
 	o, err := vm.submitTx(ctx, TxCancel, payload)
 	if err != nil {
 		return nil, err
 	}
 	if o.status == zapwire.StatusRejected {
-		return encodeReject(o.orderID, "clob_cancel: order not canceled"), nil
+		return encodeReject(o.orderID, "dex_cancel: order not canceled"), nil
 	}
 	return zapwire.EncodeAck(o.orderID, o.status, 0), nil
 }
@@ -165,7 +165,7 @@ func (vm *VM) handleCancel(ctx context.Context, payload []byte) ([]byte, error) 
 // returns zero fills — it was already executed exactly once.
 func (vm *VM) handleSubmit(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < zapwire.SubmitReqSize {
-		return nil, fmt.Errorf("clob_submit: short payload: %d", len(payload))
+		return nil, fmt.Errorf("dex_submit: short payload: %d", len(payload))
 	}
 	o, err := vm.submitTx(ctx, TxSubmit, payload)
 	if err != nil {
@@ -178,7 +178,7 @@ func (vm *VM) handleSubmit(ctx context.Context, payload []byte) ([]byte, error) 
 // (base,quote) asset handles so orders on it can be value-checked, then acks.
 func (vm *VM) handleOpenMarket(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < zapwire.OpenMarketReqSize {
-		return encodeReject(0, "clob_open_market: short payload"), nil
+		return encodeReject(0, "dex_open_market: short payload"), nil
 	}
 	o, err := vm.submitTx(ctx, TxOpenMarket, payload)
 	if err != nil {
