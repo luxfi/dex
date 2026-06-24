@@ -43,14 +43,14 @@ import (
 // is anchored to an exact accepted block — two nodes at the same height with the
 // same root MUST return identical trades.
 
-// read method names. They live in the clob_ namespace beside the write methods
-// but are pure reads. Keeping the clob_ prefix means the node mounts them under
-// the same /ext/bc/<D>/dex/ route group as the writes (one chain surface).
+// read method names. They live in the dex_ namespace beside the write methods
+// but are pure reads. The dex_ prefix means the node mounts them under the same
+// /ext/bc/<D>/dex/ route group as the writes (one chain surface).
 const (
-	MethodGetTrades  = "clob_get_trades"
-	MethodGetOrders  = "clob_get_orders"
-	MethodGetMarkets = "clob_get_markets"
-	MethodGetBook    = "clob_get_book"
+	MethodGetTrades  = "dex_get_trades"
+	MethodGetOrders  = "dex_get_orders"
+	MethodGetMarkets = "dex_get_markets"
+	MethodGetBook    = "dex_get_book"
 )
 
 // defaultTradeLimit bounds an unparameterized clob_get_trades response so a chain
