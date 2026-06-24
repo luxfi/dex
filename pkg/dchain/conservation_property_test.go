@@ -226,7 +226,7 @@ func (m *ledgerModel) assertConservation(t *testing.T, vm *VM, where string) {
 // nondeterministic input — re-running the test reproduces every session exactly.
 var conservationSeeds = []int64{
 	1, 2, 3, 7, 11, 13, 17, 23, 42, 99,
-	101, 256, 999, 1337, 4242, 1000001, 31337, 65537, 123456, 7777777,
+	101, 256, 999, 1337, 4242, 8888888, 31337, 65537, 123456, 7777777,
 }
 
 // opsPerSeed is the number of randomized operations driven per seed. With 20
