@@ -32,11 +32,17 @@ import (
 //   - Place       ("modifyLiquidity" +delta): rest a limit order.
 //   - Cancel      ("modifyLiquidity" -delta): cancel a resting order.
 //   - Submit      ("swap"): submit a MARKETABLE order, get its fills back.
+// Wire method names use the dex_ namespace: on the D-Chain the DEX *is* the
+// CLOB (the AMM lives in C-Chain contracts, not this VM), so the public wire
+// names follow the luxd service-prefix convention (eth_/avm./platform.) and
+// expose the chain's purpose — `dex_*` — not the internal engine name. The Go
+// identifiers (MethodPlace, clobMethods, "CLOB") stay as the engine's internal
+// name; only the on-wire string values are dex_*.
 const (
-	MethodEnsureMarket = "clob_ensure_market"
-	MethodPlace        = "clob_place"
-	MethodCancel       = "clob_cancel"
-	MethodSubmit       = "clob_submit" // marketable order, returns fills
+	MethodEnsureMarket = "dex_ensure_market"
+	MethodPlace        = "dex_place"
+	MethodCancel       = "dex_cancel"
+	MethodSubmit       = "dex_submit" // marketable order, returns fills
 )
 
 // CLOB ack status bytes.
@@ -322,13 +328,13 @@ func DecodeAck(resp []byte) (orderID uint64, status uint8, err error) {
 const (
 	// MethodDeposit credits an account's available balance from value the proxy
 	// atomically imported (shared-memory ImportTx). Funds-IN leg.
-	MethodDeposit = "clob_deposit"
+	MethodDeposit = "dex_deposit"
 	// MethodWithdraw debits an account's realized available balance for the
 	// proxy to atomically export (shared-memory ExportTx). Funds-OUT leg.
-	MethodWithdraw = "clob_withdraw"
+	MethodWithdraw = "dex_withdraw"
 	// MethodOpenMarket binds a market's (base, quote) asset handles. Idempotent;
 	// the asset binding is what lets place/submit know which asset to lock.
-	MethodOpenMarket = "clob_open_market"
+	MethodOpenMarket = "dex_open_market"
 )
 
 const (

@@ -3,7 +3,7 @@
 
 // Command dexseed is the CANONICAL real-market seeder for the live native D-Chain
 // DEX. It seeds REAL markets onto the in-luxd CLOB ingestion seam (POST
-// /ext/bc/D/dex/clob_* with FROZEN zapwire frames) using REAL, consensus-native asset
+// /ext/bc/D/dex/dex_* with FROZEN zapwire frames) using REAL, consensus-native asset
 // identities — dexcore.DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — for
 // every side of every market.
 //
@@ -19,10 +19,10 @@
 //
 // END-TO-END SMOKE PATH (one real market):
 //
-//  1. clob_open_market(poolID, baseID, quoteID)        bind the REAL (base,quote)
-//  2. clob_deposit(maker, baseID, amount, ref)         fund the maker's base balance
-//  3. clob_place(poolID, SELL, askPrice, askSize, maker)  rest a maker limit ask
-//  4. clob_get_markets / clob_get_book?market=<poolID> read back & confirm
+//  1. dex_open_market(poolID, baseID, quoteID)        bind the REAL (base,quote)
+//  2. dex_deposit(maker, baseID, amount, ref)         fund the maker's base balance
+//  3. dex_place(poolID, SELL, askPrice, askSize, maker)  rest a maker limit ask
+//  4. dex_get_markets / dex_get_book?market=<poolID> read back & confirm
 //
 // EXAMPLE (devnet, one real LUX/<ERC20> market against a single validator):
 //
@@ -61,8 +61,8 @@ import (
 // declared here (not imported) so the seeder reads the JSON schema exactly as an
 // external consumer (the indexer) would, never coupling to the VM package.
 const (
-	methodGetMarkets = "clob_get_markets"
-	methodGetBook    = "clob_get_book"
+	methodGetMarkets = "dex_get_markets"
+	methodGetBook    = "dex_get_book"
 )
 
 // httpClient is a short-timeout client. A write blocks in the VM's submitTx until the
@@ -78,7 +78,7 @@ type chainHead struct {
 	Root         string `json:"root"`
 }
 
-// marketJSON mirrors pkg/dchain.marketJSON (one row of clob_get_markets).
+// marketJSON mirrors pkg/dchain.marketJSON (one row of dex_get_markets).
 type marketJSON struct {
 	PoolID      string  `json:"poolId"`
 	Symbol      string  `json:"symbol"`
@@ -89,7 +89,7 @@ type marketJSON struct {
 	BestAsk     float64 `json:"bestAsk"`
 }
 
-// getMarketsResp mirrors pkg/dchain.getMarketsResp (clob_get_markets body).
+// getMarketsResp mirrors pkg/dchain.getMarketsResp (dex_get_markets body).
 type getMarketsResp struct {
 	chainHead
 	Count   int          `json:"count"`
@@ -103,7 +103,7 @@ type levelJSON struct {
 	Count int     `json:"count"`
 }
 
-// getBookResp mirrors pkg/dchain.getBookResp (clob_get_book body).
+// getBookResp mirrors pkg/dchain.getBookResp (dex_get_book body).
 type getBookResp struct {
 	chainHead
 	Market    string      `json:"market"`
@@ -259,7 +259,7 @@ func main() {
 
 	// ---- 1/3 open the REAL market (bind base+quote canonical ids) ----
 	mustPost("[1/3] open-market", zapwire.MethodOpenMarket, openMarket)
-	fmt.Printf("[1/3] clob_open_market: bound base+quote canonical ids (real-asset market)\n")
+	fmt.Printf("[1/3] dex_open_market: bound base+quote canonical ids (real-asset market)\n")
 
 	// ---- 2/3 fund the maker's base balance ----
 	depResp := mustPost("[2/3] deposit", zapwire.MethodDeposit, deposit)
@@ -267,7 +267,7 @@ func main() {
 	if derr != nil {
 		die("[2/3] deposit: decode balance resp: %v (resp=%x)", derr, depResp)
 	}
-	fmt.Printf("[2/3] clob_deposit: maker base credited=%d (status=%d, ref=0x%s…)\n",
+	fmt.Printf("[2/3] dex_deposit: maker base credited=%d (status=%d, ref=0x%s…)\n",
 		credited, depStatus, hex.EncodeToString(depRef[:4]))
 
 	// ---- 3/3 rest the maker limit ask ----
@@ -280,13 +280,13 @@ func main() {
 		die("[3/3] place: ask NOT placed (status=%d, resp=%x) — the maker base deposit may be insufficient to lock the ask",
 			ackStatus, askResp)
 	}
-	fmt.Printf("[3/3] clob_place: maker ask RESTING (orderId=%d, status=placed)\n", orderID)
+	fmt.Printf("[3/3] dex_place: maker ask RESTING (orderId=%d, status=placed)\n", orderID)
 
 	// ---- read back: confirm the market + resting order landed ----
 	if *settle > 0 {
 		time.Sleep(*settle)
 	}
-	fmt.Printf("\n=== read-back: clob_get_markets + clob_get_book ===\n")
+	fmt.Printf("\n=== read-back: dex_get_markets + dex_get_book ===\n")
 
 	var mkts getMarketsResp
 	if err := getJSON(node, methodGetMarkets, "", &mkts); err != nil {
@@ -301,7 +301,7 @@ func main() {
 		}
 	}
 	if seen == nil {
-		die("clob_get_markets (height=%d, count=%d) does NOT list our poolID 0x%s — market did not commit",
+		die("dex_get_markets (height=%d, count=%d) does NOT list our poolID 0x%s — market did not commit",
 			mkts.Height, mkts.Count, poolHex)
 	}
 	fmt.Printf("  market: poolId=0x%s assetsBound=%v orders=%d bestAsk=%.6f (head height=%d)\n",
@@ -315,7 +315,7 @@ func main() {
 		die("read clob_get_book: %v", err)
 	}
 	if book.Orders < 1 || len(book.Asks) < 1 {
-		die("clob_get_book shows NO resting ask (orders=%d, asks=%d) — the resting order did not land",
+		die("dex_get_book shows NO resting ask (orders=%d, asks=%d) — the resting order did not land",
 			book.Orders, len(book.Asks))
 	}
 	fmt.Printf("  book  : orders=%d remaining=%.6f bestAsk=%.6f (top ask: px=%.6f size=%.6f count=%d)\n",
