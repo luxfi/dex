@@ -15,12 +15,12 @@
 //
 // Sequence (each write blocks until its block is accepted):
 //
-//	1. clob_open_market(pid, baseID, quoteID)   bind the REAL (base,quote)
-//	2. clob_deposit(maker, baseID, qty)          fund maker base (to sell)
-//	3. clob_deposit(taker, quoteID, notional)    fund taker quote (to buy)
-//	4. clob_place(pid, SELL, price, qty, maker)  maker rests a limit ask
-//	5. clob_submit(pid, BUY, IOC@price, qty, taker)  taker crosses -> FILL
-//	6. clob_get_markets / clob_get_book          read back, assert the fill
+//	1. dex_open_market(pid, baseID, quoteID)   bind the REAL (base,quote)
+//	2. dex_deposit(maker, baseID, qty)          fund maker base (to sell)
+//	3. dex_deposit(taker, quoteID, notional)    fund taker quote (to buy)
+//	4. dex_place(pid, SELL, price, qty, maker)  maker rests a limit ask
+//	5. dex_submit(pid, BUY, IOC@price, qty, taker)  taker crosses -> FILL
+//	6. dex_get_markets / dex_get_book          read back, assert the fill
 //	7. assert height advanced 0 -> >0 (FINALIZATION proof)
 package main
 
@@ -28,6 +28,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -131,7 +132,7 @@ func getMarkets(base string) getMarketsResp {
 	}
 	var r getMarketsResp
 	if err := json.Unmarshal(b, &r); err != nil {
-		die("clob_get_markets decode: %v (body=%s)", err, string(b))
+		die("dex_get_markets decode: %v (body=%s)", err, string(b))
 	}
 	return r
 }
@@ -236,14 +237,17 @@ func main() {
 	// 6-7. read back: market shows the trade, height advanced again.
 	after := getMarkets(*node)
 	fmt.Printf("\nD-Chain AFTER: height=%d lastAccepted=%s markets=%d\n", after.Height, after.LastAccepted, after.Count)
+	// The read surface (pkg/dchain/read.go) encodes poolId as lowercase hex of the
+	// 32-byte id; ids.ID.String() is cb58. Match on hex, the canonical wire form.
+	pidHex := hex.EncodeToString(pid[:])
 	var mkt *marketJSON
 	for i := range after.Markets {
-		if after.Markets[i].PoolID == pid.String() || after.Markets[i].ID == pid.String() {
+		if after.Markets[i].PoolID == pidHex || after.Markets[i].ID == pidHex {
 			mkt = &after.Markets[i]
 		}
 	}
 	if mkt == nil {
-		die("seeded market not present in clob_get_markets")
+		die("seeded market not present in dex_get_markets (poolId=%s)", pidHex)
 	}
 	ok("market present: assetsBound=%v bestBid=%.6f bestAsk=%.6f remaining=%.6f", mkt.AssetsBound, mkt.BestBid, mkt.BestAsk, mkt.Remaining)
 
