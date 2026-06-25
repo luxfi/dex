@@ -195,7 +195,7 @@ func TestRead_TradesAfterCommittedFill(t *testing.T) {
 	httpGetJSON(t, base, MethodGetTrades, "", &got)
 
 	if got.Count == 0 || len(got.Trades) == 0 {
-		t.Fatalf("clob_get_trades returned no committed trades after a fill: %+v", got)
+		t.Fatalf("dex_get_trades returned no committed trades after a fill: %+v", got)
 	}
 	if got.Height == 0 {
 		t.Fatalf("head height still 0 after a committed fill (head=%+v)", got.chainHead)
@@ -242,7 +242,7 @@ func TestRead_MarketsAndOrdersAndBook(t *testing.T) {
 	var markets getMarketsResp
 	httpGetJSON(t, base, MethodGetMarkets, "", &markets)
 	if markets.Count == 0 {
-		t.Fatalf("clob_get_markets returned no markets")
+		t.Fatalf("dex_get_markets returned no markets")
 	}
 	var found *marketJSON
 	for i := range markets.Markets {
@@ -265,7 +265,7 @@ func TestRead_MarketsAndOrdersAndBook(t *testing.T) {
 	var orders getOrdersResp
 	httpGetJSON(t, base, MethodGetOrders, "market="+marketHex, &orders)
 	if orders.Count == 0 {
-		t.Fatalf("clob_get_orders returned no resting orders for %s", marketHex)
+		t.Fatalf("dex_get_orders returned no resting orders for %s", marketHex)
 	}
 	rem := orders.Orders[0]
 	if rem.Side != "sell" {
@@ -279,10 +279,10 @@ func TestRead_MarketsAndOrdersAndBook(t *testing.T) {
 	var bookResp getBookResp
 	httpGetJSON(t, base, MethodGetBook, "market="+marketHex, &bookResp)
 	if bookResp.Orders == 0 {
-		t.Fatalf("clob_get_book shows 0 orders")
+		t.Fatalf("dex_get_book shows 0 orders")
 	}
 	if len(bookResp.Asks) == 0 {
-		t.Fatalf("clob_get_book shows no asks (alice's ask remainder should rest)")
+		t.Fatalf("dex_get_book shows no asks (alice's ask remainder should rest)")
 	}
 	if bookResp.BestAsk <= 0 {
 		t.Errorf("bestAsk=%g, want the ask price", bookResp.BestAsk)
