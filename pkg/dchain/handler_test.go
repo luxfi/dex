@@ -36,10 +36,10 @@ import (
 const relayFillWireSize = 17
 
 const (
-	relayMethodEnsureMarket = "clob_ensure_market"
-	relayMethodPlace        = "clob_place"
-	relayMethodCancel       = "clob_cancel"
-	relayMethodSubmit       = "clob_submit"
+	relayMethodEnsureMarket = "dex_ensure_market"
+	relayMethodPlace        = "dex_place"
+	relayMethodCancel       = "dex_cancel"
+	relayMethodSubmit       = "dex_submit"
 )
 
 type relayFill struct {
