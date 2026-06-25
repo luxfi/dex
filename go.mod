@@ -5,8 +5,8 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/luxfi/consensus v1.25.18
-	github.com/luxfi/crypto v1.19.21
+	github.com/luxfi/consensus v1.25.29
+	github.com/luxfi/crypto v1.19.26
 	github.com/luxfi/database v1.20.4
 	github.com/luxfi/geth v1.17.12
 	github.com/luxfi/ids v1.2.15
