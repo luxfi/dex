@@ -43,13 +43,13 @@ import (
 // clobDepthMethod is the read-only book-observation method this daemon adds on
 // top of the four frozen clob_* write methods. Request: poolId[32]. Response:
 // orders[4] | remaining[f64:8] | bestBid[f64:8] | bestAsk[f64:8] | found[1].
-const clobDepthMethod = "clob_depth"
+const clobDepthMethod = "dex_depth"
 
 // clobBalanceMethod is the read-only custody-balance observation method. It lets
 // the bring-up harness watch funds DEPOSIT into the book, move on a fill, and
 // WITHDRAW out — the "money lives in the order book" proof. Request: user[16] +
 // asset[8]. Response: available[8] | locked[8] (big-endian uint64 atomic units).
-const clobBalanceMethod = "clob_balance"
+const clobBalanceMethod = "dex_balance"
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")

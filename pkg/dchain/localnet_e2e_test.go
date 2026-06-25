@@ -57,18 +57,9 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// poolIDForSymbol derives a deterministic 32-byte poolId from a market symbol.
-// The real V4 poolId is keccak256(PoolKey); for the venue e2e any stable,
-// collision-free 32-byte identity is sufficient (the d-chain keys markets by the
-// raw 32 bytes). We embed the ASCII symbol so logs are human-readable and two
-// distinct symbols map to two distinct books.
-func poolIDForSymbol(sym string) [32]byte {
-	var p [32]byte
-	copy(p[:], sym)
-	// Tag the high byte so an all-symbol-prefix pool can't collide with a zero id.
-	p[31] = 0xD0
-	return p
-}
+// poolIDForSymbol lives in poolid_helper_test.go (untagged): it is shared with
+// the always-built read RPC tests and is pure-Go, so it must compile in both the
+// cgo and !cgo test binaries.
 
 // venue is a booted standalone D-Chain venue: an on-disk VM + real ZAP socket +
 // auto-sealer, plus the dial address. dir is the zapdb path so a restart can

@@ -49,17 +49,19 @@ func TestFrameSizesFrozen(t *testing.T) {
 }
 
 func TestMethodNamesFrozen(t *testing.T) {
-	if MethodEnsureMarket != "clob_ensure_market" ||
-		MethodPlace != "clob_place" ||
-		MethodCancel != "clob_cancel" ||
-		MethodSubmit != "clob_submit" {
-		t.Fatalf("CLOB method names changed: %q %q %q %q",
+	// Public wire names are dex_* (the D-Chain DEX namespace), per the luxd
+	// service-prefix convention. Frozen against accidental drift.
+	if MethodEnsureMarket != "dex_ensure_market" ||
+		MethodPlace != "dex_place" ||
+		MethodCancel != "dex_cancel" ||
+		MethodSubmit != "dex_submit" {
+		t.Fatalf("DEX method names changed: %q %q %q %q",
 			MethodEnsureMarket, MethodPlace, MethodCancel, MethodSubmit)
 	}
 	// Custody method names (additive, FROZEN, mirrored by the proxy).
-	if MethodDeposit != "clob_deposit" ||
-		MethodWithdraw != "clob_withdraw" ||
-		MethodOpenMarket != "clob_open_market" {
+	if MethodDeposit != "dex_deposit" ||
+		MethodWithdraw != "dex_withdraw" ||
+		MethodOpenMarket != "dex_open_market" {
 		t.Fatalf("custody method names changed: %q %q %q",
 			MethodDeposit, MethodWithdraw, MethodOpenMarket)
 	}
