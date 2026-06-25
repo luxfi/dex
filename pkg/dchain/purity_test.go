@@ -36,6 +36,13 @@ func TestDChainVM_IsPureBlockChainVM(t *testing.T) {
 		"SendChits",
 		"common.Sender",
 		"RequestAncestors",
+		// Broader propagation/transport verbs a refactor might introduce: the
+		// denylist must also catch generic gossip/broadcast and any p2p/network
+		// transport reference, not just the named Avalanche-style methods above.
+		"Broadcast",
+		"Propagate",
+		"p2p.",
+		"network.Send",
 	}
 
 	entries, err := os.ReadDir(".")
