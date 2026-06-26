@@ -20,11 +20,11 @@
 // They MUST stay byte-identical to pkg/dchain/auth.go + pkg/dchain/tx.go:
 //
 //   - account fold   : keccak256(accountDomain ‖ scheme[1] ‖ addr[20])[:16]
-//                      (pkg/dchain/auth.go Account16 / accountDomain)
+//     (pkg/dchain/auth.go Account16 / accountDomain)
 //   - auth digest    : keccak256(txAuthDomain ‖ scheme[1] ‖ type[1] ‖ nonce[8] ‖ body)
-//                      (pkg/dchain/auth.go txAuthDigest / txAuthDomain)
+//     (pkg/dchain/auth.go txAuthDigest / txAuthDomain)
 //   - auth envelope  : scheme[1] ‖ nonce[8] ‖ sigLen[2] ‖ pubLen[2] ‖ sig ‖ pub
-//                      (pkg/dchain/auth.go TxAuth.encode)
+//     (pkg/dchain/auth.go TxAuth.encode)
 //   - tx-type bytes  : ensure_market=1 place=2 cancel=3 submit=4 (pkg/dchain/tx.go)
 //   - RPC payload    : [frozen body] ‖ [auth envelope]   (handler.go parseTxFrame)
 //
@@ -64,12 +64,13 @@ import (
 // --- auth constants re-defined from pkg/dchain (see package comment) ----------
 
 const (
-	txAuthDomain  = "lux.dchain.tx.auth.v1"  // pkg/dchain/auth.go
-	accountDomain = "lux.dchain.account.v1"  // pkg/dchain/auth.go
-	schemeSecp    = byte(0)                   // lx.AuthSecp256k1 (pkg/lx/auth.go)
-	txEnsure      = byte(1)                   // TxEnsureMarket (pkg/dchain/tx.go)
-	txPlace       = byte(2)                   // TxPlace
-	txSubmit      = byte(4)                   // TxSubmit
+	txAuthDomain  = "lux.dchain.tx.auth.v1" // pkg/dchain/auth.go
+	accountDomain = "lux.dchain.account.v1" // pkg/dchain/auth.go
+	schemeSecp    = byte(0)                 // lx.AuthSecp256k1 (pkg/lx/auth.go)
+	// tx-type bytes (pkg/dchain/tx.go iota+1): ensure_market=1 place=2 cancel=3
+	// submit=4 — only the two SIGNED ops the load-gen emits are named here.
+	txPlace  = byte(2) // TxPlace
+	txSubmit = byte(4) // TxSubmit
 )
 
 // account is one signing identity: a deterministic secp256k1 key, its derived
