@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/luxfi/crypto/hash"
 	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
@@ -208,16 +207,6 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 	}
 
 	return applyResult{Fills: fills, TakerSide: side, Touched: touched}, nil
-}
-
-// idempotencyKey derives the d-chain dedup key for a submit/place from the wire
-// user[16] and the per-user sequence. Dedup lives in STATE (this key), keeping
-// the 66B/65B frames FROZEN — no nonce field is added to the wire. The seq is the
-// caller's monotone counter; the VM stores seen keys and drops a replay.
-func idempotencyKey(user [zapwire.UserSize]byte, seq uint64) [32]byte {
-	var s [8]byte
-	binary.BigEndian.PutUint64(s[:], seq)
-	return hash.ComputeKeccak256Array(user[:], s[:])
 }
 
 // trimNull returns b with trailing NUL bytes removed (the inverse of zapwire's

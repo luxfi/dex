@@ -73,20 +73,14 @@ func withdrawTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
 // a true exactly-once retry of ONE op.
 func depositTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxDeposit, zapwire.EncodeDeposit(user, asset, amount, ref))
-	if err != nil {
-		t.Fatalf("NewTx deposit: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, asset, amount, ref))
 }
 
 func withdrawTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxWithdraw, zapwire.EncodeWithdraw(user, asset, amount, ref))
-	if err != nil {
-		t.Fatalf("NewTx withdraw: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxWithdraw, zapwire.EncodeWithdraw(a.user, asset, amount, ref))
 }
 
 func openMarketTx(t *testing.T, pool [32]byte, base, quote [32]byte) *Tx {
@@ -351,7 +345,7 @@ func TestCustodyCancelRefundsLock(t *testing.T) {
 
 	// Recover the resting order id (the block placed it at height/txIndex 0).
 	orderID := blockDeterministicID(blk.height, 0)
-	addBlock(t, vm, cancelPoolTx(t, pool, orderID))
+	addBlock(t, vm, cancelPoolTx(t, pool, orderID, maker))
 
 	// The 30 locked LUX returned to available; nothing stranded.
 	assertBalance(t, vm, maker, assetLUX, 100, 0)
@@ -423,18 +417,16 @@ func TestCustodyWithdrawClampsToAvailable(t *testing.T) {
 
 // ---- helpers ----
 
-func cancelPoolTx(t *testing.T, pool [32]byte, orderID uint64) *Tx {
+// cancelPoolTx builds a SIGNED cancel: the gate requires the canceller to own the
+// target order, so the cancel is signed by `owner` (the account that placed it).
+func cancelPoolTx(t *testing.T, pool [32]byte, orderID uint64, owner string) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxCancel, zapwire.EncodeCancel(pool, orderID))
-	if err != nil {
-		t.Fatalf("NewTx cancel: %v", err)
-	}
-	return tx
+	return acctFor(t, owner).signed(t, TxCancel, zapwire.EncodeCancel(pool, orderID))
 }
 
 func bal(t *testing.T, vm *VM, user string, asset [32]byte) uint64 {
 	t.Helper()
-	avail, _, err := vm.Balance(user, asset)
+	avail, _, err := vm.Balance(wireUser(t, user), asset)
 	if err != nil {
 		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}
@@ -443,7 +435,7 @@ func bal(t *testing.T, vm *VM, user string, asset [32]byte) uint64 {
 
 func assertBalance(t *testing.T, vm *VM, user string, asset [32]byte, wantAvail, wantLocked uint64) {
 	t.Helper()
-	avail, locked, err := vm.Balance(user, asset)
+	avail, locked, err := vm.Balance(wireUser(t, user), asset)
 	if err != nil {
 		t.Fatalf("Balance(%s,%x): %v", user, asset, err)
 	}

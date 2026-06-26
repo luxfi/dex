@@ -527,7 +527,7 @@ func TestOwnershipInvariant_CollidingAttackerIsNotAParty(t *testing.T) {
 	victim, attacker := twoUsersSharingUserID8()
 	// Precondition for the exploit class: same 8-byte matcher handle, distinct full
 	// accounts.
-	if userKey16(victim) == userKey16(attacker) {
+	if idOf(t, victim) == idOf(t, attacker) {
 		t.Fatal("test setup invalid: victim/attacker are the same full account")
 	}
 	const taker = "legit-taker"
@@ -562,10 +562,10 @@ func TestOwnershipInvariant_CollidingAttackerIsNotAParty(t *testing.T) {
 	parties := own.parties(t, vm, crossBlk)
 
 	// The party set names the victim (maker) and the taker — never the attacker.
-	if parties.has(userKey16(attacker), assetLUSD) || parties.has(userKey16(attacker), assetLUX) {
+	if parties.has(idOf(t, attacker), assetLUSD) || parties.has(idOf(t, attacker), assetLUX) {
 		t.Fatal("party set wrongly includes the colliding attacker (it is neither maker nor taker)")
 	}
-	if !parties.has(userKey16(victim), assetLUSD) || !parties.has(userKey16(taker), assetLUX) {
+	if !parties.has(idOf(t, victim), assetLUSD) || !parties.has(idOf(t, taker), assetLUX) {
 		t.Fatal("party set missing a real party (victim maker / legit taker)")
 	}
 
@@ -580,7 +580,7 @@ func TestOwnershipInvariant_CollidingAttackerIsNotAParty(t *testing.T) {
 	// mutate a COPY of the real after-state so production state is untouched.
 	afterVuln := cloneBalances(afterFixed)
 	const proceeds = 50
-	moveControlled(afterVuln, userKey16(victim), assetLUSD, userKey16(attacker), assetLUSD, proceeds)
+	moveControlled(afterVuln, idOf(t, victim), assetLUSD, idOf(t, attacker), assetLUSD, proceeds)
 
 	// CONSERVATION still holds in the vulnerable state (value only MOVED, none
 	// minted/burned) — the precise reason a conservation sweep cannot catch this.
@@ -597,7 +597,7 @@ func TestOwnershipInvariant_CollidingAttackerIsNotAParty(t *testing.T) {
 	if !bad {
 		t.Fatal("ownership gate FAILED to flag the colliding-attacker theft (the whole point of the harness)")
 	}
-	if k.user != userKey16(attacker) || k.asset != assetLUSD {
+	if k.user != idOf(t, attacker) || k.asset != assetLUSD {
 		t.Fatalf("ownership gate flagged the wrong coordinate: %x/%x (want attacker/LUSD)", k.user, k.asset)
 	}
 	if delta != proceeds {

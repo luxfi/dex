@@ -158,18 +158,23 @@ func crossOneMarket(t *testing.T, base string, f readFixture) []zapwire.Fill {
 
 	httpPost(t, base, zapwire.MethodOpenMarket, zapwire.EncodeOpenMarket(f.pool, f.base, f.quote))
 
+	// Every money-moving frame is signed by the user's key-derived account (the auth
+	// gate refuses unsigned deposit/place/submit); the wire user is the account.
 	dep := func(user string, asset [32]byte, amt uint64) {
 		ref := contentRef(byte(TxDeposit), user, asset, amt)
-		httpPost(t, base, zapwire.MethodDeposit, zapwire.EncodeDeposit(user, asset, amt, ref))
+		body := zapwire.EncodeDeposit(wireUser(t, user), asset, amt, ref)
+		httpPost(t, base, zapwire.MethodDeposit, signedPayload(t, user, TxDeposit, body))
 	}
 	dep(aliceUser, f.base, 2)
 	dep(bobUser, f.quote, 53)
 
-	askResp := httpPost(t, base, zapwire.MethodPlace, zapwire.EncodePlace(f.pool, zapwire.SideSell, askPrice, askSize, aliceUser))
+	askResp := httpPost(t, base, zapwire.MethodPlace,
+		signedPayload(t, aliceUser, TxPlace, zapwire.EncodePlace(f.pool, zapwire.SideSell, askPrice, askSize, wireUser(t, aliceUser))))
 	if askResp[8] != zapwire.StatusPlaced {
 		t.Fatalf("ask not placed: %x", askResp)
 	}
-	subResp := httpPost(t, base, zapwire.MethodSubmit, zapwire.EncodeSubmit(f.pool, zapwire.SideBuy, false, buyLimit, buySize, bobUser))
+	subResp := httpPost(t, base, zapwire.MethodSubmit,
+		signedPayload(t, bobUser, TxSubmit, zapwire.EncodeSubmit(f.pool, zapwire.SideBuy, false, buyLimit, buySize, wireUser(t, bobUser))))
 	fills, err := zapwire.DecodeFills(subResp)
 	if err != nil {
 		t.Fatalf("decode fills: %v (resp=%x)", err, subResp)
