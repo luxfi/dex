@@ -6,6 +6,63 @@ import (
 	"time"
 )
 
+// AssetClass represents the classification of a traded asset. It is metadata
+// used to map a cross-venue trade between the DEX and a counterpart CEX venue;
+// it is NOT a trading gate — the permissionless engine matches every class.
+type AssetClass uint8
+
+const (
+	AssetClassCrypto     AssetClass = iota // Digital asset
+	AssetClassEquity                       // Common/preferred stock (domestic)
+	AssetClassDebt                         // Bonds, notes, convertible notes
+	AssetClassFund                         // LP interests, fund shares
+	AssetClassSAFE                         // Simple Agreement for Future Equity
+	AssetClassCommodity                    // Physical or digital commodity
+	AssetClassDerivative                   // Options, futures, swaps
+
+	// Equities — granular
+	AssetClassIntlEquity // International equity (non-US)
+
+	// FX
+	AssetClassForex // Foreign exchange pairs
+
+	// Derivatives — granular
+	AssetClassOptions // Options contracts
+	AssetClassFutures // Futures contracts
+
+	// Fixed income / credit
+	AssetClassFixedIncome   // Bonds, notes, treasuries
+	AssetClassMunicipal     // Municipal bonds
+	AssetClassStructured    // ABS, MBS, CDO, CLO
+	AssetClassCorporateDebt // Corporate loans, credit facilities
+	AssetClassConsumerDebt  // Personal loans, credit card ABS
+
+	// Real assets
+	AssetClassRealEstate     // REIT, fractional RE, RE tokens
+	AssetClassPreciousMetals // XAU, XAG, XPT, XPD spot
+
+	// Alternative investments
+	AssetClassPrivateEquity // PE fund tokens, SPV shares
+	AssetClassVenture       // VC fund shares, SAFE tokens
+	AssetClassPrivateCredit // Direct lending, mezzanine
+
+	// DeFi-native (bridged)
+	AssetClassCDP // Collateralized debt positions
+	AssetClassLP  // Liquidity pool tokens
+)
+
+// ReconciliationMode determines how a matched cross-venue trade is settled
+// between the DEX and a counterpart CEX.
+type ReconciliationMode uint8
+
+const (
+	ReconciliationNone       ReconciliationMode = iota // No cross-venue reconciliation
+	ReconciliationAtomicSwap                           // On-chain atomic swap between venues
+	ReconciliationBridge                               // Bridge-based transfer (lock/mint)
+	ReconciliationCustodial                            // Custodial settlement via broker
+	ReconciliationHybrid                               // On-chain proof + off-chain settlement
+)
+
 // VenueType identifies where a trade was executed.
 type VenueType uint8
 
@@ -40,11 +97,10 @@ type CrossVenueTrade struct {
 	DEXTxHash  string // on-chain transaction hash
 
 	// CEX side
-	CEXOrderID      string // CEX uses string UUIDs
-	CEXTradeID      string
-	CEXSymbol       string
-	CEXVenue        string // execution venue on CEX
-	CEXComplianceID string
+	CEXOrderID string // CEX uses string UUIDs
+	CEXTradeID string
+	CEXSymbol  string
+	CEXVenue   string // execution venue on CEX
 
 	// Common fields
 	AssetClass AssetClass
@@ -60,10 +116,8 @@ type CrossVenueTrade struct {
 	SettledAt      *time.Time
 	FailureReason  string
 
-	// Regulatory
-	Jurisdiction        string // Governing jurisdiction
-	ReportedToRegulator bool
-	RegulatoryReportID  string
+	// Governing jurisdiction of the counterpart CEX venue (metadata only).
+	Jurisdiction string
 }
 
 // dexToCEXMap maps DEX asset classes to CEX string equivalents.
@@ -274,11 +328,10 @@ func (r *Reconciler) mergeTrades(dex, cex *CrossVenueTrade) *CrossVenueTrade {
 		DEXTxHash:  dex.DEXTxHash,
 
 		// CEX side
-		CEXOrderID:      cex.CEXOrderID,
-		CEXTradeID:      cex.CEXTradeID,
-		CEXSymbol:       cex.CEXSymbol,
-		CEXVenue:        cex.CEXVenue,
-		CEXComplianceID: cex.CEXComplianceID,
+		CEXOrderID: cex.CEXOrderID,
+		CEXTradeID: cex.CEXTradeID,
+		CEXSymbol:  cex.CEXSymbol,
+		CEXVenue:   cex.CEXVenue,
 
 		// Common
 		AssetClass: dex.AssetClass,

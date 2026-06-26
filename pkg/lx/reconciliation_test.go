@@ -120,17 +120,16 @@ func TestReconcilerMatchDEXFirst(t *testing.T) {
 
 	// Now submit matching CEX trade
 	cexTrade := &CrossVenueTrade{
-		CEXOrderID:      "uuid-1",
-		CEXTradeID:      "uuid-2",
-		CEXSymbol:       "BTC-USD",
-		CEXVenue:        "lux-cex",
-		CEXComplianceID: "comp-1",
-		DEXSymbol:       "BTC-USD",
-		Side:            Buy,
-		Price:           50000.0,
-		Size:            1.0,
-		Jurisdiction:    "US",
-		Timestamp:       time.Now(),
+		CEXOrderID:   "uuid-1",
+		CEXTradeID:   "uuid-2",
+		CEXSymbol:    "BTC-USD",
+		CEXVenue:     "lux-cex",
+		DEXSymbol:    "BTC-USD",
+		Side:         Buy,
+		Price:        50000.0,
+		Size:         1.0,
+		Jurisdiction: "US",
+		Timestamp:    time.Now(),
 	}
 
 	result, err = recon.SubmitCEXTrade(cexTrade)
@@ -382,115 +381,6 @@ func TestNewAssetClassesAreDefined(t *testing.T) {
 	assert.Equal(t, 23, len(seen), "expected 23 unique asset classes")
 }
 
-func TestNewExemptionTypesAreDefined(t *testing.T) {
-	// Verify new jurisdiction exemptions are distinct
-	exemptions := []ExemptionType{
-		ExemptionNone,
-		ExemptionRegD506b, ExemptionRegD506c, ExemptionRegA1, ExemptionRegA2,
-		ExemptionRegCF, ExemptionRegS, ExemptionRule144, ExemptionSection4a7,
-		ExemptionFCAPrivate, ExemptionFCAProspectus,
-		ExemptionMASSIP, ExemptionMASPrivate, ExemptionMASInstitutional,
-		ExemptionEUQualifiedInvestor, ExemptionEUSmallOffering, ExemptionEUCrowdfunding,
-		ExemptionHKProfessionalInvestor, ExemptionHKSmallOffering,
-		ExemptionJPQII,
-		ExemptionAUSophisticated, ExemptionAUSmallScale,
-		ExemptionUAEExemptOffer, ExemptionUAEQualifiedInvestor,
-		ExemptionCHQualifiedInvestor,
-	}
-
-	seen := make(map[ExemptionType]bool)
-	for _, e := range exemptions {
-		assert.False(t, seen[e], "duplicate exemption value: %d", e)
-		seen[e] = true
-	}
-	assert.Equal(t, 25, len(seen))
-}
-
-// --- Market config factory tests ---
-
-func TestFixedIncomeMarketConfig(t *testing.T) {
-	mc := FixedIncomeMarketConfig("UST-10Y")
-	assert.Equal(t, AssetClassFixedIncome, mc.AssetClass)
-	assert.Equal(t, float64(1000), mc.LotSize)
-	assert.Equal(t, "UST-10Y", mc.Symbol)
-}
-
-func TestStructuredProductMarketConfig(t *testing.T) {
-	mc := StructuredProductMarketConfig("MBS-POOL-A")
-	assert.Equal(t, AssetClassStructured, mc.AssetClass)
-	assert.True(t, mc.AccreditedOnly)
-	assert.NotNil(t, mc.Restrictions)
-	assert.Equal(t, InvestorAccredited, mc.Restrictions.MinInvestorStatus)
-}
-
-func TestPreciousMetalsMarketConfig(t *testing.T) {
-	mc := PreciousMetalsMarketConfig("XAU-USD")
-	assert.Equal(t, AssetClassPreciousMetals, mc.AssetClass)
-	assert.Equal(t, 0.001, mc.LotSize)
-}
-
-func TestRealEstateMarketConfig(t *testing.T) {
-	mc := RealEstateMarketConfig("REIT-ALPHA")
-	assert.Equal(t, AssetClassRealEstate, mc.AssetClass)
-	assert.True(t, mc.AccreditedOnly)
-	assert.NotNil(t, mc.Restrictions)
-}
-
-func TestPrivateEquityMarketConfig(t *testing.T) {
-	mc := PrivateEquityMarketConfig("PE-FUND-I")
-	assert.Equal(t, AssetClassPrivateEquity, mc.AssetClass)
-	assert.True(t, mc.SingleMatchMode)
-	assert.True(t, mc.AccreditedOnly)
-	assert.True(t, mc.Restrictions.ROFRRequired)
-	assert.True(t, mc.Restrictions.BoardApprovalRequired)
-	assert.Equal(t, InvestorQualifiedPurchaser, mc.Restrictions.MinInvestorStatus)
-}
-
-func TestCDPMarketConfig(t *testing.T) {
-	mc := CDPMarketConfig("DAI-CDP")
-	assert.Equal(t, AssetClassCDP, mc.AssetClass)
-}
-
-func TestLPTokenMarketConfig(t *testing.T) {
-	mc := LPTokenMarketConfig("UNI-V3-ETH-USDC")
-	assert.Equal(t, AssetClassLP, mc.AssetClass)
-	assert.Equal(t, 0.000001, mc.LotSize)
-}
-
-// --- PEP / EDD tests ---
-
-func TestPEPStatusValues(t *testing.T) {
-	assert.Equal(t, PEPStatus(0), PEPNone)
-	assert.Equal(t, PEPStatus(1), PEPDirect)
-	assert.Equal(t, PEPStatus(2), PEPRelated)
-	assert.Equal(t, PEPStatus(3), PEPFormer)
-}
-
-func TestInvestorProfilePEPFields(t *testing.T) {
-	profile := &InvestorProfile{
-		UserID:          "pep-user",
-		Status:          InvestorAccredited,
-		Jurisdiction:    "US",
-		KYCVerified:     true,
-		AMLCleared:      true,
-		Holdings:        map[string]float64{},
-		PEP:             PEPDirect,
-		EDDCompleted:    true,
-		SourceOfFunds:   "salary",
-		SOFVerified:     true,
-		AdverseMedia:    false,
-		HighRiskCountry: false,
-		TaxResidency:    "US",
-		EntityID:        "LEI-12345",
-	}
-
-	assert.Equal(t, PEPDirect, profile.PEP)
-	assert.True(t, profile.EDDCompleted)
-	assert.Equal(t, "salary", profile.SourceOfFunds)
-	assert.True(t, profile.SOFVerified)
-	assert.Equal(t, "LEI-12345", profile.EntityID)
-}
-
 // --- Reconciliation mode tests ---
 
 func TestReconciliationModeValues(t *testing.T) {
@@ -499,38 +389,4 @@ func TestReconciliationModeValues(t *testing.T) {
 	assert.Equal(t, ReconciliationMode(2), ReconciliationBridge)
 	assert.Equal(t, ReconciliationMode(3), ReconciliationCustodial)
 	assert.Equal(t, ReconciliationMode(4), ReconciliationHybrid)
-}
-
-func TestMarketConfigWithReconciliation(t *testing.T) {
-	mc := MarketConfig{
-		Symbol:             "BTC-USD",
-		AssetClass:         AssetClassCrypto,
-		CEXSymbol:          "BTC-USD",
-		CEXVenue:           "lux-cex",
-		ReconciliationMode: ReconciliationAtomicSwap,
-	}
-
-	assert.Equal(t, "lux-cex", mc.CEXVenue)
-	assert.Equal(t, ReconciliationAtomicSwap, mc.ReconciliationMode)
-}
-
-// --- New compliance error codes ---
-
-func TestNewComplianceErrorCodes(t *testing.T) {
-	codes := []ComplianceErrorCode{
-		ErrPEPReviewRequired,
-		ErrSourceOfFundsRequired,
-		ErrAdverseMedia,
-		ErrHighRiskCountry,
-		ErrInstitutionalOnly,
-		ErrLockupPeriod,
-		ErrCollateralInsufficient,
-	}
-
-	seen := make(map[ComplianceErrorCode]bool)
-	for _, c := range codes {
-		assert.False(t, seen[c], "duplicate compliance error code: %d", c)
-		seen[c] = true
-		assert.True(t, c > ErrTransferRestricted, "new codes should be after ErrTransferRestricted")
-	}
 }
