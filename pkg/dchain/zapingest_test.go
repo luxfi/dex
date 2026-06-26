@@ -149,7 +149,7 @@ func TestZAPIngestSharesOneCoreWithHTTP(t *testing.T) {
 
 	// Taker crosses through the HTTP COMPAT handler against the SAME book.
 	resp := postFrame(t, httpBase, zapwire.MethodSubmit,
-		zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 5.0, 10.0, "core-taker"))
+		signedPayload(t, "core-taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 5.0, 10.0, wireUser(t, "core-taker"))))
 	httpFills, err := zapwire.DecodeFills(resp)
 	if err != nil {
 		t.Fatalf("decode HTTP submit fills: %v", err)

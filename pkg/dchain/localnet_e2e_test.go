@@ -154,7 +154,8 @@ func (c *e2eClient) ensureMarket(t *testing.T, pool [32]byte) {
 // place rests a limit order (maker liquidity). Returns the consensus-assigned id.
 func (c *e2eClient) place(t *testing.T, pool [32]byte, side uint8, price, size float64, user string) uint64 {
 	t.Helper()
-	resp, err := c.conn.Call(c.ctx, zapwire.MethodPlace, zapwire.EncodePlace(pool, side, price, size, user))
+	body := zapwire.EncodePlace(pool, side, price, size, wireUser(t, user))
+	resp, err := c.conn.Call(c.ctx, zapwire.MethodPlace, signedPayload(t, user, TxPlace, body))
 	if err != nil {
 		t.Fatalf("clob_place %s %v@%v: %v", sideName(side), size, price, err)
 	}
@@ -168,8 +169,8 @@ func (c *e2eClient) place(t *testing.T, pool [32]byte, side uint8, price, size f
 // consensus-computed fills (decoded via the proxy's exact frame).
 func (c *e2eClient) submit(t *testing.T, pool [32]byte, side uint8, limit, size float64, user string) []zapwire.Fill {
 	t.Helper()
-	resp, err := c.conn.Call(c.ctx, zapwire.MethodSubmit,
-		zapwire.EncodeSubmit(pool, side, false, limit, size, user))
+	body := zapwire.EncodeSubmit(pool, side, false, limit, size, wireUser(t, user))
+	resp, err := c.conn.Call(c.ctx, zapwire.MethodSubmit, signedPayload(t, user, TxSubmit, body))
 	if err != nil {
 		t.Fatalf("clob_submit %s %v@%v: %v", sideName(side), size, limit, err)
 	}

@@ -131,9 +131,11 @@ func TestIngestCrossingOrdersMatchInBlock(t *testing.T) {
 		t.Fatalf("ensure_market ack: status=%d err=%v", status, err)
 	}
 
-	// 2) place a resting ask @101 size 5 over HTTP -> ack(placed) with order id.
+	// 2) place a resting ask @101 size 5 over HTTP -> ack(placed) with order id. The
+	// money-moving frame is signed by the maker's key-derived account (the auth gate
+	// refuses an unsigned place); the auth envelope rides as a trailer on the frame.
 	ack = postFrame(t, base, zapwire.MethodPlace,
-		zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, "maker"))
+		signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
 	makerID, status, err := zapwire.DecodeAck(ack)
 	if err != nil || status != zapwire.StatusPlaced {
 		t.Fatalf("place ack: status=%d err=%v", status, err)
@@ -144,7 +146,7 @@ func TestIngestCrossingOrdersMatchInBlock(t *testing.T) {
 
 	// 3) submit a crossing buy @101 size 3 over HTTP -> CONSENSUS-computed fills.
 	fillsResp := postFrame(t, base, zapwire.MethodSubmit,
-		zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, "taker"))
+		signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
 	fills, err := zapwire.DecodeFills(fillsResp)
 	if err != nil {
 		t.Fatalf("DecodeFills: %v", err)
@@ -250,7 +252,7 @@ func TestIngestAckFrameShape(t *testing.T) {
 	pool[0] = 0x07
 	postFrame(t, base, zapwire.MethodEnsureMarket, zapwire.EncodeEnsureMarket(pool))
 	ack := postFrame(t, base, zapwire.MethodPlace,
-		zapwire.EncodePlace(pool, zapwire.SideBuy, 5.0, 2.0, "u"))
+		signedPayload(t, "u", TxPlace, zapwire.EncodePlace(pool, zapwire.SideBuy, 5.0, 2.0, wireUser(t, "u"))))
 	if len(ack) < 9 {
 		t.Fatalf("ack frame too short: %d", len(ack))
 	}

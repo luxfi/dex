@@ -310,8 +310,8 @@ func TestOrderUserPersistedBeforeBookInsert(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("getOrderUser ok=%v err=%v", ok, err)
 	}
-	if gotUser != userKey16(maker) {
-		t.Fatalf("orderuser row = %x, want full 16-byte maker identity %x", gotUser, userKey16(maker))
+	if gotUser != idOf(t, maker) {
+		t.Fatalf("orderuser row = %x, want full 16-byte maker identity %x", gotUser, idOf(t, maker))
 	}
 	// And a per-order lock reserve exists in lockstep.
 	vm.mu.Lock()
@@ -347,7 +347,7 @@ func TestCollidingUserID8CannotReceiveMakerProceeds(t *testing.T) {
 	victim, attacker := twoUsersSharingUserID8()
 	// Sanity: the two users DO collide on the 8-byte matcher handle but are distinct
 	// full accounts (the precondition for the exploit class).
-	if userKey16(victim) == userKey16(attacker) {
+	if idOf(t, victim) == idOf(t, attacker) {
 		t.Fatal("test setup invalid: victim/attacker are the same full account")
 	}
 	pool := [32]byte{0xae, 0x01}
@@ -395,7 +395,7 @@ func TestCollidingUserID8CannotReceiveMakerProceeds(t *testing.T) {
 // ledger read error.
 func mustBalance(t *testing.T, vm *VM, user string, asset [32]byte) (uint64, uint64) {
 	t.Helper()
-	avail, locked, err := vm.Balance(user, asset)
+	avail, locked, err := vm.Balance(wireUser(t, user), asset)
 	if err != nil {
 		t.Fatalf("Balance(%s): %v", user, err)
 	}
@@ -533,11 +533,11 @@ func TestMultiPlaceInBlockKeysOrderUserByMatcherIndex(t *testing.T) {
 	u0, ok0, _ := getOrderUser(vm.db, pool, id0)
 	u1, ok1, _ := getOrderUser(vm.db, pool, id1)
 	vm.mu.Unlock()
-	if !ok0 || u0 != userKey16(m1) {
-		t.Fatalf("order %d (txIndex 0) orderuser = %x ok=%v, want m1 %x", id0, u0, ok0, userKey16(m1))
+	if !ok0 || u0 != idOf(t, m1) {
+		t.Fatalf("order %d (txIndex 0) orderuser = %x ok=%v, want m1 %x", id0, u0, ok0, idOf(t, m1))
 	}
-	if !ok1 || u1 != userKey16(m2) {
-		t.Fatalf("order %d (txIndex 1) orderuser = %x ok=%v, want m2 %x", id1, u1, ok1, userKey16(m2))
+	if !ok1 || u1 != idOf(t, m2) {
+		t.Fatalf("order %d (txIndex 1) orderuser = %x ok=%v, want m2 %x", id1, u1, ok1, idOf(t, m2))
 	}
 
 	// Cross m1's order (sell 10@5): taker buys 10@5 -> m1 receives 50 LUSD.
@@ -784,7 +784,7 @@ func TestSettlementIdentityWidthEnforced(t *testing.T) {
 	}
 
 	// (b) A resting order persists its identity at full 16-byte width.
-	victim, attacker := twoUsersSharingUserID8()
+	victim, _ := twoUsersSharingUserID8()
 	pool := [32]byte{0x1d, 0x77}
 	makerOrderID := fundOpenAndRestMaker(t, vm, pool, victim, "tk-width", 100, 1000, 5.0, 10.0)
 	vm.mu.Lock()
@@ -797,22 +797,28 @@ func TestSettlementIdentityWidthEnforced(t *testing.T) {
 	if len(raw) != zapwire.UserSize {
 		t.Fatalf("persisted orderuser row width = %d, want %d (settlement identity must be stored full-width)", len(raw), zapwire.UserSize)
 	}
-	if gotUser != userKey16(victim) {
-		t.Fatalf("orderuser = %x, want full 16-byte victim %x", gotUser, userKey16(victim))
+	if gotUser != idOf(t, victim) {
+		t.Fatalf("orderuser = %x, want full 16-byte victim %x", gotUser, idOf(t, victim))
 	}
 
-	// (c) Two accounts sharing the leading 8 bytes are DISTINCT 16-byte identities.
-	if userKey16(victim) == userKey16(attacker) {
-		t.Fatal("colliding-handle accounts resolved to the SAME 16-byte identity (width fold lost bytes 8..15)")
+	// (c) Two identities sharing the leading 8 bytes (the matcher's 8-byte handle)
+	// are DISTINCT 16-byte settlement identities — a handle collision is NOT an
+	// identity collision. The auth gate now makes a wire user a key-derived account
+	// (Account16), so a handle collision can only ever arise at the matcher's 8-byte
+	// fold, never at the 16-byte settlement axis; we model that fold directly to pin
+	// the width property the ledger depends on.
+	v16 := idOf(t, victim)
+	var colliding userKey
+	copy(colliding[:], v16[:8])                                                  // SAME 8-byte matcher handle ...
+	copy(colliding[8:], []byte{0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8}) // ... distinct tail
+	if v16 == colliding {
+		t.Fatal("colliding-handle identities resolved to the SAME 16-byte identity (width fold lost bytes 8..15)")
 	}
-	// And their leading 8 bytes DO match (the precondition: the collision is at the
-	// handle, not the identity).
-	v16, a16 := userKey16(victim), userKey16(attacker)
-	if string(v16[:8]) != string(a16[:8]) {
-		t.Fatal("test setup invalid: the two accounts do not share the 8-byte matcher handle")
+	if string(v16[:8]) != string(colliding[:8]) {
+		t.Fatal("test setup invalid: the two identities do not share the 8-byte matcher handle")
 	}
-	if string(v16[8:]) == string(a16[8:]) {
-		t.Fatal("test setup invalid: the two accounts do not differ in bytes 8..15")
+	if string(v16[8:]) == string(colliding[8:]) {
+		t.Fatal("test setup invalid: the two identities do not differ in bytes 8..15")
 	}
 }
 

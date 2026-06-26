@@ -58,6 +58,19 @@ const (
 	TxOpenMarket
 )
 
+// requiresAuth reports whether a tx type moves USER funds and therefore must
+// carry a signature authorizing the asserted account. The order operations and
+// the two custody legs do; market admin (ensure/open) moves no user value and is
+// unauthenticated (it has no asserted account to bind).
+func (t TxType) requiresAuth() bool {
+	switch t {
+	case TxPlace, TxCancel, TxSubmit, TxDeposit, TxWithdraw:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t TxType) String() string {
 	switch t {
 	case TxEnsureMarket:
@@ -132,6 +145,12 @@ var (
 type Tx struct {
 	Type TxType
 	Body []byte // the zapwire payload for Type (verbatim)
+	// Auth is the authorization envelope (signature + per-account nonce) that
+	// proves the asserted account authorized this exact operation. It is non-nil
+	// for every money-moving tx (Type.requiresAuth()) and nil for market admin.
+	// It is part of the canonical Bytes (hence the TxID), so a tx is bound to its
+	// signature and a replay carries the identical, single-use nonce.
+	Auth *TxAuth
 }
 
 // isMarketScoped reports whether a tx body begins with poolId[32] (the order
@@ -161,10 +180,15 @@ func (tx *Tx) poolID() ([32]byte, bool) {
 	return id, true
 }
 
-// NewTx builds a Tx from a type and its zapwire body, validating the body length
-// matches the type's fixed frame size. A malformed length is rejected here so a
-// short/garbage body can never reach the matcher.
+// NewTx builds an UNAUTHENTICATED Tx (market admin: ensure/open) from a type and
+// its zapwire body, validating the body length matches the type's fixed frame
+// size. A money-moving type is refused here — it MUST carry a signature, so use
+// NewSignedTx. A malformed length is rejected so a short/garbage body can never
+// reach the matcher.
 func NewTx(t TxType, body []byte) (*Tx, error) {
+	if t.requiresAuth() {
+		return nil, fmt.Errorf("dchain: %s is money-moving and requires a signature; use NewSignedTx", t)
+	}
 	want, ok := bodySize(t)
 	if !ok {
 		return nil, ErrUnknownTx
@@ -176,6 +200,30 @@ func NewTx(t TxType, body []byte) (*Tx, error) {
 	b := make([]byte, want)
 	copy(b, body[:want])
 	return &Tx{Type: t, Body: b}, nil
+}
+
+// NewSignedTx builds a money-moving Tx from a type, its zapwire body, and the
+// authorization envelope. The envelope must be non-nil; the body length must
+// match the type's fixed frame size. The signature is NOT verified here (that is
+// the gate's job — verifyTxSignature at the RPC boundary and authoritatively in
+// block.execute); this constructor only assembles a well-formed frame.
+func NewSignedTx(t TxType, body []byte, auth *TxAuth) (*Tx, error) {
+	if !t.requiresAuth() {
+		return nil, fmt.Errorf("dchain: %s takes no signature; use NewTx", t)
+	}
+	if auth == nil {
+		return nil, fmt.Errorf("%w: %s", ErrTxUnsigned, t)
+	}
+	want, ok := bodySize(t)
+	if !ok {
+		return nil, ErrUnknownTx
+	}
+	if len(body) < want {
+		return nil, fmt.Errorf("%w: type=%s have=%d want=%d", ErrShortTxBody, t, len(body), want)
+	}
+	b := make([]byte, want)
+	copy(b, body[:want])
+	return &Tx{Type: t, Body: b, Auth: auth}, nil
 }
 
 // bodySize returns the fixed zapwire body length for a tx type.
@@ -200,12 +248,20 @@ func bodySize(t TxType) (int, bool) {
 	}
 }
 
-// Bytes returns the canonical wire form: [type:1][body]. This is what a block
-// stores and what the TxID hashes — deterministic and self-describing.
+// Bytes returns the canonical wire form: [type:1][body][auth?]. The auth
+// envelope is appended for a money-moving tx (nil for admin), so the TxID hashes
+// over the signature + nonce too — a forged or replayed authorization yields a
+// different (or already-seen) id. The fixed per-type body size delimits body
+// from the auth trailer on parse. Deterministic and self-describing.
 func (tx *Tx) Bytes() []byte {
-	out := make([]byte, 1+len(tx.Body))
+	var auth []byte
+	if tx.Auth != nil {
+		auth = tx.Auth.encode()
+	}
+	out := make([]byte, 1+len(tx.Body)+len(auth))
 	out[0] = byte(tx.Type)
-	copy(out[1:], tx.Body)
+	n := copy(out[1:], tx.Body)
+	copy(out[1+n:], auth)
 	return out
 }
 
@@ -223,26 +279,53 @@ func ParseTx(b []byte) (*Tx, error) {
 	if len(b) == 0 {
 		return nil, ErrEmptyTx
 	}
-	t := TxType(b[0])
-	return NewTx(t, b[1:])
+	return parseTxFrame(TxType(b[0]), b[1:])
+}
+
+// parseTxFrame decodes a type's [body][auth?] tail into a Tx — the shared body of
+// ParseTx (block decode) and the handler's RPC-payload decode, so the wire split
+// (fixed body size delimits the auth trailer) is defined exactly once.
+func parseTxFrame(t TxType, rest []byte) (*Tx, error) {
+	want, ok := bodySize(t)
+	if !ok {
+		return nil, ErrUnknownTx
+	}
+	if len(rest) < want {
+		return nil, fmt.Errorf("%w: type=%s have=%d want=%d", ErrShortTxBody, t, len(rest), want)
+	}
+	body := rest[:want]
+	if !t.requiresAuth() {
+		// Admin tx: body must be exactly the frame, no trailer.
+		if len(rest) != want {
+			return nil, fmt.Errorf("%w: %s carries unexpected %d trailing bytes", ErrTxMalformedAuth, t, len(rest)-want)
+		}
+		return NewTx(t, body)
+	}
+	auth, err := decodeTxAuth(rest[want:])
+	if err != nil {
+		return nil, err
+	}
+	return NewSignedTx(t, body, auth)
 }
 
 // encodeTxList serializes a list of txs as [count:4][len:4 body]*, the block body
 // format. Each tx is length-prefixed so ParseBlock can split them back exactly.
 func encodeTxList(txs []*Tx) []byte {
+	// Materialize each tx's canonical bytes first (they include the variable-length
+	// auth trailer), then size the buffer from them — never from len(Body) alone.
+	raws := make([][]byte, len(txs))
 	size := 4
-	for _, tx := range txs {
-		size += 4 + 1 + len(tx.Body)
+	for i, tx := range txs {
+		raws[i] = tx.Bytes()
+		size += 4 + len(raws[i])
 	}
 	out := make([]byte, size)
 	binary.BigEndian.PutUint32(out[0:4], uint32(len(txs)))
 	off := 4
-	for _, tx := range txs {
-		raw := tx.Bytes()
+	for _, raw := range raws {
 		binary.BigEndian.PutUint32(out[off:off+4], uint32(len(raw)))
 		off += 4
-		copy(out[off:off+len(raw)], raw)
-		off += len(raw)
+		off += copy(out[off:], raw)
 	}
 	return out
 }

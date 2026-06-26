@@ -15,20 +15,14 @@ var testPool = [32]byte{0xaa, 0xbb, 0xcc}
 
 func placeTx(t *testing.T, side uint8, price, size float64, user string) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxPlace, zapwire.EncodePlace(testPool, side, price, size, user))
-	if err != nil {
-		t.Fatalf("NewTx place: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxPlace, zapwire.EncodePlace(testPool, side, price, size, a.user))
 }
 
 func submitTx(t *testing.T, side uint8, isMarket bool, price, size float64, user string) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxSubmit, zapwire.EncodeSubmit(testPool, side, isMarket, price, size, user))
-	if err != nil {
-		t.Fatalf("NewTx submit: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxSubmit, zapwire.EncodeSubmit(testPool, side, isMarket, price, size, a.user))
 }
 
 // applyAll replays a tx sequence into a fresh book, returning every fill as a
@@ -140,10 +134,9 @@ func TestApplyCancelRemovesResting(t *testing.T) {
 	res, _ := applyTx(book, placeTx(t, zapwire.SideBuy, 100.0, 2.0, "alice"), 1, ts, 0)
 	id := res.Placed.ID
 
-	cancel, err := NewTx(TxCancel, zapwire.EncodeCancel(testPool, id))
-	if err != nil {
-		t.Fatalf("NewTx cancel: %v", err)
-	}
+	// applyTx is the pure book function (no auth gate); sign with the placer so the
+	// frame is well-formed (NewTx refuses an unsigned money-moving tx).
+	cancel := acctFor(t, "alice").signed(t, TxCancel, zapwire.EncodeCancel(testPool, id))
 	cres, err := applyTx(book, cancel, 1, ts, 1)
 	if err != nil {
 		t.Fatalf("applyTx cancel: %v", err)
@@ -153,7 +146,7 @@ func TestApplyCancelRemovesResting(t *testing.T) {
 	}
 
 	// Unknown cancel: deterministic no-op.
-	unknown, _ := NewTx(TxCancel, zapwire.EncodeCancel(testPool, 999999))
+	unknown := acctFor(t, "alice").signed(t, TxCancel, zapwire.EncodeCancel(testPool, 999999))
 	ures, err := applyTx(book, unknown, 1, ts, 2)
 	if err != nil {
 		t.Fatalf("applyTx unknown cancel: %v", err)

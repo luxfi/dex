@@ -77,9 +77,21 @@ func (vm *VM) RegisterCLOB(server rpc.Server) error {
 // all three write methods — one place that turns a wire frame into a
 // consensus-decided outcome.
 func (vm *VM) submitTx(ctx context.Context, t TxType, payload []byte) (txOutcome, error) {
-	tx, err := NewTx(t, payload)
+	// The RPC payload for a money-moving method is [frozen-body][auth-envelope];
+	// parseTxFrame splits it on the fixed body size. An admin method is body-only.
+	tx, err := parseTxFrame(t, payload)
 	if err != nil {
 		return txOutcome{}, err
+	}
+	// STATELESS pre-screen at the boundary: reject a forged/unsigned/wrong-signer
+	// frame before it enters the mempool (fail-fast UX + mempool hygiene). This is
+	// NOT the security boundary — the AUTHORITATIVE gate (signature + monotonic
+	// nonce + cancel ownership) re-runs deterministically for every validator in
+	// block.execute, so a tx that bypasses this RPC path is still caught at
+	// consensus. The nonce is intentionally NOT checked here (it is stateful and
+	// racy against in-flight blocks); only the consensus gate consumes nonces.
+	if _, verr := verifyTxSignature(tx); verr != nil {
+		return txOutcome{}, verr
 	}
 	txID := tx.ID()
 
