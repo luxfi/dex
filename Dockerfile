@@ -18,11 +18,13 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# luxfi module resolution: private modules resolve via the gh_token BuildKit
-# secret over HTTPS (the shared hanzoai/.github docker-build.yml passes it);
-# skip sumdb for luxfi (tags may be rewritten — go.sum in the build context is
-# already realigned to current tag bits).
-ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*
+# Private module resolution: all our orgs resolve via the gh_token BuildKit
+# secret over HTTPS (the shared hanzoai/.github docker-build.yml passes it) and
+# bypass the public proxy/sumdb. GOPRIVATE MUST list every private org in the
+# dep graph — dex pulls luxfi + hanzoai + hanzos3 (go-sdk); a missing org routes
+# to proxy.golang.org and fails the build. (Tags may be rewritten — go.sum in the
+# build context is already realigned to current tag bits.)
+ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*,github.com/hanzos3/*,github.com/zooai/*,github.com/parsdao/*,github.com/lux-private/*
 ENV GOFLAGS=-mod=mod
 ENV GOTOOLCHAIN=auto
 ENV GOEXPERIMENT=jsonv2
