@@ -42,7 +42,7 @@ const (
 	prefixSeen   = "seen:" // processed tx ids (idempotency / replay dedup)
 	prefixMeta   = "meta:"
 
-	// The CLOB custody ledger: where the money LIVES inside the d-chain. A
+	// The DEX custody ledger: where the money LIVES inside the d-chain. A
 	// deposit credits balance:; placing/submitting an order moves available ->
 	// locked: for the asset the order spends; a fill moves locked: between maker
 	// and taker; a cancel/reject returns locked: -> balance:; a withdraw debits
@@ -94,7 +94,7 @@ const (
 // accepted block; re-applying it is a no-op. This is the d-chain STATE
 // idempotency index: the frozen zapwire frame carries no nonce, so dedup is
 // content-addressed on the tx id (which subsumes the wire user[16] and the full
-// payload). A relay that retries a dropped clob_submit re-sends the identical
+// payload). A relay that retries a dropped dex_submit re-sends the identical
 // bytes -> identical tx id -> deduped, exactly once.
 func seenKey(txID ids.ID) []byte {
 	k := make([]byte, len(prefixSeen)+32)
@@ -120,7 +120,7 @@ func isSeen(db database.KeyValueReader, txID ids.ID) (bool, error) {
 // ORIGINAL outcome (status + orderID + fills) so a later replay of the same
 // content-addressed tx returns the FIRST result verbatim rather than a blanket
 // reject — the idempotency contract a caller (precompile / proxy) needs: a
-// retried clob_place returns its original Placed+orderID, a retried clob_submit
+// retried dex_place returns its original Placed+orderID, a retried dex_submit
 // returns its original fills, never a spurious "rejected". (A bare presence
 // byte made a deduped place indistinguishable from a genuine rejection, which
 // reverted the EVM tx whose precompile re-ran the place across the host's

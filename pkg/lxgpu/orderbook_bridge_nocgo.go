@@ -19,10 +19,10 @@ func AutoBackend() GPUBackend { return GPUBackendNone }
 // GPUPluginPath returns "" under !cgo — no plugin was loaded.
 func GPUPluginPath() string { return "" }
 
-// CLOBArena is a zero-sized opaque type so the package surface
+// OrderBookArena is a zero-sized opaque type so the package surface
 // compiles uniformly under both build tags. The nocgo build never
 // returns a non-nil arena from ArenaCreate.
-type CLOBArena struct{}
+type OrderBookArena struct{}
 
 // AMMSwap returns ErrGPUNotAvailable under !cgo.
 func AMMSwap(reserves []LuxAmmReservePair, amounts []uint64) ([]uint64, error) {
@@ -32,21 +32,21 @@ func AMMSwap(reserves []LuxAmmReservePair, amounts []uint64) ([]uint64, error) {
 }
 
 // ArenaCreate returns ErrGPUNotAvailable under !cgo.
-func ArenaCreate() (*CLOBArena, error) {
+func ArenaCreate() (*OrderBookArena, error) {
 	return nil, ErrGPUNotAvailable
 }
 
 // ArenaDestroy returns ErrGPUNotAvailable under !cgo. A nil arena is
 // still a no-op for symmetry with the cgo build.
-func ArenaDestroy(a *CLOBArena) error {
+func ArenaDestroy(a *OrderBookArena) error {
 	if a == nil {
 		return nil
 	}
 	return ErrGPUNotAvailable
 }
 
-// CLOBMatch returns ErrGPUNotAvailable under !cgo.
-func CLOBMatch(a *CLOBArena, calldata []byte) (out [LuxCLOBOutLen]byte, numFills uint32, err error) {
+// OrderBookMatch returns ErrGPUNotAvailable under !cgo.
+func OrderBookMatch(a *OrderBookArena, calldata []byte) (out [OrderBookOutLen]byte, numFills uint32, err error) {
 	_ = a
 	_ = calldata
 	return out, 0, ErrGPUNotAvailable

@@ -27,13 +27,13 @@ import (
 // committed as D-Chain state (a trade:<height><seq> row). The matcher is the
 // chain; there is no external venue and no relay.
 //
-// The transport under test is vm.clobHTTPHandler() driven through a real
+// The transport under test is vm.dexHTTPHandler() driven through a real
 // httptest.Server (which is exactly what the plugin transport stands up inside the
 // plugin process). An auto-sealer goroutine plays the consensus engine, identical
 // to handler_test.go's socket harness — proving the SAME submitTx->mempool->
 // Verify-match path is reached whether the order arrives over HTTP or ZAP.
 
-// startIngestServer brings up a VM + the in-luxd HTTP CLOB handler over a real
+// startIngestServer brings up a VM + the in-luxd HTTP DEX handler over a real
 // httptest.Server, plus the auto-sealer. Returns the VM, the base URL
 // (.../dex), and a stop func.
 func startIngestServer(t *testing.T) (*VM, string, func()) {
@@ -221,14 +221,14 @@ func TestIngestRejectsNonPost(t *testing.T) {
 }
 
 // TestIngestUnknownMethod404 proves an unrouted method path is a 404 (the mux only
-// mounts the frozen clob_* methods); it must not panic or hang.
+// mounts the frozen dex_* methods); it must not panic or hang.
 func TestIngestUnknownMethod404(t *testing.T) {
 	_, base, stop := startIngestServer(t)
 	defer stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, methodURL(base, "clob_bogus"), bytes.NewReader([]byte{0x00}))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, methodURL(base, "dex_bogus"), bytes.NewReader([]byte{0x00}))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}

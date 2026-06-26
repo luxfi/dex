@@ -7,7 +7,7 @@
 // Built under //go:build !cgo: this venue e2e exercises the PURE-GO consensus
 // path (rebuildable book, zapdb persistence, ZAP socket, match->Verify->Accept)
 // and needs no cgo/GPU matcher — the GPU accelerator is an opt-in venue
-// accelerator (cmd/dvenue, //go:build cgo), and the matching CORRECTNESS proven
+// accelerator (cmd/dexd run, under cgo), and the matching CORRECTNESS proven
 // here is identical on the CPU and GPU paths. The !cgo gate also keeps this test
 // in the package's CGO_ENABLED=0 test binary (the only one that links on a host
 // without luxcpp), so `CGO_ENABLED=0 go test ./pkg/dchain` runs the full venue
@@ -18,19 +18,19 @@ package dchain
 
 // localnet_e2e_test.go is the CAPSTONE venue-level localnet proof for the
 // standalone D-Chain DEX VM. Unlike handler_test.go (memdb, single market), it
-// stands the venue up exactly as cmd/dchain would at runtime:
+// stands the venue up exactly as cmd/dexd would at runtime:
 //
 //   - a REAL on-disk zapdb (the authoritative persisted chainstate, not memdb),
-//   - the clob_* ZAP surface served over a REAL rpc.Listen socket (the same
+//   - the dex_* ZAP surface served over a REAL rpc.Listen socket (the same
 //     transport the chains/dexvm proxy + 0x9010 precompile dial),
 //   - an auto-sealer goroutine playing the consensus engine (BuildBlock ->
-//     Verify -> Accept) — the harness that cmd/dchain's rpc.Serve gets from the
+//     Verify -> Accept) — the harness that cmd/dexd's plugin rpc.Serve gets from the
 //     node runtime,
 //   - the TWO canonical first-pair markets the maker seeds: LUX/LUSD and
 //     LUX/LETH (dex-architecture-canonical: maker seeds REAL D-Chain pools via
 //     resting limit orders = V4 "liquidity"),
 //   - an external ZAP client (rpc.ZAPDial) that SEEDS resting liquidity
-//     (clob_place), then crosses it with marketable takers (clob_submit), and
+//     (dex_place), then crosses it with marketable takers (dex_submit), and
 //     verifies the CONSENSUS-COMPUTED fills + the resulting book,
 //   - a Shutdown + restart that rebuilds the authoritative book from persisted
 //     rows and proves the resting liquidity SURVIVED (it is a real chain, not an
@@ -97,8 +97,8 @@ func bootVenue(t *testing.T, dir string) *venue {
 	if err != nil {
 		t.Fatalf("rpc.Listen: %v", err)
 	}
-	if err := vm.RegisterCLOB(server); err != nil {
-		t.Fatalf("RegisterCLOB: %v", err)
+	if err := vm.RegisterDEX(server); err != nil {
+		t.Fatalf("RegisterDEX: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -122,7 +122,7 @@ func (v *venue) stop() {
 	_ = v.db.Close()
 }
 
-// e2eClient is an external ZAP client speaking the FROZEN clob_* frames — the
+// e2eClient is an external ZAP client speaking the FROZEN dex_* frames — the
 // exact surface the chains/dexvm proxy relay and the 0x9010 precompile use.
 type e2eClient struct {
 	conn *rpc.ZAPConn
@@ -144,10 +144,10 @@ func (c *e2eClient) ensureMarket(t *testing.T, pool [32]byte) {
 	t.Helper()
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodEnsureMarket, zapwire.EncodeEnsureMarket(pool))
 	if err != nil {
-		t.Fatalf("clob_ensure_market: %v", err)
+		t.Fatalf("dex_ensure_market: %v", err)
 	}
 	if len(resp) < 9 || resp[8] != zapwire.StatusPlaced {
-		t.Fatalf("clob_ensure_market not placed: resp=%x", resp)
+		t.Fatalf("dex_ensure_market not placed: resp=%x", resp)
 	}
 }
 
@@ -157,10 +157,10 @@ func (c *e2eClient) place(t *testing.T, pool [32]byte, side uint8, price, size f
 	body := zapwire.EncodePlace(pool, side, price, size, wireUser(t, user))
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodPlace, signedPayload(t, user, TxPlace, body))
 	if err != nil {
-		t.Fatalf("clob_place %s %v@%v: %v", sideName(side), size, price, err)
+		t.Fatalf("dex_place %s %v@%v: %v", sideName(side), size, price, err)
 	}
 	if len(resp) < 9 || resp[8] != zapwire.StatusPlaced {
-		t.Fatalf("clob_place rejected %s %v@%v: resp=%x", sideName(side), size, price, resp)
+		t.Fatalf("dex_place rejected %s %v@%v: resp=%x", sideName(side), size, price, resp)
 	}
 	return binary.BigEndian.Uint64(resp[0:8])
 }
@@ -172,11 +172,11 @@ func (c *e2eClient) submit(t *testing.T, pool [32]byte, side uint8, limit, size 
 	body := zapwire.EncodeSubmit(pool, side, false, limit, size, wireUser(t, user))
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodSubmit, signedPayload(t, user, TxSubmit, body))
 	if err != nil {
-		t.Fatalf("clob_submit %s %v@%v: %v", sideName(side), size, limit, err)
+		t.Fatalf("dex_submit %s %v@%v: %v", sideName(side), size, limit, err)
 	}
 	fills, err := zapwire.DecodeFills(resp)
 	if err != nil {
-		t.Fatalf("clob_submit fills decode (BYTE PARITY): %v (resp=%x)", err, resp)
+		t.Fatalf("dex_submit fills decode (BYTE PARITY): %v (resp=%x)", err, resp)
 	}
 	return fills
 }
@@ -203,11 +203,11 @@ func (v *venue) restingByMarket(pool [32]byte) (orders int, remaining float64) {
 }
 
 // TestLocalnetVenueE2E is the capstone venue bring-up + on-chain e2e:
-//   1. boot the venue on an on-disk zapdb (real persisted chainstate),
-//   2. seed LUX/LUSD and LUX/LETH with resting maker liquidity (clob_place),
-//   3. cross both books with marketable takers (clob_submit),
-//   4. assert the consensus-computed fills are correct + books updated,
-//   5. restart the venue and prove the resting liquidity SURVIVED (real chain).
+//  1. boot the venue on an on-disk zapdb (real persisted chainstate),
+//  2. seed LUX/LUSD and LUX/LETH with resting maker liquidity (dex_place),
+//  3. cross both books with marketable takers (dex_submit),
+//  4. assert the consensus-computed fills are correct + books updated,
+//  5. restart the venue and prove the resting liquidity SURVIVED (real chain).
 func TestLocalnetVenueE2E(t *testing.T) {
 	dir := t.TempDir()
 
@@ -220,7 +220,7 @@ func TestLocalnetVenueE2E(t *testing.T) {
 	leth := poolIDForSymbol("LUX/LETH")
 
 	// --- maker seeding: ensure markets, then rest two-sided liquidity. This is
-	// what `maker -dex <endpoint>` does for the first pairs, in clob_* form. ---
+	// what `maker -dex <endpoint>` does for the first pairs, in dex_* form. ---
 	cli.ensureMarket(t, lusd)
 	cli.ensureMarket(t, leth)
 	t.Logf("markets ensured: LUX/LUSD, LUX/LETH")
@@ -272,7 +272,7 @@ func TestLocalnetVenueE2E(t *testing.T) {
 	t.Logf("LUX/LUSD post-cross: 23.0 resting (3@101 ask + 20 bid) — consensus-settled")
 
 	// --- on-chain cross #2: a 5-unit sell @0.049 on LUX/LETH hits the 3@0.049
-	// bid (one fill of 3), residual 2 does NOT rest (clob_submit is IOC-style:
+	// bid (one fill of 3), residual 2 does NOT rest (dex_submit is IOC-style:
 	// marketable, unfilled remainder dropped). ---
 	f2 := cli.submit(t, leth, zapwire.SideSell, 0.049, 5.0, "taker")
 	if len(f2) != 1 {

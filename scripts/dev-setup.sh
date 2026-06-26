@@ -216,8 +216,7 @@ create_aliases() {
 # LX Development Aliases
 
 # Quick commands
-alias lx-server='cd backend && go run ./cmd/dex-server'
-alias lx-trader='cd backend && go run ./cmd/dex-trader'
+alias lx-dexd='go run ./cmd/dexd run'
 alias lx-bench='make bench'
 alias lx-test='make test'
 

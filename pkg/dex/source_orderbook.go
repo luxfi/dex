@@ -10,7 +10,7 @@ import (
 	"github.com/luxfi/dex/pkg/lx"
 )
 
-// source_clob.go is the V4 native CLOB liquidity source — the in-process matcher.
+// source_orderBook.go is the V4 native OrderBook liquidity source — the in-process matcher.
 // It is the router's PRIMARY source: a marketable order crosses the resting book,
 // each fill settles value-exactly inside the custody ledger (taker locked spend ->
 // maker available; maker locked -> taker available), and the proceeds are recorded
@@ -22,27 +22,27 @@ import (
 // against a deep-copied book so its predicted output equals what Execute produces —
 // the router relies on quote==execute for the split it picks.
 
-// CLOBSource matches against the in-trie resting book. It holds no state; the book
+// OrderBookSource matches against the in-trie resting book. It holds no state; the book
 // is rebuilt from the Store on each call (the rebuildable-accelerator discipline).
-type CLOBSource struct{}
+type OrderBookSource struct{}
 
-// NewCLOBSource returns the CLOB liquidity source.
-func NewCLOBSource() *CLOBSource { return &CLOBSource{} }
+// NewOrderBookSource returns the OrderBook liquidity source.
+func NewOrderBookSource() *OrderBookSource { return &OrderBookSource{} }
 
-// Kind identifies this as the CLOB source.
-func (*CLOBSource) Kind() SourceKind { return SourceCLOB }
+// Kind identifies this as the OrderBook source.
+func (*OrderBookSource) Kind() SourceKind { return SourceOrderBook }
 
 // QuoteSwap rebuilds the market book, runs the matcher against a CLONE for up to
 // remainingIn of the spend asset, and reports the output WITHOUT mutating state.
 // Ok=false when the market is unknown, has no crossable depth, or the order yields
 // no fills.
-func (*CLOBSource) QuoteSwap(db Store, req SwapRequest, remainingIn uint64) (Quote, error) {
+func (*OrderBookSource) QuoteSwap(db Store, req SwapRequest, remainingIn uint64) (Quote, error) {
 	symbol, exists, err := ReadMarketSymbol(db, req.PoolID)
 	if err != nil {
 		return Quote{}, err
 	}
 	if !exists {
-		return Quote{}, nil // no such market on the CLOB: not an error, just no fill
+		return Quote{}, nil // no such market on the OrderBook: not an error, just no fill
 	}
 	book, err := RebuildBook(db, req.PoolID, symbol)
 	if err != nil {
@@ -76,7 +76,7 @@ func (*CLOBSource) QuoteSwap(db Store, req SwapRequest, remainingIn uint64) (Quo
 // the FULL swap input once (so a split across sources draws from one lock); this
 // source only spends the taker's already-locked balance per fill and refunds
 // nothing (the top-level refunds the unspent remainder after all sources run).
-func (*CLOBSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j *Journal) (Fill, uint64, uint64, error) {
+func (*OrderBookSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j *Journal) (Fill, uint64, uint64, error) {
 	symbol, exists, err := ReadMarketSymbol(db, req.PoolID)
 	if err != nil {
 		return Fill{}, 0, 0, err
@@ -137,7 +137,7 @@ func (*CLOBSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j 
 	j.CreditTakerOutput(outAsset, outGot)
 	_ = spent // spent == inUsed for the integer lane; kept for clarity
 
-	return Fill{Trades: fills, Source: SourceCLOB}, inUsed, outGot, nil
+	return Fill{Trades: fills, Source: SourceOrderBook}, inUsed, outGot, nil
 }
 
 // buildMarketableOrder constructs the ephemeral IOC order for a swap. The matcher

@@ -14,7 +14,7 @@ import (
 // sources and journal the joint C+D effect. The sequence is:
 //
 //  1. LOCK the taker's full input ONCE (available -> locked, and record the C-side
-//     vault debit in the journal). A split across CLOB+AMM draws from this single
+//     vault debit in the journal). A split across OrderBook+AMM draws from this single
 //     lock, so the taker can never spend more than they locked.
 //  2. ROUTE: best-execution across the sources (router.Route), which mutates the
 //     book/ledger/reserves in the Store and records the proceeds in the journal.
@@ -29,7 +29,7 @@ import (
 
 // SwapResult is the outcome of one routed swap.
 type SwapResult struct {
-	// Fills are the per-source fills (CLOB trades + AMM deltas) in execution order,
+	// Fills are the per-source fills (OrderBook trades + AMM deltas) in execution order,
 	// for events/receipts/the indexer.
 	Fills []Fill
 	// AmountIn / AmountOut are the input consumed and the output produced, in the
@@ -53,7 +53,7 @@ type SwapResult struct {
 // consume is refunded. The router enforces the taker price limit and MinOut; on a
 // breach ExecuteSwap returns the error and the caller reverts (nothing committed).
 func ExecuteSwap(db Store, router *Router, req SwapRequest) (*SwapResult, error) {
-	if req.Class != ClassPublicCLOB {
+	if req.Class != ClassPublicDEX {
 		// Only the public route is built in the first cut. An FHE-private swap is
 		// refused here (not silently downgraded) until the private-pool source lands.
 		return nil, ErrNoLiquidity

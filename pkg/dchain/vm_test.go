@@ -39,7 +39,7 @@ func newTestVM(t *testing.T, db database.Database) (*VM, chan block.Message) {
 	return vm, toEngine
 }
 
-// submitFrame builds the [type:1][body] tx bytes for a clob op, the exact bytes
+// submitFrame builds the [type:1][body] tx bytes for a dex op, the exact bytes
 // the handler/proxy would Add to the mempool.
 func ensureMarketTx(t *testing.T, pool [32]byte) *Tx {
 	t.Helper()
@@ -522,7 +522,7 @@ func TestVMRestartLegacyGenesisDB(t *testing.T) {
 // Verify, which carries the full block bytes — and then calls Accept on whatever
 // GetBlock returns. Before the processing-block index, GetBlock(builtID) returned
 // ErrNotFound (only accepted blocks were indexed), so the engine's self-finalize
-// Accept was a silent no-op, the clob_* submitTx waiter hung forever, and no
+// Accept was a silent no-op, the dex_* submitTx waiter hung forever, and no
 // further blocks were built. This drives the EXACT plugin-shaped path the live
 // node uses — BuildBlock -> GetBlock(id) -> Accept — which every existing test
 // skipped by accepting the *Block returned from BuildBlock directly.
@@ -533,7 +533,7 @@ func TestVMAcceptViaGetBlock(t *testing.T) {
 
 	vm, toEngine := newTestVM(t, db)
 
-	// A clob tx in the mempool, then the proposer's lifecycle exactly as the
+	// A dex tx in the mempool, then the proposer's lifecycle exactly as the
 	// engine drives it over the plugin transport.
 	vm.mempool.Add(ensureMarketTx(t, pool))
 	vm.mempool.Add(placePoolTx(t, pool, zapwire.SideSell, 101.0, 5.0, "maker-a"))

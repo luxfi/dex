@@ -60,13 +60,13 @@ type Order struct {
 	Flags         OrderFlags
 	ExecutedSize  float64 // Total executed size
 
-	// Exact-integer quantity lane (CLOB / consensus path only). The float Size
+	// Exact-integer quantity lane (OrderBook / consensus path only). The float Size
 	// above is the price-grid/validation/legacy quantity; it loses precision for
 	// 18-decimal token amounts above 2^53. SizeUnits is the AUTHORITATIVE base
 	// quantity in atomic token units (no float, no rounding) and is the only
 	// quantity settlement is derived from. RemainingUnits tracks the unfilled
 	// integer remainder as the order crosses. Both are nil on the legacy float
-	// API path (AddOrder/MatchOrders), set on the CLOB path (ConsensusAddOrder /
+	// API path (AddOrder/MatchOrders), set on the OrderBook path (ConsensusAddOrder /
 	// SubmitMarketable) by the wire decoder. See settlement_units.go.
 	SizeUnits      *big.Int
 	RemainingUnits *big.Int
@@ -88,7 +88,7 @@ type Trade struct {
 	MatchType  string // Type of match (e.g., "normal", "liquidation")
 	TakerSide  Side   // Side that took liquidity
 
-	// Exact-integer execution truth (CLOB / consensus path). Price/Size above are
+	// Exact-integer execution truth (OrderBook / consensus path). Price/Size above are
 	// the float view; BaseUnits and QuoteUnits are the AUTHORITATIVE atomic-unit
 	// amounts this fill moved, computed with big.Int only (no float, see
 	// settlement_units.go: QuoteUnits = BaseUnits*priceInt/PriceMultiplier). These

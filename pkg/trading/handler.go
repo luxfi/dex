@@ -184,7 +184,7 @@ func (api *TradingAPI) isVenueExecutable(name string) bool {
 }
 
 func isV4Venue(name string) bool {
-	return name == VenueTypeV4Native || name == "v4_native_clob" || strings.HasPrefix(name, "lux_")
+	return name == VenueTypeV4Native || name == "v4_native_dex" || strings.HasPrefix(name, "lux_")
 }
 
 func isV2Venue(name string) bool {

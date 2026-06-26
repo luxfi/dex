@@ -59,11 +59,11 @@ type VM struct {
 	books map[[32]byte]*lx.OrderBook
 
 	// Accepted-block index + linear-chain head.
-	acceptedBlocks    map[ids.ID]*Block
-	heightIndex       map[uint64]ids.ID
-	lastAcceptedID    ids.ID
+	acceptedBlocks     map[ids.ID]*Block
+	heightIndex        map[uint64]ids.ID
+	lastAcceptedID     ids.ID
 	lastAcceptedHeight uint64
-	lastRoot          [Size]byte
+	lastRoot           [Size]byte
 
 	// processingBlocks indexes built/verified blocks not yet accepted, so a
 	// plugin-transport Accept — which carries only the block ID and re-resolves
@@ -81,7 +81,7 @@ type VM struct {
 	// toEngine is retained for the mempool signal path.
 	toEngine chan<- block.Message
 
-	// zapIngest is the canonical co-located ZAP CLOB socket (zapingest.go), served
+	// zapIngest is the canonical co-located ZAP DEX socket (zapingest.go), served
 	// in-plugin when init Config sets zapIngestAddr. nil when HTTP-compat-only.
 	// zapIngestCancel stops its serve goroutine on Shutdown. Both guarded by vm.mu.
 	zapIngest       rpc.Server
@@ -132,7 +132,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 
 	vm.preferred = vm.lastAcceptedID
 
-	// Start the canonical co-located ZAP CLOB ingestion socket if the chain config
+	// Start the canonical co-located ZAP DEX ingestion socket if the chain config
 	// names a listen address (zapingest.go). This runs AFTER the durable state is
 	// loaded so the socket never accepts an order the VM cannot yet sequence. It is
 	// a no-op (HTTP-compat-only) when no address is configured. Transport ⟂
@@ -503,14 +503,14 @@ func (vm *VM) SetState(ctx context.Context, state uint32) error {
 // Version returns the VM version string.
 func (vm *VM) Version(ctx context.Context) (string, error) { return Version, nil }
 
-// NewHTTPHandler returns the VM's HTTP handler. The d-chain serves its CLOB API
+// NewHTTPHandler returns the VM's HTTP handler. The d-chain serves its DEX API
 // over the ZAP gateway (handler.go), not HTTP, so this is nil.
 func (vm *VM) NewHTTPHandler(ctx context.Context) (http.Handler, error) { return nil, nil }
 
 // CreateHandlers returns the VM's named HTTP handlers for luxd to mount under
-// /ext/bc/<DCHAIN_ID>/ (and the "D" alias). It returns one handler per CLOB method
+// /ext/bc/<DCHAIN_ID>/ (and the "D" alias). It returns one handler per DEX method
 // keyed by its full sub-path ("/dex/<method>"), so an order POSTed to
-// /ext/bc/D/dex/clob_submit reaches the matcher through the node's own router —
+// /ext/bc/D/dex/dex_submit reaches the matcher through the node's own router —
 // the in-luxd ingestion seam (ingest.go). This is how an order enters the native
 // VM: submitTx -> mempool -> consensus -> Verify-match. The plugin transport
 // (github.com/luxfi/vm/rpc) serves these handlers from a local http.Server inside

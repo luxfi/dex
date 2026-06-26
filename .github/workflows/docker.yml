@@ -18,8 +18,6 @@ jobs:
         include:
           - image: ghcr.io/luxfi/dex
             dockerfile: Dockerfile
-          - image: ghcr.io/luxfi/dex-gateway
-            dockerfile: Dockerfile.gateway
     uses: hanzoai/.github/.github/workflows/docker-build.yml@main
     with:
       image: ${{ matrix.image }}

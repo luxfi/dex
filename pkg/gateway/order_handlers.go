@@ -17,7 +17,7 @@ type orderManager struct {
 	store *OrderStore
 
 	// Precompile addresses for building unsigned transactions
-	clobAddress string // LXBook precompile for limit orders
+	dexAddress string // LXBook precompile for limit orders
 
 	// Dutch auction reactor address for EIP-712 domain
 	reactorAddress string
@@ -30,7 +30,7 @@ type orderManager struct {
 func newOrderManager(defaultChainID ChainID) *orderManager {
 	return &orderManager{
 		store:          NewOrderStore(),
-		clobAddress:    "0x0000000000000000000000000000000000009020", // LXBook
+		dexAddress:     "0x0000000000000000000000000000000000009020", // LXBook
 		reactorAddress: "0x0000000000000000000000000000000000009021", // DutchOrderReactor
 		defaultChainID: defaultChainID,
 	}
@@ -189,7 +189,7 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, _ *http.Request, order
 }
 
 // buildLimitOrderTx constructs an unsigned transaction to place a limit order
-// via the LXBook (CLOB) precompile.
+// via the LXBook (DEX) precompile.
 func (s *Server) buildLimitOrderTx(order *GatewayOrder) *TxData {
 	// Function selector: placeLimitOrder(address tokenIn, address tokenOut, uint256 amountIn, uint256 limitPrice, uint64 deadline, address recipient)
 	selector := crypto.Keccak256([]byte("placeLimitOrder(address,address,uint256,uint256,uint64,address)"))[:4]
@@ -206,7 +206,7 @@ func (s *Server) buildLimitOrderTx(order *GatewayOrder) *TxData {
 	data = append(data, padAddress(order.Recipient)...)
 
 	return &TxData{
-		To:       s.orders.clobAddress,
+		To:       s.orders.dexAddress,
 		Data:     "0x" + hex.EncodeToString(data),
 		Value:    "0",
 		ChainID:  uint64(order.ChainID),
@@ -225,7 +225,7 @@ func (s *Server) buildCancelLimitOrderTx(order *GatewayOrder) *TxData {
 	data = append(data, padBytes32FromString(order.ID)...)
 
 	return &TxData{
-		To:       s.orders.clobAddress,
+		To:       s.orders.dexAddress,
 		Data:     "0x" + hex.EncodeToString(data),
 		Value:    "0",
 		ChainID:  uint64(order.ChainID),

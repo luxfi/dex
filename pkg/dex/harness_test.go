@@ -115,8 +115,8 @@ func totalLedger(t *testing.T, db Store, accts []AccountID, assets []AssetID) ma
 	return out
 }
 
-// clobRouter returns a router with only the CLOB source (the common case).
-func clobRouter() *Router { return NewRouter(NewCLOBSource()) }
+// orderBookRouter returns a router with only the OrderBook source (the common case).
+func orderBookRouter() *Router { return NewRouter(NewOrderBookSource()) }
 
 // price builds a PriceInt from a human price (quote per base).
 func price(p float64) lx.PriceInt { return PriceToInt(p) }

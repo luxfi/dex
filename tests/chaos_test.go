@@ -78,13 +78,13 @@ func TestDEX_OrderMatchingAtomicity(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. TestDEX_CLOBPriceTimePriority
+// 2. TestDEX_DEXPriceTimePriority
 //
 // 100 concurrent limit orders at the same price. Verify FIFO: earlier
 // timestamps fill before later ones at the same price level.
 // ---------------------------------------------------------------------------
 
-func TestDEX_CLOBPriceTimePriority(t *testing.T) {
+func TestDEX_DEXPriceTimePriority(t *testing.T) {
 	ob := lx.NewOrderBook("FIFO-USD")
 
 	const numOrders = 100

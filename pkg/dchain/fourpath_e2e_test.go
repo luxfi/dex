@@ -11,20 +11,20 @@
 // custody balance change, with GLOBAL value conservation (I = available + locked)
 // intact across all four crosses.
 //
-// THE FOUR PATHS — each is a thin wire dialect onto the SAME clob_* matcher
+// THE FOUR PATHS — each is a thin wire dialect onto the SAME dex_* matcher
 // surface (pkg/zapwire), never its own matcher:
 //
 //  1. V4 precompile (0x9010): the engine_zap boundary — the EXACT 66-byte
-//     clob_submit frame lux/precompile/dex/engine_zap.go Swap() builds (the V4
-//     zeroForOne/AmountSpecified/SqrtPriceLimit -> CLOB side/size/limit mapping),
+//     dex_submit frame lux/precompile/dex/engine_zap.go Swap() builds (the V4
+//     zeroForOne/AmountSpecified/SqrtPriceLimit -> DEX side/size/limit mapping),
 //     submitted to the venue, with the V4 BalanceDelta derived from the
 //     consensus fills exactly as fillsToDelta does. See v4SubmitFrame /
 //     v4BalanceDelta below and the NOTE on what a live luxd EVM adds.
-//  2. ZAP native: pkg/zapwire clob_* frames over the venue's rpc.Listen socket —
+//  2. ZAP native: pkg/zapwire dex_* frames over the venue's rpc.Listen socket —
 //     the existing e2eClient.submit path.
 //  3. FIX: the new pkg/fix acceptor — a real TCP FIX 4.4 session (Logon,
 //     NewOrderSingle, ExecutionReport) whose order routes to the SAME venue via
-//     the venue.Venue (clob_*) seam.
+//     the venue.Venue (dex_*) seam.
 //  4. WS: the new pkg/api VenueWS handler — a JSON order over a real
 //     gorilla/websocket /ws connection routed to the SAME venue via venue.Venue.
 //
@@ -59,7 +59,7 @@ import (
 )
 
 // signingVenue is a test gateway that implements dexvenue.Venue by emitting
-// SIGNED clob_* frames over its own ZAP connection. The real zapVenue builds
+// SIGNED dex_* frames over its own ZAP connection. The real zapVenue builds
 // UNSIGNED frames; the d-chain authorization gate now refuses those, so a
 // protocol front-end (FIX/WS) must present a frame signed by the authenticated
 // session's account. This models the production reality where the gateway holds a
@@ -201,7 +201,7 @@ func (c *fixClient) logon(t *testing.T) {
 	}
 }
 
-// custody seeds a deposit over the venue's ZAP socket (the SAME clob_deposit wire
+// custody seeds a deposit over the venue's ZAP socket (the SAME dex_deposit wire
 // path the chains/dexvm proxy uses). Uses contentRef so a retry would dedup.
 func (c *e2eClient) deposit(t *testing.T, user string, asset [32]byte, amount uint64) {
 	t.Helper()
@@ -209,28 +209,28 @@ func (c *e2eClient) deposit(t *testing.T, user string, asset [32]byte, amount ui
 	body := zapwire.EncodeDeposit(wireUser(t, user), asset, amount, ref)
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodDeposit, signedPayload(t, user, TxDeposit, body))
 	if err != nil {
-		t.Fatalf("clob_deposit %s %d: %v", user, amount, err)
+		t.Fatalf("dex_deposit %s %d: %v", user, amount, err)
 	}
 	status, credited, derr := zapwire.DecodeBalanceResp(resp)
 	if derr != nil || status != zapwire.StatusPlaced || credited != amount {
-		t.Fatalf("clob_deposit %s %d: status=%d credited=%d err=%v", user, amount, status, credited, derr)
+		t.Fatalf("dex_deposit %s %d: status=%d credited=%d err=%v", user, amount, status, credited, derr)
 	}
 }
 
-// openMarket binds a market's (base, quote) asset ids over ZAP (clob_open_market)
+// openMarket binds a market's (base, quote) asset ids over ZAP (dex_open_market)
 // so the venue knows which asset each order locks/settles.
 func (c *e2eClient) openMarket(t *testing.T, pool, base, quote [32]byte) {
 	t.Helper()
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodOpenMarket, zapwire.EncodeOpenMarket(pool, base, quote))
 	if err != nil {
-		t.Fatalf("clob_open_market: %v", err)
+		t.Fatalf("dex_open_market: %v", err)
 	}
 	if len(resp) < 9 || resp[8] != zapwire.StatusPlaced {
-		t.Fatalf("clob_open_market not placed: resp=%x", resp)
+		t.Fatalf("dex_open_market not placed: resp=%x", resp)
 	}
 }
 
-// v4SubmitFrame builds the EXACT clob_submit payload lux/precompile/dex
+// v4SubmitFrame builds the EXACT dex_submit payload lux/precompile/dex
 // engine_zap.go Swap() emits for a marketable order, so the V4 leg exercises the
 // real engine_zap WIRE CONTRACT (the frozen 66-byte frame), not a re-derivation:
 //
@@ -436,9 +436,9 @@ func TestFourPathTradingE2E(t *testing.T) {
 	t.Logf("maker rested %d asks of %g LUX @ {10,20,30,40} LUSD (%d LUX locked)", len(legs), askSize, len(legs))
 
 	// --- stand up the FIX acceptor and the WS venue front-end, BOTH onto the SAME
-	// venue via the venue.Venue (clob_*) seam — one matcher, many protocols. The
+	// venue via the venue.Venue (dex_*) seam — one matcher, many protocols. The
 	// gateway holds the per-session signer: a signingVenue translates a protocol
-	// order into a SIGNED clob_* frame on the authenticated session's behalf (the
+	// order into a SIGNED dex_* frame on the authenticated session's behalf (the
 	// FIX SenderCompID / WS user is the account), so the d-chain gate authorizes it.
 	fixVenue := newSigningVenue(t, v.addr)
 	defer fixVenue.close()
@@ -497,7 +497,7 @@ func TestFourPathTradingE2E(t *testing.T) {
 	}
 
 	// ===== PATH 1: V4 precompile (engine_zap boundary) =====
-	// Build the EXACT engine_zap clob_submit frame and submit it to the venue. A
+	// Build the EXACT engine_zap dex_submit frame and submit it to the venue. A
 	// BUY of 1 LUX is !zeroForOne, AmountSpecified magnitude 1, a bounded
 	// (non-market) IOC limited at the leg price. Assert the frame is byte-identical
 	// to zapwire.EncodeSubmit (the frozen-frame three-homes guarantee), then derive
@@ -518,7 +518,7 @@ func TestFourPathTradingE2E(t *testing.T) {
 		resp, err := cli.conn.Call(cli.ctx, zapwire.MethodSubmit,
 			signedPayload(t, dexvenue.UserHandle(l.user), TxSubmit, frame))
 		if err != nil {
-			t.Fatalf("V4 clob_submit: %v", err)
+			t.Fatalf("V4 dex_submit: %v", err)
 		}
 		fills, err := zapwire.DecodeFills(resp)
 		if err != nil {

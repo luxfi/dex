@@ -231,17 +231,17 @@ func (s AssetSide) valueKey() AssetID {
 // THE EXACT STEP ORDER (the value-path call chain, run BEFORE any C-balance debit and
 // BEFORE any DEX state write):
 //
-//	Resolve(base) -> Resolve(quote) -> VerifyOnChain(base) -> VerifyOnChain(quote) -> EnsureMarket
+//		Resolve(base) -> Resolve(quote) -> VerifyOnChain(base) -> VerifyOnChain(quote) -> EnsureMarket
 //
-//   - Resolve (RequireResolvedAsset): prove each side's CANONICAL IDENTITY on the node's
-//     bound network — PERMISSIONLESS. A well-formed real EVM-native/ERC-20 reference always
-//     resolves; only a malformed/wrong-network/explicitly-disabled/synthetic reference is
-//     refused (ErrAssetNotResolved). No resolver => ErrNoAssetResolver (fail-closed).
-//   - VerifyOnChain (RequireRealOnChain): the AUTHORITATIVE reality check — is each side
-//     backed by LIVE on-chain code in the state this block mutates? A fabricated/synthetic
-//     ERC-20 (an ASCII-ticker address, a self-destructed or never-deployed contract) has no
-//     code => ErrAssetNotOnChain; no verifier => ErrNoOnChainVerifier. Native (the
-//     zero-address marker) is the chain's own coin and is always real.
+//	  - Resolve (RequireResolvedAsset): prove each side's CANONICAL IDENTITY on the node's
+//	    bound network — PERMISSIONLESS. A well-formed real EVM-native/ERC-20 reference always
+//	    resolves; only a malformed/wrong-network/explicitly-disabled/synthetic reference is
+//	    refused (ErrAssetNotResolved). No resolver => ErrNoAssetResolver (fail-closed).
+//	  - VerifyOnChain (RequireRealOnChain): the AUTHORITATIVE reality check — is each side
+//	    backed by LIVE on-chain code in the state this block mutates? A fabricated/synthetic
+//	    ERC-20 (an ASCII-ticker address, a self-destructed or never-deployed contract) has no
+//	    code => ErrAssetNotOnChain; no verifier => ErrNoOnChainVerifier. Native (the
+//	    zero-address marker) is the chain's own coin and is always real.
 //
 // Both steps run for BOTH sides before ANY write, so a refused open leaves the store
 // untouched (fail-closed): the market existence row is created only after all four checks

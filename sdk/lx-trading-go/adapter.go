@@ -26,8 +26,8 @@ type VenueCapabilities struct {
 	SupportedPairs  map[string]struct{}
 }
 
-// CLOBCapabilities returns capabilities for a CLOB/orderbook venue.
-func CLOBCapabilities() VenueCapabilities {
+// OrderBookCapabilities returns capabilities for a DEX/orderbook venue.
+func OrderBookCapabilities() VenueCapabilities {
 	return VenueCapabilities{
 		LimitOrders:    true,
 		MarketOrders:   true,

@@ -1,7 +1,7 @@
 # Build + push the D-Chain VENUE image (dex family) — ghcr.io/luxfi/dex-venue.
 #
 # This is the missing artifact that blocks D-Chain turn-on: the dchain-tagged
-# luxd + the dvenue GPU matching engine in one image (see Dockerfile.dvenue).
+# luxd + the dexd GPU matching engine in one image (see Dockerfile.dvenue).
 # The public ghcr.io/luxfi/node image does NOT carry the DexVM; this private
 # build does.
 #
@@ -79,7 +79,7 @@ jobs:
       - name: Resolve cross-repo PAT for private luxfi/* deps
         id: pat
         env:
-          # The dvenue build pulls private luxfi/* modules and the private
+          # The dexd build pulls private luxfi/* modules and the private
           # luxcpp/dex release tarball; the default GITHUB_TOKEN is repo-scoped.
           # Prefer org GH_TOKEN, fall back to repo UNIVERSE_PAT (same order as
           # node/docker.yml).

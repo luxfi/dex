@@ -6,7 +6,7 @@
 package lx
 
 // gpuMatchOrder has no GPU backend on non-Linux or no-cgo builds. The
-// dispatcher in orderbook_gpu.go turns errCLOBGPUUnsupported into a
+// dispatcher in orderbook_gpu.go turns errOrderBookGPUUnsupported into a
 // transparent fallback to MatchOrderCPU.
 func gpuMatchOrder(
 	incoming *DEXOrder,
@@ -15,5 +15,5 @@ func gpuMatchOrder(
 	tradeIDBase uint64,
 	timestamp uint64,
 ) ([]DEXTrade, uint64, error) {
-	return nil, 0, errCLOBGPUUnsupported
+	return nil, 0, errOrderBookGPUUnsupported
 }

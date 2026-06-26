@@ -30,7 +30,7 @@ const (
 	SwapRouterAddress  = "0x0000000000000000000000000000000000009012" // LXRouter — swap router
 	HooksRegistryAddr  = "0x0000000000000000000000000000000000009013" // LXHooks — pool hooks registry
 	FlashLoanAddress   = "0x0000000000000000000000000000000000009014" // LXFlash — flash loans
-	CLOBAddress        = "0x0000000000000000000000000000000000009020" // LXBook — central limit order book
+	OrderBookAddress   = "0x0000000000000000000000000000000000009020" // LXBook — central limit order book
 	VaultAddress       = "0x0000000000000000000000000000000000009030" // LXVault — clearinghouse, margin, positions
 	FeedAddress        = "0x0000000000000000000000000000000000009040" // LXFeed — computed price feeds
 	LendAddress        = "0x0000000000000000000000000000000000009050" // LXLend — lending pool

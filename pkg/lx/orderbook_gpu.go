@@ -40,14 +40,14 @@ func MatchOrderGPU(
 	}
 
 	if backend.GPUDisabled() {
-		backend.RecordFallback(backend.FallbackDisabled, "clob")
+		backend.RecordFallback(backend.FallbackDisabled, "orderBook")
 		t, r := MatchOrderCPU(incoming, book, bookIndices, tradeIDBase, timestamp)
 		return t, r, nil
 	}
 
 	trades, remaining, err := gpuMatchOrder(incoming, book, bookIndices, tradeIDBase, timestamp)
-	if err == errCLOBGPUUnsupported {
-		backend.RecordFallback(backend.FallbackUnsupported, "clob")
+	if err == errOrderBookGPUUnsupported {
+		backend.RecordFallback(backend.FallbackUnsupported, "orderBook")
 		t, r := MatchOrderCPU(incoming, book, bookIndices, tradeIDBase, timestamp)
 		return t, r, nil
 	}
@@ -57,7 +57,7 @@ func MatchOrderGPU(
 	return trades, remaining, nil
 }
 
-// errCLOBGPUUnsupported is returned by per-platform gpuMatchOrder when
+// errOrderBookGPUUnsupported is returned by per-platform gpuMatchOrder when
 // no GPU dispatch is available. The dispatcher turns it into a CPU
 // fallback rather than surfacing the error.
-var errCLOBGPUUnsupported = fmt.Errorf("lx: CLOB CUDA dispatch not available on this host")
+var errOrderBookGPUUnsupported = fmt.Errorf("lx: OrderBook CUDA dispatch not available on this host")

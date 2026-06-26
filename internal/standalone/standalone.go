@@ -1,26 +1,25 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-// Command dvenue runs the standalone D-Chain DEX VENUE as a long-lived ZAP
-// server on a fixed TCP address — the dial-able endpoint the 0x9010 EVM
-// precompile (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy
-// relay connect to. It is the production form of the capstone venue proof
-// (pkg/dchain/localnet_e2e_test.go), promoted from a test harness to a daemon:
+// Package standalone runs the D-Chain DEX VENUE as a long-lived ZAP server on a
+// fixed TCP address — the dial-able endpoint the 0x9010 EVM precompile
+// (NewZAPEngine(dex-zap-endpoint)) and the chains/dexvm atomic proxy relay
+// connect to. It:
 //
 //   - opens the authoritative on-disk badger/zapdb (real persisted chainstate),
-//   - serves the FROZEN clob_* surface (RegisterCLOB) over rpc.Listen,
+//   - serves the FROZEN dex_* surface (RegisterDEX) over rpc.Listen,
 //   - runs the consensus sealer loop (WaitForEvent -> BuildBlock -> Verify ->
 //     Accept), so every write crosses the full match -> Verify -> Accept path
 //     and the bytes a caller gets back are consensus-computed fills,
-//   - exposes read-only clob_depth + clob_balance observation methods for
+//   - exposes read-only dex_depth + dex_balance observation methods for the
 //     settled book and custody state (reads need no consensus round-trip).
 //
-// This is the ONE venue binary. CGO_ENABLED is the single axis that picks the
-// matcher: pkg/lx links the GPU matcher under cgo (amm_gpu_cuda / amm_gpu_metal
-// / orderbook_cuda) and the pure-Go CPU matcher without it (amm_nogpu /
-// orderbook_cuda_stub). The main is matcher-agnostic — it drives dchain.VM
-// either way; engineName (engine_{cgo,nocgo}.go) only labels the active build.
-package main
+// CGO_ENABLED is the single axis that picks the matcher: pkg/lx links the GPU
+// matcher under cgo (amm_gpu_cuda / amm_gpu_metal / orderbook_cuda) and the
+// pure-Go CPU matcher without it (amm_nogpu / orderbook_cuda_stub). This package
+// is matcher-agnostic — it drives dchain.VM either way; engineName
+// (engine_{cgo,nocgo}.go) only labels the active build.
+package standalone
 
 import (
 	"context"
@@ -40,21 +39,24 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// clobDepthMethod is the read-only book-observation method this daemon adds on
-// top of the four frozen clob_* write methods. Request: poolId[32]. Response:
+// dexDepthMethod is the read-only book-observation method this daemon adds on
+// top of the four frozen dex_* write methods. Request: poolId[32]. Response:
 // orders[4] | remaining[f64:8] | bestBid[f64:8] | bestAsk[f64:8] | found[1].
-const clobDepthMethod = "dex_depth"
+const dexDepthMethod = "dex_depth"
 
-// clobBalanceMethod is the read-only custody-balance observation method. It lets
+// dexBalanceMethod is the read-only custody-balance observation method. It lets
 // the bring-up harness watch funds DEPOSIT into the book, move on a fill, and
 // WITHDRAW out — the "money lives in the order book" proof. Request: user[16] +
 // asset[8]. Response: available[8] | locked[8] (big-endian uint64 atomic units).
-const clobBalanceMethod = "dex_balance"
+const dexBalanceMethod = "dex_balance"
 
-func main() {
-	addr := flag.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
-	dir := flag.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
-	flag.Parse()
+// Run serves the standalone venue. args is the post-subcommand argv
+// (os.Args[2:] from `dexd run`/`dexd standalone`); it carries -addr and -db.
+func Run(args []string) {
+	fs := flag.NewFlagSet("dexd run", flag.ExitOnError)
+	addr := fs.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
+	dir := fs.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
+	_ = fs.Parse(args)
 
 	logger := log.Root()
 
@@ -83,16 +85,16 @@ func main() {
 		_ = db.Close()
 		os.Exit(1)
 	}
-	if err := vm.RegisterCLOB(server); err != nil {
-		logger.Error("RegisterCLOB", "err", err)
+	if err := vm.RegisterDEX(server); err != nil {
+		logger.Error("RegisterDEX", "err", err)
 		os.Exit(1)
 	}
-	if err := server.RegisterRaw(clobDepthMethod, depthHandler(vm)); err != nil {
-		logger.Error("RegisterRaw clob_depth", "err", err)
+	if err := server.RegisterRaw(dexDepthMethod, depthHandler(vm)); err != nil {
+		logger.Error("RegisterRaw dex_depth", "err", err)
 		os.Exit(1)
 	}
-	if err := server.RegisterRaw(clobBalanceMethod, balanceHandler(vm)); err != nil {
-		logger.Error("RegisterRaw clob_balance", "err", err)
+	if err := server.RegisterRaw(dexBalanceMethod, balanceHandler(vm)); err != nil {
+		logger.Error("RegisterRaw dex_balance", "err", err)
 		os.Exit(1)
 	}
 
@@ -151,7 +153,7 @@ func sealer(ctx context.Context, vm *dchain.VM, logger log.Logger) {
 	}
 }
 
-// depthHandler serves clob_depth: a read-only observation of a market's settled
+// depthHandler serves dex_depth: a read-only observation of a market's settled
 // resting book. It reads the in-RAM book via the VM's BookDepth accessor (a fold
 // of committed rows) — no consensus round-trip.
 func depthHandler(vm *dchain.VM) rpc.RawHandler {
@@ -171,7 +173,7 @@ func depthHandler(vm *dchain.VM) rpc.RawHandler {
 	}
 }
 
-// balanceHandler serves clob_balance: a read-only observation of an account's
+// balanceHandler serves dex_balance: a read-only observation of an account's
 // custody balances for an asset (available + locked), read from the durable
 // ledger via the VM's Balance accessor. Request: user[16] + asset[32]. Response:
 // available[8] | locked[8].

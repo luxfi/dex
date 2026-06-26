@@ -14,13 +14,13 @@ import (
 	"github.com/luxfi/dex/pkg/lx"
 )
 
-// read.go is the D-Chain's READ surface: clob_get_* query endpoints that return
+// read.go is the D-Chain's READ surface: dex_get_* query endpoints that return
 // COMMITTED chain state (resting orders, the trade log, markets, the book) as
 // JSON. It is the orthogonal counterpart to handler.go's write surface:
 //
-//	handler.go  clob_place/submit/cancel/...  -> mempool -> consensus -> Verify-match.
+//	handler.go  dex_place/submit/cancel/...  -> mempool -> consensus -> Verify-match.
 //	            FROZEN binary zapwire frames. Mutates state through a consensus round.
-//	read.go     clob_get_trades/orders/markets/book
+//	read.go     dex_get_trades/orders/markets/book
 //	            JSON. Reads committed state directly under vm.mu. ZERO consensus
 //	            impact — no mempool, no block, no waiter; a read can never change a
 //	            fill or a balance.
@@ -53,7 +53,7 @@ const (
 	MethodGetBook    = "dex_get_book"
 )
 
-// defaultTradeLimit bounds an unparameterized clob_get_trades response so a chain
+// defaultTradeLimit bounds an unparameterized dex_get_trades response so a chain
 // with a long fill history cannot return an unbounded body by default. A caller
 // paging the full log passes an explicit limit + since cursor.
 const defaultTradeLimit = 1000
@@ -116,7 +116,7 @@ type tradeJSON struct {
 	Timestamp    int64   `json:"timestamp"` // unix nanos
 }
 
-// getTradesResp is the clob_get_trades body: the chain head plus the committed
+// getTradesResp is the dex_get_trades body: the chain head plus the committed
 // fills for the requested range, in matcher production order (height then seq).
 type getTradesResp struct {
 	chainHead
@@ -126,7 +126,7 @@ type getTradesResp struct {
 
 // handleGetTrades serves the committed trade log:
 //
-//	GET .../dex/clob_get_trades?since=<height>&limit=<n>
+//	GET .../dex/dex_get_trades?since=<height>&limit=<n>
 //
 // since (optional): first accepted height to include (inclusive); default 0.
 // limit (optional): max rows; default defaultTradeLimit.
@@ -190,7 +190,7 @@ type orderJSON struct {
 	User      string  `json:"user"`
 }
 
-// getOrdersResp is the clob_get_orders body: the chain head plus the market's
+// getOrdersResp is the dex_get_orders body: the chain head plus the market's
 // resting book rows.
 type getOrdersResp struct {
 	chainHead
@@ -201,7 +201,7 @@ type getOrdersResp struct {
 
 // handleGetOrders serves a market's resting orders:
 //
-//	GET .../dex/clob_get_orders?market=<hex>
+//	GET .../dex/dex_get_orders?market=<hex>
 //
 // The orders are read from the in-RAM book (a deterministic fold of the committed
 // order:* rows), so a follower and the proposer at the same height return the same
@@ -262,7 +262,7 @@ type marketJSON struct {
 	BestAsk     float64 `json:"bestAsk"`
 }
 
-// getMarketsResp is the clob_get_markets body: the chain head plus every market.
+// getMarketsResp is the dex_get_markets body: the chain head plus every market.
 type getMarketsResp struct {
 	chainHead
 	Count   int          `json:"count"`
@@ -271,11 +271,11 @@ type getMarketsResp struct {
 
 // handleGetMarkets serves every market on the chain:
 //
-//	GET .../dex/clob_get_markets
+//	GET .../dex/dex_get_markets
 //
 // Each record carries the market's durable identity (poolID, symbol, bound
 // assets) and an in-RAM book summary (resting orders, best bid/ask). This is what
-// the markets-display lists; combined with clob_get_trades it renders a venue.
+// the markets-display lists; combined with dex_get_trades it renders a venue.
 func (vm *VM) handleGetMarkets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeReadErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -341,7 +341,7 @@ type levelJSON struct {
 	Count int     `json:"count"`
 }
 
-// getBookResp is the clob_get_book body: the chain head plus the market's
+// getBookResp is the dex_get_book body: the chain head plus the market's
 // aggregated bid/ask ladder and totals.
 type getBookResp struct {
 	chainHead
@@ -356,7 +356,7 @@ type getBookResp struct {
 
 // handleGetBook serves a market's aggregated order book:
 //
-//	GET .../dex/clob_get_book?market=<hex>&depth=<n>
+//	GET .../dex/dex_get_book?market=<hex>&depth=<n>
 //
 // depth (optional): number of price levels per side; default 20. Levels and
 // totals are read from the in-RAM book (the committed-row fold).

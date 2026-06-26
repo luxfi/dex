@@ -11,14 +11,14 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// zapingest.go is the D-Chain CLOB ZAP ingestion seam for the IN-LUXD native VM —
+// zapingest.go is the D-Chain DEX ZAP ingestion seam for the IN-LUXD native VM —
 // the CANONICAL native order path. It is the second transport over the one
-// authoritative handler core (clobMethods, handler.go), symmetric with the HTTP
+// authoritative handler core (dexMethods, handler.go), symmetric with the HTTP
 // compat transport (ingest.go / CreateHandlers):
 //
-//	ZAP socket  (this file) : RegisterCLOB on rpc.Listen — the HFT native path,
+//	ZAP socket  (this file) : RegisterDEX on rpc.Listen — the HFT native path,
 //	                          binary wire, co-located on the pod. CANONICAL.
-//	HTTP router (ingest.go) : the same clobMethods over the node's /ext/bc route.
+//	HTTP router (ingest.go) : the same dexMethods over the node's /ext/bc route.
 //	                          COMPAT (web / exchange-api / debug).
 //
 // WHY BOTH, AND WHY THIS IS NOT DUPLICATION: transport is orthogonal to consensus.
@@ -27,8 +27,8 @@ import (
 // Block.Accept — validators replay from the accepted block BYTES, never from the
 // wire stream or a wall clock. So the choice of socket vs HTTP is purely a
 // submission perf/UX axis with no safety implication; the ONE matcher core
-// (clobMethods -> submitTx -> mempool) is shared, never re-implemented per
-// transport. The ZAP socket is the canonical native path because the CLOB's whole
+// (dexMethods -> submitTx -> mempool) is shared, never re-implemented per
+// transport. The ZAP socket is the canonical native path because the DEX's whole
 // point is the low-latency streaming HFT seam (co-locate the matcher with the ZAP
 // relay; see dex perf notes); HTTP stays as the broad-compatibility surface.
 //
@@ -44,7 +44,7 @@ import (
 // only: unknown fields are ignored, an empty/absent Config is the zero value (no
 // ZAP socket). Only the fields the VM actually consumes are declared.
 type vmConfig struct {
-	// ZAPIngestAddr, when non-empty, is the TCP address the co-located ZAP CLOB
+	// ZAPIngestAddr, when non-empty, is the TCP address the co-located ZAP DEX
 	// socket listens on inside the plugin process (e.g. "0.0.0.0:9101"). Empty
 	// means the canonical socket is not served (HTTP compat only). It is a
 	// pod-local listen address the node/operator assigns; orders arriving here
@@ -67,9 +67,9 @@ func parseConfig(b []byte) (vmConfig, error) {
 	return c, nil
 }
 
-// startZAPIngest opens the canonical co-located ZAP CLOB socket and serves the SAME
-// clobMethods the HTTP transport folds over. It is a no-op when addr is empty (the
-// VM serves HTTP only). It is ADDITIVE: it reuses RegisterCLOB (the existing socket
+// startZAPIngest opens the canonical co-located ZAP DEX socket and serves the SAME
+// dexMethods the HTTP transport folds over. It is a no-op when addr is empty (the
+// VM serves HTTP only). It is ADDITIVE: it reuses RegisterDEX (the existing socket
 // seam cmd/dvenue uses) and adds no new handler logic. Must be called under vm.mu,
 // after the durable state is loaded (so the socket never accepts an order before
 // the VM can sequence it). The server runs in its own goroutine whose lifetime is
@@ -83,9 +83,9 @@ func (vm *VM) startZAPIngest(addr string) error {
 	if err != nil {
 		return fmt.Errorf("dchain: ZAP ingest listen %q: %w", addr, err)
 	}
-	if err := vm.RegisterCLOB(server); err != nil {
+	if err := vm.RegisterDEX(server); err != nil {
 		_ = server.Close()
-		return fmt.Errorf("dchain: register CLOB on ZAP ingest socket: %w", err)
+		return fmt.Errorf("dchain: register DEX on ZAP ingest socket: %w", err)
 	}
 
 	serveCtx, cancel := context.WithCancel(context.Background())
@@ -96,7 +96,7 @@ func (vm *VM) startZAPIngest(addr string) error {
 			vm.log.Error("dchain ZAP ingest serve", "addr", server.Addr(), "err", serr)
 		}
 	}()
-	vm.log.Info("dchain ZAP ingest serving (canonical native CLOB path)", "addr", server.Addr())
+	vm.log.Info("dchain ZAP ingest serving (canonical native DEX path)", "addr", server.Addr())
 	return nil
 }
 

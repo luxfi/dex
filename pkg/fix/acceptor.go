@@ -373,7 +373,7 @@ func (s *session) handleTestRequest(msg *Message) {
 // emits ExecutionReport(s): an ack (ExecType=New) if nothing crossed and the
 // order is fully open, then one report per fill (PartialFill/Fill), or a single
 // Rejected report on a venue error. The order is submitted as a MARKETABLE order
-// bounded by its limit price (IOC) — the faithful CLOB taker primitive that
+// bounded by its limit price (IOC) — the faithful DEX taker primitive that
 // crosses the resting book and returns fills, identical to the 0x9010 Swap path.
 func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 	clOrdID, _ := msg.Get(TagClOrdID)

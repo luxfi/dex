@@ -11,7 +11,7 @@ import (
 )
 
 // mempool.go is the d-chain pending-transaction queue. ZAP write frames
-// (clob_place/cancel/submit) are NOT executed synchronously — the handler decodes
+// (dex_place/cancel/submit) are NOT executed synchronously — the handler decodes
 // the frame into a Tx, Adds it here, and the mempool signals the consensus engine
 // (init.ToEngine <- PendingTxs) that there is work. The engine responds by
 // calling VM.BuildBlock, which drains the mempool in arrival (sequence) order.
@@ -21,7 +21,7 @@ import (
 
 // mempool is a FIFO of pending transactions guarded by a mutex. It is small and
 // deliberately simple: ordering is arrival order, which is the sequence the
-// matcher consumes. (A fee-priority mempool is a future concern; the venue's CLOB
+// matcher consumes. (A fee-priority mempool is a future concern; the venue's DEX
 // is sequence-fair by design.)
 //
 // CANCEL / TOMBSTONE (synchronous-or-nothing custody, RED #4): a custody op that

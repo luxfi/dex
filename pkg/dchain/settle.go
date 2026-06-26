@@ -111,7 +111,7 @@ const (
 )
 
 // marketConstraint is the MINIMAL notional scaffold: just enough to express the
-// one constraint a value-bearing CLOB must enforce against integer flooring — an
+// one constraint a value-bearing DEX must enforce against integer flooring — an
 // executable order MUST reserve a non-zero lock. It deliberately does NOT model a
 // full fee/tick/lot/minNotional engine (that is a separate roadmap); the only
 // invariant here is "arithmetic flooring can never create a FREE executable order".
@@ -204,7 +204,7 @@ func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset [
 //
 // IDENTITY: the settlement identity is the WALLET (AccountID); UserID8 is only a
 // matcher hint. The TAKER is the submitter, whose full 16-byte wallet is carried on
-// the ephemeral order this block from the decoded clob_submit invocation context
+// the ephemeral order this block from the decoded dex_submit invocation context
 // (never the 8-byte row handle — the taker never rests, so its full wallet is always
 // in hand). The MAKER is a RESTING order whose in-RAM user is only 8 bytes after a
 // restart (RowToOrder folds the GPU row's 8-byte UserID handle), so its full wallet

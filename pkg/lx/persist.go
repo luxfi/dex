@@ -157,7 +157,7 @@ func dexToSide(s uint8) Side {
 
 // typeToDEX maps the book OrderType to the DEXOrder type byte. Only the resting
 // forms are persistable (a resting order is always a Limit by construction in
-// the consensus CLOB path); Market/IOC/FOK takers never rest and so never reach
+// the consensus OrderBook path); Market/IOC/FOK takers never rest and so never reach
 // a row. Anything non-Limit maps to DEXOrderLimit defensively.
 func typeToDEX(t OrderType) uint8 {
 	switch t {
@@ -302,13 +302,13 @@ func DecodeTrade(b []byte) (DEXTrade, bool) {
 // by the caller because the in-RAM Trade does not always carry it.
 func TradeToRow(t Trade, takerSide Side) DEXTrade {
 	row := DEXTrade{
-		TradeID:      t.ID,
-		MakerUserID:  userToUint64(makerUser(t, takerSide)),
-		TakerUserID:  userToUint64(takerUser(t, takerSide)),
-		Price:        floatToFixedPrice(t.Price),
-		Quantity:     floatToFixedQty(t.Size),
-		Timestamp:    uint64(t.Timestamp.UnixNano()),
-		TakerSide:    sideToDEX(takerSide),
+		TradeID:     t.ID,
+		MakerUserID: userToUint64(makerUser(t, takerSide)),
+		TakerUserID: userToUint64(takerUser(t, takerSide)),
+		Price:       floatToFixedPrice(t.Price),
+		Quantity:    floatToFixedQty(t.Size),
+		Timestamp:   uint64(t.Timestamp.UnixNano()),
+		TakerSide:   sideToDEX(takerSide),
 	}
 	// Maker/taker order IDs: the buy order is BuyOrder, the sell is SellOrder;
 	// the taker is whichever matches takerSide.

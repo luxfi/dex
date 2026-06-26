@@ -15,7 +15,7 @@ import (
 // OUTCOME a block's execution produced, and the VM's registry that lets a ZAP
 // handler block until "its" tx is decided by an accepted block.
 //
-// The decomplected shape: a clob_* write is NOT executed when it arrives — it is
+// The decomplected shape: a dex_* write is NOT executed when it arrives — it is
 // queued, ordered by consensus, matched at Verify, committed at Accept. But the
 // caller (the proxy's synchronous Relay, the precompile's swap) needs the
 // resulting fills/ack back. So the handler registers a waiter keyed by the tx's
@@ -32,9 +32,9 @@ import (
 type txOutcome struct {
 	txID    ids.ID
 	typ     TxType
-	orderID uint64        // placed / cancelled order id (0 for submit/ensure)
+	orderID uint64         // placed / cancelled order id (0 for submit/ensure)
 	fills   []zapwire.Fill // submit fills (nil otherwise)
-	status  uint8         // zapwire.StatusPlaced / StatusCanceled / StatusRejected
+	status  uint8          // zapwire.StatusPlaced / StatusCanceled / StatusRejected
 }
 
 // toWireFills converts a submit's matched trades into the FROZEN wire Fill form

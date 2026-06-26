@@ -6,29 +6,29 @@ import (
 	"math/big"
 )
 
-// NativeCLOB is the V4 CLOB precompile address.
-const NativeCLOB = "0x0000000000000000000000000000000000009020"
+// NativeOrderBook is the V4 DEX precompile address.
+const NativeOrderBook = "0x0000000000000000000000000000000000009020"
 
 // quoteExactInputSingle(address,address,uint256,uint24)
 var selectorNativeQuote = mustDecodeHex("30d07f21")
 
 // getBestQuote(address,address,uint256,bool)
-var selectorCLOBQuote = mustDecodeHex("a2e62045")
+var selectorDEXQuote = mustDecodeHex("a2e62045")
 
 // NativeDEXVenue quotes from the Lux V4 DEX precompiles via eth_call.
-// Calls PoolManager (0x9010) for AMM quotes and optionally CLOB (0x9020).
+// Calls PoolManager (0x9010) for AMM quotes and optionally DEX (0x9020).
 type NativeDEXVenue struct {
-	evm     *EVMClient
-	name    string
-	feeBPS  uint32
-	useCLOB bool
+	evm    *EVMClient
+	name   string
+	feeBPS uint32
+	useDEX bool
 }
 
 // NativeDEXConfig configures a NativeDEXVenue.
 type NativeDEXConfig struct {
-	RPCURL  string
-	FeeBPS  uint32
-	UseCLOB bool
+	RPCURL string
+	FeeBPS uint32
+	UseDEX bool
 }
 
 func NewNativeDEXVenue(cfg NativeDEXConfig) *NativeDEXVenue {
@@ -37,10 +37,10 @@ func NewNativeDEXVenue(cfg NativeDEXConfig) *NativeDEXVenue {
 		feeBPS = 30
 	}
 	return &NativeDEXVenue{
-		evm:     NewEVMClient(cfg.RPCURL),
-		name:    "v4_native",
-		feeBPS:  feeBPS,
-		useCLOB: cfg.UseCLOB,
+		evm:    NewEVMClient(cfg.RPCURL),
+		name:   "v4_native",
+		feeBPS: feeBPS,
+		useDEX: cfg.UseDEX,
 	}
 }
 
@@ -90,12 +90,12 @@ func (v *NativeDEXVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuo
 		Executable:  true,
 	}
 
-	if v.useCLOB {
-		clobQuote, err := v.queryCLOB(ctx, req, amountIn)
-		if err == nil && clobQuote != nil {
-			clobOut, _ := new(big.Int).SetString(clobQuote.AmountOut, 10)
-			if clobOut != nil && clobOut.Cmp(amountOut) > 0 {
-				return clobQuote, nil
+	if v.useDEX {
+		dexQuote, err := v.queryDEX(ctx, req, amountIn)
+		if err == nil && dexQuote != nil {
+			dexOut, _ := new(big.Int).SetString(dexQuote.AmountOut, 10)
+			if dexOut != nil && dexOut.Cmp(amountOut) > 0 {
+				return dexQuote, nil
 			}
 		}
 	}
@@ -103,7 +103,7 @@ func (v *NativeDEXVenue) Quote(ctx context.Context, req QuoteRequest) (*VenueQuo
 	return quote, nil
 }
 
-func (v *NativeDEXVenue) queryCLOB(ctx context.Context, req QuoteRequest, amountIn *big.Int) (*VenueQuote, error) {
+func (v *NativeDEXVenue) queryDEX(ctx context.Context, req QuoteRequest, amountIn *big.Int) (*VenueQuote, error) {
 	inAddr, _ := decodeAddress(req.TokenIn)
 	outAddr, _ := decodeAddress(req.TokenOut)
 
@@ -111,13 +111,13 @@ func (v *NativeDEXVenue) queryCLOB(ctx context.Context, req QuoteRequest, amount
 	buyWord[31] = 1
 
 	calldata := make([]byte, 0, 132)
-	calldata = append(calldata, selectorCLOBQuote...)
+	calldata = append(calldata, selectorDEXQuote...)
 	calldata = append(calldata, padAddress(inAddr)...)
 	calldata = append(calldata, padAddress(outAddr)...)
 	calldata = append(calldata, padUint256(amountIn)...)
 	calldata = append(calldata, buyWord[:]...)
 
-	result, err := v.evm.CallContract(ctx, NativeCLOB, calldata)
+	result, err := v.evm.CallContract(ctx, NativeOrderBook, calldata)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (v *NativeDEXVenue) queryCLOB(ctx context.Context, req QuoteRequest, amount
 	}
 
 	return &VenueQuote{
-		Venue:       v.name + "_clob",
+		Venue:       v.name + "_dex",
 		AmountOut:   amountOut.String(),
 		Fee:         "0",
 		GasEstimate: "200000",

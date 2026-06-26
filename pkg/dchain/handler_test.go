@@ -19,7 +19,7 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// handler_test.go proves the d-chain CLOB ZAP surface end to end over a REAL
+// handler_test.go proves the d-chain DEX ZAP surface end to end over a REAL
 // rpc.Listen socket, using the SAME client (rpc.ZAPDial) the chains/dexvm proxy
 // relay uses, and decoding responses with a locally-redefined framing that is
 // byte-identical to chains/dexvm/relay.go. This is the step-4 proxy-boundary
@@ -28,7 +28,7 @@ import (
 // Because a write blocks until consensus accepts it, the test runs an auto-sealer
 // goroutine that plays the consensus engine: on a PendingTxs signal it drains the
 // mempool via BuildBlock -> Verify -> Accept. This is the harness standing in for
-// the real engine that cmd/dchain wires via rpc.Serve.
+// the real engine that cmd/dexd (plugin mode) wires via rpc.Serve.
 
 // ---- relay-side framing, redefined locally to prove byte-parity (must equal
 // chains/dexvm/relay.go exactly: methods, FillWireSize=17, count[4]+N*17) ----
@@ -50,7 +50,7 @@ type relayFill struct {
 
 // relayDecodeFills mirrors chains/dexvm/relay.go::DecodeFills byte for byte,
 // including the finite-positive and side∈{0,1} validation, so a successful decode
-// here proves the d-chain's clob_submit response is exactly what the proxy parses.
+// here proves the d-chain's dex_submit response is exactly what the proxy parses.
 func relayDecodeFills(data []byte) ([]relayFill, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("fills response too short: %d", len(data))
@@ -122,7 +122,7 @@ func autoSealer(ctx context.Context, t *testing.T, vm *VM) {
 	}
 }
 
-// startServer brings up a VM + a real rpc.Listen ZAP server with the clob_*
+// startServer brings up a VM + a real rpc.Listen ZAP server with the dex_*
 // handlers, plus the auto-sealer. Returns the dial address and a stop func.
 func startServer(t *testing.T) (*VM, string, func()) {
 	t.Helper()
@@ -141,8 +141,8 @@ func startServer(t *testing.T) (*VM, string, func()) {
 	if err != nil {
 		t.Fatalf("rpc.Listen: %v", err)
 	}
-	if err := vm.RegisterCLOB(server); err != nil {
-		t.Fatalf("RegisterCLOB: %v", err)
+	if err := vm.RegisterDEX(server); err != nil {
+		t.Fatalf("RegisterDEX: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -244,7 +244,7 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 }
 
 // TestHandlerIdempotentReplay proves the d-chain STATE idempotency: replaying the
-// identical clob_submit frame (a proxy retry on a dropped socket) executes the
+// identical dex_submit frame (a proxy retry on a dropped socket) executes the
 // order EXACTLY ONCE — the second call returns zero fills, and the resting book
 // is consumed only once.
 func TestHandlerIdempotentReplay(t *testing.T) {

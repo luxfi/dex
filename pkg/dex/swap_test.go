@@ -40,9 +40,9 @@ func TestSwap_SellIntoRestingBid(t *testing.T) {
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD,
 		AmountIn: 80, OrderID: 1_000, TimestampN: 2_000,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
-	res, err := ExecuteSwap(db, clobRouter(), req)
+	res, err := ExecuteSwap(db, orderBookRouter(), req)
 	if err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}
@@ -54,9 +54,9 @@ func TestSwap_SellIntoRestingBid(t *testing.T) {
 	if res.AmountOut != 4000 {
 		t.Fatalf("AmountOut = %d, want 4000 (80 LETH @ 50)", res.AmountOut)
 	}
-	// The fill came from the CLOB.
-	if len(res.Fills) != 1 || res.Fills[0].Source != SourceCLOB {
-		t.Fatalf("expected one CLOB fill, got %+v", res.Fills)
+	// The fill came from the OrderBook.
+	if len(res.Fills) != 1 || res.Fills[0].Source != SourceOrderBook {
+		t.Fatalf("expected one OrderBook fill, got %+v", res.Fills)
 	}
 
 	// Taker ledger: 100-80 = 20 LETH available, 4000 LUSD available.
@@ -94,14 +94,14 @@ func TestSwap_SellIntoRestingBid(t *testing.T) {
 	}
 }
 
-// Test9999Swap_FillsFromV4WhenCLOBLiquid asserts the router fills entirely from the
-// V4 CLOB when the CLOB has the depth — the AMM is present but untouched.
-func Test9999Swap_FillsFromV4WhenCLOBLiquid(t *testing.T) {
+// Test9999Swap_FillsFromV4WhenOrderBookLiquid asserts the router fills entirely from the
+// V4 OrderBook when the OrderBook has the depth — the AMM is present but untouched.
+func Test9999Swap_FillsFromV4WhenOrderBookLiquid(t *testing.T) {
 	db := newStore()
 	pid := seedMarket(t, db, 2, tokLETH, tokLUSD)
 	maker := account(0xAA)
 	taker := account(0xBB)
-	// Deep CLOB bid: 1000 LETH @ 50.
+	// Deep OrderBook bid: 1000 LETH @ 50.
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
 	restOrder(t, db, pid, maker, lx.Buy, 50, 1000, 1)
 	seedDeposit(t, db, taker, tokLETH, 100)
@@ -109,24 +109,24 @@ func Test9999Swap_FillsFromV4WhenCLOBLiquid(t *testing.T) {
 	// AMM with shallow reserves (would price worse).
 	pool := newMemAMM(0) // 0 bps fee
 	pool.set(pid, 10_000, 500_000)
-	router := NewRouter(NewCLOBSource(), NewAMMSource(pool))
+	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 50, OrderID: 9, TimestampN: 1,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
 	res, err := ExecuteSwap(db, router, req)
 	if err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}
-	// CLOB @ 50 gives 2500 LUSD for 50 LETH; the AMM would give less. All from CLOB.
+	// OrderBook @ 50 gives 2500 LUSD for 50 LETH; the AMM would give less. All from OrderBook.
 	if res.AmountOut != 2500 {
-		t.Fatalf("AmountOut = %d, want 2500 (all from CLOB @ 50)", res.AmountOut)
+		t.Fatalf("AmountOut = %d, want 2500 (all from OrderBook @ 50)", res.AmountOut)
 	}
 	for _, f := range res.Fills {
 		if f.Source == SourceAMM {
-			t.Fatalf("AMM was used despite a better CLOB price: %+v", res.Fills)
+			t.Fatalf("AMM was used despite a better OrderBook price: %+v", res.Fills)
 		}
 	}
 	// AMM reserves untouched.
@@ -137,22 +137,22 @@ func Test9999Swap_FillsFromV4WhenCLOBLiquid(t *testing.T) {
 }
 
 // Test9999Swap_FallsToV2V3WhenNoV4 asserts the router falls through to the AMM when
-// the CLOB has NO crossable depth.
+// the OrderBook has NO crossable depth.
 func Test9999Swap_FallsToV2V3WhenNoV4(t *testing.T) {
 	db := newStore()
 	pid := seedMarket(t, db, 3, tokLETH, tokLUSD)
 	taker := account(0xBB)
 	seedDeposit(t, db, taker, tokLETH, 1000)
 
-	// No CLOB liquidity at all; AMM has reserves.
+	// No OrderBook liquidity at all; AMM has reserves.
 	pool := newMemAMM(0)
 	pool.set(pid, 100_000, 5_000_000) // price ~50 LUSD/LETH
-	router := NewRouter(NewCLOBSource(), NewAMMSource(pool))
+	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 100, OrderID: 9, TimestampN: 1,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
 	res, err := ExecuteSwap(db, router, req)
 	if err != nil {
@@ -173,15 +173,15 @@ func Test9999Swap_FallsToV2V3WhenNoV4(t *testing.T) {
 	}
 }
 
-// Test9999Swap_BestExecAcrossV4AndAMM asserts the router SPLITS across the CLOB and
-// the AMM when neither alone is best for the whole amount: it takes the CLOB depth
+// Test9999Swap_BestExecAcrossV4AndAMM asserts the router SPLITS across the OrderBook and
+// the AMM when neither alone is best for the whole amount: it takes the OrderBook depth
 // at the better price, then the AMM for the remainder.
 func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 	db := newStore()
 	pid := seedMarket(t, db, 4, tokLETH, tokLUSD)
 	maker := account(0xAA)
 	taker := account(0xBB)
-	// Thin but BETTER CLOB bid: 10 LETH @ 60 (better than AMM's ~50).
+	// Thin but BETTER OrderBook bid: 10 LETH @ 60 (better than AMM's ~50).
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
 	restOrder(t, db, pid, maker, lx.Buy, 60, 10, 1)
 	seedDeposit(t, db, taker, tokLETH, 1000)
@@ -189,38 +189,38 @@ func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 	// AMM priced ~50.
 	pool := newMemAMM(0)
 	pool.set(pid, 100_000, 5_000_000)
-	router := NewRouter(NewCLOBSource(), NewAMMSource(pool))
+	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
-	// Taker sells 30 LETH. CLOB absorbs 10 @ 60 = 600; AMM absorbs the other 20.
+	// Taker sells 30 LETH. OrderBook absorbs 10 @ 60 = 600; AMM absorbs the other 20.
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 30, OrderID: 9, TimestampN: 1,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
 	res, err := ExecuteSwap(db, router, req)
 	if err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}
-	// Expect a CLOB fill of 10 LETH -> 600 LUSD and an AMM fill of 20 LETH.
-	var sawCLOB, sawAMM bool
-	var clobIn, ammIn uint64
+	// Expect a OrderBook fill of 10 LETH -> 600 LUSD and an AMM fill of 20 LETH.
+	var sawOrderBook, sawAMM bool
+	var orderBookIn, ammIn uint64
 	for _, f := range res.Fills {
 		switch f.Source {
-		case SourceCLOB:
-			sawCLOB = true
+		case SourceOrderBook:
+			sawOrderBook = true
 			for _, tr := range f.Trades {
-				clobIn += tr.BaseUnits.Uint64()
+				orderBookIn += tr.BaseUnits.Uint64()
 			}
 		case SourceAMM:
 			sawAMM = true
 			ammIn += f.AMMBaseDelta
 		}
 	}
-	if !sawCLOB || !sawAMM {
-		t.Fatalf("expected a split across CLOB+AMM, got %+v", res.Fills)
+	if !sawOrderBook || !sawAMM {
+		t.Fatalf("expected a split across OrderBook+AMM, got %+v", res.Fills)
 	}
-	if clobIn != 10 {
-		t.Fatalf("CLOB leg base = %d, want 10", clobIn)
+	if orderBookIn != 10 {
+		t.Fatalf("OrderBook leg base = %d, want 10", orderBookIn)
 	}
 	if ammIn != 20 {
 		t.Fatalf("AMM leg base = %d, want 20", ammIn)
@@ -228,10 +228,10 @@ func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 	if res.AmountIn != 30 {
 		t.Fatalf("total AmountIn = %d, want 30", res.AmountIn)
 	}
-	// Output = 600 (CLOB) + AMM curve(20).
+	// Output = 600 (OrderBook) + AMM curve(20).
 	ammOut := lx.ConstantProductOut(100_000, 5_000_000, 20)
 	if res.AmountOut != 600+ammOut {
-		t.Fatalf("AmountOut = %d, want %d (600 CLOB + %d AMM)", res.AmountOut, 600+ammOut, ammOut)
+		t.Fatalf("AmountOut = %d, want %d (600 OrderBook + %d AMM)", res.AmountOut, 600+ammOut, ammOut)
 	}
 }
 
@@ -244,13 +244,13 @@ func Test9999Swap_NoLiquidityReverts(t *testing.T) {
 	pid := seedMarket(t, db, 5, tokLETH, tokLUSD)
 	taker := account(0xBB)
 	seedDeposit(t, db, taker, tokLETH, 100)
-	// No CLOB, no AMM.
+	// No OrderBook, no AMM.
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 50, OrderID: 9, TimestampN: 1,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
-	_, err := ExecuteSwap(db, clobRouter(), req)
+	_, err := ExecuteSwap(db, orderBookRouter(), req)
 	if !errors.Is(err, ErrNoLiquidity) {
 		t.Fatalf("expected ErrNoLiquidity, got %v", err)
 	}
@@ -266,9 +266,9 @@ func Test9999Swap_BuyRequiresLimit(t *testing.T) {
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Buy,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 5000, OrderID: 9, TimestampN: 1,
-		Class: ClassPublicCLOB, // LimitPrice 0 -> refused
+		Class: ClassPublicDEX, // LimitPrice 0 -> refused
 	}
-	_, err := ExecuteSwap(db, clobRouter(), req)
+	_, err := ExecuteSwap(db, orderBookRouter(), req)
 	if !errors.Is(err, ErrBuyRequiresLimit) {
 		t.Fatalf("expected ErrBuyRequiresLimit, got %v", err)
 	}
@@ -296,9 +296,9 @@ func TestSwap_BuyWithLimit(t *testing.T) {
 		PoolID: pid, TakerUser: taker, Side: lx.Buy,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 5000,
 		LimitPrice: price(50), LimitIsUpper: true,
-		OrderID: 9, TimestampN: 1, Class: ClassPublicCLOB,
+		OrderID: 9, TimestampN: 1, Class: ClassPublicDEX,
 	}
-	res, err := ExecuteSwap(db, clobRouter(), req)
+	res, err := ExecuteSwap(db, orderBookRouter(), req)
 	if err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}

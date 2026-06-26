@@ -47,9 +47,9 @@ check_prerequisites() {
 build_images() {
     log "Building Docker images..."
     
-    # Build backend image
-    docker build -f docker/backend/Dockerfile -t registry.lux.network/lxdex:${VERSION} .
-    docker build -f docker/backend/Dockerfile -t registry.lux.network/lxdex:${ENVIRONMENT} .
+    # Build dexd image (canonical Dockerfile, CPU)
+    docker build -f Dockerfile -t registry.lux.network/lxdex:${VERSION} .
+    docker build -f Dockerfile -t registry.lux.network/lxdex:${ENVIRONMENT} .
     
     # Build UI image
     docker build -f docker/ui/Dockerfile -t registry.lux.network/lxdex-ui:${VERSION} ./ui

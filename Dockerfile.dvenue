@@ -6,17 +6,18 @@
 # image (which excludes the DexVM). It bundles TWO binaries the operator venue
 # StatefulSet runs from one image:
 #
-#   /usr/local/bin/dvenue   — the ZAP matching engine (luxfi/dex cmd/dvenue,
-#                             //go:build cgo, built CGO_ENABLED=1). This is the
+#   /usr/local/bin/dexd     — the ZAP matching engine (luxfi/dex cmd/dexd, run
+#                             as `dexd run`, built CGO_ENABLED=1). This is the
 #                             real CLOB:
-#                             it links the GPU matching kernels (libdex_clob_cuda
-#                             + libamm_xyk_cuda) and the secp256k1 ecrecover
-#                             bundle via pkg-config. The 0x9010 C-Chain precompile
-#                             and the chains/dexvm atomic proxy dial it.
+#                             CGO_ENABLED=1 makes pkg/lx link the GPU matching
+#                             kernels (libdex_clob_cuda + libamm_xyk_cuda) and the
+#                             secp256k1 ecrecover bundle via pkg-config. The 0x9010
+#                             C-Chain precompile and the chains/dexvm atomic proxy
+#                             dial it.
 #   /luxd/build/luxd        — the dchain-tagged node (`-tags dchain`), which
 #                             links the chains/dexvm PROXY so the venue node
 #                             serves the P-chain-registered D-Chain. The proxy
-#                             relays to the dvenue socket; it is pure-Go (no GPU).
+#                             relays to the dexd socket; it is pure-Go (no GPU).
 #
 # ARCH: linux/arm64 ONLY. The matcher's `cgo && linux` path in luxfi/dex pkg/lx
 # (orderbook_cuda.go + amm_gpu_cuda.go) has no non-CUDA fallback on any arch, so
@@ -31,7 +32,7 @@
 # ---------------------------------------------------------------------------
 ARG GO_VERSION=1.26.4
 # CUDA 12.x devel image (arm64/sbsa variant) provides nvcc-free libcudart for
-# the cgo link of dvenue. Runtime stage uses the matching -runtime image.
+# the cgo link of dexd. Runtime stage uses the matching -runtime image.
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
 
@@ -75,7 +76,7 @@ RUN --mount=type=secret,id=ghtok,required=false \
 # lux-crypto-secp256k1 at the cgo link step below.
 #
 # CI/RELEASE GAP (until the dex-gpu-release workflow has run on a tag): the URL
-# below 404s. The build then fails at the dvenue link step with a clear
+# below 404s. The build then fails at the dexd link step with a clear
 # pkg-config error. Run luxcpp/dex dex-gpu-release first (or point VENUE_DEPS_URL
 # at the workflow artifact) to populate it.
 ARG VENUE_DEPS_VERSION=v0.1.1
@@ -88,19 +89,20 @@ RUN --mount=type=secret,id=ghtok,required=false \
     && ldconfig 2>/dev/null || true
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
-# --- Build dvenue (the GPU matcher) from luxfi/dex ---------------------------
-# cmd/dvenue is `//go:build cgo`: CGO_ENABLED=1 (which sets the `cgo` build tag)
-# selects pkg/lx's GPU matcher (orderbook_cuda + amm_gpu_cuda + signed_order_gpu,
-# all gated on `cgo`), satisfied by the pkg-config libs above. `-tags cgo` is
-# explicit-for-readability (CGO_ENABLED=1 already implies it). The pure-Go CPU
-# venue is cmd/dvenue-cpu (//go:build !cgo) — not built here.
+# --- Build dexd (the GPU matcher) from luxfi/dex -----------------------------
+# CGO_ENABLED=1 (which sets the `cgo` build tag) makes pkg/lx select its GPU
+# matcher (orderbook_cuda + amm_gpu_cuda + signed_order_gpu, all gated on `cgo`),
+# satisfied by the pkg-config libs above. `-tags cgo` is explicit-for-readability
+# (CGO_ENABLED=1 already implies it). The operator runs this binary as
+# `dexd run`. The pure-Go CPU build of the same binary is the canonical
+# Dockerfile (CGO_ENABLED=0) — not built here.
 WORKDIR /build/dex
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
     go build -trimpath -tags "cgo" -ldflags="-s -w" \
-        -o /out/dvenue ./cmd/dvenue
+        -o /out/dexd ./cmd/dexd
 
 # --- Build the dchain-tagged luxd (the proxy node) ---------------------------
 # Cloned from luxfi/node at a pinned release and built `-tags dchain` so it
@@ -121,7 +123,7 @@ RUN go mod download
 # CGO_ENABLED=0: the dchain luxd's only cgo edge is the optional luxcpp/cevm
 # C-Chain backend; the dexvm proxy + pure-Go EVM need no native libs (the
 # build graph pulls only runtime/cgo). Building pure-Go keeps the venue node
-# free of the cevm fetch — the GPU/cgo surface lives entirely in dvenue.
+# free of the cevm fetch — the GPU/cgo surface lives entirely in dexd.
 RUN GITCOMMIT=$(git rev-parse HEAD) && \
     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
     go build -trimpath -tags "nattraversal,dchain" -ldflags="-s -w \
@@ -132,7 +134,7 @@ RUN GITCOMMIT=$(git rev-parse HEAD) && \
 # node registers the optional VMs (incl. the dexvm proxy) + P/X in-process, but
 # the C-Chain EVM is an EXTERNAL plugin (same as the public node image's EVM
 # Plugin Stage). The venue --track-all-chains, and the 0x9010 dex precompile
-# (NewZAPEngine(dex-zap-endpoint) -> the dvenue socket) lives in this plugin, so
+# (NewZAPEngine(dex-zap-endpoint) -> the dexd socket) lives in this plugin, so
 # the venue MUST ship it. Built from the pinned luxfi/evm release, CGO=0,
 # written to /luxd/build/plugins/<EVM_VM_ID> — startup.sh seeds it into
 # /data/plugins (--plugin-dir).
@@ -153,16 +155,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Carry the GPU/crypto shared libs the dvenue binary may dlopen / rpath into.
+# Carry the GPU/crypto shared libs the dexd binary may dlopen / rpath into.
 COPY --from=builder /usr/local/lib /usr/local/lib
 COPY --from=builder /usr/local/include /usr/local/include
 RUN ldconfig 2>/dev/null || true
 
 # Binaries: the dchain luxd (venue node) + the EVM (C-Chain) plugin it loads +
-# dvenue (ZAP matcher). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
+# dexd (ZAP matcher). startup.sh seeds /luxd/build/plugins/* into /data/plugins.
 COPY --from=builder /luxd/build/luxd /luxd/build/luxd
 COPY --from=builder /luxd/build/plugins /luxd/build/plugins
-COPY --from=builder /out/dvenue /usr/local/bin/dvenue
+COPY --from=builder /out/dexd /usr/local/bin/dexd
 
 # Non-root (matches the operator StatefulSet securityContext runAsUser 1000).
 RUN groupadd -g 1000 venue && useradd -u 1000 -g venue -m -s /usr/sbin/nologin venue \
@@ -172,9 +174,9 @@ USER venue
 ENV PATH="/luxd/build:/usr/local/bin:${PATH}"
 WORKDIR /luxd/build
 
-# 9650 luxd HTTP RPC, 9651 luxd staking, 9099 dvenue ZAP socket.
+# 9650 luxd HTTP RPC, 9651 luxd staking, 9099 dexd ZAP socket.
 EXPOSE 9650 9651 9099
 
 # Default to the venue node; the operator overrides the `zap` container's
-# command to /usr/local/bin/dvenue.
+# command to `/usr/local/bin/dexd run`.
 CMD ["/luxd/build/luxd"]

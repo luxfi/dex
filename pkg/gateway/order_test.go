@@ -636,7 +636,7 @@ func TestCreateLimitOrderHandler(t *testing.T) {
 		t.Fatal("did not expect EIP712 data for limit order")
 	}
 	if orderResp.Tx.To != "0x0000000000000000000000000000000000009020" {
-		t.Fatalf("expected CLOB address, got %s", orderResp.Tx.To)
+		t.Fatalf("expected DEX address, got %s", orderResp.Tx.To)
 	}
 	if orderResp.Tx.ChainID != 96369 {
 		t.Fatalf("expected chainId 96369, got %d", orderResp.Tx.ChainID)

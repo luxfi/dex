@@ -14,7 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// LxDexAdapter implements VenueAdapter for LX DEX (CLOB).
+// LxDexAdapter implements VenueAdapter for LX DEX (DEX).
 type LxDexAdapter struct {
 	trading.BaseAdapter
 	name   string
@@ -42,7 +42,7 @@ func (a *LxDexAdapter) VenueType() trading.VenueType {
 
 // Capabilities returns venue capabilities.
 func (a *LxDexAdapter) Capabilities() trading.VenueCapabilities {
-	return trading.CLOBCapabilities()
+	return trading.OrderBookCapabilities()
 }
 
 // Connect establishes connection to the DEX.

@@ -6,7 +6,7 @@ package lx
 import "math/big"
 
 // settlement_units.go is the SINGLE home for the exact-integer quantity lane the
-// CLOB / consensus path uses for value conservation. The matcher's price grid
+// OrderBook / consensus path uses for value conservation. The matcher's price grid
 // stays float64 (a ratio is fine as a float, and price-time priority is unchanged
 // by it), but the SETTLED QUANTITY — the base units a fill moves and the quote
 // units owed for them — must be exact: an 18-decimal token amount (e.g. 1e20)
@@ -47,7 +47,7 @@ func quoteUnitsFor(baseUnits *big.Int, priceInt PriceInt) *big.Int {
 }
 
 // ensureRemainingUnits lazily initializes an order's exact integer remainder from
-// its SizeUnits the first time the matcher touches it on the CLOB path. An order
+// its SizeUnits the first time the matcher touches it on the OrderBook path. An order
 // without SizeUnits (legacy float API) yields nil — the integer lane stays off and
 // the caller falls back to the float quantity, preserving legacy behavior.
 func ensureRemainingUnits(o *Order) *big.Int {

@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2025, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-// Package zapwire is the single, frozen source of truth for the CLOB ZAP wire
+// Package zapwire is the single, frozen source of truth for the DEX ZAP wire
 // frame the D-Chain gateway (dex/pkg/api ZAPServer) speaks and that every
 // client — the chains/dexvm atomic proxy and the LP-9010 EVM precompile —
 // encodes against.
@@ -24,7 +24,7 @@ import (
 	"math"
 )
 
-// CLOB market-routed ZAP method names. These are the poolId-keyed framing of
+// DEX market-routed ZAP method names. These are the poolId-keyed framing of
 // the order-book operations the V4 PoolManager facade (a central-limit-order
 // book, NOT an AMM) exposes:
 //
@@ -32,11 +32,12 @@ import (
 //   - Place       ("modifyLiquidity" +delta): rest a limit order.
 //   - Cancel      ("modifyLiquidity" -delta): cancel a resting order.
 //   - Submit      ("swap"): submit a MARKETABLE order, get its fills back.
+//
 // Wire method names use the dex_ namespace: on the D-Chain the DEX *is* the
-// CLOB (the AMM lives in C-Chain contracts, not this VM), so the public wire
+// DEX (the AMM lives in C-Chain contracts, not this VM), so the public wire
 // names follow the luxd service-prefix convention (eth_/avm./platform.) and
 // expose the chain's purpose — `dex_*` — not the internal engine name. The Go
-// identifiers (MethodPlace, clobMethods, "CLOB") stay as the engine's internal
+// identifiers (MethodPlace, dexMethods, "DEX") stay as the engine's internal
 // name; only the on-wire string values are dex_*.
 const (
 	MethodEnsureMarket = "dex_ensure_market"
@@ -45,7 +46,7 @@ const (
 	MethodSubmit       = "dex_submit" // marketable order, returns fills
 )
 
-// CLOB ack status bytes.
+// DEX ack status bytes.
 const (
 	StatusPlaced   uint8 = 0
 	StatusCanceled uint8 = 1
@@ -270,7 +271,7 @@ func DecodeAck(resp []byte) (orderID uint64, status uint8, err error) {
 // =========================================================================
 // CUSTODY frames — deposit / withdraw / open-market.
 //
-// These are the funds-in / funds-out / market-binding operations of the CLOB
+// These are the funds-in / funds-out / market-binding operations of the DEX
 // "money lives in the order book" model: a DEPOSIT credits an account's
 // available D-Chain balance (what the book draws from), a WITHDRAW debits a
 // realized balance back out, and OPEN-MARKET binds a market's (base, quote)
@@ -293,8 +294,9 @@ func DecodeAck(resp []byte) (orderID uint64, status uint8, err error) {
 // rail so distinct assets NEVER collide:
 //   - native LUX  = a reserved all-zero id (ids.Empty on the proxy rail);
 //   - ERC-20      = the 20-byte C-Chain address embedded in 32 bytes (left-pad),
-//                   so two distinct token addresses — or a token vs native — map
-//                   to two distinct ids.
+//     so two distinct token addresses — or a token vs native — map
+//     to two distinct ids.
+//
 // The d-chain keys balance:/locked: (and the market (base,quote) binding and the
 // per-order reserve) by this full 32-byte id. The DEXOrder/DEXTrade matcher rows
 // carry NO asset field (they key by user+order id), so widening the asset leaves

@@ -8,19 +8,19 @@
 //
 //	1. pure-Go    : lx.OrderBook (the canonical Go/CPU reference matcher that
 //	                lives in luxfi/dex — the d-chain's matcher)
-//	2. CPU/C++    : clobMatchStepCPU — the Go port of the canonical C++ oracle
+//	2. CPU/C++    : orderBookMatchStepCPU — the Go port of the canonical C++ oracle
 //	                (dex_cpu_oracle.hpp), uint256, byte-equal to the C++ backend
-//	3. GPU        : CLOBMatch via the loaded plugin (Metal locally), uint256,
+//	3. GPU        : OrderBookMatch via the loaded plugin (Metal locally), uint256,
 //	                device-resident BookArena
 //
 // The three engines have DIFFERENT data models (lx.OrderBook is float/uint64
 // and price-level aggregated; the GPU/oracle are uint256 and per-level arenas),
-// so parity is asserted at the shared, model-independent abstraction every CLOB
+// so parity is asserted at the shared, model-independent abstraction every OrderBook
 // must agree on: for each incoming order, the TOTAL FILLED QUANTITY and the
 // volume-weighted average execution price (VWAP).
 //
 // Modes 2 and 3 are already proven byte-identical to each other by
-// TestCLOBGPUvsCPUByteParity. This test adds the third leg — the lx.OrderBook
+// TestOrderBookGPUvsCPUByteParity. This test adds the third leg — the lx.OrderBook
 // pure-Go matcher — and ties all three together.
 //
 // Run (Metal, this Mac):
@@ -65,7 +65,7 @@ func u256ToU64(t *testing.T, v u256) uint64 {
 // concept). Two stable users — one per side — keep the models comparable. The
 // order ID and timestamp are set explicitly (never auto-assigned) so the run is
 // deterministic and independent of wall-clock time or process-local counters.
-func goOrderbookStep(ob *lx.OrderBook, s clobStep, seq int64) (filled, vwap uint64) {
+func goOrderbookStep(ob *lx.OrderBook, s orderBookStep, seq int64) (filled, vwap uint64) {
 	side := lx.Side(s.side) // 0 = bid/buy, 1 = ask/sell
 	user := "bid"           // bid maker/taker
 	if side == lx.Sell {
@@ -86,7 +86,7 @@ func goOrderbookStep(ob *lx.OrderBook, s clobStep, seq int64) (filled, vwap uint
 	}
 
 	// Capture the trade-log tail BEFORE matching so we slice exactly the trades
-	// this order produced. AddOrder matches on insert (continuous CLOB) and
+	// this order produced. AddOrder matches on insert (continuous OrderBook) and
 	// appends each fill to ob.Trades.
 	start := len(ob.Trades)
 	if ob.AddOrder(order) == 0 && order.Status == lx.Rejected {
@@ -123,7 +123,7 @@ func TestThreeModeMatchParity(t *testing.T) {
 	// --- pure-Go engine (the canonical lx.OrderBook matcher) ---
 	// EnableImmediateMatching makes AddOrder cross the incoming order against the
 	// book and rest the residual — the same "match-on-insert, residual rests"
-	// semantic the CPU oracle (clobMatchStepCPU) and the GPU kernel implement.
+	// semantic the CPU oracle (orderBookMatchStepCPU) and the GPU kernel implement.
 	ob := lx.NewOrderBook("PARITY")
 	ob.EnableImmediateMatching = true
 	goOut := make([][2]uint64, len(seq))
@@ -136,7 +136,7 @@ func TestThreeModeMatchParity(t *testing.T) {
 	var cpu bookArena
 	cpuOut := make([][2]uint64, len(seq))
 	for i, s := range seq {
-		out := clobMatchStepCPU(&cpu, s.side, u256FromU64(s.price), u256FromU64(s.qty))
+		out := orderBookMatchStepCPU(&cpu, s.side, u256FromU64(s.price), u256FromU64(s.qty))
 		cpuOut[i] = [2]uint64{u256ToU64(t, out.filled), u256ToU64(t, out.avgPrice)}
 	}
 
@@ -157,10 +157,10 @@ func TestThreeModeMatchParity(t *testing.T) {
 		bookID[31] = 7
 		gpuOut = make([][2]uint64, len(seq))
 		for i, s := range seq {
-			cd := encodeCLOBCalldata(s.side, u256FromU64(s.price), u256FromU64(s.qty), user, bookID)
-			out, _, merr := CLOBMatch(arena, cd)
+			cd := encodeOrderBookCalldata(s.side, u256FromU64(s.price), u256FromU64(s.qty), user, bookID)
+			out, _, merr := OrderBookMatch(arena, cd)
 			if merr != nil {
-				t.Fatalf("CLOBMatch[%s]: %v", s.name, merr)
+				t.Fatalf("OrderBookMatch[%s]: %v", s.name, merr)
 			}
 			var filled, avg u256
 			copy(filled[:], out[0:32])
