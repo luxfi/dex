@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"encoding/hex"
@@ -11,9 +11,9 @@ import (
 )
 
 // assetid_test.go pins the CANONICAL asset identity. The decisive property is CROSS-HOME
-// PARITY: dexcore.DeriveAssetID must produce the byte-identical id that
+// PARITY: dex.DeriveAssetID must produce the byte-identical id that
 // chains/dexvm/registry.DeriveAssetID produces for the same inputs, because the value
-// path (precompile/dex, over dexcore) and the admission authority (the registry) must
+// path (precompile/dex, over dex) and the admission authority (the registry) must
 // name the SAME asset by the SAME 32-byte id — a registered AssetID and a swap-derived
 // AssetID are compared directly. The expected vectors below were emitted by the chains
 // registry's own DeriveAssetID; if either implementation's preimage discipline drifts,
@@ -30,10 +30,10 @@ func chainAllOnes() ids.ID {
 }
 
 // AssetIDGoldenVectors is the CANONICAL cross-home golden KAT (MED-1): the fixed
-// (networkID, chainID, kind, ref) -> 32-byte AssetID mapping that BOTH dexcore and
+// (networkID, chainID, kind, ref) -> 32-byte AssetID mapping that BOTH dex and
 // chains/dexvm/registry MUST reproduce byte-for-byte. The byte-identity these vectors
 // pin is the foundation of the resolve<->register equivalence the value path depends on:
-// a swap-derived AssetID (dexcore, via the precompile resolver) and a registered AssetID
+// a swap-derived AssetID (dex, via the precompile resolver) and a registered AssetID
 // (the chains registry) name the SAME asset by the SAME id, by construction. The mirror
 // test in chains/dexvm/registry asserts these EXACT bytes, so a drift in either home's
 // preimage discipline fails CI in both places, never silently in prod.

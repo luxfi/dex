@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"bytes"
@@ -30,9 +30,9 @@ func buildSeededEconomy(t *testing.T, db Store, tag byte) [32]byte {
 	return pid
 }
 
-// snapshotAllRows dumps every (key,value) under the dexcore ledger/book prefixes
+// snapshotAllRows dumps every (key,value) under the dex ledger/book prefixes
 // into a sorted, canonical byte image — the cross-store equality witness. Two stores
-// with the same image hold byte-identical dexcore state.
+// with the same image hold byte-identical dex state.
 func snapshotAllRows(t *testing.T, db *memdb.Database) []byte {
 	t.Helper()
 	var buf bytes.Buffer
