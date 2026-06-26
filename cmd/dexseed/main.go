@@ -4,12 +4,12 @@
 // Command dexseed is the CANONICAL real-market seeder for the live native D-Chain
 // DEX. It seeds REAL markets onto the in-luxd CLOB ingestion seam (POST
 // /ext/bc/D/dex/dex_* with FROZEN zapwire frames) using REAL, consensus-native asset
-// identities — dexcore.DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — for
+// identities — dex.DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — for
 // every side of every market.
 //
 // SAFE AGAINST A SHARED CLUSTER BY CONSTRUCTION (no guard, no loopback fence): dexseed
 // NEVER builds an ascii-of-symbol id. Every asset it opens is admitted ONLY if its
-// (kind, ref) derives a well-formed canonical AssetID via dexcore.DeriveAssetID — the
+// (kind, ref) derives a well-formed canonical AssetID via dex.DeriveAssetID — the
 // SAME identity the chain's resolver computes — and the chain's own permissionless
 // resolver additionally proves each side is backed by live on-chain code (the
 // EXTCODESIZE reality gate) before binding the market. A synthetic/malformed ref is

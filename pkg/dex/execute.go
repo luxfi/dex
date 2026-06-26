@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"math/big"
@@ -109,7 +109,7 @@ func ExecuteSwap(db Store, router *Router, req SwapRequest) (*SwapResult, error)
 
 // SignedLegs returns the swap's signed (inAsset, -in) and (outAsset, +out) so the
 // caller maps them to the V4 BalanceDelta legs by matching the asset id to
-// currency0 (base) / currency1 (quote). This keeps dexcore free of the V4 currency-
+// currency0 (base) / currency1 (quote). This keeps dex free of the V4 currency-
 // ordering convention while giving the caller exactly the signed magnitudes.
 func (r *SwapResult) SignedLegs() (inAsset AssetID, inNeg *big.Int, outAsset AssetID, outPos *big.Int) {
 	return r.AmountInAsset, new(big.Int).Neg(new(big.Int).SetUint64(r.AmountIn)),

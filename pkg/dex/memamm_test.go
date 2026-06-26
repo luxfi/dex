@@ -1,13 +1,13 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import "encoding/binary"
 
 // memamm_test.go is an in-Store implementation of AMMPool for the proof suite — the
 // exact analog of the precompile's real V2/V3 pool view, but with reserves stored as
-// a dexcore Store row instead of cEVM contract storage. dexcore's constant-product
+// a dex Store row instead of cEVM contract storage. dex's constant-product
 // math + routing run identically over either backend; the test proves the math and
 // the journal, the precompile proves the real-pool reserve read. Reserves live
 // ENTIRELY in the Store (no package-global state), so two concurrent tests over two
