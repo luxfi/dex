@@ -709,12 +709,22 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 			}
 		}
 
-		// Self-trade check
-		if order.User != "" && order.User == bestOrder.User {
-			oppositeTree.removeOrder(bestOrder)
-			delete(ob.Orders, bestOrder.ID)
-			ob.ordersMap.Delete(bestOrder.ID)
-			continue
+		// Self-trade prevention. Resolve BOTH orders to the canonical owner handle
+		// (selfTradeKey) instead of comparing raw User strings: a maker rebuilt from
+		// its persisted row carries the leading-8-byte folded identity, while a fresh
+		// taker carries the full 16-byte wire identity, so a raw string compare would
+		// fail to recognize two orders from the SAME account. Folding both to the
+		// persist handle makes the self-cross visible. Skip-and-cancel the self-maker
+		// leg (the existing convention): no fill is produced, so no value moves and the
+		// maker's reserve / orderuser: row stay intact (the next book rebuild restores
+		// it from its still-present row). This mirrors the place path's checkSelfTrade.
+		if tk, ok := selfTradeKey(order); ok {
+			if mk, ok2 := selfTradeKey(bestOrder); ok2 && tk == mk {
+				oppositeTree.removeOrder(bestOrder)
+				delete(ob.Orders, bestOrder.ID)
+				ob.ordersMap.Delete(bestOrder.ID)
+				continue
+			}
 		}
 
 		// Calculate trade size
@@ -1008,6 +1018,31 @@ func (ob *OrderBook) validateOrder(order *Order) error {
 	return nil
 }
 
+// selfTradeKey folds an order's identity to the canonical self-trade-prevention
+// owner handle: the leading-8-byte account fold (userToUint64) that the persisted
+// DEXOrder row canonicalizes EVERY resting order to. This is the single definition
+// of "same owner" for self-trade prevention, shared by the place path
+// (checkSelfTrade) and the marketable matcher (tryMatchImmediateLocked).
+//
+// Resolving through this fold is what makes STP robust to the persist/rebuild
+// cycle: a maker rebuilt from disk carries the truncated 8-byte identity while a
+// fresh taker carries the full 16-byte wire identity, so a raw string compare would
+// miss the self-cross. Folding BOTH to the same handle makes them compare equal.
+// The 8-byte handle is a matcher collision hint ONLY — settlement always resolves
+// the full identity via the orderuser: row — so a handle collision can at worst
+// over-prevent a trade (conservative), never misattribute value. User is preferred,
+// UserID is the fallback. ok=false means the order carries no identity (STP no-op).
+func selfTradeKey(o *Order) (uint64, bool) {
+	u := o.User
+	if u == "" {
+		u = o.UserID
+	}
+	if u == "" {
+		return 0, false
+	}
+	return userToUint64(u), true
+}
+
 func (ob *OrderBook) checkSelfTrade(order *Order) bool {
 	var oppositeTree *OrderTree
 	if order.Side == Buy {
@@ -1021,18 +1056,11 @@ func (ob *OrderBook) checkSelfTrade(order *Order) bool {
 		return false
 	}
 
-	// Get user identifiers for both orders
-	orderUser := order.User
-	if orderUser == "" {
-		orderUser = order.UserID
-	}
-
-	bestUser := bestOrder.User
-	if bestUser == "" {
-		bestUser = bestOrder.UserID
-	}
-
-	if orderUser != "" && orderUser == bestUser {
+	// Same canonical owner resolution as the marketable matcher (selfTradeKey), so
+	// place and cross agree on identity even across a persist/rebuild of the maker.
+	orderKey, ok := selfTradeKey(order)
+	bestKey, ok2 := selfTradeKey(bestOrder)
+	if ok && ok2 && orderKey == bestKey {
 		if order.Side == Buy && order.Price >= bestOrder.Price {
 			return true
 		}
