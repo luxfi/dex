@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"math/big"
@@ -18,7 +18,7 @@ import (
 //     EVM-storage namespace. Either way the D writes are part of the SAME state the
 //     block commits.
 //   - The C surface (the EVM-adapter): the taker's EVM token/native balance and the
-//     0x9999 vault pots. These cannot be written by dexcore directly (dexcore is
+//     0x9999 vault pots. These cannot be written by dex directly (dex is
 //     store-agnostic and knows nothing of EVM balances), so the router RECORDS the
 //     required C-side deltas here, and the CALLER (the precompile's 0x9999 swap Run)
 //     applies them to the EVM StateDB in the SAME Run.
@@ -33,7 +33,7 @@ import (
 // simply does not exist here.
 
 // CDeltaKind tags a recorded C-surface value move so the caller applies it to the
-// correct EVM account/pot. dexcore stays store-agnostic by naming WHAT must move,
+// correct EVM account/pot. dex stays store-agnostic by naming WHAT must move,
 // not HOW (which is EVM-specific and lives in the precompile).
 type CDeltaKind uint8
 
@@ -65,7 +65,7 @@ type CDelta struct {
 //
 // The journal is APPEND-ONLY during routing and CONSUMED once at the end of the
 // swap Run. It holds no Store reference and performs no I/O — it is a plain value
-// the router fills and the caller drains, which keeps dexcore free of any EVM
+// the router fills and the caller drains, which keeps dex free of any EVM
 // dependency and makes the C/D split auditable in one place.
 type Journal struct {
 	cDeltas []CDelta
@@ -75,7 +75,7 @@ type Journal struct {
 func NewJournal() *Journal { return &Journal{} }
 
 // recordC appends a C-surface delta. amount must be non-negative; a zero amount is
-// dropped (no move). Internal to dexcore — sources call the typed helpers below.
+// dropped (no move). Internal to dex — sources call the typed helpers below.
 func (j *Journal) recordC(kind CDeltaKind, asset AssetID, amount *big.Int) {
 	if amount == nil || amount.Sign() <= 0 {
 		return
