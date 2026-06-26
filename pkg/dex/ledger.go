@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-// Package dexcore is the SHARED, caller-agnostic deterministic core of the Lux
+// Package dex is the SHARED, caller-agnostic deterministic core of the Lux
 // DEX: the CLOB custody ledger, the integer-exact settlement of matcher fills,
 // the fail-closed maker-identity discipline, the smart-order-router across
 // on-chain liquidity sources, and the execution root. It is a pure function of
@@ -26,7 +26,7 @@
 // lifecycle, because every unit a fill removes from one account's locked is added
 // to exactly one other account's available — checked integer arithmetic, no
 // float, no silent overflow.
-package dexcore
+package dex
 
 import (
 	"encoding/binary"
@@ -35,10 +35,10 @@ import (
 	"github.com/luxfi/database"
 )
 
-// Store is the key/value surface dexcore reads and writes its state over. It is
+// Store is the key/value surface dex reads and writes its state over. It is
 // exactly database's read/write/delete + prefix-iteration contract, which both
 // homes already satisfy: dchain hands it a versiondb overlay, the precompile
-// hands it a 0x9999-EVM-storage adapter. dexcore NEVER assumes a concrete store;
+// hands it a 0x9999-EVM-storage adapter. dex NEVER assumes a concrete store;
 // the only requirements are the ones named here.
 type Store interface {
 	database.KeyValueReaderWriterDeleter
@@ -129,7 +129,7 @@ func readU64(db database.KeyValueReader, key []byte) (uint64, error) {
 		return 0, err
 	}
 	if len(v) != 8 {
-		return 0, fmt.Errorf("dexcore: corrupt ledger value len=%d", len(v))
+		return 0, fmt.Errorf("dex: corrupt ledger value len=%d", len(v))
 	}
 	return binary.BigEndian.Uint64(v), nil
 }
@@ -168,7 +168,7 @@ func CreditAvailable(db Store, user AccountID, asset AssetID, amount uint64) err
 		return err
 	}
 	if cur+amount < cur {
-		return fmt.Errorf("dexcore: available credit overflow user=%x asset=%x", user, asset)
+		return fmt.Errorf("dex: available credit overflow user=%x asset=%x", user, asset)
 	}
 	return writeU64(db, balanceLedgerKey(prefixBalance, user, asset), cur+amount)
 }
@@ -206,7 +206,7 @@ func LockFromAvailable(db Store, user AccountID, asset AssetID, amount uint64) e
 		return err
 	}
 	if cur+amount < cur {
-		return fmt.Errorf("dexcore: locked credit overflow user=%x asset=%x", user, asset)
+		return fmt.Errorf("dex: locked credit overflow user=%x asset=%x", user, asset)
 	}
 	return writeU64(db, balanceLedgerKey(prefixLocked, user, asset), cur+amount)
 }
@@ -283,7 +283,7 @@ func ReadMarketAssets(db database.KeyValueReader, poolID [32]byte) (base, quote 
 		return base, quote, false, gerr
 	}
 	if len(v) != 64 {
-		return base, quote, false, fmt.Errorf("dexcore: corrupt market assets len=%d", len(v))
+		return base, quote, false, fmt.Errorf("dex: corrupt market assets len=%d", len(v))
 	}
 	copy(base[:], v[0:32])
 	copy(quote[:], v[32:64])
@@ -326,7 +326,7 @@ func GetOrderLock(db database.KeyValueReader, poolID [32]byte, orderID uint64) (
 		return asset, 0, false, gerr
 	}
 	if len(v) != 40 {
-		return asset, 0, false, fmt.Errorf("dexcore: corrupt order lock len=%d", len(v))
+		return asset, 0, false, fmt.Errorf("dex: corrupt order lock len=%d", len(v))
 	}
 	copy(asset[:], v[0:32])
 	return asset, binary.BigEndian.Uint64(v[32:40]), true, nil
@@ -375,7 +375,7 @@ func GetOrderUser(db database.KeyValueReader, poolID [32]byte, orderID uint64) (
 		return user, false, gerr
 	}
 	if len(v) != len(user) {
-		return user, false, fmt.Errorf("dexcore: corrupt order user len=%d", len(v))
+		return user, false, fmt.Errorf("dex: corrupt order user len=%d", len(v))
 	}
 	copy(user[:], v)
 	return user, true, nil

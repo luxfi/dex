@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/luxfi/dex/pkg/dexcore"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -18,7 +18,7 @@ import (
 // main.go is the thin transport that POSTs these frames over HTTP.
 //
 // THE IDENTITY RULE this file enforces (and the reason this seeder is SAFE against a
-// shared cluster, with no guard needed): every asset handle is the dexcore CANONICAL
+// shared cluster, with no guard needed): every asset handle is the dex CANONICAL
 // AssetID — DeriveAssetID(networkID, C-chainID, kind, canonicalRef) — the SAME
 // consensus-native identity primitive the on-chain resolver computes. It is NEVER an
 // ascii-of-symbol id (the synthetic form, e.g. 0x4c5558 = "LUX", that bricked the
@@ -38,14 +38,14 @@ var poolIDDomain = []byte("lux:dex:dexseed:poolid:v1")
 // AssetID the chain keys by. It deliberately carries NO ticker/symbol — identity is
 // the derived id, never a string.
 type assetSpec struct {
-	Kind dexcore.AssetKind
+	Kind dex.AssetKind
 	Ref  []byte
 }
 
 // nativeSpec is the canonical EVM_NATIVE (LUX) asset spec: the EVM zero-address
 // native marker. Its derived id is the chain's own coin under the bound network.
 func nativeSpec() assetSpec {
-	return assetSpec{Kind: dexcore.AssetKindEVMNative, Ref: dexcore.EVMNativeMarker}
+	return assetSpec{Kind: dex.AssetKindEVMNative, Ref: dex.EVMNativeMarker}
 }
 
 // erc20Spec builds an ERC20 asset spec from a 20-byte token contract address. The
@@ -53,18 +53,18 @@ func nativeSpec() assetSpec {
 func erc20Spec(addr []byte) assetSpec {
 	ref := make([]byte, len(addr))
 	copy(ref, addr)
-	return assetSpec{Kind: dexcore.AssetKindERC20, Ref: ref}
+	return assetSpec{Kind: dex.AssetKindERC20, Ref: ref}
 }
 
 // resolveID derives the canonical, consensus-native 32-byte AssetID for this spec
 // under (networkID, cChainID). It is the SINGLE admission gate in the seeder: a
 // synthetic/malformed ref (wrong length, zero ERC-20 address, non-marker native ref,
-// invalid kind) is REFUSED here by dexcore.DeriveAssetID — so no frame is ever built,
+// invalid kind) is REFUSED here by dex.DeriveAssetID — so no frame is ever built,
 // let alone sent, for an asset that is not a well-formed real on-chain identity. This
 // is byte-identical to what the chain's resolver derives, so a market this seeder
 // opens binds the SAME id the chain admits.
 func (a assetSpec) resolveID(networkID uint32, cChainID ids.ID) (ids.ID, error) {
-	id, err := dexcore.DeriveAssetID(networkID, cChainID, a.Kind, a.Ref)
+	id, err := dex.DeriveAssetID(networkID, cChainID, a.Kind, a.Ref)
 	if err != nil {
 		return ids.Empty, fmt.Errorf("resolve %s asset id: %w", a.Kind, err)
 	}
@@ -93,7 +93,7 @@ func poolIDFor(baseID, quoteID ids.ID) [32]byte {
 
 // writeLenPrefixed writes an 8-byte big-endian length followed by b, so the fold is
 // injective (no two distinct field tuples share a preimage) — the same discipline as
-// dexcore's assetFolder.
+// dex's assetFolder.
 func writeLenPrefixed(h interface{ Write([]byte) (int, error) }, b []byte) {
 	var lp [8]byte
 	lp[0] = byte(len(b) >> 56)
