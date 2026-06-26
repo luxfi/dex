@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"testing"
@@ -11,10 +11,10 @@ import (
 	"github.com/luxfi/dex/pkg/lx"
 )
 
-// harness_test.go is the dexcore proof harness. It uses REAL asset ids — the
+// harness_test.go is the dex proof harness. It uses REAL asset ids — the
 // left-pad of a real 20-byte EVM token address (the production assetID), NEVER a
 // synthetic ASCII-ticker handle. The Store is an in-memory database that satisfies
-// dexcore.Store exactly as the precompile's 0x9999-storage adapter and dchain's
+// dex.Store exactly as the precompile's 0x9999-storage adapter and dchain's
 // versiondb overlay do, so the logic proven here is the identical logic both homes
 // run.
 
@@ -60,7 +60,7 @@ func market(tag byte) [32]byte {
 	return p
 }
 
-// newStore returns a fresh in-memory dexcore.Store.
+// newStore returns a fresh in-memory dex.Store.
 func newStore() Store { return memdb.New() }
 
 // seedMarket opens a market binding (base, quote) and returns its pool id.

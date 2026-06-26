@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/luxfi/dex/pkg/dexcore"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -16,7 +16,7 @@ import (
 // ids under. It is the same id the live devnet validators serve.
 const devnetCChain = "Bm8X7THQtS2txLrQWTDXN8a4JDuhP4KGybUE754LLSiVFLQ7v"
 
-// Golden AssetID vectors — pinned bytes the dexcore identity primitive MUST produce for
+// Golden AssetID vectors — pinned bytes the dex identity primitive MUST produce for
 // fixed (networkID, C-chainID, kind, ref) tuples. These are NOT recomputed from the
 // same call under test; they are CONSTANTS frozen here, so a drift in DeriveAssetID's
 // fold (domain tag, length-prefix discipline, field order) breaks this test. The C-Chain
@@ -51,7 +51,7 @@ func erc20Addr(lastByte byte) []byte {
 func TestGoldenAssetIDs(t *testing.T) {
 	cid := mustCChain(t)
 
-	natID, err := dexcore.DeriveAssetID(3, cid, dexcore.AssetKindEVMNative, dexcore.EVMNativeMarker)
+	natID, err := dex.DeriveAssetID(3, cid, dex.AssetKindEVMNative, dex.EVMNativeMarker)
 	if err != nil {
 		t.Fatalf("derive native id: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestGoldenAssetIDs(t *testing.T) {
 		t.Fatalf("native(3) AssetID drift:\n got  %s\n want %s", got, goldenNativeID3)
 	}
 
-	ercID, err := dexcore.DeriveAssetID(3, cid, dexcore.AssetKindERC20, erc20Addr(0x01))
+	ercID, err := dex.DeriveAssetID(3, cid, dex.AssetKindERC20, erc20Addr(0x01))
 	if err != nil {
 		t.Fatalf("derive erc20 id: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestResolveID_RejectsSynthetic(t *testing.T) {
 			// THE BRICKING FORM: an ascii-of-symbol "address" — "LUX" left in a byte
 			// slice that is NOT a 20-byte token address.
 			name: "ascii-ticker-LUX (not 20 bytes)",
-			spec: assetSpec{Kind: dexcore.AssetKindERC20, Ref: []byte("LUX")},
+			spec: assetSpec{Kind: dex.AssetKindERC20, Ref: []byte("LUX")},
 		},
 		{
 			// An ascii ticker right-shaped to 20 bytes is still NOT a real token, but the
@@ -119,19 +119,19 @@ func TestResolveID_RejectsSynthetic(t *testing.T) {
 			// here and rely on the chain's EXTCODESIZE gate for shaped-but-fake. The
 			// all-zero ERC-20 address (== the native marker) MUST be refused locally.
 			name: "ERC20 zero address (== native marker, not a token)",
-			spec: assetSpec{Kind: dexcore.AssetKindERC20, Ref: make([]byte, 20)},
+			spec: assetSpec{Kind: dex.AssetKindERC20, Ref: make([]byte, 20)},
 		},
 		{
 			name: "ERC20 wrong length (33 bytes)",
-			spec: assetSpec{Kind: dexcore.AssetKindERC20, Ref: make([]byte, 33)},
+			spec: assetSpec{Kind: dex.AssetKindERC20, Ref: make([]byte, 33)},
 		},
 		{
 			name: "invalid kind (0)",
-			spec: assetSpec{Kind: dexcore.AssetKindInvalid, Ref: erc20Addr(0x01)},
+			spec: assetSpec{Kind: dex.AssetKindInvalid, Ref: erc20Addr(0x01)},
 		},
 		{
 			name: "EVM_NATIVE with a non-marker ref",
-			spec: assetSpec{Kind: dexcore.AssetKindEVMNative, Ref: erc20Addr(0x01)},
+			spec: assetSpec{Kind: dex.AssetKindEVMNative, Ref: erc20Addr(0x01)},
 		},
 	}
 	for _, tc := range cases {
@@ -295,7 +295,7 @@ func TestRealMarketFrames(t *testing.T) {
 // synthetic quote ref — no frames are returned for a market the chain would refuse.
 func TestRealMarketFrames_RejectsSyntheticQuote(t *testing.T) {
 	cid := mustCChain(t)
-	syntheticQuote := assetSpec{Kind: dexcore.AssetKindERC20, Ref: []byte("LUSD")} // ascii ticker, not 20 bytes
+	syntheticQuote := assetSpec{Kind: dex.AssetKindERC20, Ref: []byte("LUSD")} // ascii ticker, not 20 bytes
 	open, dep, place, _, err := realMarketFrames(3, cid, nativeSpec(), syntheticQuote, "maker", 1.0, 1.0, 3, [32]byte{})
 	if err == nil {
 		t.Fatal("realMarketFrames MUST reject a synthetic (ascii-ticker) quote ref")

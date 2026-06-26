@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"encoding/binary"
@@ -107,7 +107,7 @@ func ReadBookWatermark(db database.KeyValueReader, poolID [32]byte) (uint64, err
 		return 0, err
 	}
 	if len(v) != 8 {
-		return 0, fmt.Errorf("dexcore: corrupt book watermark len=%d", len(v))
+		return 0, fmt.Errorf("dex: corrupt book watermark len=%d", len(v))
 	}
 	return binary.BigEndian.Uint64(v), nil
 }
@@ -150,7 +150,7 @@ func RebuildBook(db database.Iteratee, poolID [32]byte, symbol string) (*lx.Orde
 	for it.Next() {
 		row, ok := lx.DecodeRow(it.Value())
 		if !ok {
-			return nil, fmt.Errorf("dexcore: corrupt order row under %x (len %d)", poolID[:8], len(it.Value()))
+			return nil, fmt.Errorf("dex: corrupt order row under %x (len %d)", poolID[:8], len(it.Value()))
 		}
 		rows = append(rows, row)
 	}

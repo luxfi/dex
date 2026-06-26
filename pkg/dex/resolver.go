@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"errors"
@@ -12,11 +12,11 @@ import (
 // resolver.go is the ADMISSION port of the value path, in the owner's PERMISSIONLESS
 // PUBLIC model: the abstraction the 0x9999 cEVM router depends on to ADMIT a market (or
 // swap) over an asset by PROVING its canonical identity — NOT by checking it against an
-// allowlist. dexcore (the lowest shared leaf) defines the port; the chains/dexvm
+// allowlist. dex (the lowest shared leaf) defines the port; the chains/dexvm
 // AssetResolver satisfies it; the EVM plugin boot injects a value into the precompile env.
 // This is dependency inversion: the value path names the property it needs ("what is the
 // canonical id of this real asset, and is it a well-formed real reference on MY network?")
-// and the resolver answers it, WITHOUT dexcore or the precompile importing the resolver
+// and the resolver answers it, WITHOUT dex or the precompile importing the resolver
 // package (no upward dependency, no cycle).
 //
 // PERMISSIONLESS + PUBLIC (the protocol rule). An asset trades IFF its canonical identity
@@ -105,14 +105,14 @@ var (
 	// binding, an explicitly DISABLED asset (a per-asset deny or emergency halt), or a
 	// synthetic-fake reference. It is NOT "not in an allowlist": a well-formed real
 	// reference on the bound network always resolves. The whole swap/market-open reverts.
-	ErrAssetNotResolved = errors.New("dexcore: asset canonical identity does not resolve on this network (malformed, wrong network/chain, disabled, or synthetic)")
+	ErrAssetNotResolved = errors.New("dex: asset canonical identity does not resolve on this network (malformed, wrong network/chain, disabled, or synthetic)")
 
 	// ErrNoAssetResolver is returned when a market-open/swap requires real-asset admission
 	// but no resolver was injected. FAIL-CLOSED: with the value path live and no resolver
 	// wired, it refuses rather than admitting a left-padded address as if it were a real,
 	// network-bound asset. (A resolver is injected at boot on any node that runs the value
 	// path; a paper/non-value node never reaches the value path.)
-	ErrNoAssetResolver = errors.New("dexcore: no asset resolver configured (refusing real-asset market/swap; fail-closed)")
+	ErrNoAssetResolver = errors.New("dex: no asset resolver configured (refusing real-asset market/swap; fail-closed)")
 
 	// ErrAssetNotOnChain is the AUTHORITATIVE reality refusal: an asset RESOLVES (its
 	// canonical identity is well-formed on this network) but is NOT backed by live on-chain
@@ -120,14 +120,14 @@ var (
 	// right now). This is the live-state form of "synthetic asset": a fabricated reference
 	// resolves to a well-formed id but carries no code, so it is refused here. The
 	// swap/market-open reverts BEFORE any debit.
-	ErrAssetNotOnChain = errors.New("dexcore: asset has no live on-chain backing (token address has no contract code); refusing market/swap")
+	ErrAssetNotOnChain = errors.New("dex: asset has no live on-chain backing (token address has no contract code); refusing market/swap")
 
 	// ErrNoOnChainVerifier is returned when real-asset admission requires the live on-
 	// chain reality check but no verifier was injected. FAIL-CLOSED: the value path will
 	// not admit an asset it cannot prove is backed by live code, exactly as it will not
 	// admit one it cannot resolve. (The precompile injects a code-size-backed verifier on
 	// every value-path market open; a caller that cannot supply one must not trade value.)
-	ErrNoOnChainVerifier = errors.New("dexcore: no on-chain asset verifier configured (refusing real-asset market/swap; fail-closed)")
+	ErrNoOnChainVerifier = errors.New("dex: no on-chain asset verifier configured (refusing real-asset market/swap; fail-closed)")
 )
 
 // RequireRealOnChain proves an asset is backed by live on-chain code via v and maps any

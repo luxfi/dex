@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"encoding/binary"
@@ -15,7 +15,7 @@ import (
 // binary-Merkle construction the standalone D-Chain uses (vms/xvm execution_root
 // lineage), now derived over the in-process state a swap leaves behind. In the
 // cEVM home this is subsumed by the EVM block state root (every D write is a 0x9999
-// storage write, so it is already committed by the EVM trie). dexcore still exposes
+// storage write, so it is already committed by the EVM trie). dex still exposes
 // a DEX-scoped root so a test (and a cross-validator diff) can compare the exact
 // resulting DEX state independent of the surrounding EVM trie, and so the dchain
 // home keeps an explicit DEX execution root.

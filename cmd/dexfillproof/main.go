@@ -8,7 +8,7 @@
 // real fill with CONSERVED balances.
 //
 // It needs NO EVM key and NO deployed ERC-20: every asset is a canonical
-// dexcore.DeriveAssetID over a REAL on-chain reference (EVM_NATIVE LUX on the
+// dex.DeriveAssetID over a REAL on-chain reference (EVM_NATIVE LUX on the
 // C-Chain + the real UTXO LUX assetID on the X-Chain). Neither is an
 // ascii-of-symbol id, so there is zero synthetic poison — the same structural
 // safety as cmd/dexseed.
@@ -37,7 +37,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/luxfi/dex/pkg/dexcore"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -137,8 +137,8 @@ func getMarkets(base string) getMarketsResp {
 	return r
 }
 
-func mustDerive(networkID uint32, chain ids.ID, kind dexcore.AssetKind, ref []byte, what string) ids.ID {
-	id, err := dexcore.DeriveAssetID(networkID, chain, kind, ref)
+func mustDerive(networkID uint32, chain ids.ID, kind dex.AssetKind, ref []byte, what string) ids.ID {
+	id, err := dex.DeriveAssetID(networkID, chain, kind, ref)
 	if err != nil {
 		die("derive %s: %v", what, err)
 	}
@@ -175,8 +175,8 @@ func main() {
 	}
 
 	// REAL assets, canonical derivation, zero synthetic content.
-	baseID := mustDerive(uint32(*networkID), cChain, dexcore.AssetKindEVMNative, dexcore.EVMNativeMarker, "base EVM_NATIVE LUX")
-	quoteID := mustDerive(uint32(*networkID), xChain, dexcore.AssetKindUTXO, luxAsset[:], "quote UTXO LUX")
+	baseID := mustDerive(uint32(*networkID), cChain, dex.AssetKindEVMNative, dex.EVMNativeMarker, "base EVM_NATIVE LUX")
+	quoteID := mustDerive(uint32(*networkID), xChain, dex.AssetKindUTXO, luxAsset[:], "quote UTXO LUX")
 	if baseID == quoteID {
 		die("base==quote (not a market)")
 	}
