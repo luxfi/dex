@@ -6,7 +6,7 @@ Official Hummingbot connectors for [LX DEX](https://dex.lux.network).
 
 ### 1. LX DEX Spot (`lx_dex`)
 
-Central Limit Order Book (CLOB) connector for spot trading.
+Central Limit Order Book (OrderBook) connector for spot trading.
 
 **Features:**
 - Limit and market orders
@@ -60,7 +60,7 @@ Enter your wallet address: 0x...
 
 ## Strategies
 
-### Pure Market Making (CLOB)
+### Pure Market Making (OrderBook)
 ```yaml
 strategy: pure_market_making
 exchange: lx_dex

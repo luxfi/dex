@@ -23,10 +23,10 @@ import {
   type Ticker,
   type Trade,
 } from '../types.js';
-import { BaseAdapter, clobCapabilities, ammCapabilities, type VenueCapabilities } from './base.js';
+import { BaseAdapter, orderBookCapabilities, ammCapabilities, type VenueCapabilities } from './base.js';
 
 // =============================================================================
-// LX DEX Adapter (CLOB)
+// LX DEX Adapter (OrderBook)
 // =============================================================================
 
 export class LxDexAdapter extends BaseAdapter {
@@ -40,7 +40,7 @@ export class LxDexAdapter extends BaseAdapter {
     private readonly config: NativeVenueConfig,
   ) {
     super();
-    this.capabilities = clobCapabilities();
+    this.capabilities = orderBookCapabilities();
   }
 
   async connect(): Promise<void> {

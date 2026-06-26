@@ -9,7 +9,7 @@ Official Hummingbot Gateway connector for [LX](https://dex.lux.network), the ult
   - **Router**: DEX aggregation with optimal swap routing
   - **AMM**: Traditional xy=k constant product liquidity pools
   - **CLMM**: Concentrated liquidity market maker (Uniswap V3-style)
-  - **CLOB**: Central limit order book with on-chain settlement
+  - **OrderBook**: Central limit order book with on-chain settlement
 - **Real-Time Updates**: WebSocket subscriptions for order book, trades, and order status
 - **Cross-Chain**: Native support for Lux C-Chain and bridged assets
 

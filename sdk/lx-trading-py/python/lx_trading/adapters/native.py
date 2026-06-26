@@ -30,12 +30,12 @@ from lx_trading.orderbook import Orderbook
 
 
 class LxDexAdapter(VenueAdapter):
-    """LX DEX adapter for CLOB trading."""
+    """LX DEX adapter for OrderBook trading."""
 
     def __init__(self, name: str, config: NativeVenueConfig):
         self._name = name
         self._config = config
-        self._capabilities = VenueCapabilities.clob()
+        self._capabilities = VenueCapabilities.orderBook()
         self._connected = False
         self._latency: Optional[int] = None
         self._session: Optional[aiohttp.ClientSession] = None

@@ -195,7 +195,7 @@ print(f"Daily PnL: {risk.daily_pnl}")
 ## Supported Venues
 
 ### Native
-- LX DEX (CLOB)
+- LX DEX (OrderBook)
 - LX AMM
 
 ### CCXT (100+ exchanges)

@@ -41,7 +41,7 @@ export interface VenueCapabilities {
   supportedPairs: Set<string>;
 }
 
-export function clobCapabilities(): VenueCapabilities {
+export function orderBookCapabilities(): VenueCapabilities {
   return {
     limitOrders: true,
     marketOrders: true,

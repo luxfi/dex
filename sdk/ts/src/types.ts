@@ -46,7 +46,7 @@ export enum OrderStatus {
 }
 
 /**
- * A single market on the CLOB. `id` is the 32-byte pool id used by the engine;
+ * A single market on the OrderBook. `id` is the 32-byte pool id used by the engine;
  * `base`/`quote` are the human symbols (e.g. `LUX`, `LUSD`).
  */
 export interface Market {
