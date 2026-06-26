@@ -1,0 +1,41 @@
+# hanzozt overlay tunneler — OPT-IN, for when the boxes CANNOT reach each other
+# directly (NAT / different sites). On a direct 2.5 GbE link DO NOT use this:
+# the overlay adds mTLS + encapsulation overhead and an extra hop, which lowers
+# throughput and raises latency. Direct LAN (the default in ../README.md) is what
+# you want for the benchmark. See ./README.md for the controller-side recipe.
+#
+# Run it ALONGSIDE the venue stack:
+#   docker compose -f ../compose.gen.yml -f overlay/compose.hanzozt.yml up -d
+#
+# Modes (set ZT_MODE):
+#   run-host   on each VENUE box — binds the box's Ziti service to local venues
+#              (no tun device, no privilege needed). DEFAULT.
+#   run-proxy  on the BENCH/client box — opens local TCP ports forwarding to the
+#              overlay services; the bench then dials 127.0.0.1:<proxy-port>.
+#   run        full tun mode (intercept overlay DNS). Needs /dev/net/tun +
+#              NET_ADMIN (uncomment below). Often unavailable under WSL.
+#
+# Identity is OWNER-SUPPLIED (only you have your controller + enrollment JWTs):
+#   ZITI_ENROLL_TOKEN  one-time enrollment JWT (first boot), or
+#   ZITI_IDENTITY_JSON pre-enrolled identity JSON.
+# The enrolled identity persists in the ./zt-identity volume.
+
+services:
+  zt:
+    image: ${ZT_IMAGE:-hanzozt/zt-edge-tunnel:latest}   # PIN a real tag in .env
+    container_name: dex-zt
+    command: ["${ZT_MODE:-run-host}"]
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      ZITI_IDENTITY_BASENAME: ${ZT_IDENTITY_BASENAME:-dex-node}
+      ZITI_IDENTITY_DIR: /zt-edge-tunnel
+      # supply ONE of these (env or .env):
+      ZITI_ENROLL_TOKEN: ${ZT_ENROLL_TOKEN:-}
+      ZITI_IDENTITY_JSON: ${ZT_IDENTITY_JSON:-}
+    volumes:
+      - ./zt-identity:/zt-edge-tunnel
+    # --- only for ZT_MODE=run (full tun intercept); harmless to leave commented
+    #     for run-host / run-proxy, which need neither: ---
+    # cap_add: [NET_ADMIN]
+    # devices: ["/dev/net/tun:/dev/net/tun"]

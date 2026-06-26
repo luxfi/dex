@@ -1,0 +1,5 @@
+# generated + local-only — never commit
+compose.gen.yml
+.env
+overlay/zt-identity/
+*.jwt
