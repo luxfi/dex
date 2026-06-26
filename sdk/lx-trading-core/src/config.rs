@@ -206,7 +206,7 @@ impl Default for RiskConfig {
 /// Native LX venue configuration (lx_dex or lx_amm)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeVenueConfig {
-    /// Venue type: "dex" (CLOB) or "amm" (liquidity pools)
+    /// Venue type: "dex" (OrderBook) or "amm" (liquidity pools)
     #[serde(default = "default_dex_type")]
     pub venue_type: String,
 
@@ -255,7 +255,7 @@ pub struct NativeVenueConfig {
 }
 
 impl NativeVenueConfig {
-    /// Create LX DEX (CLOB) config
+    /// Create LX DEX (OrderBook) config
     pub fn lx_dex(api_url: impl Into<String>) -> Self {
         Self {
             venue_type: "dex".into(),

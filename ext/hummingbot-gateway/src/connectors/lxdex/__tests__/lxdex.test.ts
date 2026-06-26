@@ -50,7 +50,7 @@ describe('LXDex Connector', () => {
       expect(config.tradingTypes).toContain('ROUTER');
       expect(config.tradingTypes).toContain('AMM');
       expect(config.tradingTypes).toContain('CLMM');
-      expect(config.tradingTypes).toContain('CLOB');
+      expect(config.tradingTypes).toContain('OrderBook');
     });
   });
 

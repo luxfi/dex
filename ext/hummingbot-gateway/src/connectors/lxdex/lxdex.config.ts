@@ -2,7 +2,7 @@
  * LX Gateway Connector Configuration
  *
  * Configuration interface and loader for the LX connector.
- * Supports Router, AMM, CLMM, and CLOB trading types.
+ * Supports Router, AMM, CLMM, and OrderBook trading types.
  */
 
 export interface AvailableNetworks {
@@ -46,7 +46,7 @@ export const LXDexConfigDefaults: LXDexConfig = {
   availableNetworks: [
     { chain: 'lux', networks: ['mainnet', 'testnet'] },
   ],
-  tradingTypes: ['ROUTER', 'AMM', 'CLMM', 'CLOB'],
+  tradingTypes: ['ROUTER', 'AMM', 'CLMM', 'OrderBook'],
   slippagePct: 0.5,
   maxHops: 4,
   apiEndpoint: 'https://api.dex.lux.network',

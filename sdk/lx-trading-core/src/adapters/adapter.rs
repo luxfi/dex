@@ -44,8 +44,8 @@ pub struct VenueCapabilities {
 }
 
 impl VenueCapabilities {
-    /// Create capabilities for a typical CLOB/orderbook venue
-    pub fn clob() -> Self {
+    /// Create capabilities for a typical OrderBook/orderbook venue
+    pub fn orderBook() -> Self {
         Self {
             limit_orders: true,
             market_orders: true,
@@ -86,7 +86,7 @@ impl VenueCapabilities {
         }
     }
 
-    /// Create capabilities for a hybrid venue (CLOB + AMM)
+    /// Create capabilities for a hybrid venue (OrderBook + AMM)
     pub fn hybrid() -> Self {
         Self {
             limit_orders: true,
@@ -112,7 +112,7 @@ impl VenueCapabilities {
 ///
 /// This trait provides a consistent API regardless of whether the underlying
 /// venue is:
-/// - Native LX DEX (CLOB)
+/// - Native LX DEX (OrderBook)
 /// - Native LX AMM (liquidity pools)
 /// - CCXT exchange (Binance, MEXC, OKX, etc.)
 /// - Hummingbot Gateway connector

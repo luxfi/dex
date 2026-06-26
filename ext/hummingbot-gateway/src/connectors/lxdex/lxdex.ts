@@ -7,7 +7,7 @@
  * Features:
  * - Ultra-low latency order matching (<100ns)
  * - Multiple orderbook backends (Pure Go, C++, GPU, FPGA)
- * - Central Limit Order Book (CLOB) with AMM integration
+ * - Central Limit Order Book (OrderBook) with AMM integration
  * - Concentrated liquidity market making (CLMM)
  * - Cross-chain bridge support via Warp messaging
  */

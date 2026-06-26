@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 //
-// ZAP path — the binary CLOB wire (`pkg/zapwire`).
+// ZAP path — the binary OrderBook wire (`pkg/zapwire`).
 //
 // ZAP is the low-latency off-chain twin of the on-chain LXPool path: a fixed,
 // frozen byte layout the matcher and the d-chain ledger exchange. Frame sizes
@@ -34,12 +34,12 @@ export const WIRE = {
 
 /** ZAP RPC method names (pkg/zapwire). */
 export const METHOD = {
-  EnsureMarket: 'clob_ensure_market',
-  Place: 'clob_place',
-  Cancel: 'clob_cancel',
-  Submit: 'clob_submit',
-  Deposit: 'clob_deposit',
-  Withdraw: 'clob_withdraw',
+  EnsureMarket: 'orderBook_ensure_market',
+  Place: 'orderBook_place',
+  Cancel: 'orderBook_cancel',
+  Submit: 'orderBook_submit',
+  Deposit: 'orderBook_deposit',
+  Withdraw: 'orderBook_withdraw',
 } as const
 
 export type ZapMethod = (typeof METHOD)[keyof typeof METHOD]
@@ -53,7 +53,7 @@ export interface ZapTransport {
 }
 
 /**
- * Binary CLOB client. Encodes requests to the frozen wire, decodes responses.
+ * Binary OrderBook client. Encodes requests to the frozen wire, decodes responses.
  * The encode/decode bodies are intentionally left for the implementation pass;
  * this scaffold pins the contract, sizes, and method names.
  */
