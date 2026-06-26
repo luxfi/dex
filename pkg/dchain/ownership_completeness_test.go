@@ -75,8 +75,9 @@ func assertClean(t *testing.T, before, after map[acctAsset]balPair, parties part
 	}
 }
 
-// uk is a local userKey16 alias to keep plants terse.
-func uk(s string) userKey { return userKey16(s) }
+// uk resolves a human name to the real key-derived 16-byte account the gate and
+// ledger key by (so plants debit/credit the SAME account real settlement used).
+func uk(t *testing.T, s string) userKey { return acctFor(t, s).account }
 
 // restMakerCross is the common single-maker / single-taker cross fixture: victim
 // (maker) rests a SELL of size LUX @ price, a legit taker crosses it fully. Returns
@@ -114,8 +115,8 @@ func TestOwnershipHarness_MakerProceedsToWrongAccount(t *testing.T) {
 
 	// Plant: maker's 50-LUSD proceeds re-routed to thirdParty (a non-party). Conserving.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(maker), assetLUSD, uk(thirdParty), assetLUSD, 50)
-	wantU, wantA := uk(thirdParty), assetLUSD
+	moveControlled(vuln, uk(t, maker), assetLUSD, uk(t, thirdParty), assetLUSD, 50)
+	wantU, wantA := uk(t, thirdParty), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "maker proceeds -> wrong account")
 }
 
@@ -135,8 +136,8 @@ func TestOwnershipHarness_MakerProceedsToExtraAccount(t *testing.T) {
 	parties := oc.parties(t, vm, blk)
 
 	vuln := cloneBalances(after)
-	creditControlled(vuln, uk(thirdParty), assetLUSD, 50) // extra, unexplained
-	wantU, wantA := uk(thirdParty), assetLUSD
+	creditControlled(vuln, uk(t, thirdParty), assetLUSD, 50) // extra, unexplained
+	wantU, wantA := uk(t, thirdParty), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "maker proceeds -> extra account")
 }
 
@@ -159,8 +160,8 @@ func TestOwnershipHarness_TakerProceedsMisrouted(t *testing.T) {
 
 	// Plant: taker's 10-LUX proceeds re-routed to thirdParty. Conserving.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(taker), assetLUX, uk(thirdParty), assetLUX, 10)
-	wantU, wantA := uk(thirdParty), assetLUX
+	moveControlled(vuln, uk(t, taker), assetLUX, uk(t, thirdParty), assetLUX, 10)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "taker proceeds -> wrong account")
 }
 
@@ -182,7 +183,7 @@ func TestOwnershipHarness_CancelRefundToNonOwner(t *testing.T) {
 	orderID := blockDeterministicID(pblk.height, 0)
 
 	oc := newOwnershipChecker(t, vm)
-	cblk := addBlock(t, vm, cancelPoolTx(t, pool, orderID))
+	cblk := addBlock(t, vm, cancelPoolTx(t, pool, orderID, owner))
 
 	before := oc.before
 	after := ownershipSnapshot(t, vm)
@@ -193,8 +194,8 @@ func TestOwnershipHarness_CancelRefundToNonOwner(t *testing.T) {
 	// landing on thirdParty instead: thirdParty's controlled LUX rises, owner's falls.
 	// Conserving. thirdParty is not the order's owner, so the gate must fire.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(owner), assetLUX, uk(thirdParty), assetLUX, 10)
-	wantU, wantA := uk(thirdParty), assetLUX
+	moveControlled(vuln, uk(t, owner), assetLUX, uk(t, thirdParty), assetLUX, 10)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "cancel refund -> non-owner")
 }
 
@@ -221,8 +222,8 @@ func TestOwnershipHarness_WithdrawCreditsNonWithdrawer(t *testing.T) {
 	// The withdrawer IS a party. Plant a credit to thirdParty (modeling a withdraw
 	// that, instead of removing value, mis-credits a non-withdrawer). Gate must fire.
 	vuln := cloneBalances(after)
-	creditControlled(vuln, uk(thirdParty), assetLUX, 400)
-	wantU, wantA := uk(thirdParty), assetLUX
+	creditControlled(vuln, uk(t, thirdParty), assetLUX, 400)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "withdraw credits non-withdrawer")
 }
 
@@ -244,14 +245,14 @@ func TestOwnershipHarness_DeltaForAccountWithNoEvent(t *testing.T) {
 	parties := oc.parties(t, vm, blk)
 
 	// Sanity: thirdParty is genuinely not a party in any asset.
-	if parties.has(uk(thirdParty), assetLUX) || parties.has(uk(thirdParty), assetLUSD) {
+	if parties.has(uk(t, thirdParty), assetLUX) || parties.has(uk(t, thirdParty), assetLUSD) {
 		t.Fatal("test precondition broken: thirdParty wrongly in the party set")
 	}
 
 	// Plant: a bare delta on thirdParty in BOTH assets (no event references it).
 	vuln := cloneBalances(after)
-	creditControlled(vuln, uk(thirdParty), assetLUX, 1)
-	wantU, wantA := uk(thirdParty), assetLUX
+	creditControlled(vuln, uk(t, thirdParty), assetLUX, 1)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "delta for account with no event")
 }
 
@@ -292,16 +293,16 @@ func TestOwnershipHarness_MultiMakerOneMisattributed(t *testing.T) {
 	parties := oc.parties(t, vm, blk)
 
 	// Both makers must be parties (resolved through the block's two trade rows).
-	if !parties.has(uk(maker1), assetLUSD) || !parties.has(uk(maker2), assetLUSD) {
+	if !parties.has(uk(t, maker1), assetLUSD) || !parties.has(uk(t, maker2), assetLUSD) {
 		t.Fatalf("multi-maker party set missing a maker: m1=%v m2=%v",
-			parties.has(uk(maker1), assetLUSD), parties.has(uk(maker2), assetLUSD))
+			parties.has(uk(t, maker1), assetLUSD), parties.has(uk(t, maker2), assetLUSD))
 	}
 	assertClean(t, before, after, parties, "honest multi-maker cross")
 
 	// Plant: maker2's 50-LUSD leg re-routed to thirdParty. Conserving.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(maker2), assetLUSD, uk(thirdParty), assetLUSD, 50)
-	wantU, wantA := uk(thirdParty), assetLUSD
+	moveControlled(vuln, uk(t, maker2), assetLUSD, uk(t, thirdParty), assetLUSD, 50)
+	wantU, wantA := uk(t, thirdParty), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "multi-maker: one maker mis-attributed")
 }
 
@@ -350,12 +351,12 @@ func TestOwnershipHarness_PartialFillMakerAcrossBlocks(t *testing.T) {
 
 	// The maker (resting across blocks) MUST be resolved to its full account as a
 	// party of this cross — from the pre-block orderuser: snapshot.
-	if !parties.has(uk(maker), assetLUSD) {
+	if !parties.has(uk(t, maker), assetLUSD) {
 		t.Fatal("HARNESS GAP: cross-block resting maker not resolved to a party (orderuser: pre-snapshot miss)")
 	}
 	// And the 8-byte fold of the maker is NOT separately admitted.
 	folded := string([]byte{0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC})
-	if parties.has(uk(folded), assetLUSD) {
+	if parties.has(uk(t, folded), assetLUSD) {
 		t.Fatal("party set wrongly admitted the maker's 8-byte fold as a distinct party")
 	}
 	assertClean(t, before, after, parties, "honest cross-block partial fill")
@@ -363,8 +364,8 @@ func TestOwnershipHarness_PartialFillMakerAcrossBlocks(t *testing.T) {
 	// Plant: this cross's maker leg (50 LUSD) re-routed to the 8-byte fold (the exact
 	// theft a fold-settlement would produce). Conserving. The fold is NOT a party.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(maker), assetLUSD, uk(folded), assetLUSD, 50)
-	wantU, wantA := uk(folded), assetLUSD
+	moveControlled(vuln, uk(t, maker), assetLUSD, uk(t, folded), assetLUSD, 50)
+	wantU, wantA := uk(t, folded), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "cross-block maker leg -> 8-byte fold")
 }
 
@@ -394,14 +395,14 @@ func TestOwnershipHarness_NoFeeSkimAndFeeRecipientWouldFire(t *testing.T) {
 	assertClean(t, before, after, parties, "honest cross (no fee)")
 
 	feeRecipient := string([]byte{0xfe, 0xe0, 0xfe, 0xe0, 0xfe, 0xe0, 0xfe, 0xe0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
-	if parties.has(uk(feeRecipient), assetLUSD) {
+	if parties.has(uk(t, feeRecipient), assetLUSD) {
 		t.Fatal("a fee recipient is wrongly already a party (harness over-permits)")
 	}
 	// Plant a fee skim: 1 LUSD diverted from the maker's proceeds to a fee recipient.
 	// Conserving (maker 49, fee 1). The fee recipient is NOT a party -> gate fires.
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(maker), assetLUSD, uk(feeRecipient), assetLUSD, 1)
-	wantU, wantA := uk(feeRecipient), assetLUSD
+	moveControlled(vuln, uk(t, maker), assetLUSD, uk(t, feeRecipient), assetLUSD, 1)
+	wantU, wantA := uk(t, feeRecipient), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "fee skim to non-party recipient")
 }
 
@@ -441,9 +442,9 @@ func TestOwnershipHarness_SelfTradeHandled(t *testing.T) {
 
 	// `self` is a party in both assets regardless of whether the cross filled or was
 	// self-trade-rejected (it is the taker; and, if filled, also the maker).
-	if !parties.has(uk(self), assetLUX) || !parties.has(uk(self), assetLUSD) {
+	if !parties.has(uk(t, self), assetLUX) || !parties.has(uk(t, self), assetLUSD) {
 		t.Fatalf("self-trade: self not a party in both assets (lux=%v lusd=%v)",
-			parties.has(uk(self), assetLUX), parties.has(uk(self), assetLUSD))
+			parties.has(uk(t, self), assetLUX), parties.has(uk(t, self), assetLUSD))
 	}
 	assertClean(t, before, after, parties, "honest self-trade outcome")
 
@@ -451,8 +452,8 @@ func TestOwnershipHarness_SelfTradeHandled(t *testing.T) {
 	// (self controls its LUX whether it filled-to-itself or the cross was rejected
 	// and the lock refunded — either way the total is unchanged and self is a party.)
 	vuln := cloneBalances(after)
-	moveControlled(vuln, uk(self), assetLUX, uk(thirdParty), assetLUX, 1)
-	wantU, wantA := uk(thirdParty), assetLUX
+	moveControlled(vuln, uk(t, self), assetLUX, uk(t, thirdParty), assetLUX, 1)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "self-trade: value diverted to third party")
 }
 
@@ -487,17 +488,17 @@ func TestOwnershipHarness_DoesNotOverPermitPlaceOwner(t *testing.T) {
 	assertClean(t, before, after, parties, "honest place")
 
 	// The owner is a party for LUX (the locked spend asset) ...
-	if !parties.has(uk(owner), assetLUX) {
+	if !parties.has(uk(t, owner), assetLUX) {
 		t.Fatal("place owner not a party for the locked base asset")
 	}
 	// ... but NOT for LUSD (a SELL never touches quote).
-	if parties.has(uk(owner), assetLUSD) {
+	if parties.has(uk(t, owner), assetLUSD) {
 		t.Fatal("HARNESS OVER-PERMIT: place SELL owner wrongly a party for the quote asset it never locks")
 	}
 	// Plant a delta on the owner in LUSD -> must fire (owner is not a quote party here).
 	vuln := cloneBalances(after)
-	creditControlled(vuln, uk(owner), assetLUSD, 7)
-	wantU, wantA := uk(owner), assetLUSD
+	creditControlled(vuln, uk(t, owner), assetLUSD, 7)
+	wantU, wantA := uk(t, owner), assetLUSD
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "place SELL owner delta in untouched quote asset")
 }
 
@@ -532,7 +533,7 @@ func TestOwnershipHarness_DoesNotOverPermitUninvolvedAccountOnBusyBlock(t *testi
 
 	// thirdParty placed nothing. A delta on it must fire.
 	vuln := cloneBalances(after)
-	creditControlled(vuln, uk(thirdParty), assetLUX, 3)
-	wantU, wantA := uk(thirdParty), assetLUX
+	creditControlled(vuln, uk(t, thirdParty), assetLUX, 3)
+	wantU, wantA := uk(t, thirdParty), assetLUX
 	assertFires(t, before, vuln, parties, &wantU, &wantA, "uninvolved account delta on busy block")
 }

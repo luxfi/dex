@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/zapwire"
 )
 
 // custody_zeroref_test.go pins R3 on the consensus side: a custody tx whose
@@ -31,7 +30,9 @@ func TestCustody_ZeroRefDepositRejected(t *testing.T) {
 	defer vm.Shutdown(ctx)
 
 	const user = "zero-dep"
-	tx := mustTx(t, TxDeposit, zapwire.EncodeDeposit(user, assetLUX, 100, zeroRef))
+	// A correctly-SIGNED deposit (so it passes the auth gate) but carrying a zero
+	// ref: the zero-ref refusal must fire at execute regardless.
+	tx := depositTxRef(t, user, assetLUX, 100, zeroRef)
 	vm.mempool.Add(tx)
 
 	// BuildBlock runs the execute probe; a zero-ref deposit must make it error.
@@ -42,7 +43,7 @@ func TestCustody_ZeroRefDepositRejected(t *testing.T) {
 	}
 
 	// Nothing was credited (the tx never committed).
-	if avail, _, _ := vm.Balance(user, assetLUX); avail != 0 {
+	if avail, _, _ := vm.Balance(wireUser(t, user), assetLUX); avail != 0 {
 		t.Fatalf("balance after refused zero-ref deposit = %d, want 0 (no mint)", avail)
 	}
 }
@@ -59,12 +60,12 @@ func TestCustody_ZeroRefWithdrawRejected(t *testing.T) {
 	// Seed a real balance via a NON-zero-ref deposit committed in a block.
 	depRef := contentRef(byte(TxDeposit), user, assetLUX, 500)
 	addBlock(t, vm, depositTxRef(t, user, assetLUX, 500, depRef))
-	if avail, _, _ := vm.Balance(user, assetLUX); avail != 500 {
+	if avail, _, _ := vm.Balance(wireUser(t, user), assetLUX); avail != 500 {
 		t.Fatalf("seed balance = %d, want 500", avail)
 	}
 
-	// A zero-ref withdraw must be refused at execute.
-	wtx := mustTx(t, TxWithdraw, zapwire.EncodeWithdraw(user, assetLUX, 500, zeroRef))
+	// A correctly-SIGNED but zero-ref withdraw must be refused at execute.
+	wtx := withdrawTxRef(t, user, assetLUX, 500, zeroRef)
 	vm.mempool.Add(wtx)
 	if _, err := vm.BuildBlock(ctx); err == nil {
 		t.Fatal("BuildBlock with a zero-ref withdraw must error, got nil")
@@ -73,7 +74,7 @@ func TestCustody_ZeroRefWithdrawRejected(t *testing.T) {
 	}
 
 	// The balance is UNCHANGED: the refused withdraw debited nothing.
-	if avail, _, _ := vm.Balance(user, assetLUX); avail != 500 {
+	if avail, _, _ := vm.Balance(wireUser(t, user), assetLUX); avail != 500 {
 		t.Fatalf("balance after refused zero-ref withdraw = %d, want 500 (no debit)", avail)
 	}
 }
@@ -89,7 +90,7 @@ func TestCustody_NonZeroRefStillWorks(t *testing.T) {
 	const user = "ok-ref"
 	depRef := contentRef(byte(TxDeposit), user, assetLUX, 250)
 	addBlock(t, vm, depositTxRef(t, user, assetLUX, 250, depRef))
-	if avail, _, _ := vm.Balance(user, assetLUX); avail != 250 {
+	if avail, _, _ := vm.Balance(wireUser(t, user), assetLUX); avail != 250 {
 		t.Fatalf("balance after non-zero-ref deposit = %d, want 250", avail)
 	}
 
@@ -104,7 +105,7 @@ func TestCustody_NonZeroRefStillWorks(t *testing.T) {
 	if realized != 250 {
 		t.Fatalf("non-zero-ref withdraw realized = %d, want 250", realized)
 	}
-	if avail, _, _ := vm.Balance(user, assetLUX); avail != 0 {
+	if avail, _, _ := vm.Balance(wireUser(t, user), assetLUX); avail != 0 {
 		t.Fatalf("balance after non-zero-ref withdraw = %d, want 0 (debited)", avail)
 	}
 }

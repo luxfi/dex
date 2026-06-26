@@ -17,7 +17,7 @@ import "testing"
 // as pending, SURVIVES Drain (it is no longer filtered).
 func TestMempoolTombstoneGCReclaimsAcceptedHeight(t *testing.T) {
 	m := newMempool(nil)
-	tx := mustTx(t, TxDeposit, encodeDepositBody("gc", a32(1), 10, [32]byte{0x01}))
+	tx := depositTxRef(t, "gc", a32(1), 10, [32]byte{0x01})
 
 	// Tombstone it as if drained into the in-flight block at height 7 (the not-pending
 	// path: cancel on an empty queue tombstones rather than removing).
@@ -52,7 +52,7 @@ func TestMempoolTombstoneGCReclaimsAcceptedHeight(t *testing.T) {
 // Observable: the tx, re-added as pending, is still filtered out of Drain.
 func TestMempoolTombstoneGCRetainsInFlightHeight(t *testing.T) {
 	m := newMempool(nil)
-	tx := mustTx(t, TxDeposit, encodeDepositBody("keep", a32(2), 20, [32]byte{0x02}))
+	tx := depositTxRef(t, "keep", a32(2), 20, [32]byte{0x02})
 
 	// Tombstone stamped at in-flight height 7.
 	m.cancel(tx.ID(), 7)

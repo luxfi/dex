@@ -55,7 +55,72 @@ import (
 	"github.com/luxfi/dex/pkg/fix"
 	dexvenue "github.com/luxfi/dex/pkg/venue"
 	"github.com/luxfi/dex/pkg/zapwire"
+	"github.com/luxfi/rpc"
 )
+
+// signingVenue is a test gateway that implements dexvenue.Venue by emitting
+// SIGNED clob_* frames over its own ZAP connection. The real zapVenue builds
+// UNSIGNED frames; the d-chain authorization gate now refuses those, so a
+// protocol front-end (FIX/WS) must present a frame signed by the authenticated
+// session's account. This models the production reality where the gateway holds a
+// per-session signing key: the FIX SenderCompID / WS user names the account, and
+// the gateway signs on its behalf at the account's next nonce. (It is NOT a
+// weakening of the gate — every frame still carries a valid signature binding the
+// asserted account; the test simply moves the signer to the gateway, which is
+// where a real multi-protocol venue would hold delegated session keys.)
+type signingVenue struct {
+	t    *testing.T
+	conn *rpc.ZAPConn
+}
+
+func newSigningVenue(t *testing.T, addr string) *signingVenue {
+	t.Helper()
+	conn, err := rpc.ZAPDial(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("signingVenue dial %s: %v", addr, err)
+	}
+	return &signingVenue{t: t, conn: conn}
+}
+
+func (s *signingVenue) close() { _ = s.conn.Close() }
+
+func (s *signingVenue) EnsureMarket(ctx context.Context, poolID [32]byte) error {
+	_, err := s.conn.Call(ctx, zapwire.MethodEnsureMarket, zapwire.EncodeEnsureMarket(poolID))
+	return err
+}
+
+func (s *signingVenue) Place(ctx context.Context, poolID [32]byte, side uint8, price, size float64, user string) (uint64, error) {
+	body := zapwire.EncodePlace(poolID, side, price, size, wireUser(s.t, user))
+	resp, err := s.conn.Call(ctx, zapwire.MethodPlace, signedPayload(s.t, user, TxPlace, body))
+	if err != nil {
+		return 0, err
+	}
+	orderID, status, derr := zapwire.DecodeAck(resp)
+	if derr != nil {
+		return 0, derr
+	}
+	if status == zapwire.StatusRejected {
+		return 0, dexvenue.ErrRejected
+	}
+	return orderID, nil
+}
+
+func (s *signingVenue) Cancel(ctx context.Context, poolID [32]byte, orderID uint64) error {
+	// Not exercised by the four-path e2e (it never cancels over FIX/WS). A real
+	// gateway would resolve the resting order's owner session and sign as that
+	// account; we fail loudly if a future test path reaches here unimplemented.
+	s.t.Fatalf("signingVenue.Cancel called but unimplemented (no FIX/WS cancel in this e2e)")
+	return nil
+}
+
+func (s *signingVenue) Submit(ctx context.Context, poolID [32]byte, side uint8, isMarket bool, limit, size float64, user string) ([]zapwire.Fill, error) {
+	body := zapwire.EncodeSubmit(poolID, side, isMarket, limit, size, wireUser(s.t, user))
+	resp, err := s.conn.Call(ctx, zapwire.MethodSubmit, signedPayload(s.t, user, TxSubmit, body))
+	if err != nil {
+		return nil, err
+	}
+	return zapwire.DecodeFills(resp)
+}
 
 // fixClient is a minimal FIX 4.4 client over TCP for the e2e — it speaks the SAME
 // pkg/fix codec the acceptor uses (so this also proves client<->server interop),
@@ -141,7 +206,8 @@ func (c *fixClient) logon(t *testing.T) {
 func (c *e2eClient) deposit(t *testing.T, user string, asset [32]byte, amount uint64) {
 	t.Helper()
 	ref := contentRef(byte(TxDeposit), user, asset, amount)
-	resp, err := c.conn.Call(c.ctx, zapwire.MethodDeposit, zapwire.EncodeDeposit(user, asset, amount, ref))
+	body := zapwire.EncodeDeposit(wireUser(t, user), asset, amount, ref)
+	resp, err := c.conn.Call(c.ctx, zapwire.MethodDeposit, signedPayload(t, user, TxDeposit, body))
 	if err != nil {
 		t.Fatalf("clob_deposit %s %d: %v", user, amount, err)
 	}
@@ -370,11 +436,12 @@ func TestFourPathTradingE2E(t *testing.T) {
 	t.Logf("maker rested %d asks of %g LUX @ {10,20,30,40} LUSD (%d LUX locked)", len(legs), askSize, len(legs))
 
 	// --- stand up the FIX acceptor and the WS venue front-end, BOTH onto the SAME
-	// venue via the venue.Venue (clob_*) seam — one matcher, many protocols. ---
-	fixVenue, err := dexvenue.DialVenue(context.Background(), v.addr)
-	if err != nil {
-		t.Fatalf("FIX venue dial: %v", err)
-	}
+	// venue via the venue.Venue (clob_*) seam — one matcher, many protocols. The
+	// gateway holds the per-session signer: a signingVenue translates a protocol
+	// order into a SIGNED clob_* frame on the authenticated session's behalf (the
+	// FIX SenderCompID / WS user is the account), so the d-chain gate authorizes it.
+	fixVenue := newSigningVenue(t, v.addr)
+	defer fixVenue.close()
 	acc, err := fix.NewAcceptor(fix.Config{Addr: "127.0.0.1:0", Venue: fixVenue, TargetCompID: "LXDEX", HeartBtInt: 5})
 	if err != nil {
 		t.Fatalf("NewAcceptor: %v", err)
@@ -384,10 +451,8 @@ func TestFourPathTradingE2E(t *testing.T) {
 	go func() { _ = acc.Serve(fixCtx) }()
 	defer acc.Close()
 
-	wsVenueConn, err := dexvenue.DialVenue(context.Background(), v.addr)
-	if err != nil {
-		t.Fatalf("WS venue dial: %v", err)
-	}
+	wsVenueConn := newSigningVenue(t, v.addr)
+	defer wsVenueConn.close()
 	wsHandler := dexapi.NewVenueWS(wsVenueConn)
 	httpSrv := httptest.NewServer(http.HandlerFunc(wsHandler.HandleConnection))
 	defer httpSrv.Close()
@@ -439,13 +504,19 @@ func TestFourPathTradingE2E(t *testing.T) {
 	// the V4 BalanceDelta from the consensus fills.
 	{
 		l := legByPath("V4")
-		caller := dexvenue.UserHandle(l.user)
+		// The V4 caller is the taker's key-derived account (the 16-byte wire user).
+		caller := wireUser(t, dexvenue.UserHandle(l.user))
 		frame := v4SubmitFrame(pool, zapwire.SideBuy, false, l.price, askSize, caller)
 		want := zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, l.price, askSize, caller)
 		if string(frame) != string(want) {
 			t.Fatalf("V4 engine_zap frame != zapwire.EncodeSubmit (frozen-frame parity broken)")
 		}
-		resp, err := cli.conn.Call(cli.ctx, zapwire.MethodSubmit, frame)
+		// The frozen 66-byte engine_zap frame is the BODY; the gate requires it be
+		// signed, so the precompile/proxy appends the auth envelope (here the test
+		// signs as the V4 taker's account at its next nonce). Body parity above is
+		// unchanged — the signature rides as a trailer the d-chain splits off.
+		resp, err := cli.conn.Call(cli.ctx, zapwire.MethodSubmit,
+			signedPayload(t, dexvenue.UserHandle(l.user), TxSubmit, frame))
 		if err != nil {
 			t.Fatalf("V4 clob_submit: %v", err)
 		}
@@ -522,7 +593,7 @@ func conserved(t *testing.T, vm *VM, accounts []string, asset [32]byte) uint64 {
 	t.Helper()
 	var total uint64
 	for _, u := range accounts {
-		avail, locked, err := vm.Balance(u, asset)
+		avail, locked, err := vm.Balance(wireUser(t, u), asset)
 		if err != nil {
 			t.Fatalf("Balance(%s): %v", u, err)
 		}

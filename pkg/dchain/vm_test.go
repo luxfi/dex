@@ -52,20 +52,14 @@ func ensureMarketTx(t *testing.T, pool [32]byte) *Tx {
 
 func placePoolTx(t *testing.T, pool [32]byte, side uint8, price, size float64, user string) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxPlace, zapwire.EncodePlace(pool, side, price, size, user))
-	if err != nil {
-		t.Fatalf("NewTx place: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxPlace, zapwire.EncodePlace(pool, side, price, size, a.user))
 }
 
 func submitPoolTx(t *testing.T, pool [32]byte, side uint8, isMarket bool, price, size float64, user string) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxSubmit, zapwire.EncodeSubmit(pool, side, isMarket, price, size, user))
-	if err != nil {
-		t.Fatalf("NewTx submit: %v", err)
-	}
-	return tx
+	a := acctFor(t, user)
+	return a.signed(t, TxSubmit, zapwire.EncodeSubmit(pool, side, isMarket, price, size, a.user))
 }
 
 // buildVerifyAccept runs the proposer+validator path for the txs currently in the

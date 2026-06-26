@@ -191,9 +191,11 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 		t.Fatalf("ensure_market ack: status=%d err=%v", status, err)
 	}
 
-	// 2) place a resting ask @101 size 5 — frozen Place frame, ack with order id.
+	// 2) place a resting ask @101 size 5 — frozen Place frame + auth envelope (the
+	// gate refuses an unsigned money-moving frame); wire user is the maker's
+	// key-derived account, signed at its next nonce.
 	resp, err = conn.Call(ctx, relayMethodPlace,
-		zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, "maker"))
+		signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
 	if err != nil {
 		t.Fatalf("place Call: %v", err)
 	}
@@ -208,7 +210,7 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 	// 3) submit a buy that crosses — frozen Submit frame, FILLS response decoded
 	// with the proxy's exact DecodeFills (the byte-parity assertion).
 	resp, err = conn.Call(ctx, relayMethodSubmit,
-		zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, "taker"))
+		signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
 	if err != nil {
 		t.Fatalf("submit Call: %v", err)
 	}
@@ -271,10 +273,13 @@ func TestHandlerIdempotentReplay(t *testing.T) {
 	}
 
 	mustCall(relayMethodEnsureMarket, zapwire.EncodeEnsureMarket(pool))
-	mustCall(relayMethodPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 50.0, 10.0, "maker"))
+	mustCall(relayMethodPlace, signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 50.0, 10.0, wireUser(t, "maker"))))
 
-	// First submit: a 4-unit buy crosses for 4 units.
-	submit := zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 50.0, 4.0, "taker")
+	// First submit: a 4-unit buy crosses for 4 units. The signed payload is built
+	// ONCE so the replay below sends BYTE-IDENTICAL bytes (same nonce, same
+	// signature -> same tx id), exercising content-addressed idempotency rather than
+	// a fresh (distinct-nonce) order.
+	submit := signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 50.0, 4.0, wireUser(t, "taker")))
 	fills1, err := zapwire.DecodeFills(mustCall(relayMethodSubmit, submit))
 	if err != nil {
 		t.Fatalf("submit1 decode: %v", err)

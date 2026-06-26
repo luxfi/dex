@@ -64,13 +64,14 @@ func TestCustodyDepositTimeoutDoesNotCreditOrOrphan(t *testing.T) {
 	)
 	asset := a32(0x4c5558_00000001)
 	depRef := contentRef(byte(TxDeposit), user, asset, amount)
-	depBody := encodeDepositBody(user, asset, amount, depRef)
+	depBody := encodeDepositBody(wireUser(t, user), asset, amount, depRef)
+	depPayload := signedPayload(t, user, TxDeposit, depBody)
 
 	// submitTx with a ctx that expires almost immediately. No sealer is running, so
 	// the tx is Add'ed to the mempool and the ctx fires before anything drains it.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
-	_, err := vm.submitTx(ctx, TxDeposit, depBody)
+	_, err := vm.submitTx(ctx, TxDeposit, depPayload)
 	if err == nil {
 		t.Fatal("submitTx returned nil error on a timed-out deposit; want ctx deadline error")
 	}
@@ -92,7 +93,7 @@ func TestCustodyDepositTimeoutDoesNotCreditOrOrphan(t *testing.T) {
 	}
 
 	// The ledger never credited the timed-out deposit: available is 0 (no mint).
-	avail, locked, err := vm.Balance(user, asset)
+	avail, locked, err := vm.Balance(wireUser(t, user), asset)
 	if err != nil {
 		t.Fatalf("Balance: %v", err)
 	}
@@ -116,16 +117,17 @@ func TestCustodyWithdrawTimeoutDoesNotCommit(t *testing.T) {
 	// First, a real deposit committed via the explicit build path (so there IS a
 	// balance a stray withdraw could illegitimately export).
 	addBlock(t, vm, depositTx(t, user, asset, dep))
-	if avail, _, _ := vm.Balance(user, asset); avail != dep {
+	if avail, _, _ := vm.Balance(wireUser(t, user), asset); avail != dep {
 		t.Fatalf("setup deposit available = %d, want %d", avail, dep)
 	}
 
 	// Now a withdraw whose submitTx times out while queued.
 	wRef := contentRef(byte(TxWithdraw), user, asset, dep)
-	wBody := encodeWithdrawBody(user, asset, dep, wRef)
+	wBody := encodeWithdrawBody(wireUser(t, user), asset, dep, wRef)
+	wPayload := signedPayload(t, user, TxWithdraw, wBody)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
-	if _, err := vm.submitTx(ctx, TxWithdraw, wBody); err == nil {
+	if _, err := vm.submitTx(ctx, TxWithdraw, wPayload); err == nil {
 		t.Fatal("submitTx returned nil on a timed-out withdraw; want ctx timeout")
 	}
 
@@ -139,7 +141,7 @@ func TestCustodyWithdrawTimeoutDoesNotCommit(t *testing.T) {
 
 	// The balance is UNCHANGED: the timed-out withdraw debited nothing (no export
 	// leg the EVM never authorized).
-	if avail, _, _ := vm.Balance(user, asset); avail != dep {
+	if avail, _, _ := vm.Balance(wireUser(t, user), asset); avail != dep {
 		t.Fatalf("balance after a timed-out withdraw = %d, want %d (the orphan withdraw must NOT debit)", avail, dep)
 	}
 }
@@ -149,7 +151,7 @@ func TestCustodyWithdrawTimeoutDoesNotCommit(t *testing.T) {
 func TestMempoolCancelRemovesPending(t *testing.T) {
 	m := newMempool(nil)
 	keep := mustTx(t, TxEnsureMarket, encodeEnsureBody([32]byte{0x01}))
-	drop := mustTx(t, TxDeposit, encodeDepositBody("u", a32(7), 100, [32]byte{0xab}))
+	drop := depositTxRef(t, "u", a32(7), 100, [32]byte{0xab})
 
 	m.Add(keep)
 	m.Add(drop)
@@ -172,8 +174,8 @@ func TestMempoolCancelRemovesPending(t *testing.T) {
 // when that block is rejected and Requeued — it can never commit in a later block.
 func TestMempoolTombstoneSurvivesRequeue(t *testing.T) {
 	m := newMempool(nil)
-	a := mustTx(t, TxDeposit, encodeDepositBody("a", a32(1), 10, [32]byte{0x01}))
-	b := mustTx(t, TxDeposit, encodeDepositBody("b", a32(2), 20, [32]byte{0x02}))
+	a := depositTxRef(t, "a", a32(1), 10, [32]byte{0x01})
+	b := depositTxRef(t, "b", a32(2), 20, [32]byte{0x02})
 
 	m.Add(a)
 	m.Add(b)

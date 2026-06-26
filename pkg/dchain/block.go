@@ -336,6 +336,27 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 		}
 
+		// ---- AUTHORIZATION GATE ----
+		// A money-moving tx (place/cancel/submit/deposit/withdraw) MUST be signed by
+		// the account it asserts, carry that account's next nonce, and — for a cancel
+		// — be the resting order's owner. The gate runs against THIS overlay BEFORE
+		// any value moves, so a forged/replayed/unauthorized command mutates nothing.
+		// A failure is a deterministic per-tx reject (consensus-neutral: every
+		// validator decodes the same frame and the same overlay nonce/owner, so all
+		// reach the identical verdict), NOT a block abort. The nonce is consumed
+		// (advanced in the overlay) only on full authorization, committing atomically
+		// with the tx's effects.
+		if tx.Type.requiresAuth() {
+			rejected, aerr := b.authorizeTx(overlay, tx)
+			if aerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d authorize: %w", i, aerr)
+			}
+			if rejected {
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+		}
+
 		// ---- Account-scoped custody txs (no poolId) ----
 		switch tx.Type {
 		case TxDeposit:

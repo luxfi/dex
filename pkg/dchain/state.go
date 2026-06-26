@@ -76,6 +76,13 @@ const (
 	prefixAsset     = "asset:"      // market (base,quote) asset binding
 	prefixOrderLock = "orderasset:" // per-resting-order locked (asset,amount) for unlock on cancel/fill
 	prefixOrderUser = "orderuser:"  // per-resting-order FULL 16-byte settlement identity
+	// nonce:<account:16> -> uint64 EXPECTED-NEXT nonce. The authorization gate
+	// (block.execute) requires a money-moving tx carry exactly this nonce, then
+	// advances it by one — monotonic per-account replay protection. A replay
+	// carries an already-consumed nonce (< next) and is refused; a reorder/gap
+	// (> next) is refused too, so an account's authorized ops apply in one total
+	// order with no replays. Absent row == next nonce 0 (the account's first op).
+	prefixNonce = "nonce:"
 
 	metaLastAccepted = prefixMeta + "lastAccepted"
 	metaHeight       = prefixMeta + "height"
@@ -683,6 +690,32 @@ func getOrderUser(db database.KeyValueReader, poolID [32]byte, orderID uint64) (
 	}
 	copy(user[:], v)
 	return user, true, nil
+}
+
+// ---- per-account monotonic nonce (replay protection) ----
+
+// nonceKey builds nonce:<account:16>.
+func nonceKey(account userKey) []byte {
+	k := make([]byte, len(prefixNonce)+len(account))
+	copy(k, prefixNonce)
+	copy(k[len(prefixNonce):], account[:])
+	return k
+}
+
+// getNonce returns an account's EXPECTED-NEXT nonce (0 if it has never
+// transacted — the absent-row default).
+func getNonce(db database.KeyValueReader, account userKey) (uint64, error) {
+	return readUint64(db, nonceKey(account))
+}
+
+// setNonce persists an account's expected-next nonce. Never deletes on zero (a
+// zero expected-next is only the genesis state, written by readUint64's absent
+// default; the gate only ever writes a value >= 1), so writeUint64's zero-elision
+// does not apply here — we write the raw value.
+func setNonce(db database.KeyValueWriter, account userKey, next uint64) error {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], next)
+	return db.Put(nonceKey(account), b[:])
 }
 
 // readMeta helpers.
