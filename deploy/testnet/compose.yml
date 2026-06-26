@@ -1,0 +1,73 @@
+# dexd multi-node testnet — DEFAULT 3-node compose (the readable reference).
+#
+# This is the canonical, directly-runnable 3-venue config. For any other node
+# count use the generator (same shape, N services):
+#
+#     N=11 ./gen-compose.sh && docker compose -f compose.gen.yml up -d
+#     # or simply: make up N=11
+#
+# Each service is an INDEPENDENT `dexd run` venue: its own zapdb, its own
+# single-node consensus sealer, one ZAP socket. They do NOT gossip — a fleet of
+# venues, not a shared validator set. See topology.md for why, and for the path
+# to real multi-validator BFT (luxd + `dexd plugin`).
+#
+# Node i publishes host port ${BASE_PORT}+i -> container 9099 on ${BIND_ADDR}.
+# The ENTIRE dex_* surface (ensure_market/place/cancel/submit/open_market/
+# deposit/withdraw + read methods dex_depth/dex_balance) multiplexes over that
+# ONE ZAP socket — there is no separate http/ws/grpc/metrics listener in
+# `dexd run` (see README "Ports & metrics").
+
+x-venue: &venue
+  image: ${DEX_IMAGE:-dexd-testnet:local}
+  restart: unless-stopped
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "nc", "-z", "127.0.0.1", "9099"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 10s
+  deploy:
+    resources:
+      limits:
+        cpus: "${NODE_CPUS:-4.0}"
+        memory: ${NODE_MEM:-6g}
+      reservations:
+        memory: 512m
+  ulimits:
+    nofile: { soft: 1048576, hard: 1048576 }
+  networks: [dexnet]
+
+services:
+  dex0:
+    <<: *venue
+    container_name: dex0
+    command: ["run", "-addr", "0.0.0.0:9099", "-db", "/data/db"]
+    ports: ["${BIND_ADDR:-0.0.0.0}:9099:9099"]
+    volumes: ["dex0-data:/data"]
+    labels: { dexd.testnet.node: "0" }
+
+  dex1:
+    <<: *venue
+    container_name: dex1
+    command: ["run", "-addr", "0.0.0.0:9099", "-db", "/data/db"]
+    ports: ["${BIND_ADDR:-0.0.0.0}:9100:9099"]
+    volumes: ["dex1-data:/data"]
+    labels: { dexd.testnet.node: "1" }
+
+  dex2:
+    <<: *venue
+    container_name: dex2
+    command: ["run", "-addr", "0.0.0.0:9099", "-db", "/data/db"]
+    ports: ["${BIND_ADDR:-0.0.0.0}:9101:9099"]
+    volumes: ["dex2-data:/data"]
+    labels: { dexd.testnet.node: "2" }
+
+networks:
+  dexnet:
+    driver: bridge
+
+volumes:
+  dex0-data:
+  dex1-data:
+  dex2-data:
