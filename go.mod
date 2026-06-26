@@ -114,7 +114,7 @@ require (
 	github.com/luxfi/utils v1.2.0 // indirect
 	github.com/luxfi/validators v1.2.0 // indirect
 	github.com/luxfi/warp v1.19.5 // indirect
-	github.com/luxfi/zap v0.8.10 // indirect
+	github.com/luxfi/zap v0.8.11 // indirect
 	github.com/luxfi/zapdb v1.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
