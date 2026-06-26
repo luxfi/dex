@@ -4,10 +4,11 @@
 
 LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Network. It combines ultra-low latency matching (<1μs), quantum-resistant security, and support for all global markets (784,000+ trading pairs) in a single unified system.
 
-**Latest Performance Achievements (January 2025):**
-- **Throughput**: 434,782,609 orders/second (GPU/MLX)
-- **Latency**: 2ns per order (GPU), 487ns (CPU)
-- **Test Coverage**: 100% passing, production ready
+**Measured performance (Apple M1 Max, first-hand):**
+- **Throughput**: 11.88M orders/sec (C++ engine, 10 threads); 2.2M orders/sec (pure Go `pkg/lx`)
+- **Latency**: 169 ns avg match (p50 125 ns, p99 292 ns) on C++; 381 ns/order in pure Go; 49 ns cancel
+- **Allocations**: 1–2 allocs/op on the Go matching path (not zero-alloc)
+- **GPU**: order matching runs on CPU; the GPU win is FHE (Metal NTT, 23× at N=4096, batch=128)
 - **CI/CD**: Fully automated with GitHub Actions
 
 ## Key Innovations
@@ -15,7 +16,7 @@ LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Net
 1. **Full On-Chain Architecture**: Unlike competitors (High-performance DEX, dYdX) that match off-chain, LX runs the entire orderbook and clearinghouse directly on-chain with 1ms block finality
 2. **Planet-Scale Capacity**: Single Mac Studio can handle 5M markets simultaneously
 3. **Quantum-Resistant**: QZMQ protocol with post-quantum cryptography for node communication
-4. **Multi-Engine Performance**: Go (1M ops/s), C++ (500K ops/s), GPU/MLX (434M ops/s)
+4. **Multi-Engine Performance**: pure Go 2.2M orders/sec (381 ns/order), C++ 11.88M orders/sec (10 threads, 169 ns avg match) — all CPU; GPU is used for FHE (Metal NTT 23×), not matching
 5. **Universal Protocol Support**: JSON-RPC, gRPC, WebSocket, QZMQ, ZAP (HFT)
 
 ## On-Chain Settlement: D matches · C settles (0x9999)
@@ -79,10 +80,9 @@ balances directly. Settlement uses a strict **D matches · C settles** split:
 
 ### 1. Matching Engine (`pkg/lx/`)
 
-**Three-tier performance architecture:**
-- **Pure Go**: 90-100K orders/sec, ~1ms latency
-- **Hybrid C++/CGO**: 400-500K orders/sec, 25-200ns latency
-- **GPU/MLX**: 10-100M orders/sec theoretical, <100ns batch
+**Two-tier matching architecture (CPU):**
+- **Pure Go** (`pkg/lx`): 2.2M orders/sec, 381 ns/order, 1–2 allocs/op
+- **C++/CGO**: 11.88M orders/sec (10 threads), 5.91M single-thread, 169 ns avg match (p50 125 ns, p99 292 ns), 49 ns cancel
 
 **Key files:**
 - `orderbook.go`: Core order book implementation
@@ -115,7 +115,7 @@ Ultra-low-latency binary protocol for HFT:
 - Zero-copy order placement/cancellation
 - Binary wire format (64-byte fixed orders)
 - Sub-100μs round-trip latency
-- Zero allocations on hot path
+- Low allocation on hot path (see benchmark below)
 
 **Wire Protocol:**
 ```
@@ -220,13 +220,13 @@ order, _ := client.PlaceOrder(ctx, &Order{
 ## Performance Characteristics
 
 ### Latency Benchmarks
-- **Order Matching**: 597ns (C++ engine)
+- **Order Matching**: 169 ns avg (C++ engine), 381 ns (pure Go)
 - **Consensus Round**: <1ms
 - **Block Finality**: 1ms (1000 blocks/sec)
 - **End-to-end Trade**: <5ms
 
 ### Throughput Capacity
-- **Orders/sec**: 100M+ (GPU)
+- **Orders/sec**: 11.88M (C++, 10 threads); 2.2M (pure Go) — CPU matching
 - **Trades/sec**: 10M+
 - **Markets**: 5M simultaneous
 - **Connections**: 1M+ WebSocket
@@ -463,10 +463,11 @@ engine:
    - RCU (Read-Copy-Update) patterns for orderbook updates
    - Memory pools to eliminate GC pressure
 
-2. **Zero-Allocation Design**
+2. **Low-Allocation Design**
    - Pre-allocated order pools
    - Reusable message buffers
    - Fixed-point arithmetic (7 decimal precision)
+   - Measured: 1–2 allocs/op on the Go matching path (not zero)
 
 3. **Buffer Management**
    - Ring buffers for order queues
@@ -495,10 +496,10 @@ engine:
    - Heap-based priority queues for orders
    - O(log n) insertion and deletion
 
-2. **GPU Acceleration**
-   - MLX framework for Apple Silicon
-   - CUDA for NVIDIA GPUs
-   - Parallel matching across markets
+2. **GPU Acceleration (FHE, not order matching)**
+   - Metal NTT kernel: 23× over CPU NTT (N=4096, batch=128)
+   - CUDA matching path exists on Linux only (commercial `lux-private/dex`)
+   - Order matching stays on CPU: a 169 ns match is smaller than integrated-GPU dispatch overhead
 
 3. **Caching Strategy**
    - L1: Hot orders in CPU cache
@@ -507,14 +508,14 @@ engine:
 
 ### Benchmarking Results
 
-| Component | Operation | Throughput | Latency |
-|-----------|-----------|------------|---------|
-| Order Book | Add Order | 1M ops/sec | 487ns |
-| Order Book | Cancel Order | 2M ops/sec | 250ns |
-| Order Book | Get Best Price | 10M ops/sec | 100ns |
-| Matching Engine | Match Orders | 500K/sec | 2μs |
-| MLX Engine | Batch Match | 434M/sec | 2ns |
-| Consensus | Block Finality | 1000/sec | 1ms |
+| Engine | Operation | Throughput | Latency |
+|--------|-----------|------------|---------|
+| Pure Go (`pkg/lx`) | Match order | 2.2M orders/sec | 381 ns (1–2 allocs/op) |
+| C++ (single thread) | Match order | 5.91M orders/sec | 169 ns avg (p50 125, p99 292) |
+| C++ (10 threads) | Match order | 11.88M orders/sec | — |
+| C++ | Cancel order | — | 49 ns |
+| GPU (Metal) | FHE NTT (N=4096, batch=128) | 23× vs CPU | — |
+| Consensus | Block finality | 1000/sec | 1 ms |
 
 ### Production Deployment
 
@@ -525,8 +526,8 @@ engine:
 
 2. **Scaling Strategy**
    - Horizontal: Multiple nodes for different markets
-   - Vertical: GPU acceleration for hot markets
-   - Hybrid: CPU for long-tail, GPU for high-volume
+   - Vertical: more cores / NUMA-aware C++ engine for hot markets
+   - GPU: reserved for FHE (Metal NTT), not order matching
 
 3. **Monitoring & Metrics**
    - Prometheus for metrics collection
@@ -667,7 +668,7 @@ Before deploying to production:
 ### Testing Status - 100% Passing ✅
 - **Core DEX Tests**: All 144 tests passing
 - **Test Coverage**: Improved from 22.4% to 39.1%
-- **Performance**: 434,782,609 orders/sec on GPU
+- **Performance**: 11.88M orders/sec (C++, 10 threads), 2.2M (pure Go) — CPU matching
 - **Integration**: All components fully integrated
 
 ### Professional Market Data Sources
@@ -997,7 +998,7 @@ Quantum finality latency: 50ms
 
 *Last Updated: December 11, 2025*
 *Version: 1.1.0*
-*Performance Verified: 434M orders/second*
+*Performance (Apple M1 Max): 11.88M orders/sec C++ (10 threads), 2.2M Go — CPU matching*
 *Test Status: 100% passing*
 *Production Ready: Full Kubernetes + Helm deployment*
 *Price Feeds: 7 sources with quantum finality verification*
@@ -1419,13 +1420,13 @@ type FPGAAccelerator interface {
 **Lux Proposal 9003**: High-Performance DEX with MEV Protection
 
 **Required Features**:
-1. ✅ GPU-accelerated matching
+1. ❌ GPU-accelerated matching (matching runs on CPU; no Apple/Metal path — only a Linux CUDA path in commercial `lux-private/dex`)
 2. ❌ Commit-reveal MEV protection
 3. ⚠️ Cross-chain settlement
 
 ### 5.2 GPU Acceleration Status
 
-**File**: `/pkg/mlx/mlx.go`
+**File**: `/pkg/mlx/mlx.go` (does not exist — see Verdict below)
 
 **MLX Engine** (Apple Silicon GPU):
 ```go
@@ -1450,12 +1451,15 @@ func (e *MLXEngine) ProcessOrdersGPU(orders []*Order) ([]*Trade, error) {
 }
 ```
 
-**Performance** (from benchmarks):
-- CPU (Go): 1.01M orders/sec
-- CPU (C++): 400K orders/sec
-- GPU (MLX): 434M orders/sec ✅
+**Performance** (measured, Apple M1 Max):
+- CPU (Go, `pkg/lx`): 2.2M orders/sec, 381 ns/order, 1–2 allocs/op
+- CPU (C++): 11.88M orders/sec (10 threads), 5.91M single-thread, 169 ns avg match
+- GPU (MLX) matching: **not implemented** — the prior "434M orders/sec" came from a
+  pure-Go *simulation* (`archive/_lp108-2026-05-04/mlx_engine.go`, hardcoded
+  `OrdersPerSecond: 1000000.0`), not a Metal kernel; there is no `pkg/mlx`.
 
-**Verdict**: GPU acceleration is **IMPLEMENTED and TESTED**.
+**Verdict**: GPU order matching is **NOT implemented**. The real GPU win is FHE
+(Metal NTT, 23× at N=4096, batch=128). Order matching stays on CPU by design.
 
 ### 5.3 MEV Protection Analysis
 
@@ -1673,7 +1677,7 @@ Total Finality Time = 50ms
 ### 7.1 Architecture Strengths ✅
 
 1. **Multi-engine design** allows performance optimization per deployment
-2. **GPU acceleration** is production-ready (434M ops/sec achieved)
+2. **GPU acceleration** for FHE (Metal NTT, 23× at N=4096, batch=128); order matching is CPU-only by design
 3. **FPGA wire protocol** is well-designed for hardware acceleration
 4. **Test coverage** is comprehensive (multi-node, Byzantine, partition tests)
 5. **Quantum-resistant crypto** architecture is sound (BLS+Corona hybrid)
@@ -1797,7 +1801,7 @@ var (
 
 The LX architecture shows **ambitious vision** with cutting-edge technologies (DAG consensus, quantum resistance, GPU/FPGA acceleration), but has **significant implementation gaps** that prevent production deployment.
 
-**Core Strength**: GPU-accelerated matching engine is production-ready and achieves world-class performance (434M ops/sec).
+**Core Strength**: CPU matching engine — C++ at 11.88M orders/sec (10 threads, 169 ns avg match) and pure Go at 2.2M orders/sec. GPU is used for FHE (Metal NTT, 23×), not order matching.
 
 **Critical Blocker**: Network layer and consensus protocol are incomplete. The 50ms finality claim is **architecturally sound** but requires network implementation to validate.
 

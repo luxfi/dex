@@ -24,9 +24,9 @@ commercial license token whose scope list includes `dex`. Contact
 
 ## Features
 
-- **Ultra-high performance**: 13M+ orders/sec achieved with planet-scale architecture
-- **Sub-microsecond latency**: 75.9ns order matching, 636ns position updates
-- **Multi-engine architecture**: Pure Go, C++, and GPU (CUDA/MLX)
+- **High performance (measured, Apple M1 Max)**: 11.88M orders/sec (C++ engine, 10 threads), 2.2M orders/sec (pure Go)
+- **Low latency**: 169 ns avg match (p50 125 ns, p99 292 ns) on the C++ engine; 381 ns/order in pure Go
+- **Multi-engine architecture**: pure Go and NUMA-aware C++ — order matching runs on CPU
 - **Quantum-resistant consensus**: DAG with post-quantum signatures
 - **Cross-platform**: Linux, macOS (Intel & Apple Silicon), Windows
 - **Professional Market Data**: Real-time oracle integration with multiple sources
@@ -73,16 +73,25 @@ chmod +x lx-dex
 
 ## Performance
 
-| Metric | Target | Achieved | Status |
-|--------|--------|-----------|---------|
-| Order Latency (GPU) | <1μs | 2 ns | ✅ 500x better |
-| Order Latency (CPU) | <1μs | 487 ns | ✅ 2x better |
-| Throughput (CPU) | 1M/sec | 1.01M/sec | ✅ Exceeded |
-| Throughput (GPU) | 100M/sec | 434M/sec | ✅ 4.34x |
-| Test Coverage | 100% pass | 100% pass | ✅ Complete |
-| Code Coverage | 30% | 39.1% | ✅ Exceeded |
+Measured first-hand on Apple M1 Max. Order matching runs on **CPU** — see
+"Why matching stays on CPU" below.
 
-*With MLX GPU acceleration on Apple Silicon M2 Ultra
+| Engine | Avg match | p50 / p99 | Throughput |
+|--------|-----------|-----------|------------|
+| C++ (10 threads) | — | — | 11.88M orders/sec |
+| C++ (single thread) | 169 ns | 125 ns / 292 ns | 5.91M orders/sec |
+| Pure Go (`pkg/lx`) | 381 ns | — | 2.2M orders/sec |
+
+C++ order cancel: **49 ns**. Pure-Go matching does **1–2 allocs/op** (not zero-alloc).
+
+### Why matching stays on CPU
+
+GPU order matching exists only as a CUDA path on Linux (commercial
+`lux-private/dex`); there is no Apple/Metal matching path. A single match is
+~169 ns — smaller than the dispatch overhead of handing a batch to an
+integrated GPU — so the CPU wins for matching. The GPU pays off in the **FHE**
+layer instead: the Metal NTT kernel is **23× faster** than the CPU NTT at
+N=4096, batch=128, where batched polynomial decomposition dominates.
 
 ## Architecture
 
@@ -92,12 +101,10 @@ matches and BLS-signs a `DFillReceipt`; the C-Chain receipt-settlement precompil
 under Block-STM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#on-chain-settlement-cd)
 and the normative spec **LP-9999**.
 
-The DEX uses a multi-engine architecture:
+The DEX uses a multi-engine architecture; order matching runs on **CPU**:
 
-- **Pure Go Engine**: Portable, 830K orders/sec
-- **C++ Engine**: Low latency, 800K+ orders/sec
-- **Rust Engine**: High performance, 585K+ orders/sec
-- **MLX GPU Engine**: Apple Silicon Metal, 6M+ msgs/sec (FIX), 434M+ orders/sec
+- **Pure Go engine** (`pkg/lx`): portable reference, 2.2M orders/sec, 381 ns/order
+- **C++ engine**: 11.88M orders/sec (10 threads), 5.91M single-thread, 169 ns avg match
 
 ### FIX Protocol Performance (December 2024)
 
@@ -107,9 +114,6 @@ The DEX uses a multi-engine architecture:
 | Hybrid Go/C++ | 167K/sec | 378K/sec | 616K/sec |
 | Pure C++ | 444K/sec | 804K/sec | 1.08M/sec |
 | Rust | 484K/sec | 232K/sec | 586K/sec |
-| **MLX (Apple Silicon)** | **3.12M/sec** | **4.27M/sec** | **5.95M/sec** |
-
-*MLX achieves sub-2μs average latency (0.68-1.75μs) via GPU parallelism
 
 See [docs/](docs/) for detailed documentation.
 
@@ -119,7 +123,7 @@ See [docs/](docs/) for detailed documentation.
 
 - Go 1.21+
 - macOS or Linux
-- Optional: Apple Silicon Mac for MLX GPU acceleration
+- Optional: Apple Silicon Mac for Metal-accelerated FHE (NTT)
 - Optional: NVIDIA GPU for CUDA acceleration
 
 ### Building with GPU Support

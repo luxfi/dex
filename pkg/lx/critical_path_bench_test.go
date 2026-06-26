@@ -99,29 +99,13 @@ func BenchmarkClearinghouseMargin(b *testing.B) {
 // FPGA matching belongs as a separate project with a working hardware
 // driver and a parity test against the CPU path.
 
-// BenchmarkConsensusFinalization tests block finalization speed
-func BenchmarkConsensusFinalization(b *testing.B) {
-	// Simulate consensus with varying block sizes
-	blockSizes := []int{100, 1000, 10000}
-
-	for _, size := range blockSizes {
-		b.Run(fmt.Sprintf("BlockSize_%d", size), func(b *testing.B) {
-			data := make([]byte, size)
-			rand.Read(data)
-
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				// Simulate block processing
-				hash := hashBlock(data)
-				_ = verifyBlock(hash)
-			}
-
-			b.ReportMetric(float64(size*b.N)/b.Elapsed().Seconds()/1024/1024, "MB/sec")
-		})
-	}
-}
+// Removed: BenchmarkConsensusFinalization, BenchmarkMLXAcceleration, and
+// BenchmarkQuantumSignatures — AI-slop benchmarks that measured no real work
+// and reported fabricated throughput. They "hashed"/"verified"/"matched" via
+// byte copies, length checks (len(hash)==32, len(sig)==512), and a skipped
+// no-op loop. Real matching/throughput is covered by
+// BenchmarkCriticalOrderMatching, BenchmarkTradeExecution, and
+// BenchmarkEndToEndLatency; real PQ verification belongs with luxfi/crypto KATs.
 
 // BenchmarkOracleAggregation tests oracle price aggregation
 func BenchmarkOracleAggregation(b *testing.B) {
@@ -361,20 +345,6 @@ func BenchmarkDAGValidation(b *testing.B) {
 
 // Helper functions for benchmarks
 
-func hashBlock(data []byte) []byte {
-	// Simplified hash calculation
-	hash := make([]byte, 32)
-	for i := 0; i < len(data) && i < 32; i++ {
-		hash[i] = data[i]
-	}
-	return hash
-}
-
-func verifyBlock(hash []byte) bool {
-	// Simplified verification
-	return len(hash) == 32
-}
-
 func processOrder(order *Order) {
 	// Simulate order processing
 	time.Sleep(time.Nanosecond)
@@ -419,68 +389,6 @@ func dfsVisit(node string, dag map[string][]string, visited, recStack map[string
 
 	recStack[node] = false
 	return true
-}
-
-// BenchmarkMLXAcceleration tests MLX GPU acceleration
-func BenchmarkMLXAcceleration(b *testing.B) {
-	if runtime.GOOS != "darwin" {
-		b.Skip("MLX only available on macOS")
-	}
-
-	// Skip for now as detectBestEngine is not yet implemented
-	b.Skip("MLX engine detection not implemented")
-
-	orders := make([]*Order, 1000)
-	for i := range orders {
-		orders[i] = &Order{
-			ID:        uint64(i),
-			Type:      Limit,
-			Side:      Side(i % 2),
-			Price:     100 + float64(i%20-10)/10,
-			Size:      100,
-			User:      "mlx_test",
-			Timestamp: time.Now(),
-		}
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		// Simulate MLX processing
-		_ = orders[i%len(orders)]
-	}
-
-	// Report simulated metrics
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "orders/sec")
-}
-
-// BenchmarkQuantumSignatures tests post-quantum signature verification
-func BenchmarkQuantumSignatures(b *testing.B) {
-	// Simulate quantum-resistant signature verification
-	message := make([]byte, 256)
-	signature := make([]byte, 512)
-	publicKey := make([]byte, 256)
-
-	rand.Read(message)
-	rand.Read(signature)
-	rand.Read(publicKey)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		// Simulate verification
-		valid := verifyQuantumSignature(message, signature, publicKey)
-		_ = valid
-	}
-
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "verifications/sec")
-}
-
-func verifyQuantumSignature(message, signature, publicKey []byte) bool {
-	// Simplified quantum signature verification
-	return len(signature) == 512 && len(publicKey) == 256
 }
 
 // BenchmarkEndToEndLatency tests complete order lifecycle
