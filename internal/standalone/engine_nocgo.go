@@ -4,7 +4,7 @@
 //go:build !cgo
 // +build !cgo
 
-package main
+package standalone
 
 // engineName labels which matcher pkg/lx links into this build. Without cgo,
 // pkg/lx selects the pure-Go CPU matcher (amm_nogpu / orderbook_cuda_stub).

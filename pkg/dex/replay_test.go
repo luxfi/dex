@@ -63,9 +63,9 @@ func TestReplay_SameInputSameStateAllValidators(t *testing.T) {
 		req := SwapRequest{
 			PoolID: pid, TakerUser: account(0xBB), Side: lx.Sell,
 			Base: tokLETH, Quote: tokLUSD, AmountIn: 137, OrderID: 5_000, TimestampN: 9_000,
-			Class: ClassPublicCLOB,
+			Class: ClassPublicDEX,
 		}
-		res, err := ExecuteSwap(db, clobRouter(), req)
+		res, err := ExecuteSwap(db, orderBookRouter(), req)
 		if err != nil {
 			t.Fatalf("validator %d ExecuteSwap: %v", v, err)
 		}
@@ -94,13 +94,13 @@ func TestReplay_ExecutionRootDeterministic(t *testing.T) {
 	req := SwapRequest{
 		PoolID: pid, TakerUser: account(0xBB), Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 200, OrderID: 5_000, TimestampN: 9_000,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
-	r1, err := ExecuteSwap(db1, clobRouter(), req)
+	r1, err := ExecuteSwap(db1, orderBookRouter(), req)
 	if err != nil {
 		t.Fatalf("db1: %v", err)
 	}
-	r2, err := ExecuteSwap(db2, clobRouter(), req)
+	r2, err := ExecuteSwap(db2, orderBookRouter(), req)
 	if err != nil {
 		t.Fatalf("db2: %v", err)
 	}

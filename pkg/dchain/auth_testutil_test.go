@@ -29,12 +29,12 @@ import (
 // the zapwire user[16] field the wire carries and the ledger keys balances by.
 type testAcct struct {
 	scheme  lx.AuthScheme
-	priv    *ecdsa.PrivateKey  // secp256k1 (nil for PQ)
-	mlpriv  *mldsa.PrivateKey  // ML-DSA-65 (nil for classical)
-	pubKey  []byte             // ML-DSA pubkey bytes (nil for secp)
-	account userKey            // 16-byte settlement account
-	user    string             // string(account[:]) — the wire user
-	nonce   uint64             // next nonce to use
+	priv    *ecdsa.PrivateKey // secp256k1 (nil for PQ)
+	mlpriv  *mldsa.PrivateKey // ML-DSA-65 (nil for classical)
+	pubKey  []byte            // ML-DSA pubkey bytes (nil for secp)
+	account userKey           // 16-byte settlement account
+	user    string            // string(account[:]) — the wire user
+	nonce   uint64            // next nonce to use
 }
 
 // authFor produces an authorization envelope binding (type, nonce, body) under
@@ -165,4 +165,3 @@ func signedPayload(t *testing.T, name string, typ TxType, body []byte) []byte {
 	out = append(out, body...)
 	return append(out, auth.encode()...)
 }
-

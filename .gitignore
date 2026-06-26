@@ -96,3 +96,8 @@ QWEN.md
 server.log
 lxd
 dex-server-linux
+
+# Compiled binaries built at repo root (canonical build is bin/dexd via `make build`)
+/dexd
+/dvenue
+/gateway

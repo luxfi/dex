@@ -5,12 +5,12 @@
 // the SERVER side of the FIX trading path, the protocol front-end the SDK's
 // EnableFIX() client (sdk/go/client.go) talks to.
 //
-// It is ONE of four protocol front-ends onto the SAME matcher: the D-Chain CLOB
-// (pkg/dchain) served over the FROZEN clob_* ZAP surface (pkg/zapwire). ZAP
-// clients speak clob_* directly; the 0x9010 V4 precompile speaks it via
+// It is ONE of four protocol front-ends onto the SAME matcher: the D-Chain DEX
+// (pkg/dchain) served over the FROZEN dex_* ZAP surface (pkg/zapwire). ZAP
+// clients speak dex_* directly; the 0x9010 V4 precompile speaks it via
 // engine_zap; the WS server speaks it via a JSON translation; and FIX speaks it
 // via this codec + acceptor. NONE of them owns a matcher — the acceptor decodes a
-// FIX NewOrderSingle, calls the SAME clob_place / clob_submit the others call, and
+// FIX NewOrderSingle, calls the SAME dex_place / dex_submit the others call, and
 // renders the consensus-computed result back as a FIX ExecutionReport. DRY,
 // orthogonal: the matcher lives in ONE place and FIX is purely a wire translation.
 //

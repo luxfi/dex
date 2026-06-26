@@ -65,7 +65,7 @@ func (ob *OrderBook) ConsensusAddOrder(order *Order) uint64 {
 // addRestingLocked is the resting-insertion core shared by the consensus path. It
 // validates the order, runs self-trade / post-only guards, inserts into the
 // correct price tree under ob.mu, and tracks it in the order maps. It performs NO
-// matching: a resting limit order placed via the CLOB never crosses on placement
+// matching: a resting limit order placed via the OrderBook never crosses on placement
 // (takers cross via SubmitMarketable). It assumes order.ID and order.RemainingSize
 // are already set.
 //

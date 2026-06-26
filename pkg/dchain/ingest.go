@@ -12,7 +12,7 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// ingest.go is the D-Chain CLOB ingestion seam for the IN-LUXD native VM. When
+// ingest.go is the D-Chain DEX ingestion seam for the IN-LUXD native VM. When
 // the VM runs as a luxd plugin (cmd/dchain via github.com/luxfi/vm/rpc.Serve),
 // luxd asks the VM for HTTP handlers (CreateHandlers); the plugin transport stands
 // up a local http.Server per handler inside the plugin process and the node
@@ -21,23 +21,23 @@ import (
 // `r.router.Handle(base+endpoint, handler)` — exact path, no subtree). So we
 // return ONE handler per method, each keyed by its full sub-path:
 //
-//	/ext/bc/D/dex/clob_place    -> handlePlace
-//	/ext/bc/D/dex/clob_submit   -> handleSubmit
-//	/ext/bc/D/dex/clob_cancel   -> handleCancel
+//	/ext/bc/D/dex/dex_place    -> handlePlace
+//	/ext/bc/D/dex/dex_submit   -> handleSubmit
+//	/ext/bc/D/dex/dex_cancel   -> handleCancel
 //	...
 //
 // The request body is the FROZEN zapwire payload verbatim; the response body is
 // the handler's raw bytes (zapwire ack / fills / balance frame).
 //
-// THE INVARIANT THAT MATTERS: this is pure transport. The clob_* handler each
-// route dispatches to is the EXACT func value RegisterCLOB binds on the ZAP socket
-// (vm.clobMethods) — so an order POSTed here flows submitTx -> mempool.Add ->
+// THE INVARIANT THAT MATTERS: this is pure transport. The dex_* handler each
+// route dispatches to is the EXACT func value RegisterDEX binds on the ZAP socket
+// (vm.dexMethods) — so an order POSTed here flows submitTx -> mempool.Add ->
 // consensus PendingTxs -> BuildBlock -> Block.Verify (the matcher) -> Block.Accept,
 // and the bytes returned are the CONSENSUS-COMPUTED outcome (every validator
 // re-derived the same fills at Verify). It NEVER relays to an external matcher and
 // NEVER mutates the book synchronously: the chain is the matcher.
 
-// ingestNamespace is the path segment grouping the CLOB methods under the chain
+// ingestNamespace is the path segment grouping the DEX methods under the chain
 // route. The full external path of a method m is /ext/bc/<chainID>/dex/<m>.
 const ingestNamespace = "dex"
 
@@ -46,18 +46,18 @@ const ingestNamespace = "dex"
 // without parsing it (defence at the boundary — the handlers also length-check).
 const maxIngestBody = 4 << 10
 
-// httpHandlers returns the VM's CLOB methods as luxd HTTP handlers, keyed by their
-// full endpoint sub-path ("/dex/<method>"). It folds the SAME vm.clobMethods table
+// httpHandlers returns the VM's DEX methods as luxd HTTP handlers, keyed by their
+// full endpoint sub-path ("/dex/<method>"). It folds the SAME vm.dexMethods table
 // the ZAP socket transport uses — one method->handler table, two transports — so a
-// method added to clobMethods is reachable over HTTP automatically. luxd registers
+// method added to dexMethods is reachable over HTTP automatically. luxd registers
 // each key as an exact route under /ext/bc/<chainID> (see file doc).
 //
-// It ALSO folds the read surface (vm.readMethods, read.go): the clob_get_* query
+// It ALSO folds the read surface (vm.readMethods, read.go): the dex_get_* query
 // endpoints that return committed state as JSON. Reads are mounted on the same
 // route group but never touch the mempool/consensus — orthogonal to the writes.
 func (vm *VM) httpHandlers() map[string]http.Handler {
-	out := make(map[string]http.Handler, len(vm.clobMethods())+len(vm.readMethods()))
-	for _, m := range vm.clobMethods() {
+	out := make(map[string]http.Handler, len(vm.dexMethods())+len(vm.readMethods()))
+	for _, m := range vm.dexMethods() {
 		out["/"+ingestNamespace+"/"+m.method] = rawHandlerHTTP(m.handler)
 	}
 	for _, m := range vm.readMethods() {

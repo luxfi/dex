@@ -34,7 +34,7 @@ const Size = hash.KeccakSize
 // db for market poolID, plus the swap's realized fills. It folds:
 //
 //   - the canonical resting rows of poolID (rebuilt from order:* rows), and
-//   - the swap's CLOB fills (the trade rows),
+//   - the swap's OrderBook fills (the trade rows),
 //
 // into two RFC-6962 tagged Merkle sub-roots and composes them with a fixed-shape
 // keccak256. Deterministic over deterministic state, so two validators replaying
@@ -65,7 +65,7 @@ func bookRootForMarket(db Store, poolID [32]byte) [Size]byte {
 	return merkle.Root(leaves)
 }
 
-// tradeRootForResult folds a swap's realized CLOB fills into the RFC-6962 trade
+// tradeRootForResult folds a swap's realized OrderBook fills into the RFC-6962 trade
 // root. Trades are folded in execution order (the router's source/fill order), each
 // bound to its index. AMM fills carry no maker rows; their (base,quote) deltas are
 // committed via the reserve write + the journal and are included here as a synthetic
@@ -104,7 +104,7 @@ func tradeLeafDigest(t lx.DEXTrade, i uint32) [Size]byte {
 
 // ammLeafDigest = keccak256("amm" ‖ base_le ‖ quote_le ‖ index_le) — binds an AMM
 // leg's (base,quote) move into the trade root so a tampered AMM amount changes the
-// root just as a tampered CLOB fill does.
+// root just as a tampered OrderBook fill does.
 func ammLeafDigest(base, quote uint64, i uint32) [Size]byte {
 	var b [8]byte
 	var q [8]byte

@@ -120,7 +120,7 @@ func TestSubmitMarketableSweepAcrossTruncation(t *testing.T) {
 	// warm + sweepLots > tradeLogCap, the trim fires mid-match and (pre-fix) makes
 	// the start offset (== warm, which is > tradeLogKeep) stale -> panic.
 	const sweepLots = (tradeLogCap - warm) + 5000 // pushes warm+sweep over the cap
-	const sweepIDBase = 1_000_000              // disjoint from the warm maker IDs above
+	const sweepIDBase = 1_000_000                 // disjoint from the warm maker IDs above
 	for j := 0; j < sweepLots; j++ {
 		ob.AddOrder(&Order{
 			ID: uint64(sweepIDBase + j), Type: Limit, Side: Sell, Price: 200, Size: 1, User: "mm-sweep",

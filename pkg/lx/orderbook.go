@@ -736,7 +736,7 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 		tradeSize = math.Min(order.RemainingSize, bestRemaining)
 
 		// EXACT-INTEGER QUANTITY LANE (value conservation). When BOTH the taker
-		// and the resting maker carry the integer quantity lane (CLOB / consensus
+		// and the resting maker carry the integer quantity lane (OrderBook / consensus
 		// path), the matched base is min(remainingUnits) computed in big.Int — the
 		// authoritative quantity, immune to the float64 precision loss that mints
 		// or burns value for 18-decimal token amounts above 2^53. The float

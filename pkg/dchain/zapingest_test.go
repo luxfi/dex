@@ -21,10 +21,10 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// zapingest_test.go proves the CANONICAL in-luxd ZAP CLOB ingestion seam
+// zapingest_test.go proves the CANONICAL in-luxd ZAP DEX ingestion seam
 // (zapingest.go): when the chain's init Config names a zapIngestAddr, the VM
-// ITSELF stands up a co-located ZAP socket bound to the one clobMethods core —
-// there is NO manual RegisterCLOB by the runner (cmd/dchain). A ZAP client dialing
+// ITSELF stands up a co-located ZAP socket bound to the one dexMethods core —
+// there is NO manual RegisterDEX by the runner (cmd/dexd plugin mode). A ZAP client dialing
 // that socket drives a real order through the IDENTICAL submitTx -> mempool ->
 // BuildBlock -> Verify -> Accept path the HTTP transport uses, and the fill is
 // committed D-Chain state. This is the deploy-shaped proof: the in-luxd plugin now
@@ -34,7 +34,7 @@ import (
 // startZAPIngestVM boots a VM whose init Config enables the co-located ZAP socket on
 // an ephemeral port, plus the auto-sealer. It returns the VM, the socket's dial
 // address (chosen by the OS), and a stop func. Critically it does NOT call
-// RegisterCLOB — Initialize wires the socket from Config, exactly as the in-luxd
+// RegisterDEX — Initialize wires the socket from Config, exactly as the in-luxd
 // plugin does in production.
 func startZAPIngestVM(t *testing.T) (*VM, string, func()) {
 	t.Helper()
@@ -110,7 +110,7 @@ func TestZAPIngestCrossingOrdersMatchInBlock(t *testing.T) {
 // TestZAPIngestSharesOneCoreWithHTTP proves transport ⟂ consensus over the SAME book:
 // a maker rests over the canonical ZAP socket, and a taker crossing it through the
 // HTTP compat handler (CreateHandlers) fills against that SAME resting order. Neither
-// transport has its own matcher or its own book — both fold over clobMethods into the
+// transport has its own matcher or its own book — both fold over dexMethods into the
 // one mempool/consensus path, so an order from either side sees the other's state.
 func TestZAPIngestSharesOneCoreWithHTTP(t *testing.T) {
 	// Boot ONE VM with the ZAP socket on, and ALSO mount its HTTP handlers — both

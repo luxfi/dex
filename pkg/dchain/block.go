@@ -484,7 +484,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		// cannot be funded, the order is REJECTED here — it never matches, never
 		// rests. (A market with unbound assets falls back to the no-custody path so
 		// asset-less test/legacy markets still function; the live custody e2e binds
-		// assets via clob_open_market.)
+		// assets via dex_open_market.)
 		base, quote, assetsBound, aerr := readMarketAssets(overlay, poolID)
 		if aerr != nil {
 			return execResult{}, aerr

@@ -11,7 +11,7 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// handler.go is the d-chain's CLOB ZAP surface: the clob_* methods a client (the
+// handler.go is the d-chain's DEX ZAP surface: the dex_* methods a client (the
 // chains/dexvm proxy relay, the EVM precompile adapter, the maker) calls over
 // github.com/luxfi/rpc. It is the gateway INTO consensus, not a matcher.
 //
@@ -25,28 +25,28 @@ import (
 // rows), needing no consensus round-trip.
 //
 // WIRE PARITY: every frame here is the FROZEN form from pkg/zapwire — the same
-// method names (clob_ensure_market/place/cancel/submit), the same request sizes,
+// method names (dex_ensure_market/place/cancel/submit), the same request sizes,
 // and the same response codecs (zapwire.EncodeAck / zapwire.EncodeFills, 17-byte
 // fill). The chains/dexvm relay client and the precompile adapter re-define the
 // identical constants (they cannot import this cgo-tagged package), so a frame
 // built by any of them is byte-identical to what this server consumes/produces.
 
-// clobMethod pairs a frozen ZAP method name with its raw handler. The handler
+// dexMethod pairs a frozen ZAP method name with its raw handler. The handler
 // signature is github.com/luxfi/rpc.RawHandler (func(ctx, payload) (resp, err)) —
 // the SAME func value whether it is reached over the ZAP socket transport
-// (RegisterCLOB) or over the node's HTTP router (CreateHandlers / ingest.go). One
+// (RegisterDEX) or over the node's HTTP router (CreateHandlers / ingest.go). One
 // table, two transports: the ingestion seam never duplicates the handler set.
-type clobMethod struct {
+type dexMethod struct {
 	method  string
 	handler rpc.RawHandler
 }
 
-// clobMethods is the single authoritative method->handler table for the CLOB
-// surface. Both transports fold over it: RegisterCLOB registers each on a ZAP
+// dexMethods is the single authoritative method->handler table for the DEX
+// surface. Both transports fold over it: RegisterDEX registers each on a ZAP
 // rpc.Server; the HTTP mux (ingest.go) routes POST .../<method> to the same
 // handler. A method added here is reachable over both transports automatically.
-func (vm *VM) clobMethods() []clobMethod {
-	return []clobMethod{
+func (vm *VM) dexMethods() []dexMethod {
+	return []dexMethod{
 		{zapwire.MethodEnsureMarket, vm.handleEnsureMarket},
 		{zapwire.MethodPlace, vm.handlePlace},
 		{zapwire.MethodCancel, vm.handleCancel},
@@ -57,13 +57,13 @@ func (vm *VM) clobMethods() []clobMethod {
 	}
 }
 
-// RegisterCLOB wires the clob_* handlers onto an rpc.Server (the ZAP socket
+// RegisterDEX wires the dex_* handlers onto an rpc.Server (the ZAP socket
 // transport). It is the seam the standalone venue entrypoint (cmd/dvenue) and the
 // socket-level tests use. The in-luxd plugin does NOT use this path — it exposes
 // the SAME handlers over the node's HTTP router via CreateHandlers (ingest.go).
 // Additive: the caller may register other methods on the same server.
-func (vm *VM) RegisterCLOB(server rpc.Server) error {
-	for _, m := range vm.clobMethods() {
+func (vm *VM) RegisterDEX(server rpc.Server) error {
+	for _, m := range vm.dexMethods() {
 		if err := server.RegisterRaw(m.method, m.handler); err != nil {
 			return fmt.Errorf("dchain: register %s: %w", m.method, err)
 		}

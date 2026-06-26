@@ -1,5 +1,0 @@
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
-COPY dex-server-linux /usr/local/bin/dex-server
-EXPOSE 8080 50051
-ENTRYPOINT ["dex-server"]

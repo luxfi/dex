@@ -22,17 +22,17 @@ import (
 	"github.com/luxfi/log"
 )
 
-// read_test.go proves the D-Chain READ surface (read.go / clob_get_*):
+// read_test.go proves the D-Chain READ surface (read.go / dex_get_*):
 //
 //  1. The read endpoints are reachable over the EXACT in-luxd HTTP transport
 //     (CreateHandlers, mounted at /ext/bc/<D>/dex/<method>) — the same routes a
 //     deployed validator exposes.
 //  2. After a crossing order is matched into a committed block (via the write
-//     path + the auto-sealer playing consensus), clob_get_trades returns the
-//     committed fill, clob_get_markets lists the market, clob_get_orders/book
+//     path + the auto-sealer playing consensus), dex_get_trades returns the
+//     committed fill, dex_get_markets lists the market, dex_get_orders/book
 //     reflect the resting set.
 //  3. CROSS-VALIDATOR INVARIANT (in-process model): two INDEPENDENT VMs that
-//     Accept the SAME block bytes return BYTE-IDENTICAL clob_get_trades JSON and
+//     Accept the SAME block bytes return BYTE-IDENTICAL dex_get_trades JSON and
 //     the same head root. This is the local proof of the property the live
 //     5-validator test checks: same accepted block => same committed read on
 //     every node. (A follower in production reaches the same state by Verify+
@@ -186,7 +186,7 @@ func crossOneMarket(t *testing.T, base string, f readFixture) []zapwire.Fill {
 }
 
 // TestRead_TradesAfterCommittedFill is the core happy path: a crossing order is
-// matched into a committed block, and clob_get_trades returns that fill from
+// matched into a committed block, and dex_get_trades returns that fill from
 // durable state with the right price/size/side and a non-genesis head.
 func TestRead_TradesAfterCommittedFill(t *testing.T) {
 	vm, base, stop := startReadServer(t)
@@ -257,7 +257,7 @@ func TestRead_MarketsAndOrdersAndBook(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatalf("market %s not in clob_get_markets: %+v", marketHex, markets.Markets)
+		t.Fatalf("market %s not in dex_get_markets: %+v", marketHex, markets.Markets)
 	}
 	if !found.AssetsBound {
 		t.Errorf("market assetsBound=false, want true (open_market bound them)")
@@ -328,7 +328,7 @@ func TestRead_ZeroConsensusImpact(t *testing.T) {
 
 // TestRead_CrossValidatorIdenticalTrades is the in-process model of the live
 // 5-validator question: two INDEPENDENT VMs (separate DBs) that Accept the SAME
-// sequence of block bytes must return BYTE-IDENTICAL clob_get_trades JSON and the
+// sequence of block bytes must return BYTE-IDENTICAL dex_get_trades JSON and the
 // same head root. This isolates the replication property from the network: if a
 // block's bytes are delivered (gossip in production) and Verify+Accept succeed,
 // the committed read is identical — which is exactly what the read RPC lets the

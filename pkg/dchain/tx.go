@@ -107,7 +107,7 @@ var (
 	// would mint against the ledger.
 	ErrInsufficientLocked = errors.New("dchain: insufficient locked balance")
 	// ErrMarketAssetsUnbound: a balance-bearing order on a market whose (base,
-	// quote) assets were never bound (clob_open_market) — cannot value-check it.
+	// quote) assets were never bound (dex_open_market) — cannot value-check it.
 	ErrMarketAssetsUnbound = errors.New("dchain: market assets not bound")
 	// ErrFillMissingUnits: a consensus fill reached settlement without the exact
 	// integer lane (BaseUnits/QuoteUnits) — the VM must set SizeUnits on every

@@ -809,7 +809,7 @@ func TestSettlementIdentityWidthEnforced(t *testing.T) {
 	// the width property the ledger depends on.
 	v16 := idOf(t, victim)
 	var colliding userKey
-	copy(colliding[:], v16[:8])                                                  // SAME 8-byte matcher handle ...
+	copy(colliding[:], v16[:8])                                                 // SAME 8-byte matcher handle ...
 	copy(colliding[8:], []byte{0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8}) // ... distinct tail
 	if v16 == colliding {
 		t.Fatal("colliding-handle identities resolved to the SAME 16-byte identity (width fold lost bytes 8..15)")

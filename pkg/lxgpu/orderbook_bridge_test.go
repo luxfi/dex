@@ -117,4 +117,3 @@ func TestGPUAMMSwapEmpty(t *testing.T) {
 		t.Fatalf("AMMSwap(nil, nil) returned len=%d, want 0", len(outs))
 	}
 }
-

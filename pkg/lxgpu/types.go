@@ -2,7 +2,7 @@
 // See the file LICENSE for licensing terms.
 
 // Package lxgpu is the dlopen bridge to the gpu-kernels DEX plugin and the
-// byte-parity proof harness for the native CLOB/AMM matchers.
+// byte-parity proof harness for the native OrderBook/AMM matchers.
 //
 // It is the SINGLE home for the GPU dispatch + its KAT (known-answer test)
 // against the deterministic CPU oracle. The CPU oracle is the byte-parity
@@ -68,25 +68,26 @@ var ErrGPUNotAvailable = errors.New("lxgpu: GPU plugin not available")
 // LuxAmmReservePair mirrors include/lux/gpu/dex.h::LuxAmmReservePair.
 // 16 bytes, packed (no padding), little-endian uint64 fields.
 // MUST match:
-//   the GPU plugin install tree include/lux/gpu/dex.h::LuxAmmReservePair
-//   ~/work/lux/dex/pkg/lx/amm.go::ReservePair
-//   the GPU plugin install tree ops/dex/{cuda,metal,wgsl}/amm_xyk*
+//
+//	the GPU plugin install tree include/lux/gpu/dex.h::LuxAmmReservePair
+//	~/work/lux/dex/pkg/lx/amm.go::ReservePair
+//	the GPU plugin install tree ops/dex/{cuda,metal,wgsl}/amm_xyk*
 type LuxAmmReservePair struct {
 	ReserveX uint64
 	ReserveY uint64
 }
 
-// CLOB ABI byte sizes from include/lux/gpu/dex.h.
+// OrderBook ABI byte sizes from include/lux/gpu/dex.h.
 const (
-	// LuxCLOBCalldataLen is the on-wire calldata for EVM precompile 0x100:
+	// OrderBookCalldataLen is the on-wire calldata for EVM precompile 0x100:
 	// side(1) | price(32 BE) | qty(32 BE) | user(20) | book_id(32) = 117.
-	LuxCLOBCalldataLen = 117
-	// LuxCLOBOutLen is the output: filled(32 BE) | avg_price(32 BE) | num_fills(4 BE) = 68.
-	LuxCLOBOutLen = 68
-	// LuxCLOBMaxLevels caps the per-side resting-level depth (bid_*/ask_* arrays).
-	LuxCLOBMaxLevels = 1024
-	// LuxCLOBBookIDOffset is where book_id starts inside calldata.
-	LuxCLOBBookIDOffset = 85
-	// LuxCLOBBookIDLen is the book_id width.
-	LuxCLOBBookIDLen = 32
+	OrderBookCalldataLen = 117
+	// OrderBookOutLen is the output: filled(32 BE) | avg_price(32 BE) | num_fills(4 BE) = 68.
+	OrderBookOutLen = 68
+	// OrderBookMaxLevels caps the per-side resting-level depth (bid_*/ask_* arrays).
+	OrderBookMaxLevels = 1024
+	// OrderBookBookIDOffset is where book_id starts inside calldata.
+	OrderBookBookIDOffset = 85
+	// OrderBookBookIDLen is the book_id width.
+	OrderBookBookIDLen = 32
 )

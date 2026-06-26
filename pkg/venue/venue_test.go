@@ -13,11 +13,11 @@ import (
 	"github.com/luxfi/rpc"
 )
 
-// fakeCLOB stands up a real rpc.Listen server with canned clob_* handlers, so the
+// fakeDEX stands up a real rpc.Listen server with canned dex_* handlers, so the
 // production zapVenue is exercised over a REAL ZAP socket (the same transport
 // production uses) without standing up the cgo matcher. It proves zapVenue's frame
 // encode + ack/fill decode + error mapping, end to end over the wire.
-type fakeCLOB struct {
+type fakeDEX struct {
 	server   rpc.Server
 	cancel   context.CancelFunc
 	placeID  uint64
@@ -25,13 +25,13 @@ type fakeCLOB struct {
 	cancelOK bool
 }
 
-func startFakeCLOB(t *testing.T) (*fakeCLOB, string) {
+func startFakeDEX(t *testing.T) (*fakeDEX, string) {
 	t.Helper()
 	srv, err := rpc.Listen("127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("rpc.Listen: %v", err)
 	}
-	f := &fakeCLOB{server: srv, placeID: 42, cancelOK: true}
+	f := &fakeDEX{server: srv, placeID: 42, cancelOK: true}
 
 	must := func(method string, h rpc.RawHandler) {
 		if err := srv.RegisterRaw(method, h); err != nil {
@@ -62,7 +62,7 @@ func startFakeCLOB(t *testing.T) (*fakeCLOB, string) {
 }
 
 func TestZAPVenueRoundTrip(t *testing.T) {
-	f, addr := startFakeCLOB(t)
+	f, addr := startFakeDEX(t)
 	f.fills = []zapwire.Fill{{Price: 100, Size: 3, TakerSide: zapwire.SideBuy}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -100,7 +100,7 @@ func TestZAPVenueRoundTrip(t *testing.T) {
 // TestZAPVenueCancelRejectedMapsToErrRejected proves a non-canceled cancel ack is
 // surfaced as ErrRejected, not a silent success.
 func TestZAPVenueCancelRejectedMapsToErrRejected(t *testing.T) {
-	f, addr := startFakeCLOB(t)
+	f, addr := startFakeDEX(t)
 	f.cancelOK = false
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -17,15 +17,15 @@ import (
 // venue_ws.go is the WebSocket trading FRONT-END onto THE matcher — the WS
 // counterpart of the FIX acceptor (pkg/fix) and the 0x9010 precompile. It does
 // ONE thing: accept a JSON order over /ws, translate it into a venue.Venue call
-// (the SAME clob_* surface ZAP/FIX/precompile use), and stream the
+// (the SAME dex_* surface ZAP/FIX/precompile use), and stream the
 // consensus-computed fills back as JSON. It owns NO matcher and NO book — that is
 // the whole point of the decomplection: every access path is a thin wire dialect
-// onto the single D-Chain CLOB.
+// onto the single D-Chain DEX.
 //
 // This is deliberately separate from WebSocketServer (this file), which drives the
 // in-process lx.TradingEngine for the rich margin/lending/vault product surface.
 // The two are orthogonal: WebSocketServer is the product API; VenueWS is the
-// on-chain CLOB trading path. Mixing the two matchers into one handler would braid
+// on-chain DEX trading path. Mixing the two matchers into one handler would braid
 // "what the product does" with "where the order book lives"; keeping VenueWS a
 // focused Venue translator keeps the on-chain path identical across all four
 // access methods.
@@ -42,7 +42,7 @@ func NewVenueWS(v venue.Venue) *VenueWS {
 	return &VenueWS{
 		venue: v,
 		upgrader: websocket.Upgrader{
-			// The CLOB trading path serves both browsers (allow-listed origins, the
+			// The DEX trading path serves both browsers (allow-listed origins, the
 			// CSRF surface) and non-browser trading clients (server-to-server, CLI,
 			// the SDK) that send NO Origin header. An absent Origin is therefore
 			// allowed (there is no browser to forge a cross-site request); a present
@@ -56,7 +56,7 @@ func NewVenueWS(v venue.Venue) *VenueWS {
 }
 
 // venueOrder is the inbound JSON order over the WS venue path. It mirrors the FIX
-// NewOrderSingle fields and the clob_submit frame: a marketable order bounded by
+// NewOrderSingle fields and the dex_submit frame: a marketable order bounded by
 // an optional limit price that crosses the resting book.
 type venueOrder struct {
 	Type     string  `json:"type"`     // "submit" (marketable) — the cross primitive

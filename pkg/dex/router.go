@@ -12,10 +12,10 @@ import (
 // router.go is THE on-chain smart-order-router — the real product. It routes one
 // swap across the on-chain liquidity SOURCES, in-process and deterministically:
 //
-//  1. the V4 native CLOB (the in-process matcher) FIRST;
-//  2. the V2/V3 AMM pools (EVM contracts in the SAME cEVM) when the CLOB has
+//  1. the V4 native OrderBook (the in-process matcher) FIRST;
+//  2. the V2/V3 AMM pools (EVM contracts in the SAME cEVM) when the OrderBook has
 //     insufficient depth — read their state and execute the swap in-process;
-//  3. best-execution: take the better price across the CLOB and the AMM, or split
+//  3. best-execution: take the better price across the OrderBook and the AMM, or split
 //     the input across them when splitting beats either alone.
 //
 // Every source is a pure, replayable function of (prior state, input): no live
@@ -31,7 +31,7 @@ import (
 // quote state. The router never knows or cares which concrete source it routes to.
 
 // RouteClass tags the privacy/visibility regime a swap routes under. Only
-// ClassPublicCLOB is built in the first cut. ClassFHEPrivate is the staged-next
+// ClassPublicDEX is built in the first cut. ClassFHEPrivate is the staged-next
 // private-pool route (owner spec §13): a swap whose amounts are FHE-encrypted and
 // matched in a private pool. The router carries the class so the source selection
 // can later restrict an FHE swap to FHE-capable sources WITHOUT reshaping the
@@ -39,9 +39,9 @@ import (
 type RouteClass uint8
 
 const (
-	// ClassPublicCLOB is the public route: plaintext amounts, the public CLOB +
+	// ClassPublicDEX is the public route: plaintext amounts, the public OrderBook +
 	// public AMM pools. The only class built now.
-	ClassPublicCLOB RouteClass = iota
+	ClassPublicDEX RouteClass = iota
 	// ClassFHEPrivate is the private route (STAGED — not built): FHE-encrypted
 	// amounts, matched in a private pool. Reserved so the router can route it to an
 	// FHE source later without an interface change.
@@ -64,7 +64,7 @@ type SwapRequest struct {
 	OrderID    uint64 // = blockDeterministicID(height, callIndex); never zero
 	TimestampN int64  // block timestamp (UnixNano), for the ephemeral order
 
-	// LimitPrice is the taker's OWN worst-acceptable CLOB price (quote-per-base, in
+	// LimitPrice is the taker's OWN worst-acceptable OrderBook price (quote-per-base, in
 	// PriceInt grid units), derived from the V4 SqrtPriceLimitX96. 0 = no limit.
 	// LimitIsUpper says which side it bounds (true = a BUY ceiling, false = a SELL
 	// floor). Enforced on the realized proceeds price — the taker-authenticated MEV
@@ -76,22 +76,22 @@ type SwapRequest struct {
 	// across all sources is below it. 0 = no floor.
 	MinOut uint64
 
-	// Class is the route class (public CLOB now; FHE-private staged). The first cut
-	// only routes ClassPublicCLOB.
+	// Class is the route class (public OrderBook now; FHE-private staged). The first cut
+	// only routes ClassPublicDEX.
 	Class RouteClass
 }
 
 // Fill is one matched quantity from one source, in the matcher's authoritative
 // integer lane. The router aggregates Fills across sources into the joint journal.
 type Fill struct {
-	// Trades are the CLOB fills (for a CLOB source) — they carry maker order ids so
+	// Trades are the OrderBook fills (for a OrderBook source) — they carry maker order ids so
 	// settlement resolves each maker's full identity via orderuser:. Empty for an
 	// AMM source (an AMM fill has no resting maker; see AMMBaseDelta/AMMQuoteDelta).
 	Trades []lx.Trade
 
 	// AMMBaseDelta / AMMQuoteDelta are the base/quote units an AMM source moved (an
 	// AMM has no maker rows). The router credits/debits these against the pool's
-	// reserves and the taker directly. Zero for a CLOB source.
+	// reserves and the taker directly. Zero for a OrderBook source.
 	AMMBaseDelta  uint64
 	AMMQuoteDelta uint64
 
@@ -103,8 +103,8 @@ type Fill struct {
 type SourceKind uint8
 
 const (
-	// SourceCLOB is the V4 native CLOB (the in-process matcher). The primary source.
-	SourceCLOB SourceKind = iota
+	// SourceOrderBook is the V4 native OrderBook (the in-process matcher). The primary source.
+	SourceOrderBook SourceKind = iota
 	// SourceAMM is an in-cEVM V2/V3 AMM pool, read + executed in-process.
 	SourceAMM
 	// SourceRFQ is the STAGED external-CEX/market-maker source (on-chain quotes
@@ -128,7 +128,7 @@ type Quote struct {
 
 // Source is one on-chain liquidity source the router routes across. It is a pure,
 // replayable view+executor over the Store. Both methods read prior state only; a
-// source NEVER issues a live external query (that forks consensus). The CLOB
+// source NEVER issues a live external query (that forks consensus). The OrderBook
 // source and the AMM source implement it; an RFQ source can implement it LATER
 // over on-chain-committed quote state without the router changing.
 type Source interface {
@@ -141,7 +141,7 @@ type Source interface {
 	QuoteSwap(db Store, req SwapRequest, remainingIn uint64) (Quote, error)
 
 	// ExecuteSwap fills up to remainingIn against this source, MUTATING the Store
-	// (the matcher's book/ledger rows for the CLOB; the pool reserves for the AMM)
+	// (the matcher's book/ledger rows for the OrderBook; the pool reserves for the AMM)
 	// and appending the value moves to the journal. Returns the Fill and the input
 	// units actually consumed. It MUST be consistent with QuoteSwap over the same
 	// state (the router relies on quote==execute for the split it chose).
@@ -150,14 +150,14 @@ type Source interface {
 
 // Router routes a swap across an ordered set of Sources, best-execution first.
 // The order is the SOURCE PRIORITY when prices tie or a source is exhausted:
-// CLOB first (the native venue), then AMM. The router itself holds no state — it
+// OrderBook first (the native venue), then AMM. The router itself holds no state — it
 // is a pure function of the sources + the Store.
 type Router struct {
 	sources []Source
 }
 
 // NewRouter builds a router over the given sources in priority order. The first
-// cut wires [CLOB, AMM]; an RFQ source appends LATER with no router change.
+// cut wires [OrderBook, AMM]; an RFQ source appends LATER with no router change.
 func NewRouter(sources ...Source) *Router {
 	return &Router{sources: sources}
 }
@@ -169,9 +169,9 @@ func NewRouter(sources ...Source) *Router {
 //  1. While input remains and progress is possible:
 //     a. QuoteSwap every source for the remaining input.
 //     b. Pick the source with the best marginal price (most output per input
-//        consumed), ties broken by source priority (CLOB before AMM).
+//     consumed), ties broken by source priority (OrderBook before AMM).
 //     c. ExecuteSwap that source for the remaining input; subtract the consumed
-//        input, add the produced output.
+//     input, add the produced output.
 //  2. Stop when input is exhausted, no source can fill more, or this iteration
 //     made no progress.
 //
@@ -251,7 +251,7 @@ func (r *Router) Route(db Store, req SwapRequest, j *Journal) (totalOut, totalIn
 // quote b for the taker, given the side. The effective price is output-per-input;
 // more output per unit input is always better for the taker. Compared with cross-
 // multiplication (no float): a is better iff a.out * b.in > b.out * a.in. Equal
-// prices keep the incumbent (b) so source priority (the scan order, CLOB first)
+// prices keep the incumbent (b) so source priority (the scan order, OrderBook first)
 // breaks the tie.
 func betterMarginalPrice(a, b Quote, _ lx.Side) bool {
 	// a.out/a.in  >  b.out/b.in   <=>   a.out*b.in > b.out*a.in

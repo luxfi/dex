@@ -43,9 +43,9 @@ func TestOwnership_MakerSettlesToFullIdentity(t *testing.T) {
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40, OrderID: 1_000, TimestampN: 2_000,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
-	if _, err := ExecuteSwap(db, clobRouter(), req); err != nil {
+	if _, err := ExecuteSwap(db, orderBookRouter(), req); err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}
 
@@ -79,9 +79,9 @@ func TestOwnership_FailsClosedOnMissingIdentity(t *testing.T) {
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40, OrderID: 1_000, TimestampN: 2_000,
-		Class: ClassPublicCLOB,
+		Class: ClassPublicDEX,
 	}
-	_, err := ExecuteSwap(db, clobRouter(), req)
+	_, err := ExecuteSwap(db, orderBookRouter(), req)
 	if !errors.Is(err, ErrMissingSettlementUser) {
 		t.Fatalf("expected ErrMissingSettlementUser (fail-closed), got %v", err)
 	}
@@ -137,11 +137,11 @@ func TestOwnership_CancelRefundsToOwner(t *testing.T) {
 	}
 }
 
-// TestMEVFloor_CLOBRefusesBelowFloor asserts the FIRST layer of MEV protection: a
-// SELL with a floor the resting CLOB cannot meet does not cross at all (the matcher
+// TestMEVFloor_OrderBookRefusesBelowFloor asserts the FIRST layer of MEV protection: a
+// SELL with a floor the resting OrderBook cannot meet does not cross at all (the matcher
 // won't fill below the limit), so the swap reverts with no fill — the taker keeps
 // their funds rather than selling below their floor.
-func TestMEVFloor_CLOBRefusesBelowFloor(t *testing.T) {
+func TestMEVFloor_OrderBookRefusesBelowFloor(t *testing.T) {
 	db := newStore()
 	pid := seedMarket(t, db, 24, tokLETH, tokLUSD)
 	maker := account(0xAA)
@@ -155,9 +155,9 @@ func TestMEVFloor_CLOBRefusesBelowFloor(t *testing.T) {
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false, // SELL floor at 50
-		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicCLOB,
+		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,
 	}
-	_, err := ExecuteSwap(db, clobRouter(), req)
+	_, err := ExecuteSwap(db, orderBookRouter(), req)
 	if !errors.Is(err, ErrNoLiquidity) {
 		t.Fatalf("expected ErrNoLiquidity (matcher refuses to cross below floor), got %v", err)
 	}
@@ -184,16 +184,16 @@ func TestMEVFloor_AMMLegRejectedByProceedsFloor(t *testing.T) {
 	taker := account(0xBB)
 	seedDeposit(t, db, taker, tokLETH, 100)
 
-	// AMM priced ~40 LUSD/LETH (below the taker's 50 floor). No CLOB.
+	// AMM priced ~40 LUSD/LETH (below the taker's 50 floor). No OrderBook.
 	pool := newMemAMM(0)
 	pool.set(pid, 100_000, 4_000_000) // ~40
-	router := NewRouter(NewCLOBSource(), NewAMMSource(pool))
+	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false, // floor 50, AMM gives ~40
-		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicCLOB,
+		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,
 	}
 	_, err := ExecuteSwap(db, router, req)
 	if !errors.Is(err, ErrPriceLimit) {
@@ -216,9 +216,9 @@ func TestMEVFloor_AcceptsGoodProceeds(t *testing.T) {
 		PoolID: pid, TakerUser: taker, Side: lx.Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false,
-		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicCLOB,
+		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,
 	}
-	res, err := ExecuteSwap(db, clobRouter(), req)
+	res, err := ExecuteSwap(db, orderBookRouter(), req)
 	if err != nil {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}

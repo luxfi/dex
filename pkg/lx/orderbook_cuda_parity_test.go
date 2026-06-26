@@ -91,11 +91,11 @@ func TestMatchOrder_GPUMatchesCPU(t *testing.T) {
 	}
 }
 
-// clobTx is one operation in a deterministic CLOB transaction sequence: either
+// orderBookTx is one operation in a deterministic OrderBook transaction sequence: either
 // rest a limit order (place) or cross the book with a marketable order (submit).
 // IDs and timestamps are supplied explicitly — exactly as the d-chain VM supplies
 // them from block context — so the replay is a pure function of the sequence.
-type clobTx struct {
+type orderBookTx struct {
 	submit    bool // false = place (rest), true = submit (cross)
 	id        uint64
 	side      Side
@@ -105,14 +105,14 @@ type clobTx struct {
 	timestamp time.Time
 }
 
-// replaySequence runs a CLOB tx sequence through a fresh book via the
+// replaySequence runs a OrderBook tx sequence through a fresh book via the
 // deterministic consensus entrypoints (ConsensusAddOrder for places,
 // SubmitMarketable for submits, with VM-supplied ID/timestamp). It returns the
 // concatenated fills (as canonical DEXTrade rows, taker side bound in) and the
 // final book as canonical DEXOrder rows — the two byte-streams a validator
 // commits. It NEVER calls AddOrder (would mint) or MatchOrders (would stamp
 // time.Now()).
-func replaySequence(symbol string, txs []clobTx) (fills []DEXTrade, rows []DEXOrder) {
+func replaySequence(symbol string, txs []orderBookTx) (fills []DEXTrade, rows []DEXOrder) {
 	ob := NewOrderBook(symbol)
 	for _, tx := range txs {
 		if tx.submit {
@@ -139,7 +139,7 @@ func replaySequence(symbol string, txs []clobTx) (fills []DEXTrade, rows []DEXOr
 }
 
 // TestConsensusReplayDeterminism is the CRITICAL step-2 determinism proof: two
-// replays of the IDENTICAL CLOB tx sequence produce BYTE-IDENTICAL fills and
+// replays of the IDENTICAL OrderBook tx sequence produce BYTE-IDENTICAL fills and
 // BYTE-IDENTICAL book rows. This is the property a multi-validator d-chain
 // depends on — every honest validator that replays the same ordered block
 // derives the same fills and the same committed state. The consensus path
@@ -151,7 +151,7 @@ func TestConsensusReplayDeterminism(t *testing.T) {
 
 	// A representative sequence: rest both sides, then cross with marketable
 	// orders that partially fill across multiple price levels, then rest more.
-	txs := []clobTx{
+	txs := []orderBookTx{
 		{false, 1, Sell, 101.0, 5.0, "maker-a", ts(0)},
 		{false, 2, Sell, 101.5, 3.0, "maker-b", ts(1)},
 		{false, 3, Sell, 102.0, 4.0, "maker-c", ts(2)},

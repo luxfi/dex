@@ -50,7 +50,7 @@ var (
 	ErrUnknownMarket = errors.New("dex: market has no asset binding")
 
 	// ErrNoLiquidity is returned by the router when NO configured source can fill
-	// any of the requested amount (neither the CLOB nor an AMM crosses). A swap
+	// any of the requested amount (neither the OrderBook nor an AMM crosses). A swap
 	// that fills nothing returns this so the caller reverts rather than locking the
 	// taker's input against a zero fill.
 	ErrNoLiquidity = errors.New("dex: no liquidity across any source for this swap")

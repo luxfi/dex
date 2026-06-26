@@ -43,7 +43,7 @@ func (a *CcxtAdapter) VenueType() trading.VenueType {
 
 // Capabilities returns venue capabilities.
 func (a *CcxtAdapter) Capabilities() trading.VenueCapabilities {
-	caps := trading.CLOBCapabilities()
+	caps := trading.OrderBookCapabilities()
 	caps.BatchOrders = false // CCXT doesn't have unified batch
 	return caps
 }

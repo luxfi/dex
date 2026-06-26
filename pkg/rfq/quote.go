@@ -241,7 +241,7 @@ var errRecover = errors.New("rfq: secp256k1 recovery failed")
 // over the SAME crypto.Ecrecover primitive the order path (pkg/lx/signed_order.go)
 // and the D-Chain tx gate (pkg/dchain/auth.go) use. A venue message is its own
 // domain (the domain* tags), so this recover is a leaf helper rather than a borrow
-// of pkg/lx's tx-auth wrapper — which would couple this pure relay to the GPU CLOB
+// of pkg/lx's tx-auth wrapper — which would couple this pure relay to the GPU DEX
 // matcher. secp256k1 is the only scheme venue messages use.
 func recoverAddr(digest [32]byte, sig []byte) (common.Address, error) {
 	if len(sig) != 65 || sig[64] > 1 { // ecrecover accepts only v ∈ {0,1}

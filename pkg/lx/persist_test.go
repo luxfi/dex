@@ -97,7 +97,7 @@ func TestBookToRowsRoundTrip(t *testing.T) {
 		}
 	}
 	place(1, Buy, 100.0, 2.0, "alice", 0)
-	place(2, Buy, 100.0, 1.5, "bob", 1)   // same level, later -> behind id1
+	place(2, Buy, 100.0, 1.5, "bob", 1) // same level, later -> behind id1
 	place(3, Buy, 99.5, 3.0, "carol", 2)
 	place(4, Sell, 101.0, 2.5, "dave", 3)
 	place(5, Sell, 101.5, 1.0, "erin", 4)

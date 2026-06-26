@@ -42,7 +42,7 @@ const (
 	TradeWireSize  = 48 // Trade: id(8) + price(8) + size(8) + buyer(8) + seller(8) + ts(8)
 )
 
-// CLOB market-routed method names, frame sizes, status bytes, and FillWireSize
+// DEX market-routed method names, frame sizes, status bytes, and FillWireSize
 // are the FROZEN wire frame defined ONCE in github.com/luxfi/dex/pkg/zapwire —
 // a pure-Go leaf so the public EVM precompile can import them without dragging
 // this cgo/GPU engine. They are re-exported here as package-local aliases so
@@ -56,27 +56,27 @@ const (
 // PoolKey). There is exactly one matcher (*lx.OrderBook); two wire framings for
 // two callers (maker = 8-byte symbol, precompile/proxy = 32-byte poolId).
 const (
-	CLOBMethodEnsureMarket = zapwire.MethodEnsureMarket
-	CLOBMethodPlace        = zapwire.MethodPlace
-	CLOBMethodCancel       = zapwire.MethodCancel
-	CLOBMethodSubmit       = zapwire.MethodSubmit
+	DEXMethodEnsureMarket = zapwire.MethodEnsureMarket
+	DEXMethodPlace        = zapwire.MethodPlace
+	DEXMethodCancel       = zapwire.MethodCancel
+	DEXMethodSubmit       = zapwire.MethodSubmit
 )
 
-// CLOB ack status bytes (shared with the legacy ack/reject codec).
+// DEX ack status bytes (shared with the legacy ack/reject codec).
 const (
-	clobStatusPlaced   = zapwire.StatusPlaced
-	clobStatusCanceled = zapwire.StatusCanceled
-	clobStatusRejected = zapwire.StatusRejected
+	dexStatusPlaced   = zapwire.StatusPlaced
+	dexStatusCanceled = zapwire.StatusCanceled
+	dexStatusRejected = zapwire.StatusRejected
 )
 
-// FillWireSize is one fill in a clob_submit response. See zapwire.
+// FillWireSize is one fill in a dex_submit response. See zapwire.
 const FillWireSize = zapwire.FillWireSize
 
 // ZAPServer provides ultra-low-latency order handling for HFT.
 //
 // It is multi-market: legacy symbol-keyed methods (place_order/…) operate on a
 // default book (or a per-symbol book when a symbol is supplied), and the
-// poolId-keyed CLOB methods (clob_*) operate on per-market books keyed by the
+// poolId-keyed DEX methods (dex_*) operate on per-market books keyed by the
 // 32-byte V4 poolId. Every method routes to the same *lx.OrderBook matcher.
 type ZAPServer struct {
 	// orderBook is the default (single) book the legacy symbol-keyed handlers
@@ -86,7 +86,7 @@ type ZAPServer struct {
 	logger    log.Logger
 	addr      string
 
-	// markets holds per-poolId books for the CLOB (clob_*) surface. Keyed by the
+	// markets holds per-poolId books for the DEX (dex_*) surface. Keyed by the
 	// raw 32-byte poolId.
 	//
 	// This is the GATEWAY to the d-chain: the in-memory book here is the
@@ -145,7 +145,7 @@ func (s *ZAPServer) market(id [32]byte, createIfAbsent bool) *lx.OrderBook {
 	return ob
 }
 
-// MarketCount returns the number of canonical CLOB markets held server-side.
+// MarketCount returns the number of canonical DEX markets held server-side.
 // Diagnostic: proves resting-order state lives here, not in the adapter.
 func (s *ZAPServer) MarketCount() int {
 	s.marketsMu.Lock()
@@ -196,11 +196,11 @@ func (s *ZAPServer) register(server rpc.Server) error {
 		{"best_ask", s.handleGetBestAsk},
 		{"orderbook", s.handleGetOrderBook},
 		{"order", s.handleGetOrder},
-		// CLOB poolId-keyed surface (per-market books) — the V4 precompile path.
-		{CLOBMethodEnsureMarket, s.handleEnsureMarket},
-		{CLOBMethodPlace, s.handleCLOBPlace},
-		{CLOBMethodCancel, s.handleCLOBCancel},
-		{CLOBMethodSubmit, s.handleCLOBSubmit},
+		// DEX poolId-keyed surface (per-market books) — the V4 precompile path.
+		{DEXMethodEnsureMarket, s.handleEnsureMarket},
+		{DEXMethodPlace, s.handleDEXPlace},
+		{DEXMethodCancel, s.handleDEXCancel},
+		{DEXMethodSubmit, s.handleDEXSubmit},
 	}
 	for _, r := range raw {
 		if err := server.RegisterRaw(r.method, r.handler); err != nil {
@@ -210,19 +210,19 @@ func (s *ZAPServer) register(server rpc.Server) error {
 	return nil
 }
 
-// RegisterCLOB registers ONLY the poolId-keyed CLOB handlers on an rpc.Server.
+// RegisterDEX registers ONLY the poolId-keyed DEX handlers on an rpc.Server.
 // It is the integration seam the LP-9010 precompile tests use to stand up the
 // real matching engine without the legacy single-book surface. Additive: the
 // caller may register other handlers on the same server.
-func RegisterCLOB(server rpc.Server, s *ZAPServer) error {
+func RegisterDEX(server rpc.Server, s *ZAPServer) error {
 	regs := []struct {
 		method  string
 		handler rpc.RawHandler
 	}{
-		{CLOBMethodEnsureMarket, s.handleEnsureMarket},
-		{CLOBMethodPlace, s.handleCLOBPlace},
-		{CLOBMethodCancel, s.handleCLOBCancel},
-		{CLOBMethodSubmit, s.handleCLOBSubmit},
+		{DEXMethodEnsureMarket, s.handleEnsureMarket},
+		{DEXMethodPlace, s.handleDEXPlace},
+		{DEXMethodCancel, s.handleDEXCancel},
+		{DEXMethodSubmit, s.handleDEXSubmit},
 	}
 	for _, r := range regs {
 		if err := server.RegisterRaw(r.method, r.handler); err != nil {
@@ -254,7 +254,7 @@ func (s *ZAPServer) Stats() (orders, trades, cancels uint64) {
 }
 
 // =========================================================================
-// CLOB (poolId-keyed) handlers — the V4 PoolManager facade.
+// DEX (poolId-keyed) handlers — the V4 PoolManager facade.
 // =========================================================================
 
 // handleEnsureMarket: payload = poolId[32]. Idempotently creates the market
@@ -266,10 +266,10 @@ func (s *ZAPServer) handleEnsureMarket(_ context.Context, payload []byte) ([]byt
 	var id [32]byte
 	copy(id[:], payload[0:32])
 	s.market(id, true) // create if absent
-	return s.encodeAck(0, clobStatusPlaced, s.sequence.Add(1)), nil
+	return s.encodeAck(0, dexStatusPlaced, s.sequence.Add(1)), nil
 }
 
-// handleCLOBPlace places a RESTING limit order on a poolId market — the CLOB
+// handleDEXPlace places a RESTING limit order on a poolId market — the DEX
 // meaning of V4 modifyLiquidity(+delta). Payload (65 bytes):
 //
 //	[0:32]  poolId
@@ -279,10 +279,10 @@ func (s *ZAPServer) handleEnsureMarket(_ context.Context, payload []byte) ([]byt
 //	[49:65] user (16 bytes, null-padded)
 //
 // Returns ack(orderId, placed). A rest order never crosses here: the precompile
-// places liquidity, takers cross it via clob_submit.
-func (s *ZAPServer) handleCLOBPlace(_ context.Context, payload []byte) ([]byte, error) {
+// places liquidity, takers cross it via dex_submit.
+func (s *ZAPServer) handleDEXPlace(_ context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < 65 {
-		return s.encodeReject(0, "clob_place: short payload"), nil
+		return s.encodeReject(0, "dex_place: short payload"), nil
 	}
 	var id [32]byte
 	copy(id[:], payload[0:32])
@@ -292,7 +292,7 @@ func (s *ZAPServer) handleCLOBPlace(_ context.Context, payload []byte) ([]byte, 
 	user := string(trimNull(payload[49:65]))
 
 	if price <= 0 || size <= 0 {
-		return s.encodeReject(0, "clob_place: invalid price or size"), nil
+		return s.encodeReject(0, "dex_place: invalid price or size"), nil
 	}
 
 	ob := s.market(id, true)
@@ -307,17 +307,17 @@ func (s *ZAPServer) handleCLOBPlace(_ context.Context, payload []byte) ([]byte, 
 	}
 	orderID := ob.AddOrder(order)
 	if orderID == 0 {
-		return s.encodeReject(0, "clob_place: order rejected"), nil
+		return s.encodeReject(0, "dex_place: order rejected"), nil
 	}
 	s.ordersProcessed.Add(1)
-	return s.encodeAck(orderID, clobStatusPlaced, s.sequence.Add(1)), nil
+	return s.encodeAck(orderID, dexStatusPlaced, s.sequence.Add(1)), nil
 }
 
-// handleCLOBCancel cancels a resting order on a poolId market — the CLOB meaning
+// handleDEXCancel cancels a resting order on a poolId market — the DEX meaning
 // of V4 modifyLiquidity(-delta). Payload (40 bytes): poolId[32] + orderId[8].
-func (s *ZAPServer) handleCLOBCancel(_ context.Context, payload []byte) ([]byte, error) {
+func (s *ZAPServer) handleDEXCancel(_ context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < 40 {
-		return s.encodeReject(0, "clob_cancel: short payload"), nil
+		return s.encodeReject(0, "dex_cancel: short payload"), nil
 	}
 	var id [32]byte
 	copy(id[:], payload[0:32])
@@ -325,16 +325,16 @@ func (s *ZAPServer) handleCLOBCancel(_ context.Context, payload []byte) ([]byte,
 
 	ob := s.market(id, false)
 	if ob == nil {
-		return s.encodeReject(orderID, "clob_cancel: unknown market"), nil
+		return s.encodeReject(orderID, "dex_cancel: unknown market"), nil
 	}
 	if err := ob.CancelOrder(orderID); err != nil {
 		return s.encodeReject(orderID, err.Error()), nil
 	}
 	s.cancelProcessed.Add(1)
-	return s.encodeAck(orderID, clobStatusCanceled, s.sequence.Add(1)), nil
+	return s.encodeAck(orderID, dexStatusCanceled, s.sequence.Add(1)), nil
 }
 
-// handleCLOBSubmit submits a MARKETABLE order against a poolId market — the CLOB
+// handleDEXSubmit submits a MARKETABLE order against a poolId market — the DEX
 // meaning of V4 swap. It crosses the resting book and returns the resulting
 // fills; the adapter derives the BalanceDelta from those fills alone. Payload
 // (66 bytes):
@@ -347,9 +347,9 @@ func (s *ZAPServer) handleCLOBCancel(_ context.Context, payload []byte) ([]byte,
 //	[50:66] user (16 bytes, null-padded)
 //
 // Response: fillCount[4] then fillCount × (price[8] + size[8] + takerSide[1]).
-func (s *ZAPServer) handleCLOBSubmit(_ context.Context, payload []byte) ([]byte, error) {
+func (s *ZAPServer) handleDEXSubmit(_ context.Context, payload []byte) ([]byte, error) {
 	if len(payload) < 66 {
-		return nil, fmt.Errorf("clob_submit: short payload: %d", len(payload))
+		return nil, fmt.Errorf("dex_submit: short payload: %d", len(payload))
 	}
 	var id [32]byte
 	copy(id[:], payload[0:32])
@@ -360,12 +360,12 @@ func (s *ZAPServer) handleCLOBSubmit(_ context.Context, payload []byte) ([]byte,
 	user := string(trimNull(payload[50:66]))
 
 	if size <= 0 {
-		return nil, fmt.Errorf("clob_submit: non-positive size")
+		return nil, fmt.Errorf("dex_submit: non-positive size")
 	}
 
 	ob := s.market(id, false)
 	if ob == nil {
-		return nil, fmt.Errorf("clob_submit: unknown market")
+		return nil, fmt.Errorf("dex_submit: unknown market")
 	}
 
 	order := &lx.Order{
@@ -379,7 +379,7 @@ func (s *ZAPServer) handleCLOBSubmit(_ context.Context, payload []byte) ([]byte,
 		order.Type = lx.Market
 	} else {
 		if limitPrice <= 0 {
-			return nil, fmt.Errorf("clob_submit: IOC limit needs positive price")
+			return nil, fmt.Errorf("dex_submit: IOC limit needs positive price")
 		}
 		order.Type = lx.Limit
 		order.Price = limitPrice
@@ -387,7 +387,7 @@ func (s *ZAPServer) handleCLOBSubmit(_ context.Context, payload []byte) ([]byte,
 
 	fills, err := ob.SubmitMarketable(order)
 	if err != nil {
-		return nil, fmt.Errorf("clob_submit: %w", err)
+		return nil, fmt.Errorf("dex_submit: %w", err)
 	}
 	s.tradesExecuted.Add(uint64(len(fills)))
 

@@ -2,7 +2,7 @@
 // See the file LICENSE for licensing terms.
 
 // Package dex is the SHARED, caller-agnostic deterministic core of the Lux
-// DEX: the CLOB custody ledger, the integer-exact settlement of matcher fills,
+// DEX: the OrderBook custody ledger, the integer-exact settlement of matcher fills,
 // the fail-closed maker-identity discipline, the smart-order-router across
 // on-chain liquidity sources, and the execution root. It is a pure function of
 // (ordered txs, prior state) over a generic key/value Store, so two homes —
@@ -58,7 +58,7 @@ type AssetID = [32]byte
 // WITHOUT a lossy fold:
 //
 //   - the cEVM home left-pads the 20-byte EVM address into 32 bytes (12 zero bytes
-//     + the 20 address bytes), so two distinct addresses are ALWAYS distinct
+//   - the 20 address bytes), so two distinct addresses are ALWAYS distinct
 //     accounts — no address pair can collide and drain each other's resting-order
 //     proceeds (the cross-user-drain guard, made injective for 20-byte addresses
 //     that a 16-byte identity could alias);

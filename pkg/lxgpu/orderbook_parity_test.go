@@ -3,24 +3,24 @@
 
 //go:build cgo
 
-// dexvm_clob_parity_test.go — GPU-vs-CPU byte-parity KAT for the
-// device-resident CLOB matcher.
+// dexvm_orderBook_parity_test.go — GPU-vs-CPU byte-parity KAT for the
+// device-resident OrderBook matcher.
 //
 // This is the load-bearing proof for the "full native GPU DEX, crypto in
-// GPU memory" claim: the GPU CLOB path (CLOBMatch in dexvm_gpu.go, which
-// dlsym's lux_<backend>_dex_clob_match and runs the matcher against a
+// GPU memory" claim: the GPU OrderBook path (OrderBookMatch in dexvm_gpu.go, which
+// dlsym's lux_<backend>_dex_orderbook_match and runs the matcher against a
 // device-resident BookArena) MUST produce a 68-byte output that is
 // byte-identical to the canonical CPU oracle for the same order sequence.
 //
 // The CPU oracle here is a self-contained Go port of the canonical C++
 // oracle at
 //   ~/work/lux-private/gpu-kernels/tools/kat/dex_cpu_oracle.hpp
-//     ::clob_match_step_cpu
+//     ::orderBook_match_step_cpu
 // which is itself the single source of truth that every GPU backend
 // (cuda/hip/metal/vulkan/webgpu) and the C++ dex_match_cpu.cpp are held
 // to. The Metal kernel
-//   ~/work/lux-private/gpu-kernels/ops/dex/metal/clob_match.metal
-//     ::clob_match_step
+//   ~/work/lux-private/gpu-kernels/ops/dex/metal/orderBook_match.metal
+//     ::orderBook_match_step
 // implements the identical algorithm (same crossing rules, FIFO front-pop,
 // price-sorted insertion: bids high→low, asks low→high; VWAP = 512/256
 // shift-subtract long division). This test proves the Go bridge → plugin
@@ -30,7 +30,7 @@
 //
 //	export LUX_GPU_PLUGIN_DIR=/Users/z/work/luxcpp/gpu/build/metal_backend
 //	export SDKROOT=$(xcrun --show-sdk-path)
-//	GOWORK=off go test ./dexvm/ -run TestCLOBGPUvsCPUByteParity -v
+//	GOWORK=off go test ./dexvm/ -run TestOrderBookGPUvsCPUByteParity -v
 //
 // When no plugin is on disk (AutoBackend()==None), the test SKIPs with the
 // reason — the parity assertion needs a real GPU plugin; the CPU oracle is
@@ -46,7 +46,7 @@ import (
 )
 
 // =============================================================================
-// Go CPU oracle — byte-equal port of dex_cpu_oracle.hpp::clob_match_step_cpu.
+// Go CPU oracle — byte-equal port of dex_cpu_oracle.hpp::orderBook_match_step_cpu.
 // uint256 is a 32-byte big-endian array, exactly the kernel-side layout.
 // =============================================================================
 
@@ -223,25 +223,25 @@ func u256VWAP(notionalHi, notionalLo, total *u256) u256 {
 // Fixed-cap 1024 levels per side, price-sorted (bids high→low, asks low→high).
 type bookArena struct {
 	nBids, nAsks int
-	bidPrice     [LuxCLOBMaxLevels]u256
-	bidQty       [LuxCLOBMaxLevels]u256
-	askPrice     [LuxCLOBMaxLevels]u256
-	askQty       [LuxCLOBMaxLevels]u256
+	bidPrice     [OrderBookMaxLevels]u256
+	bidQty       [OrderBookMaxLevels]u256
+	askPrice     [OrderBookMaxLevels]u256
+	askQty       [OrderBookMaxLevels]u256
 }
 
-type clobOutput struct {
+type orderBookOutput struct {
 	filled   u256
 	avgPrice u256
 	numFills uint32
 }
 
-// clobMatchStepCPU is the byte-equal Go port of clob_match_step_cpu.
-func clobMatchStepCPU(a *bookArena, side uint8, price, qty u256) clobOutput {
+// orderBookMatchStepCPU is the byte-equal Go port of orderBook_match_step_cpu.
+func orderBookMatchStepCPU(a *bookArena, side uint8, price, qty u256) orderBookOutput {
 	remaining := qty
 	var filled, notionalHi, notionalLo u256
 	numFills := uint32(0)
 
-	matchLoop := func(oppPrice, oppQty *[LuxCLOBMaxLevels]u256, nOpp *int, incomingIsBid bool) {
+	matchLoop := func(oppPrice, oppQty *[OrderBookMaxLevels]u256, nOpp *int, incomingIsBid bool) {
 		for *nOpp > 0 && !u256IsZero(&remaining) {
 			topPrice := oppPrice[0]
 			topQty := oppQty[0]
@@ -278,7 +278,7 @@ func clobMatchStepCPU(a *bookArena, side uint8, price, qty u256) clobOutput {
 
 	if side == 0 {
 		matchLoop(&a.askPrice, &a.askQty, &a.nAsks, true)
-		if !u256IsZero(&remaining) && a.nBids < LuxCLOBMaxLevels {
+		if !u256IsZero(&remaining) && a.nBids < OrderBookMaxLevels {
 			pos := a.nBids
 			for i := 0; i < a.nBids; i++ {
 				if u256Cmp(&a.bidPrice[i], &price) < 0 {
@@ -296,7 +296,7 @@ func clobMatchStepCPU(a *bookArena, side uint8, price, qty u256) clobOutput {
 		}
 	} else {
 		matchLoop(&a.bidPrice, &a.bidQty, &a.nBids, false)
-		if !u256IsZero(&remaining) && a.nAsks < LuxCLOBMaxLevels {
+		if !u256IsZero(&remaining) && a.nAsks < OrderBookMaxLevels {
 			pos := a.nAsks
 			for i := 0; i < a.nAsks; i++ {
 				if u256Cmp(&price, &a.askPrice[i]) < 0 {
@@ -314,37 +314,37 @@ func clobMatchStepCPU(a *bookArena, side uint8, price, qty u256) clobOutput {
 		}
 	}
 
-	return clobOutput{
+	return orderBookOutput{
 		filled:   filled,
 		avgPrice: u256VWAP(&notionalHi, &notionalLo, &filled),
 		numFills: numFills,
 	}
 }
 
-// encodeCLOBOutput packs a clobOutput into the 68-byte wire format the GPU
+// encodeOrderBookOutput packs a orderBookOutput into the 68-byte wire format the GPU
 // kernel emits: filled(32 BE) | avg_price(32 BE) | num_fills(4 BE).
-func encodeCLOBOutput(o clobOutput) [LuxCLOBOutLen]byte {
-	var out [LuxCLOBOutLen]byte
+func encodeOrderBookOutput(o orderBookOutput) [OrderBookOutLen]byte {
+	var out [OrderBookOutLen]byte
 	copy(out[0:32], o.filled[:])
 	copy(out[32:64], o.avgPrice[:])
 	binary.BigEndian.PutUint32(out[64:68], o.numFills)
 	return out
 }
 
-// encodeCLOBCalldata builds the 117-byte EVM 0x100 calldata:
+// encodeOrderBookCalldata builds the 117-byte EVM 0x100 calldata:
 // side(1) | price(32 BE) | qty(32 BE) | user(20) | book_id(32).
-func encodeCLOBCalldata(side uint8, price, qty u256, user [20]byte, bookID [32]byte) []byte {
-	cd := make([]byte, LuxCLOBCalldataLen)
+func encodeOrderBookCalldata(side uint8, price, qty u256, user [20]byte, bookID [32]byte) []byte {
+	cd := make([]byte, OrderBookCalldataLen)
 	cd[0] = side
 	copy(cd[1:33], price[:])
 	copy(cd[33:65], qty[:])
 	copy(cd[65:85], user[:])
-	copy(cd[LuxCLOBBookIDOffset:LuxCLOBBookIDOffset+LuxCLOBBookIDLen], bookID[:])
+	copy(cd[OrderBookBookIDOffset:OrderBookBookIDOffset+OrderBookBookIDLen], bookID[:])
 	return cd
 }
 
-// clobStep is one order in a parity sequence.
-type clobStep struct {
+// orderBookStep is one order in a parity sequence.
+type orderBookStep struct {
 	name  string
 	side  uint8 // 0 = bid, 1 = ask
 	price uint64
@@ -355,14 +355,14 @@ type clobStep struct {
 // Self-check of the Go oracle — runs on every host (no GPU needed).
 // =============================================================================
 
-// TestCLOBOracleSelfConsistent verifies the Go oracle against hand-computed
+// TestOrderBookOracleSelfConsistent verifies the Go oracle against hand-computed
 // values, so a CPU-only host still proves the oracle is internally correct
 // before it is used as the parity reference.
-func TestCLOBOracleSelfConsistent(t *testing.T) {
+func TestOrderBookOracleSelfConsistent(t *testing.T) {
 	var a bookArena
 
 	// 1) Rest an ask: 100 @ price 10. No cross (empty book).
-	out := clobMatchStepCPU(&a, 1, u256FromU64(10), u256FromU64(100))
+	out := orderBookMatchStepCPU(&a, 1, u256FromU64(10), u256FromU64(100))
 	if out.numFills != 0 || !u256IsZero(&out.filled) {
 		t.Fatalf("rest ask: expected no fill, got numFills=%d filled=%x", out.numFills, out.filled)
 	}
@@ -371,7 +371,7 @@ func TestCLOBOracleSelfConsistent(t *testing.T) {
 	}
 
 	// 2) Incoming bid 60 @ limit 12 crosses the ask. Fill 60 @ 10.
-	out = clobMatchStepCPU(&a, 0, u256FromU64(12), u256FromU64(60))
+	out = orderBookMatchStepCPU(&a, 0, u256FromU64(12), u256FromU64(60))
 	if out.numFills != 1 {
 		t.Fatalf("cross bid: numFills=%d, want 1", out.numFills)
 	}
@@ -392,7 +392,7 @@ func TestCLOBOracleSelfConsistent(t *testing.T) {
 
 	// 3) Big bid 200 @ limit 15: consumes the 40 remaining ask, residual 160
 	//    rests as a bid. VWAP = 40*10/40 = 10.
-	out = clobMatchStepCPU(&a, 0, u256FromU64(15), u256FromU64(200))
+	out = orderBookMatchStepCPU(&a, 0, u256FromU64(15), u256FromU64(200))
 	if out.numFills != 1 {
 		t.Fatalf("drain ask: numFills=%d, want 1", out.numFills)
 	}
@@ -414,8 +414,8 @@ func TestCLOBOracleSelfConsistent(t *testing.T) {
 // paritySequence is a fixed multi-order book that exercises: resting both
 // sides, partial fills, full-level drain (front-pop), multi-level sweep, and
 // non-trivial VWAP (averaging across two price levels).
-func paritySequence() []clobStep {
-	return []clobStep{
+func paritySequence() []orderBookStep {
+	return []orderBookStep{
 		{"rest ask 100@10", 1, 10, 100},
 		{"rest ask 50@11", 1, 11, 50},
 		{"rest ask 30@12", 1, 12, 30},
@@ -439,7 +439,7 @@ func paritySequence() []clobStep {
 // device-resident arena, and asserts every 68-byte output is byte-identical
 // to the Go CPU oracle stepping a parallel host-side arena. Returns the
 // concatenated GPU outputs so the caller can prove determinism across arenas.
-func runParity(t *testing.T, seq []clobStep) [][LuxCLOBOutLen]byte {
+func runParity(t *testing.T, seq []orderBookStep) [][OrderBookOutLen]byte {
 	t.Helper()
 
 	arena, err := ArenaCreate()
@@ -458,20 +458,20 @@ func runParity(t *testing.T, seq []clobStep) [][LuxCLOBOutLen]byte {
 	var bookID [32]byte
 	bookID[31] = 1 // arbitrary stable book id
 
-	outs := make([][LuxCLOBOutLen]byte, 0, len(seq))
+	outs := make([][OrderBookOutLen]byte, 0, len(seq))
 	for _, s := range seq {
 		price := u256FromU64(s.price)
 		qty := u256FromU64(s.qty)
 
-		calldata := encodeCLOBCalldata(s.side, price, qty, user, bookID)
-		gpuOut, gpuNF, merr := CLOBMatch(arena, calldata)
+		calldata := encodeOrderBookCalldata(s.side, price, qty, user, bookID)
+		gpuOut, gpuNF, merr := OrderBookMatch(arena, calldata)
 		if merr != nil {
-			t.Fatalf("CLOBMatch[%s]: %v", s.name, merr)
+			t.Fatalf("OrderBookMatch[%s]: %v", s.name, merr)
 		}
 
 		// CPU oracle steps its parallel arena.
-		want := clobMatchStepCPU(&cpu, s.side, price, qty)
-		wantBytes := encodeCLOBOutput(want)
+		want := orderBookMatchStepCPU(&cpu, s.side, price, qty)
+		wantBytes := encodeOrderBookOutput(want)
 
 		if !bytes.Equal(gpuOut[:], wantBytes[:]) {
 			t.Errorf("BYTE PARITY MISMATCH at step %q:\n  GPU : %x\n  CPU : %x",
@@ -489,17 +489,17 @@ func runParity(t *testing.T, seq []clobStep) [][LuxCLOBOutLen]byte {
 	return outs
 }
 
-// TestCLOBGPUvsCPUByteParity is the headline proof: the device-resident GPU
+// TestOrderBookGPUvsCPUByteParity is the headline proof: the device-resident GPU
 // matcher returns byte-identical output to the canonical CPU oracle for a
 // fixed multi-order book. Also proves arena lifecycle + determinism by
 // replaying the same sequence on a second fresh arena and asserting identical
 // GPU output across both runs.
-func TestCLOBGPUvsCPUByteParity(t *testing.T) {
+func TestOrderBookGPUvsCPUByteParity(t *testing.T) {
 	backend := AutoBackend()
 	if backend == GPUBackendNone {
 		t.Skipf("no GPU plugin loaded — set LUX_GPU_PLUGIN_DIR to a dir containing "+
 			"libluxgpu_backend_*.{dylib,so} (e.g. .../metal_backend). probe order: %v. "+
-			"CPU oracle is still self-checked by TestCLOBOracleSelfConsistent.",
+			"CPU oracle is still self-checked by TestOrderBookOracleSelfConsistent.",
 			probeOrder())
 	}
 	t.Logf("GPU backend=%s plugin=%s", backend, GPUPluginPath())
@@ -524,10 +524,10 @@ func TestCLOBGPUvsCPUByteParity(t *testing.T) {
 	}
 }
 
-// TestCLOBArenaLifecycle exercises create → (no match) → destroy and the
+// TestOrderBookArenaLifecycle exercises create → (no match) → destroy and the
 // double-destroy no-op contract, independent of any matching. Skips without
 // a plugin.
-func TestCLOBArenaLifecycle(t *testing.T) {
+func TestOrderBookArenaLifecycle(t *testing.T) {
 	if AutoBackend() == GPUBackendNone {
 		t.Skipf("no GPU plugin loaded — set LUX_GPU_PLUGIN_DIR (probe order: %v)", probeOrder())
 	}
@@ -547,8 +547,8 @@ func TestCLOBArenaLifecycle(t *testing.T) {
 		t.Fatalf("ArenaDestroy (second, should be no-op): %v", err)
 	}
 	// Matching against a destroyed arena must error, not crash.
-	calldata := encodeCLOBCalldata(0, u256FromU64(1), u256FromU64(1), [20]byte{}, [32]byte{})
-	if _, _, merr := CLOBMatch(arena, calldata); merr == nil {
-		t.Fatal("CLOBMatch on destroyed arena: expected error, got nil")
+	calldata := encodeOrderBookCalldata(0, u256FromU64(1), u256FromU64(1), [20]byte{}, [32]byte{})
+	if _, _, merr := OrderBookMatch(arena, calldata); merr == nil {
+		t.Fatal("OrderBookMatch on destroyed arena: expected error, got nil")
 	}
 }

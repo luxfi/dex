@@ -8,7 +8,7 @@ import (
 )
 
 // source_amm.go is the V2/V3 AMM liquidity source — the router's FALLTHROUGH when
-// the CLOB has insufficient depth. The AMM pools are EVM contracts in the SAME
+// the OrderBook has insufficient depth. The AMM pools are EVM contracts in the SAME
 // cEVM, so their state is read in-process and the swap executes in-process
 // (deterministic constant-product math; every validator replays identically).
 //
@@ -110,7 +110,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	// top-level lock holds the taker's full input in the 0x9999 vault; the AMM leg's
 	// input is consumed from that vault-held amount and NOT refunded. We spend the
 	// taker's LOCKED input ledger units so the conservation invariant (lock == fills
-	// spent + refund) holds across BOTH CLOB and AMM legs uniformly.
+	// spent + refund) holds across BOTH OrderBook and AMM legs uniformly.
 	inAsset := req.Quote
 	outAsset := req.Base
 	if req.Side == lx.Sell {
@@ -120,7 +120,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	if serr := SpendLocked(db, req.TakerUser, inAsset, inUsed); serr != nil {
 		return Fill{}, 0, 0, serr
 	}
-	// Credit the taker's dex AVAILABLE with the proceeds — SYMMETRIC with the CLOB
+	// Credit the taker's dex AVAILABLE with the proceeds — SYMMETRIC with the OrderBook
 	// source (whose SettleFills credits the taker's available). This makes the D-surface
 	// settlement consistent across BOTH sources: after any swap the taker's available
 	// holds exactly the proceeds the journal records, so a caller that drains the

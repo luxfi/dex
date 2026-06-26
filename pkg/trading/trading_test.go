@@ -1165,7 +1165,7 @@ func TestVenueTypeClassification(t *testing.T) {
 		isV4 bool
 	}{
 		{"v4_native", false, false, true},
-		{"v4_native_clob", false, false, true},
+		{"v4_native_dex", false, false, true},
 		{"lux_amm", false, false, true},
 		{"uniswap_v2", true, false, false},
 		{"sushiswap", true, false, false},
