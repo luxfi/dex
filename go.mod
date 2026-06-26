@@ -19,7 +19,6 @@ require (
 	github.com/luxfi/rpc v1.1.0
 	github.com/luxfi/version v1.0.1
 	github.com/luxfi/vm v1.2.5
-	github.com/nats-io/nats.go v1.52.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.81.1
@@ -115,7 +114,7 @@ require (
 	github.com/luxfi/utils v1.2.0 // indirect
 	github.com/luxfi/validators v1.2.0 // indirect
 	github.com/luxfi/warp v1.19.5 // indirect
-	github.com/luxfi/zap v0.8.11 // indirect
+	github.com/luxfi/zap v0.8.10 // indirect
 	github.com/luxfi/zapdb v1.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -124,8 +123,6 @@ require (
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nats-io/nkeys v0.4.16 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
