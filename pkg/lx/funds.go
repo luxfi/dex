@@ -9,7 +9,7 @@ import (
 
 // VenueKind distinguishes the fundamental type of trading venue.
 // CEX and DEX have completely different deposit/withdrawal mechanics,
-// risk profiles, compliance gates, and settlement times.
+// risk profiles, and settlement times.
 type VenueKind uint8
 
 const (
@@ -44,15 +44,13 @@ type FundsStatus uint8
 
 const (
 	FundsStatusPending    FundsStatus = iota // Created, awaiting processing
-	FundsStatusCompliance                    // Undergoing compliance review
-	FundsStatusApproved                      // Compliance approved, ready to execute
+	FundsStatusApproved                      // Validated, ready to execute
 	FundsStatusProcessing                    // Execution in progress
 	FundsStatusConfirming                    // Awaiting on-chain confirmations (DEX)
 	FundsStatusSettling                      // Settlement in progress (CEX T+1/T+2)
 	FundsStatusCompleted                     // Fully settled
-	FundsStatusFailed                        // Failed (insufficient funds, compliance, etc.)
+	FundsStatusFailed                        // Failed (insufficient funds, limit exceeded, etc.)
 	FundsStatusCancelled                     // Cancelled by user or system
-	FundsStatusFrozen                        // Frozen by compliance (AML hold)
 )
 
 // RiskLevel classifies the risk of a funds movement.
@@ -61,8 +59,8 @@ type RiskLevel uint8
 const (
 	RiskLow      RiskLevel = iota // Internal, small amounts, known counterparty
 	RiskMedium                    // Cross-venue, moderate amounts
-	RiskHigh                      // Large amounts, new counterparty, high-risk jurisdiction
-	RiskCritical                  // Requires manual review (PEP, sanctions, etc.)
+	RiskHigh                      // Large amounts, cross-venue/external
+	RiskCritical                  // Requires manual review
 )
 
 // FundsMovement is the universal representation of any deposit, withdrawal,
@@ -95,13 +93,6 @@ type FundsMovement struct {
 	UpdatedAt   time.Time
 	CompletedAt *time.Time
 
-	// Compliance
-	ComplianceCheckID string // Pre-movement compliance check
-	ComplianceStatus  string // approved, pending_review, rejected, frozen
-	AMLFlag           bool   // Flagged by AML screening
-	SanctionsFlag     bool   // Flagged by sanctions check
-	ReviewerID        string // Manual reviewer (if required)
-
 	// On-chain (DEX movements)
 	SourceTxHash  string // Source chain transaction
 	DestTxHash    string // Destination chain transaction
@@ -127,7 +118,6 @@ type RiskProfile struct {
 	CustodialRisk     bool   // True for CEX movements
 	BridgeRisk        bool   // True for cross-chain
 	SettlementTime    string // "instant", "~15min", "T+1", "T+2", "1-5 business days"
-	ComplianceGates   []string
 	TypicalFees       string // Human-readable fee description
 }
 
@@ -138,7 +128,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CounterpartyRisk:  "none",
 		SmartContractRisk: true,
 		SettlementTime:    "instant",
-		ComplianceGates:   []string{},
 		TypicalFees:       "gas only",
 	},
 	RouteCEXInternal: {
@@ -146,7 +135,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CounterpartyRisk: "custodial",
 		CustodialRisk:    true,
 		SettlementTime:   "instant",
-		ComplianceGates:  []string{"account_verification"},
 		TypicalFees:      "none",
 	},
 	RouteDEXToDEX: {
@@ -155,7 +143,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		SmartContractRisk: true,
 		BridgeRisk:        true,
 		SettlementTime:    "~15min (bridge confirmations)",
-		ComplianceGates:   []string{},
 		TypicalFees:       "bridge fee (0.1-0.3%) + gas",
 	},
 	RouteCEXToCEX: {
@@ -163,7 +150,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CounterpartyRisk: "custodial",
 		CustodialRisk:    true,
 		SettlementTime:   "T+1 to T+2",
-		ComplianceGates:  []string{"kyc", "aml", "withdrawal_limit"},
 		TypicalFees:      "broker transfer fee",
 	},
 	RouteDEXToCEX: {
@@ -172,7 +158,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		SmartContractRisk: true,
 		CustodialRisk:     true,
 		SettlementTime:    "~30min (on-chain confirm + CEX credit)",
-		ComplianceGates:   []string{"kyc", "aml", "source_verification", "address_whitelist"},
 		TypicalFees:       "gas + CEX deposit fee (often free)",
 	},
 	RouteCEXToDEX: {
@@ -181,7 +166,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CustodialRisk:     true,
 		SmartContractRisk: true,
 		SettlementTime:    "~15min (CEX processing + on-chain confirm)",
-		ComplianceGates:   []string{"kyc", "aml", "withdrawal_limit", "address_whitelist", "2fa"},
 		TypicalFees:       "CEX withdrawal fee + gas",
 	},
 	RouteExternalIn: {
@@ -189,7 +173,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CounterpartyRisk: "banking",
 		CustodialRisk:    true,
 		SettlementTime:   "1-5 business days (wire/ACH)",
-		ComplianceGates:  []string{"kyc", "aml", "source_of_funds", "bank_verification"},
 		TypicalFees:      "wire fee ($25-50) or free (ACH)",
 	},
 	RouteExternalOut: {
@@ -197,7 +180,6 @@ var routeRiskProfiles = map[FundsRoute]RiskProfile{
 		CounterpartyRisk: "banking",
 		CustodialRisk:    true,
 		SettlementTime:   "1-5 business days (wire/ACH)",
-		ComplianceGates:  []string{"kyc", "aml", "withdrawal_limit", "bank_verification", "travel_rule"},
 		TypicalFees:      "wire fee ($25-50) or free (ACH)",
 	},
 }
@@ -223,8 +205,7 @@ type FundsManager struct {
 	lastReset             time.Time
 
 	// Hooks
-	preCheck   func(m *FundsMovement) error // Pre-movement compliance check
-	onComplete func(m *FundsMovement)       // Post-settlement callback
+	onComplete func(m *FundsMovement) // Post-settlement callback
 	onFail     func(m *FundsMovement, reason string)
 
 	// Bridge for cross-chain movements
@@ -245,13 +226,11 @@ func NewFundsManager(bridge *EnhancedBridge) *FundsManager {
 
 // SetHooks sets lifecycle callbacks.
 func (fm *FundsManager) SetHooks(
-	preCheck func(*FundsMovement) error,
 	onComplete func(*FundsMovement),
 	onFail func(*FundsMovement, string),
 ) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	fm.preCheck = preCheck
 	fm.onComplete = onComplete
 	fm.onFail = onFail
 }
@@ -306,17 +285,9 @@ func (fm *FundsManager) Initiate(m *FundsMovement) (*FundsMovement, error) {
 		}
 	}
 
-	// Run pre-check hook (compliance)
-	if fm.preCheck != nil {
-		m.Status = FundsStatusCompliance
-		if err := fm.preCheck(m); err != nil {
-			m.Status = FundsStatusFailed
-			m.FailureReason = err.Error()
-			fm.movements[m.ID] = m
-			return m, err
-		}
-	}
-
+	// Permissionless: a validated movement is approved. There is no
+	// eligibility/KYC gate — only the funds checks above (positive amount,
+	// asset/source present, daily withdrawal limit) can reject a movement.
 	m.Status = FundsStatusApproved
 
 	// Store
@@ -418,11 +389,6 @@ func (fm *FundsManager) GetAccountMovements(accountID string) []*FundsMovement {
 // --- Risk classification ---
 
 func (fm *FundsManager) classifyRisk(m *FundsMovement) RiskLevel {
-	// Sanctions or AML flag = critical
-	if m.SanctionsFlag || m.AMLFlag {
-		return RiskCritical
-	}
-
 	// Large amounts = high risk (threshold: 10,000 USD equivalent)
 	threshold := new(big.Int).Mul(big.NewInt(10000), big.NewInt(1e6)) // 10K in 6-decimal units
 	if m.Amount.Cmp(threshold) > 0 {
@@ -514,18 +480,16 @@ func (fm *FundsManager) executeDEXToCEX(m *FundsMovement) error {
 	// 2. Send to CEX deposit address
 	// 3. Wait for CEX to credit (confirmations required)
 	// Risk: smart contract (step 1) + custodial (step 3)
-	// Compliance: CEX requires address whitelisting, AML check on deposit
 	// Settlement: ~30 min (on-chain confirms + CEX processing)
 	return nil
 }
 
 // CEX→DEX: custodial withdrawal + on-chain deposit — mixed risk, ~15 min.
 func (fm *FundsManager) executeCEXToDEX(m *FundsMovement) error {
-	// 1. CEX processes withdrawal (compliance checks, 2FA, withdrawal limits)
+	// 1. CEX processes withdrawal (2FA, withdrawal limits)
 	// 2. CEX sends on-chain transaction
 	// 3. DEX contract receives deposit
 	// Risk: custodial (step 1) + smart contract (step 3)
-	// Compliance: CEX withdrawal compliance (KYC, AML, travel rule, limits)
 	// Settlement: ~15 min
 	return nil
 }
@@ -534,7 +498,6 @@ func (fm *FundsManager) executeCEXToDEX(m *FundsMovement) error {
 func (fm *FundsManager) executeExternalIn(m *FundsMovement) error {
 	// Fiat deposit via wire transfer, ACH, or card
 	// Risk: banking counterparty
-	// Compliance: source of funds verification, bank account verification
 	// Settlement: 1-5 business days (wire), 3-5 days (ACH), instant (card, with limits)
 	return nil
 }
@@ -543,7 +506,6 @@ func (fm *FundsManager) executeExternalIn(m *FundsMovement) error {
 func (fm *FundsManager) executeExternalOut(m *FundsMovement) error {
 	// Fiat withdrawal via wire transfer or ACH
 	// Risk: banking counterparty
-	// Compliance: KYC, AML, travel rule, withdrawal limits, tax reporting
 	// Settlement: 1-5 business days
 	return nil
 }
