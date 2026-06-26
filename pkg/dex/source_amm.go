@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"github.com/luxfi/dex/pkg/lx"
@@ -12,7 +12,7 @@ import (
 // cEVM, so their state is read in-process and the swap executes in-process
 // (deterministic constant-product math; every validator replays identically).
 //
-// dexcore is store-agnostic and knows nothing of EVM contract layout, so the
+// dex is store-agnostic and knows nothing of EVM contract layout, so the
 // concrete reserve read+write is injected via AMMPool: the precompile implements it
 // over the real V2/V3 pool contract storage; a test implements it over an in-Store
 // reserve row. The constant-product MATH (lx.ConstantProductOut, 128-bit exact) and
@@ -22,7 +22,7 @@ import (
 // contract.
 
 // AMMPool is the precompile-injected view+executor of one V2/V3 pool, keyed by the
-// market poolID. dexcore reads reserves to price/route and writes them back after a
+// market poolID. dex reads reserves to price/route and writes them back after a
 // fill; the implementer maps (base,quote) to the pool's token0/token1 reserves in
 // cEVM contract storage. All methods are pure replayable functions of prior state —
 // NO live external call.
@@ -31,7 +31,7 @@ type AMMPool interface {
 	// ok=false when no pool exists for this poolID (the router then skips the AMM).
 	Reserves(db Store, poolID [32]byte) (baseReserve, quoteReserve uint64, ok bool, err error)
 
-	// SetReserves writes the pool's post-fill reserves back. dexcore calls this once
+	// SetReserves writes the pool's post-fill reserves back. dex calls this once
 	// after an AMM fill with the new (baseReserve, quoteReserve).
 	SetReserves(db Store, poolID [32]byte, baseReserve, quoteReserve uint64) error
 
@@ -120,7 +120,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	if serr := SpendLocked(db, req.TakerUser, inAsset, inUsed); serr != nil {
 		return Fill{}, 0, 0, serr
 	}
-	// Credit the taker's dexcore AVAILABLE with the proceeds — SYMMETRIC with the CLOB
+	// Credit the taker's dex AVAILABLE with the proceeds — SYMMETRIC with the CLOB
 	// source (whose SettleFills credits the taker's available). This makes the D-surface
 	// settlement consistent across BOTH sources: after any swap the taker's available
 	// holds exactly the proceeds the journal records, so a caller that drains the

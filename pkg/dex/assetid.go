@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package dexcore
+package dex
 
 import (
 	"crypto/sha256"
@@ -15,7 +15,7 @@ import (
 // assetid.go is the CANONICAL real-asset identity primitive for the whole DEX value
 // path. It is the SINGLE place that derives the 32-byte AssetID of a real on-chain
 // asset from WHERE IT REALLY LIVES — (networkID, sourceChainID, assetKind,
-// canonicalRef). It lives in dexcore (the lowest shared leaf) so BOTH the 0x9999
+// canonicalRef). It lives in dex (the lowest shared leaf) so BOTH the 0x9999
 // cEVM value path (precompile/dex) AND the chains/dexvm registry compute the SAME
 // id from the same fields: a registered AssetID and a swap-derived AssetID are
 // directly comparable, by construction, with no risk of two derivations drifting.
@@ -36,7 +36,7 @@ import (
 // UTXO assetID can never collide). The result is an ids.ID — the SAME identity space
 // the on-chain atomic objects already use — never a string ticker.
 //
-// This is the consensus-native asset identity. The dexcore ledger's AssetID alias is
+// This is the consensus-native asset identity. The dex ledger's AssetID alias is
 // [32]byte and an ids.ID is [32]byte, so DeriveAssetID's output is directly usable as
 // a ledger AssetID via AssetIDFromID.
 
@@ -89,11 +89,11 @@ var EVMNativeMarker = make([]byte, 20)
 
 var (
 	// ErrInvalidKind is returned when an asset's kind is not one of the three.
-	ErrInvalidKind = errors.New("dexcore: asset kind is not EVM_NATIVE, ERC20 or UTXO")
+	ErrInvalidKind = errors.New("dex: asset kind is not EVM_NATIVE, ERC20 or UTXO")
 	// ErrBadRef is returned when a canonical reference does not match its kind's shape.
-	ErrBadRef = errors.New("dexcore: canonical reference does not match asset kind")
+	ErrBadRef = errors.New("dex: canonical reference does not match asset kind")
 	// ErrEmptyChainID is returned when the source chain of an asset is the empty id.
-	ErrEmptyChainID = errors.New("dexcore: asset source chain id is empty")
+	ErrEmptyChainID = errors.New("dex: asset source chain id is empty")
 )
 
 // domAssetV1 is the domain-separation tag folded as the FIRST field of every AssetID
@@ -163,7 +163,7 @@ func DeriveAssetID(networkID uint32, sourceChainID ids.ID, kind AssetKind, ref [
 	return f.sum(), nil
 }
 
-// AssetIDFromID adapts a consensus-native ids.ID to the dexcore ledger AssetID alias
+// AssetIDFromID adapts a consensus-native ids.ID to the dex ledger AssetID alias
 // ([32]byte). They are the same underlying array; this is the one named conversion so
 // the value path keys the ledger by the canonical derived id, never an ad-hoc handle.
 func AssetIDFromID(id ids.ID) AssetID { return AssetID(id) }
