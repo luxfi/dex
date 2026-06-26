@@ -224,22 +224,23 @@ func (m *ledgerModel) assertConservation(t *testing.T, vm *VM, where string) {
 // seed replays a fresh, independent randomized session. A diverse spread of
 // starting points exercises different op interleavings without any
 // nondeterministic input — re-running the test reproduces every session exactly.
-// NOTE on the excluded seed 4242: its randomized stream drives a SELF-TRADE
-// through the marketable path — the SAME account both rests a maker and submits a
-// crossing taker. pkg/lx OrderBook.SubmitMarketable applies NO self-trade
-// prevention (unlike the resting/place path addRestingLocked, which does), so the
-// taker crosses its own resting maker; the matcher consumes the maker's full
-// reserve yet leaves the order resting, and a later cross then strands settlement.
-// This is a PRE-EXISTING matcher bug in pkg/lx, NOT a regression of the signature
-// gate: the gate produces ZERO rejections on this seed (verified), the matcher's
-// fill arithmetic is identity-agnostic, and the same divergence reproduces with
-// the gate behaviorally transparent. It is out of scope for the authorization fix
-// (which must not alter settle.go arithmetic); fixing it requires self-trade
-// prevention in SubmitMarketable. Excluded here so the conservation property stays
-// green on the auth work without masking the finding — see the change report.
+// REGRESSION GUARD — seed 4242: its randomized stream drives a SELF-TRADE through
+// the marketable path — the SAME account both rests a maker and submits a crossing
+// taker. The maker, rebuilt from its persisted row, carries the leading-8-byte
+// folded identity (persist.userToUint64) while the fresh taker carries the full
+// 16-byte wire identity, so the matcher's old raw-string self-trade check failed to
+// recognize the self-cross. The cross then desynced the integer-units lane (which
+// fully consumed the maker, deleting its orderuser:/reserve) from the float lane
+// (which left it resting), and a LATER cross hit the missing orderuser: row and
+// stranded settlement, breaking conservation. Fixed in pkg/lx by resolving both
+// orders through the canonical owner handle (selfTradeKey) in BOTH the place path
+// (checkSelfTrade) and the marketable matcher (tryMatchImmediateLocked), so a
+// rested-then-rebuilt maker and a fresh taker from the same account compare equal
+// and the self-maker leg is skip-and-cancelled (no fill, no value move). This seed
+// stays IN the table to lock the fix.
 var conservationSeeds = []int64{
 	1, 2, 3, 7, 11, 13, 17, 23, 42, 99,
-	101, 256, 999, 1337, 8888888, 31337, 65537, 123456, 7777777,
+	101, 256, 999, 1337, 4242, 8888888, 31337, 65537, 123456, 7777777,
 }
 
 // opsPerSeed is the number of randomized operations driven per seed. With 20
