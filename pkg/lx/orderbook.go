@@ -280,19 +280,31 @@ func NewOrderTree(side Side) *OrderTree {
 // is treated as an IOC limit (Price is the worst price it will accept). The order
 // is never added to the resting book.
 func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
+	fills, _, err := ob.submitMarketable(order, false)
+	return fills, err
+}
+
+// submitMarketable is the shared body of SubmitMarketable and (via the GPU
+// shadow gate) SubmitMarketableVerified. With capture=false it is byte-for-byte
+// the original SubmitMarketable behavior. With capture=true it ALSO snapshots
+// the pre-cross opposite side — atomically with the match, under the single
+// ob.mu acquisition, BEFORE tryMatchImmediateLocked mutates any maker — so the
+// GPU shadow can be dispatched on the exact inputs the authority matched. The
+// capture is a pure read; it never changes the committed fills.
+func (ob *OrderBook) submitMarketable(order *Order, capture bool) ([]Trade, *clobShadowInput, error) {
 	if order == nil {
-		return nil, ErrInvalidOrder
+		return nil, nil, ErrInvalidOrder
 	}
 	if order.Size <= 0 {
-		return nil, ErrInvalidSize
+		return nil, nil, ErrInvalidSize
 	}
 	// A limit-bounded marketable order needs a positive price; a pure market
 	// order does not (it sweeps the book unconditionally).
 	if order.Type != Market && order.Price <= 0 {
-		return nil, ErrInvalidPrice
+		return nil, nil, ErrInvalidPrice
 	}
 	if order.Price > MaxSafePrice {
-		return nil, fmt.Errorf("price %f exceeds max safe price %f: %w", order.Price, MaxSafePrice, ErrInvalidPrice)
+		return nil, nil, fmt.Errorf("price %f exceeds max safe price %f: %w", order.Price, MaxSafePrice, ErrInvalidPrice)
 	}
 
 	ob.mu.Lock()
@@ -312,6 +324,14 @@ func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
 	order.RemainingSize = order.Size
 	order.Filled = 0
 
+	// Capture the pre-cross opposite side for the GPU shadow BEFORE the cross
+	// mutates any maker remaining/status. Done under the same ob.mu the match
+	// holds, so the snapshot and the match see identical book state.
+	var shadow *clobShadowInput
+	if capture {
+		shadow = ob.captureCLOBShadowLocked(order)
+	}
+
 	// tryMatchImmediateLocked returns exactly this order's fills, captured as they
 	// are produced — NOT re-sliced from ob.Trades, whose 100k->50k self-truncation
 	// would make a pre-match offset stale (and panic) once a hot market crosses the
@@ -321,7 +341,7 @@ func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
 	produced := ob.tryMatchImmediateLocked(order)
 	fills := make([]Trade, len(produced))
 	copy(fills, produced)
-	return fills, nil
+	return fills, shadow, nil
 }
 
 // AddOrder with optimized integer price handling

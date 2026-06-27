@@ -180,7 +180,12 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		order.Price = limitPrice
 	}
 
-	fills, err := book.SubmitMarketable(order)
+	// Route through the GPU shadow gate. With the default EngineCPU this is
+	// byte-for-byte SubmitMarketable; with EngineGPUVerified (a node-local opt-in)
+	// the GPU kernel is ALSO dispatched and byte-compared against this CPU result,
+	// which is what is committed REGARDLESS — so the engine choice can never change
+	// the committed fills and a mixed GPU/CPU validator set cannot fork.
+	fills, err := book.SubmitMarketableVerified(order, lx.MatchEngine())
 	if err != nil {
 		return applyResult{}, nil // deterministic reject (e.g. invalid)
 	}
