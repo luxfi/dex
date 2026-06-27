@@ -136,7 +136,7 @@ func resetMatchShadowStats() {
 // node can surface it at ERROR (with full context for forensics) while the chain
 // keeps running on the CPU authority.
 type MatchDivergence struct {
-	Kind   string // "clob" | "amm"
+	Kind   string // "dex" (order-book match shadow-gate divergence)
 	Reason string // "gpu_ne_cpu" | "gpu_error" | "model"
 	Detail string // human-readable specifics (first differing field / index)
 }

@@ -2,7 +2,7 @@
 // See the file LICENSE for licensing terms.
 
 // Package lxgpu is the dlopen bridge to the gpu-kernels DEX plugin and the
-// byte-parity proof harness for the native OrderBook/AMM matchers.
+// byte-parity proof harness for the native OrderBook matcher.
 //
 // It is the SINGLE home for the GPU dispatch + its KAT (known-answer test)
 // against the deterministic CPU oracle. The CPU oracle is the byte-parity
@@ -42,7 +42,7 @@ const (
 )
 
 // String returns the human-readable lowercase backend name used in the host
-// launcher symbol prefix (e.g. "metal" -> "lux_metal_amm_xyk_batch").
+// launcher symbol prefix (e.g. "metal" -> "lux_metal_dex_orderbook_match").
 func (b GPUBackend) String() string {
 	switch b {
 	case GPUBackendCUDA:
@@ -64,18 +64,6 @@ func (b GPUBackend) String() string {
 // the cgo build when init() failed to bind any plugin. Consumers treat this as
 // "fall back to the CPU path" rather than as a hard failure.
 var ErrGPUNotAvailable = errors.New("lxgpu: GPU plugin not available")
-
-// LuxAmmReservePair mirrors include/lux/gpu/dex.h::LuxAmmReservePair.
-// 16 bytes, packed (no padding), little-endian uint64 fields.
-// MUST match:
-//
-//	the GPU plugin install tree include/lux/gpu/dex.h::LuxAmmReservePair
-//	~/work/lux/dex/pkg/lx/amm.go::ReservePair
-//	the GPU plugin install tree ops/dex/{cuda,metal,wgsl}/amm_xyk*
-type LuxAmmReservePair struct {
-	ReserveX uint64
-	ReserveY uint64
-}
 
 // OrderBook ABI byte sizes from include/lux/gpu/dex.h.
 const (

@@ -291,7 +291,7 @@ func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
 // ob.mu acquisition, BEFORE tryMatchImmediateLocked mutates any maker — so the
 // GPU shadow can be dispatched on the exact inputs the authority matched. The
 // capture is a pure read; it never changes the committed fills.
-func (ob *OrderBook) submitMarketable(order *Order, capture bool) ([]Trade, *clobShadowInput, error) {
+func (ob *OrderBook) submitMarketable(order *Order, capture bool) ([]Trade, *dexShadowInput, error) {
 	if order == nil {
 		return nil, nil, ErrInvalidOrder
 	}
@@ -327,9 +327,9 @@ func (ob *OrderBook) submitMarketable(order *Order, capture bool) ([]Trade, *clo
 	// Capture the pre-cross opposite side for the GPU shadow BEFORE the cross
 	// mutates any maker remaining/status. Done under the same ob.mu the match
 	// holds, so the snapshot and the match see identical book state.
-	var shadow *clobShadowInput
+	var shadow *dexShadowInput
 	if capture {
-		shadow = ob.captureCLOBShadowLocked(order)
+		shadow = ob.captureDEXShadowLocked(order)
 	}
 
 	// tryMatchImmediateLocked returns exactly this order's fills, captured as they
