@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/zapwire"
 )
 
 // read.go is the D-Chain's READ surface: dex_get_* query endpoints that return
@@ -51,6 +53,7 @@ const (
 	MethodGetOrders  = "dex_get_orders"
 	MethodGetMarkets = "dex_get_markets"
 	MethodGetBook    = "dex_get_book"
+	MethodGetNonce   = "dex_get_nonce"
 )
 
 // defaultTradeLimit bounds an unparameterized dex_get_trades response so a chain
@@ -75,6 +78,7 @@ func (vm *VM) readMethods() []readMethod {
 		{MethodGetOrders, vm.handleGetOrders},
 		{MethodGetMarkets, vm.handleGetMarkets},
 		{MethodGetBook, vm.handleGetBook},
+		{MethodGetNonce, vm.handleGetNonce},
 	}
 }
 
@@ -233,7 +237,14 @@ func (vm *VM) handleGetOrders(w http.ResponseWriter, r *http.Request) {
 				Price:     o.Price,
 				Size:      o.Size,
 				Remaining: o.RemainingSize,
-				User:      o.User,
+				// Hex-encode the 16-byte account: the raw settlement id is not valid
+				// UTF-8, so emitting it as a Go string is LOSSY (json replaces the
+				// invalid bytes with U+FFFD) — an owner read back from this field
+				// could never round-trip. Hex round-trips, so a client can match its
+				// own account (the maker's startup reconcile) and it stays the same
+				// encoding as dex_get_nonce's account field. One encoding for an
+				// account across the read surface.
+				User: hex.EncodeToString([]byte(o.User)),
 			})
 		}
 	}
@@ -332,6 +343,48 @@ func (vm *VM) handleGetMarkets(w http.ResponseWriter, r *http.Request) {
 	vm.mu.Unlock()
 
 	writeJSON(w, getMarketsResp{chainHead: head, Count: len(out), Markets: out})
+}
+
+// getNonceResp is the dex_get_nonce body: the chain head plus an account's
+// EXPECTED-NEXT nonce. A signed client reads this at startup to resync its nonce
+// stream to the venue (every money-moving tx must carry exactly this nonce), so it
+// can restart/redeploy without replaying — the orthogonal counterpart to the
+// monotonic gate in authorizeTx.
+type getNonceResp struct {
+	chainHead
+	Account string `json:"account"`
+	Nonce   uint64 `json:"nonce"`
+}
+
+// handleGetNonce serves an account's expected-next nonce:
+//
+//	GET .../dex/dex_get_nonce?account=<hex of the 16-byte settlement account>
+//
+// Pure read of the durable nonce: row (state.go getNonce); absent == 0 (the
+// account's first op). The account is the same 16-byte id the body's user[16]
+// field carries (dchain Account16).
+func (vm *VM) handleGetNonce(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeReadErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	b, err := hex.DecodeString(strings.TrimPrefix(r.URL.Query().Get("account"), "0x"))
+	if err != nil || len(b) != zapwire.UserSize {
+		writeReadErr(w, http.StatusBadRequest, fmt.Sprintf("account must be %d-byte hex", zapwire.UserSize))
+		return
+	}
+	var account userKey
+	copy(account[:], b)
+
+	vm.mu.Lock()
+	n, nerr := getNonce(vm.db, account)
+	head := vm.headLocked()
+	vm.mu.Unlock()
+	if nerr != nil {
+		writeReadErr(w, http.StatusInternalServerError, nerr.Error())
+		return
+	}
+	writeJSON(w, getNonceResp{chainHead: head, Account: hex.EncodeToString(account[:]), Nonce: n})
 }
 
 // levelJSON is one aggregated price level in the book.
