@@ -117,6 +117,22 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	if vm.log == nil {
 		vm.log = log.NewNoOpLogger()
 	}
+
+	// Route GPU shadow-gate divergences (a GPU match result that did NOT agree
+	// with the CPU authority, byte-for-byte) into the node logger at ERROR. With
+	// the default EngineCPU the gate never runs, so this is dormant until a node
+	// operator opts in via LUX_DEX_MATCH_ENGINE=gpu-verified. A divergence here is
+	// a hard alarm: the CPU authority was committed and the GPU output discarded,
+	// and the GPU engine should be disabled on this node pending investigation.
+	lx.SetMatchDivergenceSink(func(d lx.MatchDivergence) {
+		vm.log.Error("dchain GPU shadow divergence (CPU authority committed; GPU output discarded)",
+			"kind", d.Kind, "reason", d.Reason, "detail", d.Detail)
+	})
+	if engine := lx.MatchEngine(); engine != lx.EngineCPU {
+		vm.log.Warn("dchain match engine: GPU shadow ENABLED — CPU remains the committed authority",
+			"engine", engine.String())
+	}
+
 	vm.db = init.DB
 	vm.toEngine = init.ToEngine
 	// Capture the cross-chain wiring for the native settlement seam (atomic.go). The
