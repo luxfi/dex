@@ -56,6 +56,19 @@ const (
 	// value-checked. Body = zapwire OpenMarket payload (96B): poolId[32] +
 	// baseAsset[32] + quoteAsset[32].
 	TxOpenMarket
+	// TxImport CONSUMES a C->D atomic intent object and funds the taker's native D
+	// account with the recorded asset (atomic.go executeImport). Body = intentID[32]:
+	// the shared-memory key the 0x9999 precompile PUT the C->D object under. It is NOT
+	// signature-authorized — its authority is the consumed cross-chain object (the
+	// taker already authenticated + locked on C), exactly as the proxy's ImportTx is
+	// authorized by the UTXO it consumes, not a per-account signature.
+	TxImport
+	// TxExport DEBITS the taker's settled native D balance and writes a D->C atomic
+	// settlement object the precompile's ImportSettlement consumes (atomic.go
+	// executeExport). Body = intentID[32] | asset[32] | amount[8] | spent[8]. Also
+	// object-authorized (the D->C object it produces is owned by the intent's recorded
+	// owner, so it can only settle value back to the rightful taker), so no signature.
+	TxExport
 )
 
 // requiresAuth reports whether a tx type moves USER funds and therefore must
@@ -87,10 +100,22 @@ func (t TxType) String() string {
 		return "withdraw"
 	case TxOpenMarket:
 		return "open_market"
+	case TxImport:
+		return "seam_import"
+	case TxExport:
+		return "seam_export"
 	default:
 		return "unknown"
 	}
 }
+
+// seamImportBodySize is the TxImport body width: intentID[32].
+// seamExportBodySize is the TxExport body width: intentID[32] | asset[32] |
+// amount[8] | spent[8].
+const (
+	seamImportBodySize = 32
+	seamExportBodySize = 32 + 32 + 8 + 8
+)
 
 // Errors returned by the tx layer.
 var (
@@ -243,6 +268,10 @@ func bodySize(t TxType) (int, bool) {
 		return zapwire.WithdrawReqSize, true
 	case TxOpenMarket:
 		return zapwire.OpenMarketReqSize, true
+	case TxImport:
+		return seamImportBodySize, true
+	case TxExport:
+		return seamExportBodySize, true
 	default:
 		return 0, false
 	}
