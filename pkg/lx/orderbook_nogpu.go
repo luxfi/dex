@@ -7,6 +7,9 @@ package lx
 
 import "fmt"
 
+// clobBackendLabel reports the linked CLOB GPU backend for corpus logging.
+func clobBackendLabel() string { return "cpu (cgo disabled)" }
+
 // MatchOrderGPU under !cgo is the CPU oracle. The cgo build provides this
 // symbol via orderbook_gpu.go (which dispatches to the per-platform CUDA /
 // stub implementation).

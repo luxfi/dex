@@ -5,6 +5,9 @@
 
 package lx
 
+// clobBackendLabel reports the linked CLOB GPU backend for corpus logging.
+func clobBackendLabel() string { return "cpu-fallback (no CLOB GPU backend on this OS)" }
+
 // gpuMatchOrder has no GPU backend on this OS. The dispatcher in
 // orderbook_gpu.go turns errOrderBookGPUUnsupported into a transparent
 // fallback to MatchOrderCPU.
