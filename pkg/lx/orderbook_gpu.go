@@ -1,6 +1,8 @@
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
+//go:build cgo
+
 package lx
 
 import (
@@ -10,21 +12,29 @@ import (
 )
 
 // MatchOrderGPU matches one incoming taker against a subset of book
-// orders identified by bookIndices, dispatching to CUDA when available
-// and falling back to MatchOrderCPU otherwise. Output is byte-equal
-// across paths after padding normalization — that contract is enforced
-// by orderbook_cuda_parity_test.go on every run.
+// orders identified by bookIndices, dispatching to the host GPU when
+// available and falling back to MatchOrderCPU otherwise. Output is
+// byte-equal across paths after padding normalization — that contract is
+// enforced by orderbook_gpu_test.go on every run.
 //
 // This is the flat-buffer matching primitive used for parity testing,
 // batch backtests, and future GPU-resident architectures. The live
 // OrderBook.MatchOrders() engine retains its richer order-type and
 // linked-list semantics and is NOT touched by this dispatch.
 //
+// Backend selection at compile time (CGo on):
+//
+//	linux  → orderbook_gpu_cuda.go → CUDA
+//	other  → orderbook_gpu_stub.go → returns errOrderBookGPUUnsupported (caller falls back to CPU)
+//
 // Fallback policy (recorded via backend.RecordFallback):
 //
-//	GPU_DISABLE=1                 → reason "disabled"
-//	gpuMatchOrder returns sentinel    → reason "unsupported"
-//	other gpuMatchOrder error         → surfaced to caller (no fallback)
+//	GPU_DISABLE=1                  → reason "disabled"
+//	gpuMatchOrder returns sentinel → reason "unsupported"
+//	other gpuMatchOrder error      → surfaced to caller (no fallback)
+//
+// CGo off → orderbook_nogpu.go provides a CPU-only implementation of this
+// entry point. One and only one MatchOrderGPU symbol per build.
 //
 // Returns: trades emitted, remaining quantity on the incoming order.
 // `book` may be mutated in place to reflect updated Remaining / Status.
@@ -57,7 +67,7 @@ func MatchOrderGPU(
 	return trades, remaining, nil
 }
 
-// errOrderBookGPUUnsupported is returned by per-platform gpuMatchOrder when
-// no GPU dispatch is available. The dispatcher turns it into a CPU
-// fallback rather than surfacing the error.
-var errOrderBookGPUUnsupported = fmt.Errorf("lx: OrderBook CUDA dispatch not available on this host")
+// errOrderBookGPUUnsupported is returned by the per-platform gpuMatchOrder
+// when no GPU dispatch is available on this host. The dispatcher above
+// turns that into a transparent CPU fallback rather than surfacing it.
+var errOrderBookGPUUnsupported = fmt.Errorf("lx: orderBook GPU dispatch not available on this host")
