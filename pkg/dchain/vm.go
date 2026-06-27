@@ -99,6 +99,16 @@ type VM struct {
 	zapIngest       rpc.Server
 	zapIngestCancel context.CancelFunc
 
+	// autoDriveSeam enables the PROPOSER-SIDE DRIVE (drive.go): when set, BuildBlock
+	// autonomously enumerates the committed cross-chain atomic state and emits the
+	// TxImport / TxExport txs that import C->D intents and export D->C settlements —
+	// the keeper-less native settlement seam. It is set true at Initialize exactly when
+	// the cross-chain seam is wired (a runtime with shared memory + a resolved C-Chain
+	// id); a single-chain runtime (no seam) leaves it false, and the seam unit tests
+	// (atomic_seam_e2e_test) clear it to exercise executeImport/executeExport in
+	// isolation via manual mempool injection. Guarded by vm.mu.
+	autoDriveSeam bool
+
 	initialized bool
 }
 
@@ -142,6 +152,12 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	if init.Runtime != nil {
 		vm.cChainID = init.Runtime.CChainID
 	}
+	// Drive the native settlement seam autonomously exactly when it is wired: a runtime
+	// with cross-chain shared memory AND a resolved C-Chain id. With either absent the
+	// seam is closed (executeImport/executeExport refuse — no mint), so the drive has
+	// nothing to do and stays off. This is the keeper-less production default; the seam
+	// mechanics tests clear it to inject TxImport/TxExport by hand.
+	vm.autoDriveSeam = vm.runtime != nil && vm.runtime.GetSharedMemory() != nil && vm.cChainID != ids.Empty
 	vm.mempool = newMempool(init.ToEngine)
 	vm.outcomes = newOutcomeRegistry()
 	vm.books = map[[32]byte]*lx.OrderBook{}
@@ -406,7 +422,34 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
-	txs := vm.mempool.Drain(0)
+	// PROPOSER-SIDE DRIVE (drive.go): before draining the mempool, enumerate the committed
+	// cross-chain atomic state and autonomously generate the seam txs — TxImport for every
+	// un-imported C->D intent, TxExport for every open intent whose owner now holds realized
+	// proceeds. Both are pure, deterministic functions of committed state (shared memory +
+	// the seamintent: escrow + the ledger), so every validator re-derives the identical
+	// effects in execute and a divergent proposer is rejected on the tx root. This is the
+	// keeper-less native settlement seam — the VM imports C->D intents and exports D->C
+	// settlements during normal block production. A no-op when the seam is unwired.
+	imports, err := vm.driveSeamImports()
+	if err != nil {
+		return nil, fmt.Errorf("dchain: drive imports: %w", err)
+	}
+	exports, err := vm.driveSeamExports()
+	if err != nil {
+		return nil, fmt.Errorf("dchain: drive exports: %w", err)
+	}
+
+	mtxs := vm.mempool.Drain(0)
+
+	// Assemble [imports || exports || mempool]. Imports come FIRST so a same-block taker
+	// order draws from the just-imported funds; exports come before the mempool so they
+	// settle committed proceeds before any new mempool order can touch the same account.
+	// The seam txs and the mempool txs are disjoint by construction (an intent is imported,
+	// then traded, then exported across distinct blocks).
+	txs := make([]*Tx, 0, len(imports)+len(exports)+len(mtxs))
+	txs = append(txs, imports...)
+	txs = append(txs, exports...)
+	txs = append(txs, mtxs...)
 	if len(txs) == 0 {
 		return nil, ErrEmptyMempool
 	}
@@ -422,8 +465,10 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	overlay.Abort()
 	if err != nil {
 		// A tx that cannot execute (e.g. unknown market) must not wedge the
-		// chain: drop the batch back to the mempool and surface the error.
-		vm.mempool.Requeue(txs)
+		// chain: drop the MEMPOOL batch back so it is retried. The seam txs are
+		// regenerated from committed state on the next build, so they are not
+		// requeued (they are not mempool-owned).
+		vm.mempool.Requeue(mtxs)
 		return nil, fmt.Errorf("dchain: build execute: %w", err)
 	}
 
@@ -583,6 +628,12 @@ func (vm *VM) HealthCheck(ctx context.Context) (block.HealthCheckResult, error) 
 func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
+	// The seam drive (drive.go) can have work even with an empty mempool — a pending
+	// C->D intent to import, or an open intent with realized proceeds to export. Those
+	// appear at the source chain's block cadence (seconds), so they are polled on a
+	// slower, separate tick to keep the hot mempool path cheap.
+	seamTicker := time.NewTicker(time.Second)
+	defer seamTicker.Stop()
 	for {
 		if vm.mempool != nil && vm.mempool.Len() > 0 {
 			return block.Message{Type: block.PendingTxs}, nil
@@ -591,6 +642,13 @@ func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 		case <-ctx.Done():
 			return block.Message{}, ctx.Err()
 		case <-ticker.C:
+		case <-seamTicker.C:
+			vm.mu.Lock()
+			work := vm.hasSeamWork()
+			vm.mu.Unlock()
+			if work {
+				return block.Message{Type: block.PendingTxs}, nil
+			}
 		}
 	}
 }

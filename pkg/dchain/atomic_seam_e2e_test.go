@@ -106,8 +106,17 @@ func (h *seamHarness) addr(t *testing.T, name string) common.Address {
 func (h *seamHarness) writeCToDIntent(t *testing.T, intentID ids.ID, owner common.Address, asset [32]byte, amount uint64) {
 	t.Helper()
 	obj := encodeSeamObject(railSwap, owner, asset, amount, 0)
+	// Tag the object with BOTH the per-owner trait (the precompile's existing index) AND
+	// the fixed SeamPendingTrait — modeling the corrected C-side flush (native_staging.go
+	// collectRange must add SeamPendingTrait so the D-side proposer drive can enumerate the
+	// intent owner-agnostically; see drive.go). The trait is inert for the manual-drive
+	// mechanics tests (Get-by-key ignores traits) and is what the autonomous drive walks.
 	err := h.cSM.Apply(map[ids.ID]*atomic.Requests{
-		h.dChainID: {PutRequests: []*atomic.Element{{Key: intentID[:], Value: obj, Traits: [][]byte{owner[:]}}}},
+		h.dChainID: {PutRequests: []*atomic.Element{{
+			Key:    intentID[:],
+			Value:  obj,
+			Traits: [][]byte{owner[:], SeamPendingTrait},
+		}}},
 	})
 	if err != nil {
 		t.Fatalf("write C->D intent: %v", err)
