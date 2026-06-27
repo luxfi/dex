@@ -480,6 +480,15 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
+			// CLOSE the intent escrow once this export has fully drained the taker's
+			// cross-chain account (drive.go) — making each cross-chain swap one-shot, so a
+			// settled intent is not re-exported by a later block's drive and the owner can
+			// import a fresh intent. Order-independent: it fires on whichever leg empties
+			// the account (the lone proceeds leg of a full fill, or the refund leg of a
+			// partial fill). A still-funded account is left open for a subsequent leg.
+			if cerr := b.vm.closeSeamIntentIfDrained(overlay, intentID); cerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam intent close: %w", i, cerr)
+			}
 			// orderID carries a compact handle of the output id for the ack; the keeper
 			// reads the full id from the seamout: record (or recomputes deriveSeamOutputID).
 			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: binary.BigEndian.Uint64(outputID[24:32])}
