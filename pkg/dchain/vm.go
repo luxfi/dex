@@ -17,6 +17,7 @@ import (
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
 	"github.com/luxfi/rpc"
+	"github.com/luxfi/runtime"
 	"github.com/luxfi/version"
 )
 
@@ -48,6 +49,17 @@ type VM struct {
 
 	log log.Logger
 	db  database.Database
+
+	// runtime is the chain-scoped wiring the consensus engine hands the VM at
+	// Initialize (block.Init.Runtime). It is the source of the cross-chain atomic
+	// shared-memory handle (GetSharedMemory) and the C-Chain id the native settlement
+	// seam (atomic.go) imports from / exports to. nil when no runtime was wired
+	// (single-chain unit tests with no seam) — the seam then refuses (no mint).
+	runtime *runtime.Runtime
+	// cChainID is the C-Chain id resolved from the runtime: the partition a C->D
+	// intent object is read under (import) and a D->C settlement object is written
+	// under (export). ids.Empty when no runtime / no C-Chain — the seam stays closed.
+	cChainID ids.ID
 
 	mempool *mempool
 
@@ -107,6 +119,13 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	}
 	vm.db = init.DB
 	vm.toEngine = init.ToEngine
+	// Capture the cross-chain wiring for the native settlement seam (atomic.go). The
+	// runtime carries the shared-memory handle + the C-Chain id; both are absent in a
+	// single-chain unit test, where the seam refuses rather than mint.
+	vm.runtime = init.Runtime
+	if init.Runtime != nil {
+		vm.cChainID = init.Runtime.CChainID
+	}
 	vm.mempool = newMempool(init.ToEngine)
 	vm.outcomes = newOutcomeRegistry()
 	vm.books = map[[32]byte]*lx.OrderBook{}
