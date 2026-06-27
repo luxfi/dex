@@ -24,6 +24,9 @@ import (
 	"unsafe"
 )
 
+// clobBackendLabel reports the linked CLOB GPU backend for corpus logging.
+func clobBackendLabel() string { return "cuda" }
+
 // gpuMatchOrder is the CUDA implementation called by orderbook_gpu.go.
 // Returns errOrderBookGPUUnsupported when no NVIDIA device is present so the
 // dispatcher falls back to MatchOrderCPU.
