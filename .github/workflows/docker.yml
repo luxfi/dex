@@ -10,22 +10,76 @@ permissions:
   packages: write
   id-token: write
 
+# Self-contained build (no reusable). The shared hanzoai/.github
+# docker-build.yml@main has been failing to resolve org-wide (422 "error
+# parsing called workflow") — this mirrors node/docker.yml's proven inline
+# pattern instead. One image: ghcr.io/luxfi/dex = the CPU dexd venue
+# (CGO_ENABLED=0 pure-Go matcher, ./Dockerfile).
 jobs:
-  docker:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: ghcr.io/luxfi/dex
-            dockerfile: Dockerfile
-    uses: hanzoai/.github/.github/workflows/docker-build.yml@main
-    with:
-      image: ${{ matrix.image }}
-      dockerfile: ${{ matrix.dockerfile }}
-      # runner-* inputs are JSON-array strings decoded via fromJson() in the
-      # reusable workflow. The prior bare-string overrides ("luxfi-amd64", …)
-      # made fromJson() fail -> 0s "workflow file issue" (broken since 2026-06-19).
-      # The lux arcd pool registers on the canonical [self-hosted,linux,<arch>]
-      # labels (same as node's lux-build); org runner-group + arcd repo allowlist
-      # provide isolation on the shared labels, so the defaults are correct here.
-    secrets: inherit
+  build-amd64:
+    # lux arcd in-cluster ARC pool (same as node). amd64 DOKS nodes, DinD.
+    runs-on: lux-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: |
+            network=host
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/luxfi/dex
+          # Semver-only: v* tags publish; every push also gets sha-<sha7>.
+          # No floating tags (no :latest/:main).
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=tag
+            type=sha,format=short,prefix=sha-
+
+      - name: Resolve cross-repo PAT for private luxfi/* + hanzos3 deps
+        id: pat
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          UNIVERSE_PAT: ${{ secrets.UNIVERSE_PAT }}
+        run: |
+          tok="$GH_TOKEN"; src="GH_TOKEN"
+          if [ -z "$tok" ]; then tok="$UNIVERSE_PAT"; src="UNIVERSE_PAT"; fi
+          if [ -z "$tok" ]; then
+            echo "::error::Neither GH_TOKEN (org) nor UNIVERSE_PAT (repo) is set. Private luxfi/*/hanzos3 deps cannot be resolved."
+            exit 1
+          fi
+          echo "Using secret: $src (length=${#tok})"
+          echo "::add-mask::$tok"
+          { echo "token<<EOF"; echo "$tok"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: Build & push (amd64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            CGO_ENABLED=0
+          # dex Dockerfile mounts secret id=gh_token for git url.insteadOf.
+          secrets: |
+            gh_token=${{ steps.pat.outputs.token }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64
+          cache-to: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64,mode=max
