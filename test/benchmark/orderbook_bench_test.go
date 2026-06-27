@@ -139,8 +139,9 @@ func BenchmarkBatchVerifyOrders(b *testing.B) {
 	})
 }
 
-// BenchmarkBatchAMM compares a Go for-loop CPU evaluation against the
-// GPU-batched amm_xyk_batch_metal dispatch on 100k tuples.
+// BenchmarkBatchAMM measures the CPU constant-product (xy=k) batch evaluation
+// over 100k tuples. The AMM curve runs on-chain in the EVM/consensus; there is
+// no GPU acceleration for it (the GPU path was the order-book matcher only).
 func BenchmarkBatchAMM(b *testing.B) {
 	const N = 100_000
 	reserves := make([]lx.ReservePair, N)
@@ -157,16 +158,6 @@ func BenchmarkBatchAMM(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			if _, err := lx.BatchEvalConstantProductCPU(reserves, amounts); err != nil {
-				b.Fatal(err)
-			}
-		}
-		b.ReportMetric(float64(b.N*N)/b.Elapsed().Seconds(), "evals/sec")
-	})
-
-	b.Run("GPU_Batch", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			if _, err := lx.BatchEvalConstantProduct(reserves, amounts); err != nil {
 				b.Fatal(err)
 			}
 		}

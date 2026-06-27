@@ -57,7 +57,7 @@ func benchMatchGPU(b *testing.B, depth int) {
 			b.Fatalf("MatchOrderGPU: %v", err)
 		}
 	}
-	b.Logf("backend=%s", clobBackendLabel())
+	b.Logf("backend=%s", dexBackendLabel())
 }
 
 func BenchmarkMatchCPU_d16(b *testing.B)  { benchMatchCPU(b, 16) }

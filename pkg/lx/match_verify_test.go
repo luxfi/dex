@@ -25,7 +25,7 @@ import (
 
 // ---- flat corpus -------------------------------------------------------------
 
-type clobScenario struct {
+type dexScenario struct {
 	name     string
 	incoming DEXOrder
 	book     []DEXOrder
@@ -58,33 +58,33 @@ func idxOf(n int) []uint32 {
 // book, single full/partial fill, multi-level sweep, price barrier, no cross,
 // exact-cross boundary, and a max-depth book that crosses past a single GPU
 // block (the case the legacy parallel kernel got nondeterministically wrong).
-func fixedScenarios() []clobScenario {
+func fixedScenarios() []dexScenario {
 	taker := func(id, qty, price uint64) DEXOrder {
 		o := bid(id, qty, price)
 		return o
 	}
-	var s []clobScenario
+	var s []dexScenario
 
-	s = append(s, clobScenario{"empty_book", taker(1, 100, 100), nil, nil})
+	s = append(s, dexScenario{"empty_book", taker(1, 100, 100), nil, nil})
 
-	s = append(s, clobScenario{"single_full_fill",
+	s = append(s, dexScenario{"single_full_fill",
 		taker(1, 50, 100), []DEXOrder{ask(10, 50, 100)}, idxOf(1)})
 
-	s = append(s, clobScenario{"maker_partial",
+	s = append(s, dexScenario{"maker_partial",
 		taker(1, 40, 100), []DEXOrder{ask(10, 100, 100)}, idxOf(1)})
 
-	s = append(s, clobScenario{"taker_partial_remainder",
+	s = append(s, dexScenario{"taker_partial_remainder",
 		taker(1, 50, 100), []DEXOrder{ask(10, 30, 100)}, idxOf(1)})
 
-	s = append(s, clobScenario{"multi_level_sweep",
+	s = append(s, dexScenario{"multi_level_sweep",
 		taker(1, 45, 102),
 		[]DEXOrder{ask(10, 10, 100), ask(11, 20, 101), ask(12, 30, 102)}, idxOf(3)})
 
-	s = append(s, clobScenario{"price_barrier_stops_sweep",
+	s = append(s, dexScenario{"price_barrier_stops_sweep",
 		taker(1, 50, 101),
 		[]DEXOrder{ask(10, 10, 100), ask(11, 20, 105)}, idxOf(2)})
 
-	s = append(s, clobScenario{"no_cross",
+	s = append(s, dexScenario{"no_cross",
 		taker(1, 50, 100), []DEXOrder{ask(10, 10, 110)}, idxOf(1)})
 
 	// Exact-cross boundary in Q64.64: a bid at exactly the ask price crosses
@@ -95,8 +95,8 @@ func fixedScenarios() []clobScenario {
 		Quantity: 10, Remaining: 10, Side: DEXSideBid, Type: DEXOrderLimit, Status: DEXStatusOpen}
 	belowBid := exactBid
 	belowBid.Price = DEXPrice{Integer: 99, Fraction: ^uint64(0)} // 99.9999… < 100
-	s = append(s, clobScenario{"exact_cross", exactBid, []DEXOrder{atE}, idxOf(1)})
-	s = append(s, clobScenario{"one_ulp_below_no_cross", belowBid, []DEXOrder{atE}, idxOf(1)})
+	s = append(s, dexScenario{"exact_cross", exactBid, []DEXOrder{atE}, idxOf(1)})
+	s = append(s, dexScenario{"one_ulp_below_no_cross", belowBid, []DEXOrder{atE}, idxOf(1)})
 
 	// Max depth: 300 asks at strictly increasing prices, a taker that sweeps the
 	// first ~200. Beyond 256 entries this is the regime where the legacy parallel
@@ -108,13 +108,13 @@ func fixedScenarios() []clobScenario {
 	for i := 0; i < depth; i++ {
 		deep[i] = ask(uint64(1000+i), 5, uint64(100+i))
 	}
-	s = append(s, clobScenario{"max_depth_sweep",
+	s = append(s, dexScenario{"max_depth_sweep",
 		taker(1, 5*200+3, uint64(100+250)), deep, idxOf(depth)})
 
 	// A sell taker against bids (mirror side).
 	sellTaker := DEXOrder{OrderID: 1, UserID: 1, Price: DEXPrice{Integer: 98}, Quantity: 25,
 		Remaining: 25, Side: DEXSideAsk, Type: DEXOrderLimit, Status: DEXStatusOpen}
-	s = append(s, clobScenario{"sell_taker_sweeps_bids",
+	s = append(s, dexScenario{"sell_taker_sweeps_bids",
 		sellTaker,
 		[]DEXOrder{bid(10, 10, 100), bid(11, 20, 99), bid(12, 30, 97)}, idxOf(3)})
 
@@ -122,7 +122,7 @@ func fixedScenarios() []clobScenario {
 	// market order as a max-price taker.
 	mkt := DEXOrder{OrderID: 1, UserID: 1, Price: DEXPrice{Integer: ^uint64(0), Fraction: ^uint64(0)},
 		Quantity: 1000, Remaining: 1000, Side: DEXSideBid, Type: DEXOrderMarket, Status: DEXStatusOpen}
-	s = append(s, clobScenario{"market_sweep",
+	s = append(s, dexScenario{"market_sweep",
 		mkt, []DEXOrder{ask(10, 10, 100), ask(11, 20, 200), ask(12, 30, 300)}, idxOf(3)})
 
 	return s
@@ -130,7 +130,7 @@ func fixedScenarios() []clobScenario {
 
 // randomScenario builds a randomized cross for the given seed: a bid taker
 // against a book of random-priced asks (some crossable, some not), random sizes.
-func randomScenario(seed int64) clobScenario {
+func randomScenario(seed int64) dexScenario {
 	rng := rand.New(rand.NewSource(seed))
 	n := 8 + rng.Intn(120)
 	book := make([]DEXOrder, n)
@@ -138,13 +138,13 @@ func randomScenario(seed int64) clobScenario {
 		book[i] = ask(uint64(seed*10000)+uint64(i), uint64(1+rng.Intn(100)), uint64(90+rng.Intn(40)))
 	}
 	taker := bid(uint64(seed*1000+1), uint64(1+rng.Intn(2000)), uint64(100+rng.Intn(30)))
-	return clobScenario{fmt.Sprintf("rand_seed_%d", seed), taker, book, idxOf(n)}
+	return dexScenario{fmt.Sprintf("rand_seed_%d", seed), taker, book, idxOf(n)}
 }
 
 // runFlatParity is the core assertion: GPU == CPU, byte-identical, over fills +
 // remaining + resulting book. Returns the trade count + the backend label so the
 // caller can log whether a real device ran.
-func runFlatParity(t *testing.T, sc clobScenario) (int, string) {
+func runFlatParity(t *testing.T, sc dexScenario) (int, string) {
 	t.Helper()
 	bookCPU := append([]DEXOrder(nil), sc.book...)
 	bookGPU := append([]DEXOrder(nil), sc.book...)
@@ -160,10 +160,10 @@ func runFlatParity(t *testing.T, sc clobScenario) (int, string) {
 		t.Fatalf("%s: GPU != CPU byte-identity FAILED: %s\n cpu=%+v\n gpu=%+v",
 			sc.name, reason, cpuTr, gpuTr)
 	}
-	return len(cpuTr), clobBackendLabel()
+	return len(cpuTr), dexBackendLabel()
 }
 
-func TestCLOBShadow_GPUMatchesCPU_Corpus(t *testing.T) {
+func TestDEXShadow_GPUMatchesCPU_Corpus(t *testing.T) {
 	scenarios := fixedScenarios()
 	for seed := int64(1); seed <= 64; seed++ {
 		scenarios = append(scenarios, randomScenario(seed))
@@ -176,7 +176,7 @@ func TestCLOBShadow_GPUMatchesCPU_Corpus(t *testing.T) {
 		totalFills += n
 		backend = b
 	}
-	t.Logf("CLOB determinism corpus: %d scenarios, %d total fills, GPU==CPU byte-identical, backend=%s",
+	t.Logf("DEX determinism corpus: %d scenarios, %d total fills, GPU==CPU byte-identical, backend=%s",
 		len(scenarios), totalFills, backend)
 }
 
@@ -196,10 +196,10 @@ func restMaker(t *testing.T, ob *OrderBook, id uint64, side Side, price, size fl
 	}
 }
 
-// TestCLOBGate_EndToEnd_Verified drives a realistic multi-level cross through the
+// TestDEXGate_EndToEnd_Verified drives a realistic multi-level cross through the
 // consensus entrypoint with the GPU shadow ON and asserts the gate recorded a
 // verified match with zero divergences and zero errors.
-func TestCLOBGate_EndToEnd_Verified(t *testing.T) {
+func TestDEXGate_EndToEnd_Verified(t *testing.T) {
 	prev := SetMatchEngineForTest(EngineGPUVerified)
 	defer SetMatchEngineForTest(prev)
 	resetMatchShadowStats()
@@ -225,13 +225,13 @@ func TestCLOBGate_EndToEnd_Verified(t *testing.T) {
 	if st.Divergences != 0 || st.Errors != 0 {
 		t.Errorf("GPU shadow diverged on a clean cross: %+v", st)
 	}
-	t.Logf("end-to-end verified cross: %d fills, stats=%+v, backend=%s", len(fills), st, clobBackendLabel())
+	t.Logf("end-to-end verified cross: %d fills, stats=%+v, backend=%s", len(fills), st, dexBackendLabel())
 }
 
-// TestCLOBGate_NoFork_CPUvsGPU is the anti-fork property: the COMMITTED fills are
+// TestDEXGate_NoFork_CPUvsGPU is the anti-fork property: the COMMITTED fills are
 // byte-identical whether a validator runs EngineCPU or EngineGPUVerified. A mixed
 // validator set therefore cannot fork on a marketable cross.
-func TestCLOBGate_NoFork_CPUvsGPU(t *testing.T) {
+func TestDEXGate_NoFork_CPUvsGPU(t *testing.T) {
 	build := func() *OrderBook {
 		ob := NewOrderBook("BTC-USD")
 		restMaker(t, ob, 1, Sell, 101.0, 5.0, "maker-a", 0)
@@ -264,10 +264,10 @@ func TestCLOBGate_NoFork_CPUvsGPU(t *testing.T) {
 	}
 }
 
-// TestCLOBGate_GPUMatchesSubmitMarketable proves the headline equivalence on a
+// TestDEXGate_GPUMatchesSubmitMarketable proves the headline equivalence on a
 // clean (no self-trade) cross: the flat GPU result, projected to canonical fill
 // rows, is byte-identical to what the rich SubmitMarketable authority committed.
-func TestCLOBGate_GPUMatchesSubmitMarketable(t *testing.T) {
+func TestDEXGate_GPUMatchesSubmitMarketable(t *testing.T) {
 	ob := NewOrderBook("BTC-USD")
 	restMaker(t, ob, 1, Sell, 100.0, 10.0, "m1", 0)
 	restMaker(t, ob, 2, Sell, 101.0, 20.0, "m2", 1)
@@ -281,7 +281,7 @@ func TestCLOBGate_GPUMatchesSubmitMarketable(t *testing.T) {
 	ob.mu.Lock()
 	taker.Status = Open
 	taker.RemainingSize = taker.Size
-	shadow := ob.captureCLOBShadowLocked(taker)
+	shadow := ob.captureDEXShadowLocked(taker)
 	ob.mu.Unlock()
 
 	// Authority.
@@ -303,7 +303,7 @@ func TestCLOBGate_GPUMatchesSubmitMarketable(t *testing.T) {
 			reason, richFills, gpuTr)
 	}
 	t.Logf("GPU flat == rich SubmitMarketable byte-identical over %d fills (backend=%s)",
-		len(richFills), clobBackendLabel())
+		len(richFills), dexBackendLabel())
 }
 
 // ---- the fail-closed negative test -------------------------------------------
@@ -324,11 +324,11 @@ func errGPUMatch(incoming *DEXOrder, book []DEXOrder, idx []uint32, base, ts uin
 	return nil, 0, fmt.Errorf("simulated GPU driver failure")
 }
 
-// TestCLOBGate_FailClosed_DivergentGPU is the load-bearing safety test: when the
+// TestDEXGate_FailClosed_DivergentGPU is the load-bearing safety test: when the
 // GPU produces a result that differs from the CPU authority, the gate (1) commits
 // the CPU authority UNCHANGED, (2) records a divergence, (3) does NOT record a
 // verified match. A divergent GPU result is structurally impossible to commit.
-func TestCLOBGate_FailClosed_DivergentGPU(t *testing.T) {
+func TestDEXGate_FailClosed_DivergentGPU(t *testing.T) {
 	prevEng := SetMatchEngineForTest(EngineGPUVerified)
 	defer SetMatchEngineForTest(prevEng)
 
@@ -344,9 +344,9 @@ func TestCLOBGate_FailClosed_DivergentGPU(t *testing.T) {
 	}()
 
 	// Now run the SAME cross with a corrupt GPU installed.
-	saved := clobGPUMatch
-	clobGPUMatch = corruptGPUMatch
-	defer func() { clobGPUMatch = saved }()
+	saved := dexGPUMatch
+	dexGPUMatch = corruptGPUMatch
+	defer func() { dexGPUMatch = saved }()
 	resetMatchShadowStats()
 
 	ob := NewOrderBook("BTC-USD")
@@ -380,12 +380,12 @@ func TestCLOBGate_FailClosed_DivergentGPU(t *testing.T) {
 	t.Logf("fail-closed proven: corrupt GPU discarded, CPU authority committed, stats=%+v", st)
 }
 
-// TestCLOBGate_FailClosed_GPUError proves a GPU dispatch error also fails closed:
+// TestDEXGate_FailClosed_GPUError proves a GPU dispatch error also fails closed:
 // the CPU authority is committed and the error is recorded, never surfaced.
-func TestCLOBGate_FailClosed_GPUError(t *testing.T) {
-	saved := clobGPUMatch
-	clobGPUMatch = errGPUMatch
-	defer func() { clobGPUMatch = saved }()
+func TestDEXGate_FailClosed_GPUError(t *testing.T) {
+	saved := dexGPUMatch
+	dexGPUMatch = errGPUMatch
+	defer func() { dexGPUMatch = saved }()
 	resetMatchShadowStats()
 
 	ob := NewOrderBook("BTC-USD")
@@ -406,12 +406,12 @@ func TestCLOBGate_FailClosed_GPUError(t *testing.T) {
 	}
 }
 
-// TestCLOBGate_SelfCrossStaysSafe proves the consensus-safety gate (GPU flat ==
+// TestDEXGate_SelfCrossStaysSafe proves the consensus-safety gate (GPU flat ==
 // CPU flat) holds even on a self-trade-prevention cross — the flat primitive
 // does not model STP, so it is recorded as a model divergence, but the GPU and
 // CPU FLAT paths still agree, and the rich authority (which DOES apply STP) is
 // what gets committed.
-func TestCLOBGate_SelfCrossStaysSafe(t *testing.T) {
+func TestDEXGate_SelfCrossStaysSafe(t *testing.T) {
 	prevEng := SetMatchEngineForTest(EngineGPUVerified)
 	defer SetMatchEngineForTest(prevEng)
 	resetMatchShadowStats()

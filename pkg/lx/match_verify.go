@@ -26,19 +26,19 @@ import (
 // The GPU here is a SPEED-AND-ASSURANCE overlay that is continuously proven
 // equal to the oracle at Verify, never a trusted replacement for it.
 
-// clobGPUMatch is the GPU matcher the shadow gate dispatches. It is a package
+// dexGPUMatch is the GPU matcher the shadow gate dispatches. It is a package
 // var ONLY so the fail-closed negative test can substitute a deliberately
 // divergent matcher and assert that a bad GPU result can never reach committed
 // state. In production it is always MatchOrderGPU (the real per-platform GPU
 // dispatch, which itself falls back to the CPU oracle on hosts without a GPU).
-var clobGPUMatch = MatchOrderGPU
+var dexGPUMatch = MatchOrderGPU
 
-// clobShadowInput is the flat snapshot of a single marketable cross: the taker
+// dexShadowInput is the flat snapshot of a single marketable cross: the taker
 // projected to the GPU ABI, the opposite side of the book in the EXACT price-
 // time priority order the authority consumes it, and the deterministic trade-id
 // base / timestamp the authority stamped. It is captured under ob.mu, before the
 // cross mutates any maker, so the GPU runs on byte-identical inputs.
-type clobShadowInput struct {
+type dexShadowInput struct {
 	incoming  DEXOrder
 	book      []DEXOrder
 	indices   []uint32
@@ -68,16 +68,16 @@ func (ob *OrderBook) SubmitMarketableVerified(order *Order, engine VerifyEngine)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				emitDivergence(MatchDivergence{Kind: "clob", Reason: "gpu_error",
+				emitDivergence(MatchDivergence{Kind: "dex", Reason: "gpu_error",
 					Detail: "panic in shadow: " + toStr(r)})
 			}
 		}()
-		runCLOBShadow(shadow, fills, order.Side)
+		runDEXShadow(shadow, fills, order.Side)
 	}()
 	return fills, err
 }
 
-// runCLOBShadow is the gate. It runs the CPU oracle and the GPU kernel on the
+// runDEXShadow is the gate. It runs the CPU oracle and the GPU kernel on the
 // captured pre-cross inputs and:
 //
 //   - asserts the GPU flat result == the CPU flat result, BYTE-IDENTICAL (fills,
@@ -91,7 +91,7 @@ func (ob *OrderBook) SubmitMarketableVerified(order *Order, engine VerifyEngine)
 //     recorded separately, never a consensus signal).
 //
 // It commits NOTHING. The caller has already captured the authority's fills.
-func runCLOBShadow(in *clobShadowInput, committedRich []Trade, takerSide Side) {
+func runDEXShadow(in *dexShadowInput, committedRich []Trade, takerSide Side) {
 	// Two independent deep copies: MatchOrderCPU and MatchOrderGPU both mutate
 	// the book slice in place, so each path gets its own.
 	bookCPU := append([]DEXOrder(nil), in.book...)
@@ -102,22 +102,22 @@ func runCLOBShadow(in *clobShadowInput, committedRich []Trade, takerSide Side) {
 	cpuTrades, cpuRem := MatchOrderCPU(&incCPU, bookCPU, idx, in.tradeBase, in.timestamp)
 
 	incGPU := in.incoming
-	gpuTrades, gpuRem, gerr := clobGPUMatch(&incGPU, bookGPU, idx, in.tradeBase, in.timestamp)
+	gpuTrades, gpuRem, gerr := dexGPUMatch(&incGPU, bookGPU, idx, in.tradeBase, in.timestamp)
 	if gerr != nil {
-		emitDivergence(MatchDivergence{Kind: "clob", Reason: "gpu_error", Detail: gerr.Error()})
+		emitDivergence(MatchDivergence{Kind: "dex", Reason: "gpu_error", Detail: gerr.Error()})
 		return // fail-closed: the authority result is what was committed
 	}
 
 	// --- consensus-safety gate: GPU flat == CPU flat, byte for byte ---
 	if reason, ok := flatResultsEqual(cpuTrades, cpuRem, bookCPU, gpuTrades, gpuRem, bookGPU); !ok {
-		emitDivergence(MatchDivergence{Kind: "clob", Reason: "gpu_ne_cpu", Detail: reason})
+		emitDivergence(MatchDivergence{Kind: "dex", Reason: "gpu_ne_cpu", Detail: reason})
 		return // fail-closed
 	}
 	statVerified.Add(1)
 
 	// --- fidelity diagnostic: does the flat oracle reproduce the rich authority? ---
 	if reason, ok := flatReproducesRich(cpuTrades, cpuRem, committedRich, takerSide); !ok {
-		emitDivergence(MatchDivergence{Kind: "clob", Reason: "model", Detail: reason})
+		emitDivergence(MatchDivergence{Kind: "dex", Reason: "model", Detail: reason})
 	}
 }
 
@@ -169,7 +169,7 @@ func flatReproducesRich(flat []DEXTrade, flatRem uint64, rich []Trade, takerSide
 	return "", true
 }
 
-// captureCLOBShadowLocked snapshots the opposite side of the book for the GPU
+// captureDEXShadowLocked snapshots the opposite side of the book for the GPU
 // shadow, in the EXACT order tryMatchImmediateLocked consumes it: best price
 // first, FIFO within a price level. In the consensus path a resting order's id
 // is blockDeterministicID(height,txIndex), monotonic with arrival, so FIFO ==
@@ -177,7 +177,7 @@ func flatReproducesRich(flat []DEXTrade, flatRem uint64, rich []Trade, takerSide
 //
 // The caller holds ob.mu (write). This is a pure read of ob.Orders; it never
 // mutates the book and never takes ob.mu (it is already held).
-func (ob *OrderBook) captureCLOBShadowLocked(order *Order) *clobShadowInput {
+func (ob *OrderBook) captureDEXShadowLocked(order *Order) *dexShadowInput {
 	wantSide := Sell
 	if order.Side == Sell {
 		wantSide = Buy
@@ -199,7 +199,7 @@ func (ob *OrderBook) captureCLOBShadowLocked(order *Order) *clobShadowInput {
 	for i := range idx {
 		idx[i] = uint32(i)
 	}
-	return &clobShadowInput{
+	return &dexShadowInput{
 		incoming:  orderToFlatTaker(order),
 		book:      rows,
 		indices:   idx,

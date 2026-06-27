@@ -28,8 +28,8 @@ import (
 	"unsafe"
 )
 
-// clobBackendLabel reports the linked CLOB GPU backend for corpus logging.
-func clobBackendLabel() string { return "metal" }
+// dexBackendLabel reports the linked DEX GPU backend for corpus logging.
+func dexBackendLabel() string { return "metal" }
 
 // gpuMatchOrder is the Metal implementation called by orderbook_gpu.go. Returns
 // errOrderBookGPUUnsupported when no Metal device is present / the shader failed
