@@ -16,7 +16,7 @@ import (
 // canonical encoding.
 //
 // THE ROW IS THE GPU ABI. A persisted resting order is a 64-byte DEXOrder
-// (orderbook_cuda_types.go) — the exact, byte-for-byte layout the CUDA/HIP/Metal
+// (orderbook_gpu_types.go) — the exact, byte-for-byte layout the CUDA/HIP/Metal
 // matching kernels consume. Using one representation for "the order as stored"
 // and "the order as fed to the matcher" means there is exactly one row format in
 // the system: zero divergence between what consensus commits and what the
