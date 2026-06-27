@@ -101,3 +101,12 @@ dex-server-linux
 /dexd
 /dvenue
 /gateway
+*.out
+*.aux
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
