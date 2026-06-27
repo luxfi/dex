@@ -98,7 +98,7 @@ The cross-domain commit is deferred to block accept and is revert-safe:
 - The matcher core `dex/pkg/lx` is PURE GO on its consensus path:
   `ConsensusAddOrder` (`consensus.go:52`) and `SubmitMarketable`
   (`orderbook.go:282`) take no clock, mint nothing. The only cgo files
-  (`amm_gpu_cuda.go`, `orderbook_cuda.go`, `*_metal*.go`) are GPU-accel, separately
+  (`amm_gpu_cuda.go`, `orderbook_gpu_cuda.go`, `*_metal*.go`) are GPU-accel, separately
   build-tagged — they are NOT on the deterministic match path. So `pkg/lx` and
   `pkg/dchain` are importable in-process by another VM with no cgo and no heavy deps
   (verified: no `import "C"` in `pkg/dchain`).
@@ -389,7 +389,7 @@ matcher module. They assume the BFT-finality prereq (no proposer self-finalize).
    same rows) execute the SAME block; assert byte-identical fills, balance deltas, and
    state root across all N. Anchor: matcher purity (`execute.go:69-78`,
    `consensus.go:52` ConsensusAddOrder; the existing
-   `orderbook_cuda_parity_test.go:198` "RejectsNonDeterministicInput" guard) + block-
+   `orderbook_gpu_test.go:198` "RejectsNonDeterministicInput" guard) + block-
    derived ids/timestamps.
 
 8. **Test9999SyncSwap_TradeVisibleInDStateAndCEvents** — After Accept, read the D
