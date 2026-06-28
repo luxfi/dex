@@ -18,13 +18,10 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Private module resolution: all our orgs resolve via the gh_token BuildKit
-# secret over HTTPS (the shared hanzoai/.github docker-build.yml passes it) and
-# bypass the public proxy/sumdb. GOPRIVATE MUST list every private org in the
-# dep graph — dex pulls luxfi + hanzoai + hanzos3 (go-sdk); a missing org routes
-# to proxy.golang.org and fails the build. (Tags may be rewritten — go.sum in the
-# build context is already realigned to current tag bits.)
-ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*,github.com/hanzos3/*,github.com/zooai/*,github.com/parsdao/*,github.com/lux-private/*
+# No GOPRIVATE — public modules resolve via the immutable public proxy + sumdb.
+# dex's deps (luxfi/*, hanzoai/*, hanzos3/go-sdk) are all PUBLIC now; the immutable
+# proxy+sumdb hash a force-moved tag can't break. The gh_token BuildKit secret
+# below stays only for a cold `direct` fetch fallback.
 ENV GOFLAGS=-mod=mod
 ENV GOTOOLCHAIN=auto
 ENV GOEXPERIMENT=jsonv2

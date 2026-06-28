@@ -25,11 +25,10 @@ FROM golang:${GO_VERSION}-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# luxfi/* (and hanzoai/*) modules are private; resolve them over HTTPS with a
-# BuildKit secret (pass with: docker build --secret id=gh_token,env=GH_TOKEN ...).
-# Public testnet code builds fine WITHOUT a token if the module cache/proxy already
-# has the luxfi deps; the secret is only needed for a cold private fetch.
-ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*
+# No GOPRIVATE — public modules resolve via the immutable public proxy + sumdb.
+# dex's deps (luxfi/*, hanzoai/*, hanzos3/go-sdk) are all PUBLIC now; the immutable
+# proxy+sumdb hash a force-moved tag can't break. The gh_token BuildKit secret
+# below stays only for a cold `direct` fetch fallback.
 ENV GOFLAGS=-mod=mod
 ENV GOTOOLCHAIN=auto
 ENV GOEXPERIMENT=jsonv2
