@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/hero.svg" alt="dex" width="880"></p>
+
 # LX
 
 Lux DEX — pure-Go matching engine, order book, oracle aggregator, and
