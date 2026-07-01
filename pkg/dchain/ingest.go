@@ -21,9 +21,9 @@ import (
 // `r.router.Handle(base+endpoint, handler)` — exact path, no subtree). So we
 // return ONE handler per method, each keyed by its full sub-path:
 //
-//	/ext/bc/D/dex/dex_place    -> handlePlace
-//	/ext/bc/D/dex/dex_submit   -> handleSubmit
-//	/ext/bc/D/dex/dex_cancel   -> handleCancel
+//	/v1/dex/dex/dex_place    -> handlePlace
+//	/v1/dex/dex/dex_submit   -> handleSubmit
+//	/v1/dex/dex/dex_cancel   -> handleCancel
 //	...
 //
 // The request body is the FROZEN zapwire payload verbatim; the response body is

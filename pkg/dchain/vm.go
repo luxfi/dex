@@ -590,7 +590,7 @@ func (vm *VM) NewHTTPHandler(ctx context.Context) (http.Handler, error) { return
 // CreateHandlers returns the VM's named HTTP handlers for luxd to mount under
 // /ext/bc/<DCHAIN_ID>/ (and the "D" alias). It returns one handler per DEX method
 // keyed by its full sub-path ("/dex/<method>"), so an order POSTed to
-// /ext/bc/D/dex/dex_submit reaches the matcher through the node's own router —
+// /v1/dex/dex/dex_submit reaches the matcher through the node's own router —
 // the in-luxd ingestion seam (ingest.go). This is how an order enters the native
 // VM: submitTx -> mempool -> consensus -> Verify-match. The plugin transport
 // (github.com/luxfi/vm/rpc) serves these handlers from a local http.Server inside
