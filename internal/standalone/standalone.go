@@ -14,7 +14,7 @@
 //   - exposes read-only dex_depth + dex_balance observation methods for the
 //     settled book and custody state (reads need no consensus round-trip),
 //   - optionally (-http) serves the SAME surface luxd mounts for the in-process
-//     plugin under /ext/bc/D — the JSON dex_get_* reads + the dex_* writes
+//     plugin under /v1/dex — the JSON dex_get_* reads + the dex_* writes
 //     (vm.CreateHandlers, ingest.go) — so the exchange-api/maker reach a
 //     standalone single-operator venue byte-identically to the in-luxd plugin.
 //
@@ -58,10 +58,10 @@ const dexBalanceMethod = "dex_balance"
 // httpChainPrefix is the chain route prefix the optional -http surface mounts
 // under. It mirrors the EXACT external path luxd gives the in-process plugin
 // (/ext/bc/<chainID-or-alias>), using the canonical "D" alias the exchange-api
-// and maker dial (DEX_DCHAIN_URL / DEX_HTTP_URL = http://<host>/ext/bc/D). So a
+// and maker dial (DEX_DCHAIN_URL / DEX_HTTP_URL = http://<host>/v1/dex). So a
 // standalone single-operator venue is a byte-identical drop-in for the in-luxd
 // D-Chain read+write surface — no luxd required to serve the markets pipeline.
-const httpChainPrefix = "/ext/bc/D"
+const httpChainPrefix = "/v1/dex"
 
 // Run serves the standalone venue. args is the post-subcommand argv
 // (os.Args[2:] from `dexd run`/`dexd standalone`); it carries -addr and -db.
@@ -69,7 +69,7 @@ func Run(args []string) {
 	fs := flag.NewFlagSet("dexd run", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
 	dir := fs.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
-	httpAddr := fs.String("http", "", "HTTP listen address for the chain read+write surface mounted under /ext/bc/D (e.g. 0.0.0.0:9650); empty = ZAP only")
+	httpAddr := fs.String("http", "", "HTTP listen address for the chain read+write surface mounted under /v1/dex (e.g. 0.0.0.0:9650); empty = ZAP only")
 	_ = fs.Parse(args)
 
 	logger := log.Root()
@@ -122,7 +122,7 @@ func Run(args []string) {
 
 	// Optional HTTP surface: the SAME handler table luxd mounts for the in-process
 	// plugin (vm.CreateHandlers -> ingest.go httpHandlers: dex_* writes + dex_get_*
-	// JSON reads), served under /ext/bc/D so the exchange-api (reads) and maker
+	// JSON reads), served under /v1/dex so the exchange-api (reads) and maker
 	// (writes via DEX_HTTP_URL) reach this single-operator venue byte-identically
 	// to the in-luxd D-Chain. Writes still cross the full sealer consensus path.
 	var httpSrv *http.Server
