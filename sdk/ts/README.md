@@ -6,7 +6,7 @@ vocabulary over the four DEX paths:
 | Subpath | Path | Engine source | Use |
 |---|---|---|---|
 | `@luxfi/dex-sdk/precompile` | V4 on-chain | LXPool precompile `0x9010` (LP-9010) | On-chain settlement via the MIT `@luxfi/exchange` ABIs + viem |
-| `@luxfi/dex-sdk/zap` | Binary CLOB wire | `pkg/zapwire` | Lowest-latency take/place |
+| `@luxfi/dex-sdk/zap` | Binary OrderBook wire | `pkg/zapwire` | Lowest-latency take/place |
 | `@luxfi/dex-sdk/fix` | FIX 4.4 | `pkg/fix` | Institutional order entry |
 | `@luxfi/dex-sdk/ws` | JSON WebSocket | `pkg/api` | Streaming market data + orders |
 

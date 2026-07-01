@@ -60,7 +60,7 @@ export {
 // Adapters
 export {
   BaseAdapter,
-  clobCapabilities,
+  orderBookCapabilities,
   ammCapabilities,
   LxDexAdapter,
   LxAmmAdapter,
@@ -146,7 +146,7 @@ export interface DexOptions {
 }
 
 /**
- * Create a simple LX DEX client (CLOB orderbook exchange).
+ * Create a simple LX DEX client (OrderBook orderbook exchange).
  *
  * @example
  * ```typescript

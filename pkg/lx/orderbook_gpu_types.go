@@ -8,7 +8,7 @@ import "unsafe"
 // Go mirrors of the public C ABI types in
 // luxcpp/cuda/include/lux/cuda/dex_swap.h. Layouts MUST stay byte-equal
 // with the C structs — the same memory is reinterpreted on the cgo
-// boundary in orderbook_cuda.go.
+// boundary in orderbook_gpu_cuda.go.
 //
 // These types are deliberately a separate flat representation from
 // orderbook.go::Order (which has heap pointers, linked-list nodes, and

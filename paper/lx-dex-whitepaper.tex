@@ -43,7 +43,7 @@
 }
 
 \title{\textbf{LX: A GPU-Native Decentralized Exchange} \\
-\large{Byte-Exact \texttt{uint256} CLOB Matching at 100--250M Fills/s per Device,
+\large{Byte-Exact \texttt{uint256} OrderBook Matching at 100--250M Fills/s per Device,
 Scaling to Fleet-Level Throughput Through Quantum-Resistant Consensus}}
 
 \author{
@@ -60,7 +60,7 @@ Lux Industries Inc. \\
 
 \begin{abstract}
 We present \lxdex{}, a GPU-native decentralized exchange whose central-limit
-order book (CLOB) matching kernel computes byte-exact \texttt{uint256} fills.
+order book (OrderBook) matching kernel computes byte-exact \texttt{uint256} fills.
 On a single accelerator the kernel sustains 104--126M fills/s on an NVIDIA GB10
 (6.9\,ns/match) and approximately 250M fills/s on an Apple M4 Max
 (4.15\,ns/match); the throughput lever is a Knuth Algorithm-D division that
@@ -87,7 +87,7 @@ The cryptocurrency trading ecosystem faces a fundamental performance barrier: cu
 \lxdex{} closes this performance gap, achieving:
 
 \begin{itemize}
-    \item \textbf{104--126M fills/s} of byte-exact \texttt{uint256} CLOB matching on a single NVIDIA GB10 (6.9\,ns/match), and $\sim$250M fills/s on an Apple M4 Max (4.15\,ns/match)
+    \item \textbf{104--126M fills/s} of byte-exact \texttt{uint256} OrderBook matching on a single NVIDIA GB10 (6.9\,ns/match), and $\sim$250M fills/s on an Apple M4 Max (4.15\,ns/match)
     \item \textbf{$>$1B fills/s} aggregate throughput across a node fleet ($\sim$8--10 accelerators), since per-book arenas are independent --- not from a single device
     \item \textbf{2.2M fills/s} market-sharded Block-STM settlement, with a CPU/GPU byte-identical commit order
     \item \textbf{Post-quantum rollup} to the Z-Chain: P3Q (ML-DSA-65) at 4{,}714 verifies/s, trustless STARK/FRI (\texttt{starkfri}) at 986 verifies/s
@@ -344,8 +344,8 @@ matching, validated bit-for-bit against the CPU reference oracle.
 \toprule
 \textbf{Configuration} & \textbf{Throughput} & \textbf{Per-match cost} \\
 \midrule
-GPU CLOB --- NVIDIA GB10 & 104--126M fills/s & 6.9\,ns \\
-GPU CLOB --- Apple M4 Max & $\sim$250M fills/s & 4.15\,ns \\
+GPU OrderBook --- NVIDIA GB10 & 104--126M fills/s & 6.9\,ns \\
+GPU OrderBook --- Apple M4 Max & $\sim$250M fills/s & 4.15\,ns \\
 Settlement (Block-STM, market-sharded) & 2.2M fills/s & --- \\
 Fleet aggregate ($\sim$8--10 GPUs) & $>$1B fills/s & --- \\
 \bottomrule
@@ -385,7 +385,7 @@ Binance (CEX) & 10M/s & 10ms & No \\
 \bottomrule
 \end{tabular}
 \caption{LX single-device byte-exact matching throughput versus reported
-exchange figures. The LX column is measured GPU CLOB matching (GB10 / M4 Max);
+exchange figures. The LX column is measured GPU OrderBook matching (GB10 / M4 Max);
 fleet aggregation reaches $>$1B fills/s. The latency column is per-match kernel
 cost, not end-to-end trade confirmation.}
 \end{table}

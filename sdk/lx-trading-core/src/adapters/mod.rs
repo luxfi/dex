@@ -27,7 +27,7 @@ pub async fn create_native_adapter(
     config: &NativeVenueConfig,
 ) -> Result<Arc<dyn VenueAdapter>> {
     match config.venue_type.as_str() {
-        "dex" | "clob" => {
+        "dex" | "orderBook" => {
             let adapter = LxDexAdapter::new(name, config.clone()).await?;
             Ok(Arc::new(adapter))
         }

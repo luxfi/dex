@@ -5,7 +5,7 @@
 
 // dexvm_gpu.go — direct dlopen + dlsym to the gpu-kernels DEX plugin.
 //
-// Why dlopen, not pkg-config: the AMM/OrderBook host launchers live in a
+// Why dlopen, not pkg-config: the OrderBook host launchers live in a
 // per-backend plugin (libluxgpu_backend_{cuda,hip,metal,vulkan,webgpu})
 // whose presence is platform-dependent — Apple has only Metal+Vulkan
 // (via MoltenVK), Linux has CUDA+Vulkan+WebGPU, ROCm only on a small
@@ -19,8 +19,6 @@
 // the GPU plugin install tree backends/{metal/src/dex_launchers.mm,
 // vulkan/src/dex_launchers.cpp}:
 //
-//   int amm_xyk_batch(const void* reserves, const void* amounts,
-//                     void* outs, uint32_t n, void* stream);
 //   int dex_orderbook_match(void* arena, const uint8_t* calldata,
 //                      uint8_t* out, uint32_t* num_fills);
 //   int dex_orderbook_arena_create(void** out_arena);
@@ -28,9 +26,7 @@
 //
 // All inputs are HOST pointers (no separate device address space is
 // exposed across the ABI — the launcher does H2D/D2H copies
-// internally). The `stream` argument on AMM is ignored by every
-// backend except CUDA/HIP (where it would be a cudaStream_t / hipStream_t).
-// `arena` for OrderBook is opaque — created/destroyed via the symmetric
+// internally). `arena` for OrderBook is opaque — created/destroyed via the symmetric
 // pair, persisted across calls so the BookArena lives device-resident
 // for the lifetime of the book.
 
@@ -44,17 +40,10 @@ package lxgpu
 #include <stdlib.h>
 #include <string.h>
 
-// Typed function-pointer typedefs for the four launcher symbols. cgo
-// can't cast `unsafe.Pointer` directly into a typed C function pointer,
-// so we route every call through a tiny trampoline that takes the
-// dlsym'd pointer and the typed arguments.
-
-typedef int (*lux_amm_xyk_batch_fn)(
-    const void* reserves,
-    const void* amounts,
-    void*       outs,
-    uint32_t    n,
-    void*       stream);
+// Typed function-pointer typedefs for the launcher symbols. cgo can't
+// cast `unsafe.Pointer` directly into a typed C function pointer, so we
+// route every call through a tiny trampoline that takes the dlsym'd
+// pointer and the typed arguments.
 
 typedef int (*lux_dex_orderbook_match_fn)(
     void*          arena,
@@ -64,16 +53,6 @@ typedef int (*lux_dex_orderbook_match_fn)(
 
 typedef int (*lux_dex_orderbook_arena_create_fn)(void** out_arena);
 typedef int (*lux_dex_orderbook_arena_destroy_fn)(void* arena);
-
-static int call_amm_xyk_batch(
-    void* fn,
-    const void* reserves,
-    const void* amounts,
-    void* outs,
-    uint32_t n)
-{
-    return ((lux_amm_xyk_batch_fn)fn)(reserves, amounts, outs, n, NULL);
-}
 
 static int call_dex_orderbook_match(
     void* fn,
@@ -134,7 +113,6 @@ type gpuHandle struct {
 
 	hLib unsafe.Pointer // dlopen handle
 
-	fnAMMSwap        unsafe.Pointer // lux_<backend>_amm_xyk_batch
 	fnOrderBookMatch unsafe.Pointer // lux_<backend>_dex_orderbook_match
 	fnArenaCreate    unsafe.Pointer // lux_<backend>_dex_orderbook_arena_create
 	fnArenaDestroy   unsafe.Pointer // lux_<backend>_dex_orderbook_arena_destroy
@@ -157,23 +135,7 @@ var (
 //  1. ${LUX_GPU_PLUGIN_DIR}/lib<name>.<ext>  (operator-set override)
 //  2. lib<name>.<ext>                        (system dlopen lookup —
 //     LD_LIBRARY_PATH, DYLD_LIBRARY_PATH, rpath, default loader paths)
-//
-// A struct-size assertion runs ahead of the dlopen probes so a
-// build-side mismatch between Go's LuxAmmReservePair and the C ABI's
-// LuxAmmReservePair (the kind of bug pkg-config would catch at link
-// time but dlopen can't) fails fast instead of producing silent
-// byte-shifted output.
 func init() {
-	// Layout assertion: LuxAmmReservePair MUST be 16 bytes packed.
-	// Bigger means Go added padding and the ABI byte layout diverges.
-	const wantAmmReserveBytes = 16
-	if unsafe.Sizeof(LuxAmmReservePair{}) != wantAmmReserveBytes {
-		panic(fmt.Sprintf(
-			"lxgpu: LuxAmmReservePair layout drift — got %d bytes, want %d. "+
-				"Sync include/lux/gpu/dex.h::LuxAmmReservePair with types.go.",
-			unsafe.Sizeof(LuxAmmReservePair{}), wantAmmReserveBytes))
-	}
-
 	for _, b := range probeOrder() {
 		if h := tryLoadBackend(b); h != nil {
 			globalGPUMu.Lock()
@@ -241,8 +203,8 @@ func pluginCandidatePaths(b GPUBackend) []string {
 }
 
 // tryLoadBackend dlopen's the candidate paths for one backend, and
-// resolves the four required symbols. Returns nil if either the
-// dylib won't load OR any required symbol is missing. Symbol misses
+// resolves the three required OrderBook symbols. Returns nil if either
+// the dylib won't load OR any required symbol is missing. Symbol misses
 // are treated as fatal-for-this-backend (we don't accept a partial
 // plugin — that would mask a build skew and produce a "GPU loaded
 // but OrderBook returns garbage" failure mode that's worse than CPU).
@@ -261,12 +223,11 @@ func tryLoadBackend(b GPUBackend) *gpuHandle {
 
 		prefix := "lux_" + b.String() + "_"
 		var (
-			fnAMM       = dlsymOrNil(hLib, prefix+"amm_xyk_batch")
 			fnOrderBook = dlsymOrNil(hLib, prefix+"dex_orderbook_match")
 			fnCreate    = dlsymOrNil(hLib, prefix+"dex_orderbook_arena_create")
 			fnDestr     = dlsymOrNil(hLib, prefix+"dex_orderbook_arena_destroy")
 		)
-		if fnAMM == nil || fnOrderBook == nil || fnCreate == nil || fnDestr == nil {
+		if fnOrderBook == nil || fnCreate == nil || fnDestr == nil {
 			// Partial export set — plausible cause is a stale plugin
 			// build that pre-dates the DEX launcher landing. Close
 			// the handle so we don't keep a dangling mapping, and
@@ -278,7 +239,6 @@ func tryLoadBackend(b GPUBackend) *gpuHandle {
 			backend:          b,
 			libPath:          path,
 			hLib:             hLib,
-			fnAMMSwap:        fnAMM,
 			fnOrderBookMatch: fnOrderBook,
 			fnArenaCreate:    fnCreate,
 			fnArenaDestroy:   fnDestr,
@@ -333,62 +293,6 @@ func activeGPU() (*gpuHandle, error) {
 		return nil, ErrGPUNotAvailable
 	}
 	return globalGPU, nil
-}
-
-// AMMSwap runs the constant-product (xy=k) swap kernel over `n` pools
-// in one batched dispatch. `reserves[i]` is the (ReserveX, ReserveY)
-// pair for pool i and `amounts[i]` is the input amount. The output
-// `outs[i]` is the receive-side amount:
-//
-//	outs[i] = (amounts[i] * reserves[i].ReserveY)
-//	       / (reserves[i].ReserveX + amounts[i])
-//
-// Byte-equal across all five GPU backends and to the CPU oracle at
-// ~/work/lux/dex/pkg/lx::ConstantProductOut. Slices must be the same
-// length; a length mismatch is a caller bug (returns an error rather
-// than panicking).
-//
-// Memory safety: every passed Go slice is pinned with runtime.Pinner
-// for the duration of the C call. The pinner is unpinned via defer
-// on every return path including the error path. runtime.KeepAlive
-// keeps the slices reachable until C returns even if the compiler
-// sees no further Go-side reference.
-func AMMSwap(reserves []LuxAmmReservePair, amounts []uint64) ([]uint64, error) {
-	h, err := activeGPU()
-	if err != nil {
-		return nil, err
-	}
-	if len(reserves) != len(amounts) {
-		return nil, fmt.Errorf("dexvm.AMMSwap: reserves (n=%d) != amounts (n=%d)",
-			len(reserves), len(amounts))
-	}
-	n := len(reserves)
-	outs := make([]uint64, n)
-	if n == 0 {
-		return outs, nil
-	}
-
-	var pinner runtime.Pinner
-	defer pinner.Unpin()
-	pinner.Pin(&reserves[0])
-	pinner.Pin(&amounts[0])
-	pinner.Pin(&outs[0])
-
-	rc := C.call_amm_xyk_batch(
-		h.fnAMMSwap,
-		unsafe.Pointer(&reserves[0]),
-		unsafe.Pointer(&amounts[0]),
-		unsafe.Pointer(&outs[0]),
-		C.uint32_t(n),
-	)
-	runtime.KeepAlive(reserves)
-	runtime.KeepAlive(amounts)
-	runtime.KeepAlive(outs)
-	if rc != 0 {
-		return nil, fmt.Errorf("dexvm.AMMSwap: %s plugin returned rc=%d",
-			h.backend, int(rc))
-	}
-	return outs, nil
 }
 
 // OrderBookArena is the opaque handle to a device-resident BookArena. The

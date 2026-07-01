@@ -87,7 +87,7 @@ curl http://localhost:15888/lxdex/pairs
 | Router | `/lxdex/router` | Quote swap, Execute swap |
 | AMM | `/lxdex/amm` | Pool info, Add/Remove liquidity |
 | CLMM | `/lxdex/clmm` | Open/Close positions, Collect fees |
-| CLOB | `/lxdex` | Place/Cancel orders, Order book |
+| OrderBook | `/lxdex` | Place/Cancel orders, Order book |
 
 ## Links
 

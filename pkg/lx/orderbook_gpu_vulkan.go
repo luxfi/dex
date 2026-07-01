@@ -1,20 +1,27 @@
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:build cgo && linux
+//go:build cgo && linux && vulkan
 
 package lx
 
-// CUDA backend for the DEX OrderBook match_order kernel. Linked via
-//   lux-dex-orderbook-cuda pkg-config bundle
-//     -> libdex_orderbook_cuda.a (luxcpp/dex/gpu/cuda/dex_orderbook_host.cu
-//                          + luxcpp/cuda/kernels/gpu/dex_swap.cu)
+// Vulkan-compute backend for the DEX OrderBook match_order kernel. Opt-in via
+// -tags vulkan (mutually exclusive with the default CUDA backend and -tags hip;
+// vulkan wins if both hip and vulkan are set). Linked via
+//   lux-dex-orderbook-vulkan pkg-config bundle
+//     -> libdex_orderbook_vulkan.a (luxcpp/dex/gpu/vulkan/dex_orderbook_vulkan.cpp
+//                            + the embedded SPIR-V from dex_orderbook.comp)
+//
+// The shader is the SINGLE-INVOCATION deterministic matcher whose output is
+// byte-identical to MatchOrderCPU by construction (see dex_orderbook_vulkan.cpp).
+// That contract is enforced on every run by orderbook_gpu_test.go and the
+// determinism corpus in match_verify_test.go.
 
 /*
-#cgo pkg-config: lux-dex-orderbook-cuda
+#cgo pkg-config: lux-dex-orderbook-vulkan
 
 #include <stdint.h>
-#include "dex_orderbook_host.h"
+#include "dex_orderbook_vulkan.h"
 */
 import "C"
 
@@ -24,9 +31,12 @@ import (
 	"unsafe"
 )
 
-// gpuMatchOrder is the CUDA implementation called by orderbook_gpu.go.
-// Returns errOrderBookGPUUnsupported when no NVIDIA device is present so the
-// dispatcher falls back to MatchOrderCPU.
+// dexBackendLabel reports the linked DEX GPU backend for corpus logging.
+func dexBackendLabel() string { return "vulkan" }
+
+// gpuMatchOrder is the Vulkan implementation called by orderbook_gpu.go.
+// Returns errOrderBookGPUUnsupported when no Vulkan device (or no shaderInt64
+// support) is present so the dispatcher falls back to MatchOrderCPU.
 func gpuMatchOrder(
 	incoming *DEXOrder,
 	book []DEXOrder,
@@ -53,7 +63,7 @@ func gpuMatchOrder(
 	pinner.Pin(&tradesWritten)
 	pinner.Pin(&remaining)
 
-	rc := C.dex_orderbook_match_order_host(
+	rc := C.dex_orderbook_match_order_vulkan(
 		(*C.DEXOrder)(unsafe.Pointer(incoming)),
 		(*C.DEXOrder)(unsafe.Pointer(&book[0])),
 		(*C.uint32_t)(unsafe.Pointer(&bookIndices[0])),
@@ -71,10 +81,6 @@ func gpuMatchOrder(
 
 	switch rc {
 	case 0:
-		// Padding normalization: the host driver already zeros the
-		// padding bytes for emitted trades and touched book rows, but
-		// belt-and-braces here in case a future kernel revision
-		// changes the contract.
 		trades := tradesOut[:int(tradesWritten)]
 		for i := range trades {
 			trades[i].ClearPadding()
@@ -86,6 +92,6 @@ func gpuMatchOrder(
 	case -2:
 		return nil, 0, errOrderBookGPUUnsupported
 	default:
-		return nil, 0, fmt.Errorf("lx: dex_orderbook_match_order_host rc=%d", int(rc))
+		return nil, 0, fmt.Errorf("lx: dex_orderbook_match_order_vulkan rc=%d", int(rc))
 	}
 }

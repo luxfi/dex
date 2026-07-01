@@ -30,7 +30,7 @@ class CcxtAdapter(VenueAdapter):
     def __init__(self, name: str, config: CcxtConfig):
         self._name = name
         self._config = config
-        self._capabilities = VenueCapabilities.clob()
+        self._capabilities = VenueCapabilities.orderBook()
         self._capabilities.batch_orders = False  # CCXT doesn't have unified batch
         self._connected = False
         self._latency: Optional[int] = None

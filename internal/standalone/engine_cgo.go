@@ -7,6 +7,6 @@
 package standalone
 
 // engineName labels which matcher pkg/lx links into this build. Under cgo,
-// pkg/lx selects the GPU matcher (amm_gpu_cuda / amm_gpu_metal / orderbook_cuda).
+// pkg/lx selects the GPU matcher (amm_gpu_cuda / amm_gpu_metal / orderbook_gpu_cuda).
 // This is a display string only; the matcher selection lives in pkg/lx.
 const engineName = "gpu"

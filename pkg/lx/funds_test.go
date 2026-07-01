@@ -17,7 +17,6 @@ func TestRiskProfileDEXInternal(t *testing.T) {
 	assert.False(t, rp.CustodialRisk)
 	assert.False(t, rp.BridgeRisk)
 	assert.Equal(t, "instant", rp.SettlementTime)
-	assert.Empty(t, rp.ComplianceGates)
 }
 
 func TestRiskProfileCEXInternal(t *testing.T) {
@@ -39,37 +38,28 @@ func TestRiskProfileCEXToCEX(t *testing.T) {
 	rp := GetRiskProfile(RouteCEXToCEX)
 	assert.True(t, rp.CustodialRisk)
 	assert.Contains(t, rp.SettlementTime, "T+1")
-	assert.Contains(t, rp.ComplianceGates, "kyc")
-	assert.Contains(t, rp.ComplianceGates, "aml")
 }
 
 func TestRiskProfileDEXToCEX(t *testing.T) {
 	rp := GetRiskProfile(RouteDEXToCEX)
 	assert.True(t, rp.SmartContractRisk)
 	assert.True(t, rp.CustodialRisk)
-	assert.Contains(t, rp.ComplianceGates, "source_verification")
-	assert.Contains(t, rp.ComplianceGates, "address_whitelist")
 }
 
 func TestRiskProfileCEXToDEX(t *testing.T) {
 	rp := GetRiskProfile(RouteCEXToDEX)
 	assert.True(t, rp.CustodialRisk)
 	assert.True(t, rp.SmartContractRisk)
-	assert.Contains(t, rp.ComplianceGates, "2fa")
-	assert.Contains(t, rp.ComplianceGates, "withdrawal_limit")
 }
 
 func TestRiskProfileExternalIn(t *testing.T) {
 	rp := GetRiskProfile(RouteExternalIn)
 	assert.Equal(t, "banking", rp.CounterpartyRisk)
-	assert.Contains(t, rp.ComplianceGates, "source_of_funds")
-	assert.Contains(t, rp.ComplianceGates, "bank_verification")
 }
 
 func TestRiskProfileExternalOut(t *testing.T) {
 	rp := GetRiskProfile(RouteExternalOut)
 	assert.Equal(t, "banking", rp.CounterpartyRisk)
-	assert.Contains(t, rp.ComplianceGates, "travel_rule")
 }
 
 // --- FundsManager tests ---
@@ -191,17 +181,10 @@ func TestFundsManagerNoLimitNoRestriction(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFundsManagerPreCheckHook(t *testing.T) {
+func TestFundsManagerInitiateApprovesWithoutGate(t *testing.T) {
+	// Permissionless: every validated movement is approved — there is no
+	// eligibility/KYC pre-check hook to reject it.
 	fm := NewFundsManager(nil)
-
-	complianceChecked := false
-	fm.SetHooks(
-		func(m *FundsMovement) error {
-			complianceChecked = true
-			return nil
-		},
-		nil, nil,
-	)
 
 	m := &FundsMovement{
 		Direction: FundsDeposit,
@@ -210,41 +193,16 @@ func TestFundsManagerPreCheckHook(t *testing.T) {
 		Asset:     "ETH",
 		Amount:    big.NewInt(1000),
 	}
-	_, err := fm.Initiate(m)
+	result, err := fm.Initiate(m)
 	require.NoError(t, err)
-	assert.True(t, complianceChecked)
-}
-
-func TestFundsManagerPreCheckRejection(t *testing.T) {
-	fm := NewFundsManager(nil)
-
-	fm.SetHooks(
-		func(m *FundsMovement) error {
-			if m.AMLFlag {
-				return assert.AnError
-			}
-			return nil
-		},
-		nil, nil,
-	)
-
-	m := &FundsMovement{
-		Direction: FundsDeposit,
-		Route:     RouteDEXInternal,
-		SourceID:  "0xabc",
-		Asset:     "ETH",
-		Amount:    big.NewInt(1000),
-		AMLFlag:   true,
-	}
-	_, err := fm.Initiate(m)
-	require.Error(t, err)
+	assert.Equal(t, FundsStatusApproved, result.Status)
 }
 
 func TestFundsManagerExecute(t *testing.T) {
 	fm := NewFundsManager(nil)
 
 	var completed bool
-	fm.SetHooks(nil,
+	fm.SetHooks(
 		func(m *FundsMovement) { completed = true },
 		nil,
 	)
@@ -302,7 +260,7 @@ func TestFundsManagerDEXToDEXRequiresBridge(t *testing.T) {
 	fm := NewFundsManager(nil) // nil bridge
 
 	var failReason string
-	fm.SetHooks(nil, nil,
+	fm.SetHooks(nil,
 		func(m *FundsMovement, reason string) { failReason = reason },
 	)
 
@@ -343,36 +301,6 @@ func TestFundsManagerGetAccountMovements(t *testing.T) {
 }
 
 // --- Risk classification tests ---
-
-func TestRiskClassificationSanctionsIsCritical(t *testing.T) {
-	fm := NewFundsManager(nil)
-
-	m := &FundsMovement{
-		Direction:     FundsDeposit,
-		Route:         RouteDEXInternal,
-		SourceID:      "0xabc",
-		Asset:         "USDC",
-		Amount:        big.NewInt(100),
-		SanctionsFlag: true,
-	}
-	result, _ := fm.Initiate(m)
-	assert.Equal(t, RiskCritical, result.Risk)
-}
-
-func TestRiskClassificationAMLIsCritical(t *testing.T) {
-	fm := NewFundsManager(nil)
-
-	m := &FundsMovement{
-		Direction: FundsDeposit,
-		Route:     RouteDEXInternal,
-		SourceID:  "0xabc",
-		Asset:     "USDC",
-		Amount:    big.NewInt(100),
-		AMLFlag:   true,
-	}
-	result, _ := fm.Initiate(m)
-	assert.Equal(t, RiskCritical, result.Risk)
-}
 
 func TestRiskClassificationLargeAmountCrossVenue(t *testing.T) {
 	fm := NewFundsManager(nil)
