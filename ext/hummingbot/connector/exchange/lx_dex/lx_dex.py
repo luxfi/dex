@@ -1,7 +1,7 @@
 """
 LX DEX Spot Exchange Connector
 
-Hummingbot connector for LX DEX spot/CLOB trading.
+Hummingbot connector for LX DEX spot/OrderBook trading.
 Supports limit orders, market orders, and real-time order book updates.
 """
 
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class LxDexExchange(ExchangePyBase):
     """
-    LX DEX Exchange connector for spot/CLOB trading.
+    LX DEX Exchange connector for spot/OrderBook trading.
 
     This connector enables:
     - Limit and market order placement

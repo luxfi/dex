@@ -2,7 +2,7 @@
 LX Trading SDK - High-frequency trading with unified liquidity aggregation.
 
 Supports:
-- Native LX DEX (CLOB) and LX AMM
+- Native LX DEX (OrderBook) and LX AMM
 - CCXT exchanges (Binance, MEXC, OKX, etc.)
 - Hummingbot Gateway connectors
 

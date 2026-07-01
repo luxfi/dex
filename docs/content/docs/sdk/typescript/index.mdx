@@ -38,7 +38,7 @@ bun add @luxfi/trading
 ```typescript
 import { DEX } from '@luxfi/trading';
 
-// Create DEX client (CLOB orderbook exchange)
+// Create DEX client (OrderBook orderbook exchange)
 const dex = await DEX({ rpcUrl: 'http://localhost:8080/rpc' });
 
 // Place a limit buy order
@@ -76,7 +76,7 @@ import { Client, Config } from '@luxfi/trading';
 
 const config = Config.fromObject({
   native: {
-    'lx-dex': { venueType: 'clob', apiUrl: 'http://localhost:8080/rpc' },
+    'lx-dex': { venueType: 'orderBook', apiUrl: 'http://localhost:8080/rpc' },
     'lx-amm': { venueType: 'amm', apiUrl: 'http://localhost:8080/rpc' }
   },
   ccxt: {
@@ -177,7 +177,7 @@ The SDK exports the following modules:
 
 | Export | Description |
 |--------|-------------|
-| `DEX` | Factory for LX DEX CLOB client |
+| `DEX` | Factory for LX DEX OrderBook client |
 | `AMM` | Factory for LX AMM client |
 | `Client` | Unified multi-venue client |
 | `Config` | Configuration builder |

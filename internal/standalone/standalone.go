@@ -12,11 +12,15 @@
 //     Accept), so every write crosses the full match -> Verify -> Accept path
 //     and the bytes a caller gets back are consensus-computed fills,
 //   - exposes read-only dex_depth + dex_balance observation methods for the
-//     settled book and custody state (reads need no consensus round-trip).
+//     settled book and custody state (reads need no consensus round-trip),
+//   - optionally (-http) serves the SAME surface luxd mounts for the in-process
+//     plugin under /ext/bc/D — the JSON dex_get_* reads + the dex_* writes
+//     (vm.CreateHandlers, ingest.go) — so the exchange-api/maker reach a
+//     standalone single-operator venue byte-identically to the in-luxd plugin.
 //
 // CGO_ENABLED is the single axis that picks the matcher: pkg/lx links the GPU
-// matcher under cgo (amm_gpu_cuda / amm_gpu_metal / orderbook_cuda) and the
-// pure-Go CPU matcher without it (amm_nogpu / orderbook_cuda_stub). This package
+// matcher under cgo (amm_gpu_cuda / amm_gpu_metal / orderbook_gpu_cuda) and the
+// pure-Go CPU matcher without it (amm_nogpu / orderbook_nogpu). This package
 // is matcher-agnostic — it drives dchain.VM either way; engineName
 // (engine_{cgo,nocgo}.go) only labels the active build.
 package standalone
@@ -26,6 +30,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"math"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -50,12 +55,21 @@ const dexDepthMethod = "dex_depth"
 // asset[8]. Response: available[8] | locked[8] (big-endian uint64 atomic units).
 const dexBalanceMethod = "dex_balance"
 
+// httpChainPrefix is the chain route prefix the optional -http surface mounts
+// under. It mirrors the EXACT external path luxd gives the in-process plugin
+// (/ext/bc/<chainID-or-alias>), using the canonical "D" alias the exchange-api
+// and maker dial (DEX_DCHAIN_URL / DEX_HTTP_URL = http://<host>/ext/bc/D). So a
+// standalone single-operator venue is a byte-identical drop-in for the in-luxd
+// D-Chain read+write surface — no luxd required to serve the markets pipeline.
+const httpChainPrefix = "/ext/bc/D"
+
 // Run serves the standalone venue. args is the post-subcommand argv
 // (os.Args[2:] from `dexd run`/`dexd standalone`); it carries -addr and -db.
 func Run(args []string) {
 	fs := flag.NewFlagSet("dexd run", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
 	dir := fs.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
+	httpAddr := fs.String("http", "", "HTTP listen address for the chain read+write surface mounted under /ext/bc/D (e.g. 0.0.0.0:9650); empty = ZAP only")
 	_ = fs.Parse(args)
 
 	logger := log.Root()
@@ -106,10 +120,39 @@ func Run(args []string) {
 		}
 	}()
 
+	// Optional HTTP surface: the SAME handler table luxd mounts for the in-process
+	// plugin (vm.CreateHandlers -> ingest.go httpHandlers: dex_* writes + dex_get_*
+	// JSON reads), served under /ext/bc/D so the exchange-api (reads) and maker
+	// (writes via DEX_HTTP_URL) reach this single-operator venue byte-identically
+	// to the in-luxd D-Chain. Writes still cross the full sealer consensus path.
+	var httpSrv *http.Server
+	if *httpAddr != "" {
+		handlers, herr := vm.CreateHandlers(ctx)
+		if herr != nil {
+			logger.Error("CreateHandlers", "err", herr)
+			cancel()
+			_ = server.Close()
+			_ = vm.Shutdown(context.Background())
+			_ = db.Close()
+			os.Exit(1)
+		}
+		mux := http.NewServeMux()
+		for key, h := range handlers {
+			mux.Handle(httpChainPrefix+key, h)
+		}
+		httpSrv = &http.Server{Addr: *httpAddr, Handler: mux}
+		go func() {
+			if serr := httpSrv.ListenAndServe(); serr != nil && serr != http.ErrServerClosed {
+				logger.Error("httpSrv.ListenAndServe", "err", serr)
+			}
+		}()
+		logger.Info("D-Chain venue HTTP surface serving", "addr", *httpAddr, "prefix", httpChainPrefix, "routes", len(handlers))
+	}
+
 	logger.Info("D-Chain venue serving",
 		"addr", server.Addr(), "db", *dir, "version", dchain.Version, "engine", engineName)
 	// Emit a machine-greppable readiness line for the bring-up harness.
-	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + " engine=" + engineName + "\n")
+	os.Stdout.WriteString("DVENUE_READY addr=" + server.Addr() + " db=" + *dir + " engine=" + engineName + " http=" + *httpAddr + "\n")
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
@@ -117,6 +160,9 @@ func Run(args []string) {
 
 	logger.Info("D-Chain venue shutting down")
 	cancel()
+	if httpSrv != nil {
+		_ = httpSrv.Shutdown(context.Background())
+	}
 	_ = server.Close()
 	_ = vm.Shutdown(context.Background())
 	_ = db.Close()

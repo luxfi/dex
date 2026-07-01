@@ -18,7 +18,7 @@ import {
   type Ticker,
   type Trade,
 } from '../types.js';
-import { BaseAdapter, clobCapabilities, type VenueCapabilities } from './base.js';
+import { BaseAdapter, orderBookCapabilities, type VenueCapabilities } from './base.js';
 
 // =============================================================================
 // CCXT Adapter
@@ -36,7 +36,7 @@ export class CcxtAdapter extends BaseAdapter {
   ) {
     super();
     this.capabilities = {
-      ...clobCapabilities(),
+      ...orderBookCapabilities(),
       batchOrders: false, // CCXT doesn't have unified batch
     };
   }

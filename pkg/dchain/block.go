@@ -77,6 +77,13 @@ type Block struct {
 	// Verify or Build). Accept resolves any parked ZAP handler from these. nil
 	// until execute runs against this block.
 	outcomes []txOutcome
+
+	// atomic is the block's accumulated cross-chain shared-memory operations (the
+	// native settlement seam's C->D removes / D->C puts), derived by execute and
+	// applied atomically with the state overlay at Accept (atomic.go commitSeamAtomic).
+	// nil/empty for a block with no seam txs. Stashed on the block alongside the
+	// overlay so the same instance a later Accept resolves carries both.
+	atomic *atomicRequests
 }
 
 // newBlock assembles a block from its fields and computes its bytes + id. The
@@ -185,6 +192,7 @@ func (b *Block) Verify(ctx context.Context) error {
 
 	b.overlay = overlay
 	b.outcomes = result.outcomes
+	b.atomic = result.atomic
 	return nil
 }
 
@@ -205,6 +213,7 @@ func (b *Block) Accept(ctx context.Context) error {
 		}
 		b.overlay = overlay
 		b.outcomes = res.outcomes
+		b.atomic = res.atomic
 	}
 
 	// Persist the accept watermarks into the SAME overlay so the commit is one
@@ -230,7 +239,12 @@ func (b *Block) Accept(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.overlay.Commit(); err != nil {
+	// Commit the overlay AND the block's cross-chain seam operations (C->D removes /
+	// D->C puts) in one atomic write (atomic.go). With no seam txs this is the plain
+	// overlay commit; with seam txs the shared-memory ops land atomically with the
+	// state so a consumed intent / produced settlement can never diverge from the
+	// committed ledger.
+	if err := b.vm.commitSeamAtomic(b.overlay, b.atomic); err != nil {
 		return fmt.Errorf("dchain: commit block %s: %w", b.id, err)
 	}
 
@@ -283,8 +297,9 @@ func (b *Block) Reject(ctx context.Context) error {
 type execResult struct {
 	root     [Size]byte
 	fills    []lx.DEXTrade
-	rows     []lx.DEXOrder // canonical resting rows across all touched markets
-	outcomes []txOutcome   // one per tx, in block order
+	rows     []lx.DEXOrder   // canonical resting rows across all touched markets
+	outcomes []txOutcome     // one per tx, in block order
+	atomic   *atomicRequests // cross-chain seam removes/puts to apply at Accept
 }
 
 // execute runs the block's txs against the overlay, writing order/market/trade
@@ -321,6 +336,10 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 
 	var allFills []lx.DEXTrade
 	var tradeSeq uint64
+	// ar accumulates the block's cross-chain seam operations (C->D removes / D->C
+	// puts); it is applied atomically with this overlay at Accept. Empty for a block
+	// with no TxImport/TxExport.
+	ar := newAtomicRequests()
 	outcomes := make([]txOutcome, 0, len(b.txs))
 	for i, tx := range b.txs {
 		// Idempotency (all tx types): a tx whose id is already committed (or
@@ -416,6 +435,63 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 				st = zapwire.StatusRejected
 			}
 			oc := txOutcome{txID: txID, typ: tx.Type, status: st, orderID: realized}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
+			continue
+
+		case TxImport:
+			// CONSUME a C->D atomic intent object and fund the taker's native D
+			// account (atomic.go). Authority is the consumed object, not a signature
+			// (TxImport.requiresAuth() is false), so the auth gate above skipped it.
+			var intentID ids.ID
+			copy(intentID[:], tx.Body) // the body is exactly the 32-byte intent id
+			credited, ok, ierr := b.vm.executeImport(overlay, ar, intentID)
+			if ierr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam import: %w", i, ierr)
+			}
+			if !ok {
+				// Deterministic per-tx reject (object not flushed yet / replay / unwired
+				// seam). NOT marked seen, so a not-yet-available intent retries later.
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: credited}
+			outcomes = append(outcomes, oc)
+			if err := markSeen(overlay, txID, oc); err != nil {
+				return execResult{}, err
+			}
+			continue
+
+		case TxExport:
+			// DEBIT the taker's settled native D balance and write a D->C settlement
+			// object the precompile's ImportSettlement consumes (atomic.go). The
+			// exporting tx id seeds the deterministic output id; object-authorized.
+			intentID, asset, amount, spent, derr := decodeSeamExportBody(tx.Body)
+			if derr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam export decode: %w", i, derr)
+			}
+			outputID, ok, eerr := b.vm.executeExport(overlay, ar, txID, intentID, asset, amount, spent)
+			if eerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam export: %w", i, eerr)
+			}
+			if !ok {
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+			// CLOSE the intent escrow once this export has fully drained the taker's
+			// cross-chain account (drive.go) — making each cross-chain swap one-shot, so a
+			// settled intent is not re-exported by a later block's drive and the owner can
+			// import a fresh intent. Order-independent: it fires on whichever leg empties
+			// the account (the lone proceeds leg of a full fill, or the refund leg of a
+			// partial fill). A still-funded account is left open for a subsequent leg.
+			if cerr := b.vm.closeSeamIntentIfDrained(overlay, intentID); cerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam intent close: %w", i, cerr)
+			}
+			// orderID carries a compact handle of the output id for the ack; the keeper
+			// reads the full id from the seamout: record (or recomputes deriveSeamOutputID).
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: binary.BigEndian.Uint64(outputID[24:32])}
 			outcomes = append(outcomes, oc)
 			if err := markSeen(overlay, txID, oc); err != nil {
 				return execResult{}, err
@@ -576,7 +652,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 	sortRowsCanonical(allRows)
 
 	root, _, _, _ := ExecutionRoot(b.vm.lastRoot, allRows, allFills, b.txs, b.height)
-	return execResult{root: root, fills: allFills, rows: allRows, outcomes: outcomes}, nil
+	return execResult{root: root, fills: allFills, rows: allRows, outcomes: outcomes, atomic: ar}, nil
 }
 
 // lockOrderSpend reserves the asset a place/submit will spend, moving it from the

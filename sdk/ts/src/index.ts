@@ -8,7 +8,7 @@
 //
 //   ./precompile  V4 on-chain via LXPool precompile 0x9010 (uses MIT
 //                 @luxfi/exchange ABIs + viem). On-chain settlement.
-//   ./zap         Binary CLOB wire (pkg/zapwire). Lowest-latency take/place.
+//   ./zap         Binary OrderBook wire (pkg/zapwire). Lowest-latency take/place.
 //   ./fix         FIX 4.4 order entry (pkg/fix). Institutional connectivity.
 //   ./ws          JSON WebSocket (pkg/api). Streaming market data + orders.
 //

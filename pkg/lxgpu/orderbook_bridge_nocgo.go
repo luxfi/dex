@@ -24,13 +24,6 @@ func GPUPluginPath() string { return "" }
 // returns a non-nil arena from ArenaCreate.
 type OrderBookArena struct{}
 
-// AMMSwap returns ErrGPUNotAvailable under !cgo.
-func AMMSwap(reserves []LuxAmmReservePair, amounts []uint64) ([]uint64, error) {
-	_ = reserves
-	_ = amounts
-	return nil, ErrGPUNotAvailable
-}
-
 // ArenaCreate returns ErrGPUNotAvailable under !cgo.
 func ArenaCreate() (*OrderBookArena, error) {
 	return nil, ErrGPUNotAvailable

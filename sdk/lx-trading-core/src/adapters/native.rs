@@ -12,7 +12,7 @@ use crate::error::{Error, Result};
 use crate::orderbook::Orderbook;
 use crate::types::*;
 
-/// LX DEX adapter for CLOB trading
+/// LX DEX adapter for OrderBook trading
 pub struct LxDexAdapter {
     name: String,
     config: NativeVenueConfig,
@@ -27,7 +27,7 @@ pub struct LxDexAdapter {
 
 impl LxDexAdapter {
     pub async fn new(name: &str, config: NativeVenueConfig) -> Result<Self> {
-        let mut capabilities = VenueCapabilities::clob();
+        let mut capabilities = VenueCapabilities::orderBook();
         capabilities.streaming = config.ws_url.is_some();
 
         let client = reqwest::Client::builder()

@@ -257,7 +257,7 @@ console.log(`Kill switch active: ${risk.isKilled}`);
 ## Supported Venues
 
 ### Native
-- LX DEX (CLOB)
+- LX DEX (OrderBook)
 - LX AMM
 
 ### CCXT (100+ exchanges)

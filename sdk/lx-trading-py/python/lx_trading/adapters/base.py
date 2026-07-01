@@ -42,8 +42,8 @@ class VenueCapabilities:
     supported_pairs: Set[str] = field(default_factory=set)
 
     @classmethod
-    def clob(cls) -> "VenueCapabilities":
-        """CLOB/orderbook venue capabilities."""
+    def orderBook(cls) -> "VenueCapabilities":
+        """OrderBook/orderbook venue capabilities."""
         return cls(
             limit_orders=True,
             market_orders=True,

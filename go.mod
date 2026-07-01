@@ -17,6 +17,7 @@ require (
 	github.com/luxfi/log v1.4.3
 	github.com/luxfi/pq v1.0.3
 	github.com/luxfi/rpc v1.1.0
+	github.com/luxfi/runtime v1.1.1
 	github.com/luxfi/version v1.0.1
 	github.com/luxfi/vm v1.2.5
 	github.com/shopspring/decimal v1.4.0
@@ -108,7 +109,6 @@ require (
 	github.com/luxfi/precompile v0.5.56 // indirect
 	github.com/luxfi/proto v1.3.5 // indirect
 	github.com/luxfi/resource v0.0.1 // indirect
-	github.com/luxfi/runtime v1.1.1 // indirect
 	github.com/luxfi/sampler v1.1.0 // indirect
 	github.com/luxfi/upgrade v1.0.1 // indirect
 	github.com/luxfi/utils v1.2.0 // indirect
