@@ -16,18 +16,21 @@
 //	    block bytes derives the identical execution root — a byzantine order stream
 //	    can never split the honest validators.
 //
-// FAIL-SAFE REFUSALS (documented finding). A self-cross-heavy stream can drive the
-// matcher into a state where a single later submit is REFUSED at build with
-// "resting order missing full settlement identity (orderuser)" or "insufficient
-// locked balance" — the matcher declining to settle rather than minting. Root cause
-// (pkg/lx/orderbook.go tryMatchImmediateLocked, the self-trade skip): the skip
-// mutates the IN-MEMORY book (removeOrder + delete Orders/ordersMap) without a
-// matching consensus state write, so the in-memory book and the persisted
-// orderuser:/reserve rows can transiently diverge. It is FAIL-SAFE (no mint, no
-// burn, conservation intact) and PER-TX (the market recovers on the next clean
-// cross — proven by the recovery probe below), i.e. a bounded liveness edge, NOT a
-// safety break. This test COUNTS such refusals and asserts conservation across
-// them; it does not paper over them.
+// FAIL-SAFE REFUSALS (FIXED — this test is now the regression guard). A
+// self-cross-heavy stream previously drove the matcher into a state where a single
+// later submit was REFUSED at build with "resting order missing full settlement
+// identity (orderuser)" or "insufficient locked balance" — the matcher declining to
+// settle rather than minting (fail-safe, no mint/burn/fork). Root cause was in
+// pkg/lx/orderbook.go tryMatchImmediateLocked: the self-trade skip removed the
+// self-maker from the IN-MEMORY book (removeOrder + delete Orders/ordersMap) without
+// a matching consensus state write, so the in-memory book (which feeds the execRoot
+// via BookToRows) and the persisted order:/orderuser:/reserve rows diverged. FIX:
+// the matcher now RECORDS the self-cancelled maker (ob.selfCanceled), and applySubmit
+// drains it so settleOrderEffects/execute persist the removal through the SAME
+// cancel path a TxCancel uses (delete order:/orderuser: rows, release the reserve
+// locked->available). This test asserts ZERO fail-safe refusals across the stream
+// (see TestByzantineMatcher_SelfCrossCancelsRestingMakerConsistently for the direct
+// pin); it still COUNTS refusals as defense-in-depth so a regression would surface.
 //
 // Deterministic: a fixed seed table, block-derived ids, no wall-clock.
 
@@ -231,6 +234,12 @@ func TestByzantineConservation_AdversarialMatcherStream(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("adversarial matcher property: %d seeds x ~%d ops = %d ops; %d fail-safe refusals; conservation + no-fork held throughout",
+	// REGRESSION GUARD: with the self-cross cancel-persist fix, a well-formed
+	// adversarial stream (every op is funded + valid) produces ZERO matcher refusals.
+	// A non-zero count means the self-cross desync (or a new one) has returned.
+	if totalRefusals != 0 {
+		t.Fatalf("REGRESSION: %d fail-safe matcher refusals across the stream — the self-cross desync (or a new one) is back", totalRefusals)
+	}
+	t.Logf("adversarial matcher property: %d seeds x ~%d ops = %d ops; %d refusals (fixed); conservation + no-fork held throughout",
 		len(byzantineMatcherSeeds), byzMatcherOpsPerSeed, totalOps, totalRefusals)
 }

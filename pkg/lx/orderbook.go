@@ -114,6 +114,16 @@ type OrderBook struct {
 	UserOrders    map[string][]uint64
 	userOrdersMap sync.Map
 
+	// selfCanceled records the resting maker order ids that the LAST marketable
+	// cross removed for self-trade prevention (tryMatchImmediateLocked). A self-
+	// crossed maker produces NO fill and is dropped from the book so the account
+	// never trades against itself; the consensus layer DRAINS this set after the
+	// cross (OrderBook.DrainSelfCanceled) and persists each removal through the SAME
+	// cancel path a TxCancel uses (release the reserve, delete the orderuser: row),
+	// so the in-memory book and the durable order:/orderuser:/reserve rows stay
+	// consistent WITHIN the block. Reset at the top of every match; guarded by mu.
+	selfCanceled []uint64
+
 	// Atomic counters
 	LastTradeID  uint64
 	LastOrderID  uint64
@@ -282,6 +292,24 @@ func NewOrderTree(side Side) *OrderTree {
 func (ob *OrderBook) SubmitMarketable(order *Order) ([]Trade, error) {
 	fills, _, err := ob.submitMarketable(order, false)
 	return fills, err
+}
+
+// DrainSelfCanceled returns the resting maker order ids the LAST marketable cross
+// removed for self-trade prevention, so the consensus layer can persist each
+// removal (release the reserve + delete the orderuser: row) through the same cancel
+// path a TxCancel uses. Returns a COPY: the internal buffer is reset and reused on
+// the next match, so a caller holding the result across another cross is safe. The
+// order is match order (deterministic), and each id is independent to release, so
+// the persisted effect is order-invariant across validators.
+func (ob *OrderBook) DrainSelfCanceled() []uint64 {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	if len(ob.selfCanceled) == 0 {
+		return nil
+	}
+	out := make([]uint64, len(ob.selfCanceled))
+	copy(out, ob.selfCanceled)
+	return out
 }
 
 // submitMarketable is the shared body of SubmitMarketable and (via the GPU
@@ -702,6 +730,10 @@ func (tree *OrderTree) getBestOrderViaHeap() *Order {
 func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 	var fills []Trade
 
+	// Fresh self-cancel set for THIS match: the caller (consensus layer) drains it
+	// after the cross to persist each self-trade-prevented maker removal.
+	ob.selfCanceled = ob.selfCanceled[:0]
+
 	if order.RemainingSize == 0 && order.Size > 0 {
 		order.RemainingSize = order.Size
 	}
@@ -734,15 +766,24 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 		// its persisted row carries the leading-8-byte folded identity, while a fresh
 		// taker carries the full 16-byte wire identity, so a raw string compare would
 		// fail to recognize two orders from the SAME account. Folding both to the
-		// persist handle makes the self-cross visible. Skip-and-cancel the self-maker
-		// leg (the existing convention): no fill is produced, so no value moves and the
-		// maker's reserve / orderuser: row stay intact (the next book rebuild restores
-		// it from its still-present row). This mirrors the place path's checkSelfTrade.
+		// persist handle makes the self-cross visible.
+		//
+		// CANCEL-AND-CONTINUE (consistent across in-memory + durable state). The
+		// self-maker is CANCELLED: it produces no fill (no value moves), leaves the
+		// book, and is RECORDED in ob.selfCanceled so the consensus layer persists the
+		// removal through the SAME path a TxCancel uses — release the maker's reserve
+		// (locked -> available, conservation-exact) and delete its orderuser: row. This
+		// closes the divergence where the old skip removed the maker in memory only,
+		// leaving a durable order:/reserve/orderuser: row that a later cross tripped on
+		// ("missing orderuser" / "insufficient locked balance"). The removal is
+		// deterministic (same book + same order stream on every validator => same
+		// self-maker dropped), so the execution root is unchanged and no node forks.
 		if tk, ok := selfTradeKey(order); ok {
 			if mk, ok2 := selfTradeKey(bestOrder); ok2 && tk == mk {
 				oppositeTree.removeOrder(bestOrder)
 				delete(ob.Orders, bestOrder.ID)
 				ob.ordersMap.Delete(bestOrder.ID)
+				ob.selfCanceled = append(ob.selfCanceled, bestOrder.ID)
 				continue
 			}
 		}

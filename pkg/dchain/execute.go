@@ -63,6 +63,14 @@ type applyResult struct {
 	// Touched are resting orders whose remaining changed due to a submit cross
 	// (the makers); their rows must be rewritten/deleted.
 	Touched []*lx.Order
+	// SelfCanceled are resting maker order ids the submit's cross removed for
+	// self-trade prevention (the taker crossed its OWN resting liquidity). They
+	// produced NO fill; the VM persists each removal through the SAME cancel path a
+	// TxCancel uses — delete the order: row, release the reserve (locked ->
+	// available), delete the orderuser: row — so the durable state matches the
+	// in-memory book the matcher already updated (no orphan resting row a later
+	// cross would trip on). Empty for every non-self-crossing submit.
+	SelfCanceled []uint64
 }
 
 // applyTx applies a single transaction to the book deterministically. It is a
@@ -190,6 +198,12 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		return applyResult{}, nil // deterministic reject (e.g. invalid)
 	}
 
+	// Drain the self-trade-prevented maker removals this cross performed. The taker
+	// crossed its OWN resting liquidity; those makers left the book with no fill and
+	// must be cancelled in durable state too (reserve released, orderuser:/order:
+	// rows deleted) so the persisted book matches the matcher's in-memory book.
+	selfCanceled := book.DrainSelfCanceled()
+
 	// Collect the makers touched by these fills so the VM rewrites their rows.
 	touched := make([]*lx.Order, 0, len(fills))
 	seen := make(map[uint64]struct{}, len(fills))
@@ -211,7 +225,7 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		}
 	}
 
-	return applyResult{Fills: fills, TakerSide: side, Touched: touched}, nil
+	return applyResult{Fills: fills, TakerSide: side, Touched: touched, SelfCanceled: selfCanceled}, nil
 }
 
 // trimNull returns b with trailing NUL bytes removed (the inverse of zapwire's
