@@ -50,16 +50,45 @@ func ensureMarketTx(t *testing.T, pool [32]byte) *Tx {
 	return tx
 }
 
+// wirePriceUnits / wireSizeUnits convert a test's human price/size into the EXACT
+// wire integers (price × 1e8 fixed-point, whole base units) — the SAME derivation
+// the old float path applied downstream (int64(price*1e8), uint64(size)), so every
+// balance the conservation/byzantine tests assert is unchanged. The conversion
+// happens ONCE here (the client/proposer), never per-validator on the value path.
+func wirePriceUnits(price float64) uint64 {
+	if !(price > 0) {
+		return 0
+	}
+	return uint64(price * float64(zapwire.PriceScale))
+}
+func wireSizeUnits(size float64) uint64 {
+	if !(size > 0) {
+		return 0
+	}
+	return uint64(size)
+}
+
+// encPlace / encSubmit are float-taking convenience wrappers over the exact-integer
+// wire codec: they scale a human price to the ×1e8 fixed-point wire integer and a
+// human size to whole base units (the SAME derivation the consensus path applies),
+// so existing tests keep their human-readable literals while the wire stays integer.
+func encPlace(pool [32]byte, side uint8, price, size float64, user string) []byte {
+	return zapwire.EncodePlace(pool, side, wirePriceUnits(price), wireSizeUnits(size), user)
+}
+func encSubmit(pool [32]byte, side uint8, isMarket bool, price, size float64, user string) []byte {
+	return zapwire.EncodeSubmit(pool, side, isMarket, wirePriceUnits(price), wireSizeUnits(size), user)
+}
+
 func placePoolTx(t *testing.T, pool [32]byte, side uint8, price, size float64, user string) *Tx {
 	t.Helper()
 	a := acctFor(t, user)
-	return a.signed(t, TxPlace, zapwire.EncodePlace(pool, side, price, size, a.user))
+	return a.signed(t, TxPlace, zapwire.EncodePlace(pool, side, wirePriceUnits(price), wireSizeUnits(size), a.user))
 }
 
 func submitPoolTx(t *testing.T, pool [32]byte, side uint8, isMarket bool, price, size float64, user string) *Tx {
 	t.Helper()
 	a := acctFor(t, user)
-	return a.signed(t, TxSubmit, zapwire.EncodeSubmit(pool, side, isMarket, price, size, a.user))
+	return a.signed(t, TxSubmit, zapwire.EncodeSubmit(pool, side, isMarket, wirePriceUnits(price), wireSizeUnits(size), a.user))
 }
 
 // buildVerifyAccept runs the proposer+validator path for the txs currently in the

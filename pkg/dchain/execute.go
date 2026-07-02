@@ -12,15 +12,31 @@ import (
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
-// sizeUnitsBig returns the order's exact integer base-unit quantity as a big.Int
-// (the value lane the matcher uses to produce BaseUnits/QuoteUnits on a fill).
-// nil for a non-positive size so the matcher's legacy float path is unaffected
-// for a degenerate order. Whole-unit truncation matches the ledger's sizeToUnits.
-func sizeUnitsBig(size float64) *big.Int {
-	if !(size > 0) {
-		return nil
+// maxPriceUnits is the largest wire price the matcher's PriceInt (int64) grid can
+// hold. A price at/above 2^63 would overflow PriceInt, so it is rejected at decode
+// — deterministically, on every validator (the wire is an exact uint64, so there
+// is no architecture-dependent float→int conversion left to diverge).
+const maxPriceUnits = uint64(1)<<63 - 1
+
+// newWireOrder builds an order from the wire's EXACT integers: PriceUnits is the
+// authoritative PriceInt grid value, SizeUnits the authoritative atomic base-unit
+// count. The float Price/Size are DERIVED projections for the matcher's crossing
+// loop and legacy/display only — they are never the source of a consensus value,
+// so no float→int conversion (whose out-of-range result is architecture-dependent)
+// touches the state transition.
+func newWireOrder(id uint64, side dex.Side, priceUnits, sizeUnits uint64, user, symbol string, ts time.Time) *dex.Order {
+	return &dex.Order{
+		ID:         id,
+		Side:       side,
+		PriceUnits: dex.PriceInt(priceUnits),
+		Price:      float64(priceUnits) / float64(dex.PriceMultiplier),
+		Size:       float64(sizeUnits),
+		SizeUnits:  new(big.Int).SetUint64(sizeUnits),
+		User:       user,
+		UserID:     user,
+		Symbol:     symbol,
+		Timestamp:  ts,
 	}
-	return new(big.Int).SetUint64(uint64(size))
 }
 
 // execute.go is the deterministic state-transition function. applyTx takes a tx,
@@ -105,28 +121,18 @@ func applyTx(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex u
 // self-trade) yield an empty result with no error: a rejected order is a valid,
 // deterministic outcome (no fills, no resting delta), not a chain-level failure.
 func applyPlace(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
-	body := tx.Body
-	// Place body: poolId[32] + side[1] + price[8] + size[8] + user[16].
-	side := dex.Side(body[zapwire.PoolIDSize])
-	price := zapwire.Float64(body[zapwire.PoolIDSize+1 : zapwire.PoolIDSize+9])
-	size := zapwire.Float64(body[zapwire.PoolIDSize+9 : zapwire.PoolIDSize+17])
-	user := string(trimNull(body[zapwire.PoolIDSize+17 : zapwire.PoolIDSize+17+zapwire.UserSize]))
-
-	if !(price > 0) || !(size > 0) {
+	poolID, side, price, size, user, derr := zapwire.DecodePlace(tx.Body)
+	_ = poolID
+	if derr != nil {
+		return applyResult{}, nil // malformed body: deterministic reject
+	}
+	// price is fixed-point ×1e8 (PriceInt), size is atomic base units — both exact
+	// integers. Reject zero price/size or a price that overflows the PriceInt grid.
+	if price == 0 || size == 0 || price > maxPriceUnits {
 		return applyResult{}, nil // deterministic reject
 	}
-	order := &dex.Order{
-		ID:        blockDeterministicID(height, txIndex),
-		Type:      dex.Limit,
-		Side:      side,
-		Price:     price,
-		Size:      size,
-		SizeUnits: sizeUnitsBig(size), // exact integer base units (value lane)
-		User:      user,
-		UserID:    user,
-		Symbol:    book.Symbol,
-		Timestamp: ts,
-	}
+	order := newWireOrder(blockDeterministicID(height, txIndex), dex.Side(side), price, size, user, book.Symbol, ts)
+	order.Type = dex.Limit
 	if book.ConsensusAddOrder(order) == 0 {
 		return applyResult{}, nil // rejected (e.g. post-only would take)
 	}
@@ -157,35 +163,28 @@ func applyCancel(book *dex.OrderBook, tx *Tx) (applyResult, error) {
 // (SubmitMarketable is IOC). Touched makers are captured BEFORE the cross so the
 // VM can rewrite their rows; SubmitMarketable mutates resting orders in place.
 func applySubmit(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
-	body := tx.Body
-	// Submit body: poolId[32] + side[1] + isMarket[1] + price[8] + size[8] + user[16].
-	side := dex.Side(body[zapwire.PoolIDSize])
-	isMarket := body[zapwire.PoolIDSize+1] == 1
-	limitPrice := zapwire.Float64(body[zapwire.PoolIDSize+2 : zapwire.PoolIDSize+10])
-	size := zapwire.Float64(body[zapwire.PoolIDSize+10 : zapwire.PoolIDSize+18])
-	user := string(trimNull(body[zapwire.PoolIDSize+18 : zapwire.PoolIDSize+18+zapwire.UserSize]))
-
-	if !(size > 0) {
+	poolID, side, isMarket, limitPrice, size, user, derr := zapwire.DecodeSubmit(tx.Body)
+	_ = poolID
+	if derr != nil {
 		return applyResult{}, nil
 	}
-	order := &dex.Order{
-		ID:        blockDeterministicID(height, txIndex),
-		Side:      side,
-		Size:      size,
-		SizeUnits: sizeUnitsBig(size), // exact integer base units (value lane)
-		User:      user,
-		UserID:    user,
-		Symbol:    book.Symbol,
-		Timestamp: ts,
+	if size == 0 {
+		return applyResult{}, nil
 	}
+	// For a limit submit the price bounds the cross and must fit the PriceInt grid;
+	// a pure market submit ignores it (sweeps unconditionally). Exact integers, no float.
+	priceUnits := limitPrice
+	if isMarket {
+		priceUnits = 0
+	} else if limitPrice == 0 || limitPrice > maxPriceUnits {
+		return applyResult{}, nil
+	}
+	dside := dex.Side(side)
+	order := newWireOrder(blockDeterministicID(height, txIndex), dside, priceUnits, size, user, book.Symbol, ts)
 	if isMarket {
 		order.Type = dex.Market
 	} else {
-		if !(limitPrice > 0) {
-			return applyResult{}, nil
-		}
 		order.Type = dex.Limit
-		order.Price = limitPrice
 	}
 
 	// Route through the GPU shadow gate. With the default EngineCPU this is
@@ -209,7 +208,7 @@ func applySubmit(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txInd
 	seen := make(map[uint64]struct{}, len(fills))
 	for _, f := range fills {
 		makerID := f.SellOrder
-		if side == dex.Sell {
+		if dside == dex.Sell {
 			makerID = f.BuyOrder
 		}
 		if _, dup := seen[makerID]; dup {
@@ -225,7 +224,7 @@ func applySubmit(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txInd
 		}
 	}
 
-	return applyResult{Fills: fills, TakerSide: side, Touched: touched, SelfCanceled: selfCanceled}, nil
+	return applyResult{Fills: fills, TakerSide: dside, Touched: touched, SelfCanceled: selfCanceled}, nil
 }
 
 // trimNull returns b with trailing NUL bytes removed (the inverse of zapwire's

@@ -43,9 +43,15 @@ type txOutcome struct {
 func toWireFills(fills []dex.Trade, takerSide dex.Side) []zapwire.Fill {
 	out := make([]zapwire.Fill, len(fills))
 	for i, f := range fills {
+		// Exact integers: price = PriceInt (×1e8), size = atomic base units. The
+		// authoritative integer lane (PriceUnits/BaseUnits), never the float view.
+		var size uint64
+		if f.BaseUnits != nil {
+			size = f.BaseUnits.Uint64()
+		}
 		out[i] = zapwire.Fill{
-			Price:     f.Price,
-			Size:      f.Size,
+			Price:     uint64(f.PriceUnits),
+			Size:      size,
 			TakerSide: uint8(takerSide),
 		}
 	}

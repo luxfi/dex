@@ -235,10 +235,11 @@ func sortShadowRows(rows []DEXOrder, takerSide Side) {
 // matcher gates every fill on pricesCross, so a market taker is given the maximal
 // price so it crosses every resting level — mirroring the rich market sweep.
 func orderToFlatTaker(order *Order) DEXOrder {
+	qty, _ := orderRowUnits(order)
 	t := DEXOrder{
 		OrderID:   order.ID,
 		UserID:    userToUint64(takerUserStr(order)),
-		Quantity:  floatToFixedQty(order.Size),
+		Quantity:  qty,
 		Timestamp: uint64(order.Timestamp.UnixNano()),
 		Side:      sideToDEX(order.Side),
 		Type:      typeToDEX(order.Type),
@@ -248,7 +249,7 @@ func orderToFlatTaker(order *Order) DEXOrder {
 	if order.Type == Market {
 		t.Price = DEXPrice{Integer: ^uint64(0), Fraction: ^uint64(0)}
 	} else {
-		t.Price = floatToFixedPrice(order.Price)
+		t.Price = priceRowFor(orderPriceUnits(order))
 	}
 	t.ClearPadding()
 	return t

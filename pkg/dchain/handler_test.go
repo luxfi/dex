@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"sync"
 	"testing"
 	"time"
@@ -43,8 +42,8 @@ const (
 )
 
 type relayFill struct {
-	Price float64
-	Size  float64
+	Price uint64 // PriceInt (×1e8 fixed-point)
+	Size  uint64 // atomic base units
 	Side  uint8
 }
 
@@ -62,15 +61,15 @@ func relayDecodeFills(data []byte) ([]relayFill, error) {
 	fills := make([]relayFill, 0, n)
 	off := 4
 	for i := 0; i < n; i++ {
-		p := math.Float64frombits(binary.BigEndian.Uint64(data[off : off+8]))
-		s := math.Float64frombits(binary.BigEndian.Uint64(data[off+8 : off+16]))
+		p := binary.BigEndian.Uint64(data[off : off+8]) // PriceInt, exact
+		s := binary.BigEndian.Uint64(data[off+8 : off+16])
 		side := data[off+16]
 		off += relayFillWireSize
-		if !(p > 0) || math.IsInf(p, 0) {
-			return nil, fmt.Errorf("fill %d: invalid price %v", i, p)
+		if p == 0 {
+			return nil, fmt.Errorf("fill %d: invalid price %d", i, p)
 		}
-		if !(s > 0) || math.IsInf(s, 0) {
-			return nil, fmt.Errorf("fill %d: invalid size %v", i, s)
+		if s == 0 {
+			return nil, fmt.Errorf("fill %d: invalid size %d", i, s)
 		}
 		if side > 1 {
 			return nil, fmt.Errorf("fill %d: invalid side %d", i, side)
@@ -195,7 +194,7 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 	// gate refuses an unsigned money-moving frame); wire user is the maker's
 	// key-derived account, signed at its next nonce.
 	resp, err = conn.Call(ctx, relayMethodPlace,
-		signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
+		signedPayload(t, "maker", TxPlace, encPlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
 	if err != nil {
 		t.Fatalf("place Call: %v", err)
 	}
@@ -210,7 +209,7 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 	// 3) submit a buy that crosses — frozen Submit frame, FILLS response decoded
 	// with the proxy's exact DecodeFills (the byte-parity assertion).
 	resp, err = conn.Call(ctx, relayMethodSubmit,
-		signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
+		signedPayload(t, "taker", TxSubmit, encSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
 	if err != nil {
 		t.Fatalf("submit Call: %v", err)
 	}
@@ -224,11 +223,11 @@ func TestHandlerByteParityOverSocket(t *testing.T) {
 	if fills[0].Side != zapwire.SideBuy {
 		t.Errorf("fill taker side = %d, want buy(0)", fills[0].Side)
 	}
-	if fills[0].Size != 3.0 {
-		t.Errorf("fill size = %v, want 3.0", fills[0].Size)
+	if fills[0].Size != 3 { // 3 base units
+		t.Errorf("fill size = %d, want 3", fills[0].Size)
 	}
-	if fills[0].Price != 101.0 {
-		t.Errorf("fill price = %v, want 101.0", fills[0].Price)
+	if fills[0].Price != 101*uint64(zapwire.PriceScale) { // price 101.0 in ×1e8 fixed-point
+		t.Errorf("fill price = %d, want %d", fills[0].Price, 101*uint64(zapwire.PriceScale))
 	}
 
 	// Cross-check: the same response decodes identically with the dex's own
@@ -273,13 +272,13 @@ func TestHandlerIdempotentReplay(t *testing.T) {
 	}
 
 	mustCall(relayMethodEnsureMarket, zapwire.EncodeEnsureMarket(pool))
-	mustCall(relayMethodPlace, signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 50.0, 10.0, wireUser(t, "maker"))))
+	mustCall(relayMethodPlace, signedPayload(t, "maker", TxPlace, encPlace(pool, zapwire.SideSell, 50.0, 10.0, wireUser(t, "maker"))))
 
 	// First submit: a 4-unit buy crosses for 4 units. The signed payload is built
 	// ONCE so the replay below sends BYTE-IDENTICAL bytes (same nonce, same
 	// signature -> same tx id), exercising content-addressed idempotency rather than
 	// a fresh (distinct-nonce) order.
-	submit := signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 50.0, 4.0, wireUser(t, "taker")))
+	submit := signedPayload(t, "taker", TxSubmit, encSubmit(pool, zapwire.SideBuy, false, 50.0, 4.0, wireUser(t, "taker")))
 	fills1, err := zapwire.DecodeFills(mustCall(relayMethodSubmit, submit))
 	if err != nil {
 		t.Fatalf("submit1 decode: %v", err)

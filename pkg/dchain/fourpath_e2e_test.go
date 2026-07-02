@@ -40,7 +40,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -90,7 +89,7 @@ func (s *signingVenue) EnsureMarket(ctx context.Context, poolID [32]byte) error 
 }
 
 func (s *signingVenue) Place(ctx context.Context, poolID [32]byte, side uint8, price, size float64, user string) (uint64, error) {
-	body := zapwire.EncodePlace(poolID, side, price, size, wireUser(s.t, user))
+	body := encPlace(poolID, side, price, size, wireUser(s.t, user))
 	resp, err := s.conn.Call(ctx, zapwire.MethodPlace, signedPayload(s.t, user, TxPlace, body))
 	if err != nil {
 		return 0, err
@@ -114,7 +113,7 @@ func (s *signingVenue) Cancel(ctx context.Context, poolID [32]byte, orderID uint
 }
 
 func (s *signingVenue) Submit(ctx context.Context, poolID [32]byte, side uint8, isMarket bool, limit, size float64, user string) ([]zapwire.Fill, error) {
-	body := zapwire.EncodeSubmit(poolID, side, isMarket, limit, size, wireUser(s.t, user))
+	body := encSubmit(poolID, side, isMarket, limit, size, wireUser(s.t, user))
 	resp, err := s.conn.Call(ctx, zapwire.MethodSubmit, signedPayload(s.t, user, TxSubmit, body))
 	if err != nil {
 		return nil, err
@@ -251,8 +250,8 @@ func v4SubmitFrame(poolID [32]byte, side uint8, isMarket bool, limit, size float
 	if isMarket {
 		payload[33] = 1
 	}
-	binary.BigEndian.PutUint64(payload[34:42], math.Float64bits(limit))
-	binary.BigEndian.PutUint64(payload[42:50], math.Float64bits(size))
+	binary.BigEndian.PutUint64(payload[34:42], wirePriceUnits(limit))
+	binary.BigEndian.PutUint64(payload[42:50], wireSizeUnits(size))
 	copy(payload[50:66], caller)
 	return payload
 }
@@ -264,17 +263,21 @@ func v4SubmitFrame(poolID [32]byte, side uint8, isMarket bool, limit, size float
 // quote (amount1>0). This is the value the precompile would hand the EVM
 // PoolManager; deriving it here proves the V4 leg's settlement math end to end.
 func v4BalanceDelta(zeroForOne bool, fills []zapwire.Fill) (amount0, amount1 *big.Int) {
-	base, quote := 0.0, 0.0
+	base := new(big.Int)
+	quote := new(big.Int)
+	scale := big.NewInt(int64(zapwire.PriceScale))
 	for _, f := range fills {
-		base += f.Size
-		quote += f.Price * f.Size
+		base.Add(base, new(big.Int).SetUint64(f.Size))
+		// quote per fill = floor(size * price / 1e8) — exact integers, matching the
+		// matcher's quoteUnitsFor. No float.
+		q := new(big.Int).Mul(new(big.Int).SetUint64(f.Size), new(big.Int).SetUint64(f.Price))
+		q.Quo(q, scale)
+		quote.Add(quote, q)
 	}
-	ceil := func(v float64) *big.Int { return big.NewInt(int64(math.Ceil(v))) }
-	floor := func(v float64) *big.Int { return big.NewInt(int64(math.Floor(v))) }
 	if zeroForOne {
-		return ceil(base), new(big.Int).Neg(floor(quote))
+		return base, new(big.Int).Neg(quote)
 	}
-	return new(big.Int).Neg(floor(base)), ceil(quote)
+	return new(big.Int).Neg(base), quote
 }
 
 // fixCross drives the FIX path: connect to the acceptor, Logon as `user`,
@@ -306,7 +309,7 @@ func fixCross(t *testing.T, addr, user, symbol string, limit, size float64) []za
 		case fix.ExecTypePartialFill, fix.ExecTypeFill:
 			lastQty, _ := m.GetFloat(fix.TagLastQty)
 			lastPx, _ := m.GetFloat(fix.TagLastPx)
-			fills = append(fills, zapwire.Fill{Price: lastPx, Size: lastQty, TakerSide: zapwire.SideBuy})
+			fills = append(fills, zapwire.Fill{Price: wirePriceUnits(lastPx), Size: wireSizeUnits(lastQty), TakerSide: zapwire.SideBuy})
 			if execType == fix.ExecTypeFill {
 				return fills
 			}
@@ -368,7 +371,7 @@ func wsCross(t *testing.T, wsURL, user, symbol string, limit, size float64) []za
 		if f.TakerSide == "sell" {
 			side = zapwire.SideSell
 		}
-		fills = append(fills, zapwire.Fill{Price: f.Price, Size: f.Size, TakerSide: side})
+		fills = append(fills, zapwire.Fill{Price: wirePriceUnits(f.Price), Size: wireSizeUnits(f.Size), TakerSide: side})
 	}
 	return fills
 }
@@ -468,8 +471,8 @@ func TestFourPathTradingE2E(t *testing.T) {
 			t.Fatalf("%s: got %d fills, want exactly 1", l.path, len(fills))
 		}
 		f := fills[0]
-		if f.Size != askSize || f.Price != l.price {
-			t.Fatalf("%s: fill %g@%g, want %g@%g", l.path, f.Size, f.Price, askSize, l.price)
+		if f.Size != wireSizeUnits(askSize) || f.Price != wirePriceUnits(l.price) {
+			t.Fatalf("%s: fill %d@%d, want %d@%d", l.path, f.Size, f.Price, wireSizeUnits(askSize), wirePriceUnits(l.price))
 		}
 		expectedRemaining -= askSize
 		if _, rem, _, _, ok := v.vm.BookDepth(pool); !ok || rem != expectedRemaining {
@@ -480,7 +483,7 @@ func TestFourPathTradingE2E(t *testing.T) {
 		u := dexvenue.UserHandle(l.user)
 		assertBalance(t, v.vm, u, assetLUX, 1, 0)
 		assertBalance(t, v.vm, u, assetLUSD, 0, 0)
-		t.Logf("  [%s] FILL %g LUX @ %g LUSD (consensus-settled); book now %g; taker %s = 1 LUX / 0 LUSD",
+		t.Logf("  [%s] FILL %d LUX @ %d/1e8 LUSD (consensus-settled); book now %g; taker %s = 1 LUX / 0 LUSD",
 			l.path, f.Size, f.Price, expectedRemaining, u)
 	}
 
@@ -507,7 +510,7 @@ func TestFourPathTradingE2E(t *testing.T) {
 		// The V4 caller is the taker's key-derived account (the 16-byte wire user).
 		caller := wireUser(t, dexvenue.UserHandle(l.user))
 		frame := v4SubmitFrame(pool, zapwire.SideBuy, false, l.price, askSize, caller)
-		want := zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, l.price, askSize, caller)
+		want := encSubmit(pool, zapwire.SideBuy, false, l.price, askSize, caller)
 		if string(frame) != string(want) {
 			t.Fatalf("V4 engine_zap frame != zapwire.EncodeSubmit (frozen-frame parity broken)")
 		}

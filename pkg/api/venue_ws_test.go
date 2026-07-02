@@ -84,9 +84,10 @@ func readWS(t *testing.T, conn *websocket.Conn) wsResp {
 // TestVenueWSFills proves a JSON marketable order routes to Venue.Submit with the
 // right market/side/limit and the fills come back as JSON.
 func TestVenueWSFills(t *testing.T) {
+	// Wire fills carry exact integers: Price is PriceInt (×1e8), Size is base units.
 	v := &fakeVenue{fills: []zapwire.Fill{
-		{Price: 100, Size: 10, TakerSide: zapwire.SideBuy},
-		{Price: 101, Size: 2, TakerSide: zapwire.SideBuy},
+		{Price: 100 * zapwire.PriceScale, Size: 10, TakerSide: zapwire.SideBuy},
+		{Price: 101 * zapwire.PriceScale, Size: 2, TakerSide: zapwire.SideBuy},
 	}}
 	conn := dialWS(t, startVenueWS(t, v))
 

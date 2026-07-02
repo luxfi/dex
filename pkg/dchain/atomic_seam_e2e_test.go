@@ -162,7 +162,7 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 	h.vm.mempool.Add(depositTx(t, "seam-maker", base, 100))
 	h.buildAccept(t)
 
-	h.vm.mempool.Add(maker.signed(t, TxPlace, zapwire.EncodePlace(pool, sideSell, 2.0, 100, maker.user)))
+	h.vm.mempool.Add(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
 	h.buildAccept(t)
 	if got := h.avail(t, maker.account, base); got != 0 {
 		t.Fatalf("maker base available after resting SELL = %d, want 0 (locked)", got)
@@ -197,7 +197,7 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 
 	// ---- NATIVE D: the taker crosses the maker under D consensus ----
 	// A signed limit BUY 100 base @ 2 locks 200 quote and fills against the maker.
-	h.vm.mempool.Add(taker.signed(t, TxSubmit, zapwire.EncodeSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
+	h.vm.mempool.Add(taker.signed(t, TxSubmit, encSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
 	h.buildAccept(t)
 	// Post-fill ledger: taker spent 200 quote, received 100 base; maker received 200 quote.
 	if got := h.avail(t, taker.account, quote); got != 0 {

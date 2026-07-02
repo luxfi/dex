@@ -93,8 +93,8 @@ func TestZAPIngestCrossingOrdersMatchInBlock(t *testing.T) {
 	if len(fills) != 1 {
 		t.Fatalf("submit over ZAP socket: got %d fills, want 1", len(fills))
 	}
-	if fills[0].Price != 5.0 || fills[0].Size != 10.0 {
-		t.Fatalf("fill = px %.4f sz %.4f, want px 5 sz 10", fills[0].Price, fills[0].Size)
+	if fills[0].Price != 5*uint64(zapwire.PriceScale) || fills[0].Size != 10 {
+		t.Fatalf("fill = px %d sz %d, want px 5e8 sz 10", fills[0].Price, fills[0].Size)
 	}
 
 	// The fill is committed D-Chain state: the VM's accepted height advanced past the
@@ -149,7 +149,7 @@ func TestZAPIngestSharesOneCoreWithHTTP(t *testing.T) {
 
 	// Taker crosses through the HTTP COMPAT handler against the SAME book.
 	resp := postFrame(t, httpBase, zapwire.MethodSubmit,
-		signedPayload(t, "core-taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 5.0, 10.0, wireUser(t, "core-taker"))))
+		signedPayload(t, "core-taker", TxSubmit, encSubmit(pool, zapwire.SideBuy, false, 5.0, 10.0, wireUser(t, "core-taker"))))
 	httpFills, err := zapwire.DecodeFills(resp)
 	if err != nil {
 		t.Fatalf("decode HTTP submit fills: %v", err)

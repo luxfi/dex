@@ -169,12 +169,12 @@ func crossOneMarket(t *testing.T, base string, f readFixture) []zapwire.Fill {
 	dep(bobUser, f.quote, 53)
 
 	askResp := httpPost(t, base, zapwire.MethodPlace,
-		signedPayload(t, aliceUser, TxPlace, zapwire.EncodePlace(f.pool, zapwire.SideSell, askPrice, askSize, wireUser(t, aliceUser))))
+		signedPayload(t, aliceUser, TxPlace, encPlace(f.pool, zapwire.SideSell, askPrice, askSize, wireUser(t, aliceUser))))
 	if askResp[8] != zapwire.StatusPlaced {
 		t.Fatalf("ask not placed: %x", askResp)
 	}
 	subResp := httpPost(t, base, zapwire.MethodSubmit,
-		signedPayload(t, bobUser, TxSubmit, zapwire.EncodeSubmit(f.pool, zapwire.SideBuy, false, buyLimit, buySize, wireUser(t, bobUser))))
+		signedPayload(t, bobUser, TxSubmit, encSubmit(f.pool, zapwire.SideBuy, false, buyLimit, buySize, wireUser(t, bobUser))))
 	fills, err := zapwire.DecodeFills(subResp)
 	if err != nil {
 		t.Fatalf("decode fills: %v (resp=%x)", err, subResp)
@@ -194,7 +194,7 @@ func TestRead_TradesAfterCommittedFill(t *testing.T) {
 	f := newReadFixture()
 
 	fills := crossOneMarket(t, base, f)
-	t.Logf("submit reported %d fill(s): price=%g size=%g", len(fills), fills[0].Price, fills[0].Size)
+	t.Logf("submit reported %d fill(s): price=%d/1e8 size=%d", len(fills), fills[0].Price, fills[0].Size)
 
 	var got getTradesResp
 	httpGetJSON(t, base, MethodGetTrades, "", &got)
@@ -206,11 +206,15 @@ func TestRead_TradesAfterCommittedFill(t *testing.T) {
 		t.Fatalf("head height still 0 after a committed fill (head=%+v)", got.chainHead)
 	}
 	tr := got.Trades[0]
-	if tr.Price != fills[0].Price {
-		t.Errorf("committed trade price %g != submit fill price %g", tr.Price, fills[0].Price)
+	// The read API renders human floats; the wire fill carries exact integers
+	// (price = PriceInt ×1e8, size = base units). Compare in human units.
+	wantPx := float64(fills[0].Price) / float64(zapwire.PriceScale)
+	wantSz := float64(fills[0].Size)
+	if tr.Price != wantPx {
+		t.Errorf("committed trade price %g != submit fill price %g", tr.Price, wantPx)
 	}
-	if tr.Size != fills[0].Size {
-		t.Errorf("committed trade size %g != submit fill size %g", tr.Size, fills[0].Size)
+	if tr.Size != wantSz {
+		t.Errorf("committed trade size %g != submit fill size %g", tr.Size, wantSz)
 	}
 	if tr.TakerSide != "buy" {
 		t.Errorf("taker side = %q, want buy", tr.TakerSide)

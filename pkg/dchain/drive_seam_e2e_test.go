@@ -10,7 +10,6 @@ import (
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/database/prefixdb"
-	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
@@ -60,7 +59,7 @@ func TestDrive_AutonomousImportCrossExport(t *testing.T) {
 	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
 	h.vm.mempool.Add(depositTx(t, "drive-maker", base, 100))
 	h.buildAccept(t)
-	h.vm.mempool.Add(maker.signed(t, TxPlace, zapwire.EncodePlace(pool, sideSell, 2.0, 100, maker.user)))
+	h.vm.mempool.Add(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
 	h.buildAccept(t)
 
 	// ---- PHASE A (C side, modeled): lock 200 quote -> a tagged C->D intent object ----
@@ -98,7 +97,7 @@ func TestDrive_AutonomousImportCrossExport(t *testing.T) {
 
 	// ---- The taker submits a SIGNED crossing order (the normal mempool flow) ----
 	// The drive funds and settles; the taker still authors their own trade.
-	h.vm.mempool.Add(taker.signed(t, TxSubmit, zapwire.EncodeSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
+	h.vm.mempool.Add(taker.signed(t, TxSubmit, encSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
 	crossBlk := h.buildAccept(t)
 	// The cross is realized IN this block; at this block's BUILD the committed state had no
 	// output yet, so the drive correctly emitted NO export here (no-export-before-trade).

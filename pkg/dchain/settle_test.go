@@ -102,14 +102,14 @@ func TestLedgerUserKeyNoCollision(t *testing.T) {
 // overspends the lock (the affordability invariant that makes the custody ledger
 // conserving without matcher surgery).
 func TestQuoteUnitsCeilCoversFloor(t *testing.T) {
+	// Exact PriceInt grid values (the wire's price ×1e8): 0.5, 1, 1.5, 5, 101.25, 3.333333.
 	for _, base := range []uint64{1, 3, 7, 100, 999} {
-		for _, price := range []float64{0.5, 1, 1.5, 5, 101.25, 3.333333} {
-			pi := priceToInt(price)
+		for _, pi := range []dex.PriceInt{50_000_000, 100_000_000, 150_000_000, 500_000_000, 10_125_000_000, 333_333_300} {
 			lock := quoteUnitsCeil(new(big.Int).SetUint64(base), pi)
 			// matcher floor: floor(base*priceInt/PriceMultiplier)
 			floor := base * uint64(pi) / uint64(dex.PriceMultiplier)
 			if lock < floor {
-				t.Errorf("ceil lock %d < floor spend %d for base=%d price=%v", lock, floor, base, price)
+				t.Errorf("ceil lock %d < floor spend %d for base=%d priceInt=%d", lock, floor, base, pi)
 			}
 		}
 	}

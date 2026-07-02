@@ -23,8 +23,8 @@ func TestExecutionRootDeterministic(t *testing.T) {
 	fills, rows := applyAll(t, 10, ts, txs)
 
 	var parent [Size]byte
-	r1, b1, tr1, x1 := ExecutionRoot(parent, rows, fills, txs, 10)
-	r2, b2, tr2, x2 := ExecutionRoot(parent, rows, fills, txs, 10)
+	r1, b1, tr1, x1 := ExecutionRoot(parent, rows, fills, txs, [Size]byte{}, 10)
+	r2, b2, tr2, x2 := ExecutionRoot(parent, rows, fills, txs, [Size]byte{}, 10)
 
 	if r1 != r2 || b1 != b2 || tr1 != tr2 || x1 != x2 {
 		t.Fatal("ExecutionRoot not deterministic across two computations")
@@ -32,13 +32,13 @@ func TestExecutionRootDeterministic(t *testing.T) {
 
 	// The root chains the parent: a different parent -> different root.
 	parent2 := [Size]byte{0x01}
-	r3, _, _, _ := ExecutionRoot(parent2, rows, fills, txs, 10)
+	r3, _, _, _ := ExecutionRoot(parent2, rows, fills, txs, [Size]byte{}, 10)
 	if r3 == r1 {
 		t.Error("root did not change with a different parent (no history binding)")
 	}
 
 	// The root binds the height: a different height -> different root.
-	r4, _, _, _ := ExecutionRoot(parent, rows, fills, txs, 11)
+	r4, _, _, _ := ExecutionRoot(parent, rows, fills, txs, [Size]byte{}, 11)
 	if r4 == r1 {
 		t.Error("root did not change with a different height")
 	}
@@ -52,12 +52,12 @@ func TestExecutionRootChangesWithState(t *testing.T) {
 
 	txsA := []*Tx{placeTx(t, zapwire.SideSell, 101.0, 5.0, "maker-a")}
 	_, rowsA := applyAll(t, 1, ts, txsA)
-	rootA, _, _, _ := ExecutionRoot(parent, rowsA, nil, txsA, 1)
+	rootA, _, _, _ := ExecutionRoot(parent, rowsA, nil, txsA, [Size]byte{}, 1)
 
 	// Different resting price -> different book root -> different exec root.
 	txsB := []*Tx{placeTx(t, zapwire.SideSell, 102.0, 5.0, "maker-a")}
 	_, rowsB := applyAll(t, 1, ts, txsB)
-	rootB, _, _, _ := ExecutionRoot(parent, rowsB, nil, txsB, 1)
+	rootB, _, _, _ := ExecutionRoot(parent, rowsB, nil, txsB, [Size]byte{}, 1)
 
 	if rootA == rootB {
 		t.Error("execution root identical for different book state")
@@ -68,8 +68,8 @@ func TestExecutionRootChangesWithState(t *testing.T) {
 // the public ExecutionRoot path (no rows/trades/txs).
 func TestEmptyRootsAreStable(t *testing.T) {
 	var parent [Size]byte
-	r1, b1, tr1, x1 := ExecutionRoot(parent, nil, nil, nil, 0)
-	r2, b2, tr2, x2 := ExecutionRoot(parent, nil, nil, nil, 0)
+	r1, b1, tr1, x1 := ExecutionRoot(parent, nil, nil, nil, [Size]byte{}, 0)
+	r2, b2, tr2, x2 := ExecutionRoot(parent, nil, nil, nil, [Size]byte{}, 0)
 	if r1 != r2 || b1 != b2 || tr1 != tr2 || x1 != x2 {
 		t.Fatal("empty roots not stable")
 	}

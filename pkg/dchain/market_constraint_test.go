@@ -48,10 +48,12 @@ func TestNotionalFlooringCannotCreateFreeExecutableOrder(t *testing.T) {
 	// Sanity on the predicate itself: a sub-tick BUY floors to zero lock; a normal
 	// BUY does not.
 	mc := marketConstraint{assetLUX, assetLUSD}
-	if !mc.floorsToZeroLock(sideBuy, dustPrice, 10.0) {
-		t.Fatalf("predicate: sub-tick BUY %g x10 should floor to zero lock", dustPrice)
+	// dustPrice (5e-9) scales below one price tick, so wirePriceUnits(dustPrice)==0 —
+	// the exact zero-lock BUY the gate must catch. A normal price does not.
+	if !mc.floorsToZeroLock(sideBuy, wirePriceUnits(dustPrice), wireSizeUnits(10.0)) {
+		t.Fatalf("predicate: sub-tick BUY %g x10 (priceUnits=%d) should floor to zero lock", dustPrice, wirePriceUnits(dustPrice))
 	}
-	if mc.floorsToZeroLock(sideBuy, 5.0, 10.0) {
+	if mc.floorsToZeroLock(sideBuy, wirePriceUnits(5.0), wireSizeUnits(10.0)) {
 		t.Fatal("predicate: a normal BUY 5x10 must NOT floor to zero lock")
 	}
 

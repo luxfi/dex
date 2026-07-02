@@ -230,7 +230,15 @@ func ensureMarket(ctx context.Context, c rpc.Client, pool [32]byte) error {
 // is never an opposite bid to cross, so every order rests — a clean, sustainable
 // unit for measuring the consensus-write + wire round trip.
 func placeSell(ctx context.Context, c rpc.Client, a *account, pool [32]byte, price, size float64) (uint64, error) {
-	body := zapwire.EncodePlace(pool, zapwire.SideSell, price, size, a.user)
+	// Exact-integer wire: price is ×1e8 fixed-point, size is whole base units.
+	var pu, sz uint64
+	if price > 0 {
+		pu = uint64(price * float64(zapwire.PriceScale))
+	}
+	if size > 0 {
+		sz = uint64(size)
+	}
+	body := zapwire.EncodePlace(pool, zapwire.SideSell, pu, sz, a.user)
 	payload, err := a.sign(txPlace, body)
 	if err != nil {
 		return 0, err
@@ -251,7 +259,14 @@ func placeSell(ctx context.Context, c rpc.Client, a *account, pool [32]byte, pri
 
 // submitBuy crosses the book with a marketable BUY and returns the fills.
 func submitBuy(ctx context.Context, c rpc.Client, a *account, pool [32]byte, limit, size float64) ([]zapwire.Fill, error) {
-	body := zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, limit, size, a.user)
+	var pu, sz uint64
+	if limit > 0 {
+		pu = uint64(limit * float64(zapwire.PriceScale))
+	}
+	if size > 0 {
+		sz = uint64(size)
+	}
+	body := zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, pu, sz, a.user)
 	payload, err := a.sign(txSubmit, body)
 	if err != nil {
 		return nil, err
@@ -521,7 +536,14 @@ func runVerify(cfg config) error {
 				}
 				results[ci] = append(results[ci], outcome{})
 			case "place":
-				body := zapwire.EncodePlace(pool, s.side, s.price, s.size, cn.maker.user)
+				var spu, ssz uint64
+				if s.price > 0 {
+					spu = uint64(s.price * float64(zapwire.PriceScale))
+				}
+				if s.size > 0 {
+					ssz = uint64(s.size)
+				}
+				body := zapwire.EncodePlace(pool, s.side, spu, ssz, cn.maker.user)
 				payload, err := cn.maker.sign(txPlace, body)
 				if err != nil {
 					return err
@@ -536,7 +558,14 @@ func runVerify(cfg config) error {
 				}
 				results[ci] = append(results[ci], outcome{ackID: id})
 			case "submit":
-				body := zapwire.EncodeSubmit(pool, s.side, false, s.price, s.size, cn.taker.user)
+				var spu, ssz uint64
+				if s.price > 0 {
+					spu = uint64(s.price * float64(zapwire.PriceScale))
+				}
+				if s.size > 0 {
+					ssz = uint64(s.size)
+				}
+				body := zapwire.EncodeSubmit(pool, s.side, false, spu, ssz, cn.taker.user)
 				payload, err := cn.taker.sign(txSubmit, body)
 				if err != nil {
 					return err
@@ -576,7 +605,7 @@ func runVerify(cfg config) error {
 		if s.kind == "submit" {
 			fmt.Printf("  submit fills @%s : %d fill(s)\n", cfg.addrs[0], len(base[si].fills))
 			for fi, f := range base[si].fills {
-				fmt.Printf("    fill %d: %.4f @ %.4f (takerSide=%d)\n", fi, f.Size, f.Price, f.TakerSide)
+				fmt.Printf("    fill %d: %.4f @ %.4f (takerSide=%d)\n", fi, float64(f.Size), float64(f.Price)/float64(zapwire.PriceScale), f.TakerSide)
 			}
 		}
 	}

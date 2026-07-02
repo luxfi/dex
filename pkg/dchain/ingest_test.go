@@ -135,7 +135,7 @@ func TestIngestCrossingOrdersMatchInBlock(t *testing.T) {
 	// money-moving frame is signed by the maker's key-derived account (the auth gate
 	// refuses an unsigned place); the auth envelope rides as a trailer on the frame.
 	ack = postFrame(t, base, zapwire.MethodPlace,
-		signedPayload(t, "maker", TxPlace, zapwire.EncodePlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
+		signedPayload(t, "maker", TxPlace, encPlace(pool, zapwire.SideSell, 101.0, 5.0, wireUser(t, "maker"))))
 	makerID, status, err := zapwire.DecodeAck(ack)
 	if err != nil || status != zapwire.StatusPlaced {
 		t.Fatalf("place ack: status=%d err=%v", status, err)
@@ -146,7 +146,7 @@ func TestIngestCrossingOrdersMatchInBlock(t *testing.T) {
 
 	// 3) submit a crossing buy @101 size 3 over HTTP -> CONSENSUS-computed fills.
 	fillsResp := postFrame(t, base, zapwire.MethodSubmit,
-		signedPayload(t, "taker", TxSubmit, zapwire.EncodeSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
+		signedPayload(t, "taker", TxSubmit, encSubmit(pool, zapwire.SideBuy, false, 101.0, 3.0, wireUser(t, "taker"))))
 	fills, err := zapwire.DecodeFills(fillsResp)
 	if err != nil {
 		t.Fatalf("DecodeFills: %v", err)
@@ -154,8 +154,8 @@ func TestIngestCrossingOrdersMatchInBlock(t *testing.T) {
 	if len(fills) != 1 {
 		t.Fatalf("expected 1 fill, got %d: %+v", len(fills), fills)
 	}
-	if fills[0].TakerSide != zapwire.SideBuy || fills[0].Size != 3.0 || fills[0].Price != 101.0 {
-		t.Fatalf("fill = %+v, want buy 3.0 @ 101.0", fills[0])
+	if fills[0].TakerSide != zapwire.SideBuy || fills[0].Size != 3 || fills[0].Price != 101*uint64(zapwire.PriceScale) {
+		t.Fatalf("fill = %+v, want buy 3 @ 101e8", fills[0])
 	}
 
 	// 4) STATE PROOF: a trade:<height><seq> row exists — the fill is committed
@@ -252,7 +252,7 @@ func TestIngestAckFrameShape(t *testing.T) {
 	pool[0] = 0x07
 	postFrame(t, base, zapwire.MethodEnsureMarket, zapwire.EncodeEnsureMarket(pool))
 	ack := postFrame(t, base, zapwire.MethodPlace,
-		signedPayload(t, "u", TxPlace, zapwire.EncodePlace(pool, zapwire.SideBuy, 5.0, 2.0, wireUser(t, "u"))))
+		signedPayload(t, "u", TxPlace, encPlace(pool, zapwire.SideBuy, 5.0, 2.0, wireUser(t, "u"))))
 	if len(ack) < 9 {
 		t.Fatalf("ack frame too short: %d", len(ack))
 	}

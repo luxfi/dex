@@ -214,7 +214,8 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 // recovery (a DB written before head blocks were persisted).
 func (vm *VM) genesisBlock() (*Block, [Size]byte) {
 	var parentRoot [Size]byte // zero
-	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, 0)
+	var emptyLedger [Size]byte // genesis has no custody ledger yet
+	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, emptyLedger, 0)
 	return newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil), root
 }
 

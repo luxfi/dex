@@ -78,7 +78,13 @@ func (ob *OrderBook) addRestingLocked(order *Order) uint64 {
 		return 0
 	}
 
-	priceInt := PriceInt(order.Price * PriceMultiplier)
+	// Level key: use the EXACT integer price on the consensus path (PriceUnits set
+	// from the wire) so the resting level a maker keys into matches the integer the
+	// crossing loop compares — no float grid rounding. Legacy float orders fall back.
+	priceInt := order.PriceUnits
+	if priceInt == 0 {
+		priceInt = PriceInt(order.Price * PriceMultiplier)
+	}
 
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
