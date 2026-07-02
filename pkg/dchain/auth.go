@@ -174,9 +174,20 @@ func txWireUser(typ TxType, body []byte) (userKey, bool) {
 	case TxSubmit:
 		copy(u[:], body[zapwire.PoolIDSize+18:zapwire.PoolIDSize+18+zapwire.UserSize])
 		return u, true
-	case TxDeposit, TxWithdraw:
+	case TxWithdraw:
+		// A withdraw debits the caller's OWN balance, so the signer MUST be the
+		// account named in the body (signer == beneficiary).
 		copy(u[:], body[0:zapwire.UserSize])
 		return u, true
+	case TxDeposit:
+		// A deposit MINTS balance for the body's beneficiary, so it is NOT authorized
+		// by the beneficiary — it is authorized by the trusted deposit AUTHORITY (the
+		// bridge/proxy that holds the backing C-side value). The signature still binds
+		// the beneficiary via the digest (the whole body is signed), but the signer is
+		// the authority, checked statefully in authorizeTx against vm.depositAuthority.
+		// Returning ok=false here means verifyTxSignature does NOT require
+		// signer==beneficiary; it just recovers the signer for the authority gate.
+		return u, false
 	default:
 		return u, false
 	}
@@ -244,6 +255,21 @@ func (b *Block) authorizeTx(db authReader, tx *Tx) (rejected bool, err error) {
 	account, verr := verifyTxSignature(tx)
 	if verr != nil {
 		return true, nil // forged / unsigned / wrong-signer: fail closed, no mutation
+	}
+
+	// DEPOSIT BACKING GATE (the F9 fix). A TxDeposit MINTS ledger balance, so it is
+	// authorized ONLY by the configured deposit authority — the trusted bridge/proxy
+	// that custodies the backing C-side value — NEVER by the crediting account
+	// itself. A self-signed deposit (signer == beneficiary) is rejected here, so an
+	// authenticated principal can no longer mint. Fail-closed when no authority is
+	// configured: with no bridge, value enters the ledger ONLY via the trustless
+	// atomic import (TxImport), which is backed by a consumed C->D object. This gate
+	// is deterministic (vm.depositAuthority is a consensus config param), so every
+	// validator reaches the same verdict — a consensus-neutral per-tx reject, no mint.
+	if tx.Type == TxDeposit {
+		if b.vm.depositAuthority == (userKey{}) || account != b.vm.depositAuthority {
+			return true, nil // unbacked / unauthorized deposit: no mint, nonce not consumed
+		}
 	}
 
 	// Monotonic per-account nonce. Checked (and, on a match, CONSUMED) before the

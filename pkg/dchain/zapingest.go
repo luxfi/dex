@@ -5,6 +5,7 @@ package dchain
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -50,6 +51,34 @@ type vmConfig struct {
 	// pod-local listen address the node/operator assigns; orders arriving here
 	// flow through the identical submitTx -> mempool -> consensus path as HTTP.
 	ZAPIngestAddr string `json:"zapIngestAddr"`
+
+	// DepositAuthority is the hex-encoded 16-byte settlement account (Account16) of
+	// the trusted bridge/proxy permitted to authorize TxDeposit — the entity that
+	// custodies the backing C-side value. Empty (the default) means NO deposit
+	// authority: every TxDeposit is rejected fail-closed, and value enters the ledger
+	// ONLY via the backed atomic import. It is a CONSENSUS parameter — every
+	// validator MUST configure the identical value, exactly like any chain param.
+	DepositAuthority string `json:"depositAuthority"`
+}
+
+// depositAuthorityKey decodes DepositAuthority into a 16-byte account. Empty => the
+// zero account (no authority; all deposits fail-closed). A non-empty value must be
+// exactly 16 bytes of hex, else a hard error (a misconfigured backing authority
+// must fail Initialize rather than silently admit or reject the wrong signer).
+func (c vmConfig) depositAuthorityKey() (userKey, error) {
+	var k userKey
+	if c.DepositAuthority == "" {
+		return k, nil
+	}
+	b, err := hex.DecodeString(c.DepositAuthority)
+	if err != nil {
+		return k, fmt.Errorf("depositAuthority not hex: %w", err)
+	}
+	if len(b) != len(k) {
+		return k, fmt.Errorf("depositAuthority must be %d bytes, got %d", len(k), len(b))
+	}
+	copy(k[:], b)
+	return k, nil
 }
 
 // parseConfig decodes the VM's init Config bytes. An empty config is valid and

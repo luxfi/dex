@@ -73,8 +73,9 @@ func withdrawTx(t *testing.T, user string, asset [32]byte, amount uint64) *Tx {
 // a true exactly-once retry of ONE op.
 func depositTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
 	t.Helper()
-	a := acctFor(t, user)
-	return a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, asset, amount, ref))
+	// A deposit is BACKED: authorized by the trusted deposit authority (the bridge),
+	// never self-signed by the crediting user (the F9 fix). fundTx credits `user`.
+	return fundTx(t, user, asset, amount, ref)
 }
 
 func withdrawTxRef(t *testing.T, user string, asset [32]byte, amount uint64, ref [32]byte) *Tx {

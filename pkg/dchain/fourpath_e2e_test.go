@@ -206,7 +206,9 @@ func (c *e2eClient) deposit(t *testing.T, user string, asset [32]byte, amount ui
 	t.Helper()
 	ref := contentRef(byte(TxDeposit), user, asset, amount)
 	body := zapwire.EncodeDeposit(wireUser(t, user), asset, amount, ref)
-	resp, err := c.conn.Call(c.ctx, zapwire.MethodDeposit, signedPayload(t, user, TxDeposit, body))
+	// A deposit is authorized by the trusted deposit AUTHORITY (the bridge), not the
+	// crediting user — the body still names `user` as the beneficiary (F9 fix).
+	resp, err := c.conn.Call(c.ctx, zapwire.MethodDeposit, signedPayload(t, depositAuthorityName, TxDeposit, body))
 	if err != nil {
 		t.Fatalf("dex_deposit %s %d: %v", user, amount, err)
 	}

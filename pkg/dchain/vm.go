@@ -61,6 +61,17 @@ type VM struct {
 	// under (export). ids.Empty when no runtime / no C-Chain — the seam stays closed.
 	cChainID ids.ID
 
+	// depositAuthority is the ONLY account allowed to authorize a TxDeposit — the
+	// trusted bridge/proxy that custodies the backing C-side value. A deposit MINTS
+	// ledger balance, so it must be signed by this authority, NEVER by the crediting
+	// account itself (a self-signed deposit is an unbacked mint — the F9 glitch).
+	// The ZERO value means NO authority is configured, and EVERY TxDeposit is
+	// rejected (fail-closed): with no bridge, money enters ONLY via the trustless
+	// atomic import (TxImport, atomic.go), which is backed by a consumed C->D object.
+	// It is a CONSENSUS parameter (from the chain config, identical on every
+	// validator); authorizeTx reads it deterministically. Write-once at Initialize.
+	depositAuthority userKey
+
 	mempool *mempool
 
 	// outcomes lets a ZAP handler block until its tx is decided by an accepted
@@ -193,6 +204,15 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	if err != nil {
 		return err
 	}
+	// Resolve the deposit authority (the trusted bridge/proxy account) from the
+	// chain config. Empty config => zero authority => all TxDeposit fail-closed
+	// (deposits then enter ONLY via the backed atomic import). A malformed value is
+	// a hard Initialize error — a misconfigured backing authority must not boot.
+	auth, aerr := cfg.depositAuthorityKey()
+	if aerr != nil {
+		return fmt.Errorf("dchain: deposit authority config: %w", aerr)
+	}
+	vm.depositAuthority = auth
 	if err := vm.startZAPIngest(cfg.ZAPIngestAddr); err != nil {
 		return err
 	}

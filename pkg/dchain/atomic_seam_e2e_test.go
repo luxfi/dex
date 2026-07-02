@@ -83,6 +83,7 @@ func newSeamHarness(t *testing.T) *seamHarness {
 		DB:       prefixdb.New([]byte{1}, baseDB),
 		Log:      logger,
 		ToEngine: make(chan block.Message, 16),
+		Config:   authConfig(t),
 	}); err != nil {
 		t.Fatalf("Initialize seam vm: %v", err)
 	}

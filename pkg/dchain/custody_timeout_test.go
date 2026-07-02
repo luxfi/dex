@@ -45,6 +45,7 @@ func newTimeoutVM(t *testing.T) *VM {
 		DB:       memdb.New(),
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,
+		Config:   authConfig(t),
 	}); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -65,7 +66,8 @@ func TestCustodyDepositTimeoutDoesNotCreditOrOrphan(t *testing.T) {
 	asset := a32(0x4c5558_00000001)
 	depRef := contentRef(byte(TxDeposit), user, asset, amount)
 	depBody := encodeDepositBody(wireUser(t, user), asset, amount, depRef)
-	depPayload := signedPayload(t, user, TxDeposit, depBody)
+	// A deposit is authorized by the trusted bridge AUTHORITY (F9), not the user.
+	depPayload := signedPayload(t, depositAuthorityName, TxDeposit, depBody)
 
 	// submitTx with a ctx that expires almost immediately. No sealer is running, so
 	// the tx is Add'ed to the mempool and the ctx fires before anything drains it.

@@ -63,7 +63,7 @@ func startReadServer(t *testing.T) (*VM, string, func()) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
-		DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine,
+		DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine, Config: authConfig(t),
 	}); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -163,7 +163,8 @@ func crossOneMarket(t *testing.T, base string, f readFixture) []zapwire.Fill {
 	dep := func(user string, asset [32]byte, amt uint64) {
 		ref := contentRef(byte(TxDeposit), user, asset, amt)
 		body := zapwire.EncodeDeposit(wireUser(t, user), asset, amt, ref)
-		httpPost(t, base, zapwire.MethodDeposit, signedPayload(t, user, TxDeposit, body))
+		// A deposit is authorized by the trusted bridge AUTHORITY (F9), not the user.
+		httpPost(t, base, zapwire.MethodDeposit, signedPayload(t, depositAuthorityName, TxDeposit, body))
 	}
 	dep(aliceUser, f.base, 2)
 	dep(bobUser, f.quote, 53)
@@ -386,7 +387,7 @@ func TestRead_CrossValidatorIdenticalTrades(t *testing.T) {
 	followerDB := memdb.New()
 	follower := &VM{}
 	if err := follower.Initialize(context.Background(), block.Init{
-		DB: followerDB, Log: log.NewNoOpLogger(), ToEngine: make(chan block.Message, 64),
+		DB: followerDB, Log: log.NewNoOpLogger(), ToEngine: make(chan block.Message, 64), Config: authConfig(t),
 	}); err != nil {
 		t.Fatalf("follower Initialize: %v", err)
 	}
