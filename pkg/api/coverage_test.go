@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 )
@@ -168,7 +168,7 @@ func TestGetClientIP_EmptyXForwardedFor(t *testing.T) {
 // --- JSONRPCServer Rate Limiting Tests ---
 
 func TestJSONRPCServer_RateLimiting_Exceeded(t *testing.T) {
-	orderBook := lx.NewOrderBook("TEST")
+	orderBook := dex.NewOrderBook("TEST")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 
@@ -200,7 +200,7 @@ func TestJSONRPCServer_RateLimiting_Exceeded(t *testing.T) {
 }
 
 func TestJSONRPCServer_RateLimiting_DifferentIPs(t *testing.T) {
-	orderBook := lx.NewOrderBook("TEST")
+	orderBook := dex.NewOrderBook("TEST")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 
@@ -1414,10 +1414,10 @@ func TestNotifyLiquidation_ClientFound_Coverage(t *testing.T) {
 	server.clients[client.ID] = client
 	server.mu.Unlock()
 
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:         "pos123",
 		Symbol:     "BTC/USD",
-		Side:       lx.Buy,
+		Side:       dex.Buy,
 		Size:       1.0,
 		EntryPrice: 50000,
 		MarkPrice:  45000,
@@ -1452,10 +1452,10 @@ func TestNotifyLiquidation_SellSide_Coverage(t *testing.T) {
 	server.clients[client.ID] = client
 	server.mu.Unlock()
 
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:         "pos123",
 		Symbol:     "BTC/USD",
-		Side:       lx.Sell,
+		Side:       dex.Sell,
 		Size:       1.0,
 		EntryPrice: 45000,
 		MarkPrice:  50000,
@@ -1476,10 +1476,10 @@ func TestNotifyLiquidation_SellSide_Coverage(t *testing.T) {
 func TestNotifyLiquidation_ClientNotFound_Coverage(t *testing.T) {
 	server := newTestWebSocketServer()
 
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:     "pos123",
 		Symbol: "BTC/USD",
-		Side:   lx.Buy,
+		Side:   dex.Buy,
 		Size:   1.0,
 	}
 

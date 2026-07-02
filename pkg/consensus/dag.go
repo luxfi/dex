@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // Type definitions for consensus
@@ -297,12 +297,12 @@ func (q *Quasar) SkipCertificateCount() int {
 // OrderVertex represents a vertex in the DAG
 type OrderVertex struct {
 	ID        ID
-	Order     *lx.Order
+	Order     *dex.Order
 	NodeID    string
 	Height    uint64
 	Parents   []ID
 	Timestamp time.Time
-	Trades    []*lx.Trade
+	Trades    []*dex.Trade
 }
 
 // VoteState tracks voting state for Lux Consensus
@@ -344,7 +344,7 @@ type DAGOrderBook struct {
 	mu            sync.RWMutex
 	nodeID        string
 	symbol        string
-	orderBook     *lx.OrderBook
+	orderBook     *dex.OrderBook
 	vertices      map[ID]*OrderVertex
 	edges         map[ID][]ID
 	frontier      []ID
@@ -379,7 +379,7 @@ func NewDAGOrderBook(nodeID, symbol string) (*LuxDAGOrderBook, error) {
 	base := &DAGOrderBook{
 		nodeID:    nodeID,
 		symbol:    symbol,
-		orderBook: lx.NewOrderBook(symbol),
+		orderBook: dex.NewOrderBook(symbol),
 		vertices:  make(map[ID]*OrderVertex),
 		edges:     make(map[ID][]ID),
 		frontier:  []ID{},
@@ -435,7 +435,7 @@ func NewLuxDAGOrderBook(nodeID, symbol string) (*LuxDAGOrderBook, error) {
 }
 
 // AddOrder adds an order to the DAG
-func (dob *DAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
+func (dob *DAGOrderBook) AddOrder(order *dex.Order) (*OrderVertex, error) {
 	dob.mu.Lock()
 	defer dob.mu.Unlock()
 
@@ -463,7 +463,7 @@ func (dob *DAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
 }
 
 // AddOrder adds an order with quantum certificates
-func (lux *LuxDAGOrderBook) AddOrder(order *lx.Order) (*OrderVertex, error) {
+func (lux *LuxDAGOrderBook) AddOrder(order *dex.Order) (*OrderVertex, error) {
 	lux.mu.Lock()
 	defer lux.mu.Unlock()
 

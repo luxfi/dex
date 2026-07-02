@@ -6,8 +6,6 @@ package dex
 import (
 	"fmt"
 	"math/big"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // settle.go is the CUSTODY transition — the integer-exact value moves a matcher
@@ -35,11 +33,8 @@ import (
 // unavailable; falling back to the matcher UserID would make compact-handle
 // collisions value-bearing — a critical theft bug.
 
-// PriceMultiplier mirrors lx.PriceMultiplier; exposed for the lock math callers.
-var priceMultiplierBig = big.NewInt(lx.PriceMultiplier)
-
 // SettleFills moves value for the fills a submit produced, INSIDE the ledger,
-// from the matcher's AUTHORITATIVE integer lane (lx.Trade.BaseUnits/QuoteUnits).
+// from the matcher's AUTHORITATIVE integer lane (Trade.BaseUnits/QuoteUnits).
 // takerUser is the submitter's FULL 16-byte identity (always in hand — the taker
 // never rests). takerSide is the submitting side; each fill's resting maker is
 // resolved to its full identity via the orderuser: index (restart-safe). Using
@@ -48,7 +43,7 @@ var priceMultiplierBig = big.NewInt(lx.PriceMultiplier)
 //
 // Returns the taker's total spend (so the caller unlocks the unspent remainder).
 // Requires every fill to carry the integer lane; a fill without it is refused.
-func SettleFills(db Store, poolID [32]byte, takerUser AccountID, takerSide lx.Side, base, quote AssetID, fills []lx.Trade) (takerSpent uint64, err error) {
+func SettleFills(db Store, poolID [32]byte, takerUser AccountID, takerSide Side, base, quote AssetID, fills []Trade) (takerSpent uint64, err error) {
 	for _, f := range fills {
 		if f.BaseUnits == nil || f.QuoteUnits == nil {
 			return 0, ErrFillMissingUnits
@@ -63,7 +58,7 @@ func SettleFills(db Store, poolID [32]byte, takerUser AccountID, takerSide lx.Si
 			return 0, merr
 		}
 
-		if takerSide == lx.Buy {
+		if takerSide == Buy {
 			// Taker pays quote (from its locked quote) -> maker available quote.
 			if err = SpendLocked(db, takerUser, quote, quoteUnits); err != nil {
 				return 0, err
@@ -106,9 +101,9 @@ func SettleFills(db Store, poolID [32]byte, takerUser AccountID, takerSide lx.Si
 // string (8-byte after a row fold). There is NO fallback: a fill against a
 // resting order with no orderuser: row FAILS CLOSED with ErrMissingSettlementUser
 // (the transition is rejected, no value moves).
-func makerSettleKey(db Store, poolID [32]byte, f lx.Trade, takerSide lx.Side) (AccountID, error) {
+func makerSettleKey(db Store, poolID [32]byte, f Trade, takerSide Side) (AccountID, error) {
 	makerOrderID := f.SellOrder // taker bought -> maker sold
-	if takerSide == lx.Sell {
+	if takerSide == Sell {
 		makerOrderID = f.BuyOrder // taker sold -> maker bought
 	}
 	u, ok, err := GetOrderUser(db, poolID, makerOrderID)
@@ -129,11 +124,11 @@ func makerSettleKey(db Store, poolID [32]byte, f lx.Trade, takerSide lx.Side) (A
 // maker BOUGHT base (reserve in quote, reduced by fill quote units). Drops the
 // maker's orderuser: row in lockstep when its reserve reaches zero so no orphan
 // identity survives a fully-filled order.
-func DecrementMakerReserves(db Store, poolID [32]byte, takerSide lx.Side, base, quote AssetID, fills []lx.Trade) error {
+func DecrementMakerReserves(db Store, poolID [32]byte, takerSide Side, base, quote AssetID, fills []Trade) error {
 	consumed := map[uint64]uint64{}
 	for _, f := range fills {
 		var makerOrderID, amt uint64
-		if takerSide == lx.Buy {
+		if takerSide == Buy {
 			makerOrderID = f.SellOrder
 			if f.BaseUnits != nil && f.BaseUnits.IsUint64() {
 				amt = f.BaseUnits.Uint64() // maker reserve is in base
@@ -177,7 +172,7 @@ func DecrementMakerReserves(db Store, poolID [32]byte, takerSide lx.Side, base, 
 // floor(...) per fill at the MAKER's price (<= the taker's limit for a buy), so
 // the summed floored spend is <= this ceiled lock. Locking the ceil guarantees
 // lock >= spend, so a settle never overspends the lock.
-func QuoteUnitsCeil(baseUnits *big.Int, priceInt lx.PriceInt) uint64 {
+func QuoteUnitsCeil(baseUnits *big.Int, priceInt PriceInt) uint64 {
 	if baseUnits == nil || baseUnits.Sign() <= 0 || priceInt <= 0 {
 		return 0
 	}
@@ -202,22 +197,22 @@ func SizeToUnits(size float64) uint64 {
 // PriceToInt converts a wire price float to the fixed-point PriceInt grid the
 // matcher keys levels by, so the lock's price and the matcher's crossing price are
 // the SAME integer.
-func PriceToInt(price float64) lx.PriceInt {
+func PriceToInt(price float64) PriceInt {
 	if !(price > 0) {
 		return 0
 	}
-	return lx.PriceInt(price * lx.PriceMultiplier)
+	return PriceInt(price * PriceMultiplier)
 }
 
 // OrderLock returns the (asset, amount) a place/limit-submit of (side, price,
 // size) on a market with (base, quote) assets must lock. A buy locks quote =
 // ceil(size*price); a sell locks base = size. amount 0 means "nothing to lock".
-func OrderLock(side lx.Side, price, size float64, base, quote AssetID) (asset AssetID, amount uint64) {
+func OrderLock(side Side, price, size float64, base, quote AssetID) (asset AssetID, amount uint64) {
 	units := SizeToUnits(size)
 	if units == 0 {
 		return AssetID{}, 0
 	}
-	if side == lx.Buy {
+	if side == Buy {
 		return quote, QuoteUnitsCeil(new(big.Int).SetUint64(units), PriceToInt(price))
 	}
 	return base, units
@@ -228,11 +223,11 @@ func OrderLock(side lx.Side, price, size float64, base, quote AssetID) (asset As
 // hazard. A non-executable order returns false (it is handled as malformed
 // earlier), so the dust reject is reserved for the precise "executable yet free"
 // case.
-func FloorsToZeroLock(side lx.Side, price, size float64, base, quote AssetID) bool {
+func FloorsToZeroLock(side Side, price, size float64, base, quote AssetID) bool {
 	if !(size > 0) {
 		return false
 	}
-	if side == lx.Buy && !(price > 0) {
+	if side == Buy && !(price > 0) {
 		return false
 	}
 	_, lockAmt := OrderLock(side, price, size, base, quote)

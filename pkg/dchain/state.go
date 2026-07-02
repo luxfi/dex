@@ -11,7 +11,7 @@ import (
 	"github.com/luxfi/crypto/hash"
 	"github.com/luxfi/crypto/merkle"
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -20,7 +20,7 @@ import (
 // in the VM's init.DB namespace; the proxy (chains/dexvm) holds NONE of these
 // keys — proxy is transport, d-chain is state.
 //
-// KEY SCHEMA (all values are fixed-width images from pkg/lx/persist.go):
+// KEY SCHEMA (all values are fixed-width images from pkg/dex/persist.go):
 //
 //	order:<poolID:32><orderID:8>  -> DEXOrder (64B)   resting liquidity
 //	book:<poolID:32>              -> uint64 LastOrderID watermark for the market
@@ -31,7 +31,7 @@ import (
 //	meta:root                    -> [32]byte          last execution root
 //
 // The order:* rows are sufficient to rebuild every book on restart (the in-RAM
-// lx.OrderBook is a fold of these). trade:* is the durable event log. The roots
+// dex.OrderBook is a fold of these). trade:* is the durable event log. The roots
 // are derived, not stored as truth — meta:root caches the parent root for the
 // next block's chained composition.
 const (
@@ -70,7 +70,7 @@ const (
 	//     deposit (the cross-user native-drain fix). The matcher's DEXOrder.UserID
 	//     stays an 8-byte STP handle (the frozen GPU ABI); the SETTLEMENT identity
 	//     that the ledger keys by is this full 16-byte user, decomplected from the
-	//     matching handle exactly as pkg/lx/persist.go declares.
+	//     matching handle exactly as pkg/dex/persist.go declares.
 	prefixBalance   = "balance:"
 	prefixLocked    = "locked:"
 	prefixAsset     = "asset:"      // market (base,quote) asset binding
@@ -234,7 +234,7 @@ func tradePrefixForHeight(height uint64) []byte {
 type committedTrade struct {
 	Height uint64
 	Seq    uint64
-	Trade  lx.DEXTrade
+	Trade  dex.DEXTrade
 }
 
 // readTrades streams committed trade:<height><seq> rows in height-then-seq order
@@ -255,7 +255,7 @@ func readTrades(db database.Iteratee, sinceHeight uint64, limit int) ([]committe
 		}
 		height := binary.BigEndian.Uint64(key[len(prefixTrade) : len(prefixTrade)+8])
 		seq := binary.BigEndian.Uint64(key[len(prefixTrade)+8:])
-		row, ok := lx.DecodeTrade(it.Value())
+		row, ok := dex.DecodeTrade(it.Value())
 		if !ok {
 			return nil, fmt.Errorf("dchain: corrupt trade row at h=%d seq=%d (len %d)", height, seq, len(it.Value()))
 		}
@@ -298,12 +298,12 @@ type marketRow struct {
 // longer live (filled or cancelled or zero remaining). The book is the live
 // resting set; spent rows are removed so iteration over order:* yields exactly
 // the rebuildable liquidity.
-func putOrderRow(db database.KeyValueWriterDeleter, poolID [32]byte, row lx.DEXOrder) error {
+func putOrderRow(db database.KeyValueWriterDeleter, poolID [32]byte, row dex.DEXOrder) error {
 	key := orderKey(poolID, row.OrderID)
-	if row.Status == lx.DEXStatusFilled || row.Status == lx.DEXStatusCancelled || row.Remaining == 0 {
+	if row.Status == dex.DEXStatusFilled || row.Status == dex.DEXStatusCancelled || row.Remaining == 0 {
 		return db.Delete(key)
 	}
-	return db.Put(key, lx.EncodeRow(row))
+	return db.Put(key, dex.EncodeRow(row))
 }
 
 // deleteOrderRow removes a resting order row (used on cancel).
@@ -362,7 +362,7 @@ func writeBookWatermark(db database.KeyValueWriter, poolID [32]byte, watermark u
 // userKey is the d-chain's SETTLEMENT identity: the FULL 16-byte wire user
 // (zapwire.UserSize), the value the ledger keys an account by. It is DISTINCT from
 // the matcher's 8-byte DEXOrder.UserID STP handle — the book row models matching,
-// d-chain state models settlement identity (pkg/lx/persist.go). 16 bytes makes the
+// d-chain state models settlement identity (pkg/dex/persist.go). 16 bytes makes the
 // account axis birthday-safe (2^64) and, crucially, makes two addresses sharing a
 // leading 8-byte prefix DISTINCT accounts so neither can withdraw the other's
 // balance.
@@ -805,7 +805,7 @@ const Size = hash.KeccakSize
 // (Q64.64) field image; rows MUST already be in canonical order (BookToRows /
 // sortRows) so the root is insertion-order-independent. An empty book yields
 // merkle.EmptyRoot.
-func bookRoot(rows []lx.DEXOrder) [Size]byte {
+func bookRoot(rows []dex.DEXOrder) [Size]byte {
 	leaves := make([][Size]byte, len(rows))
 	for i := range rows {
 		leaves[i] = orderLeafDigest(rows[i], uint32(i))
@@ -816,7 +816,7 @@ func bookRoot(rows []lx.DEXOrder) [Size]byte {
 // tradeRoot is the RFC-6962 tagged Merkle root over the block's fill rows (the
 // event root). Trades are folded in production order (matcher output order),
 // each bound to its index.
-func tradeRoot(trades []lx.DEXTrade) [Size]byte {
+func tradeRoot(trades []dex.DEXTrade) [Size]byte {
 	leaves := make([][Size]byte, len(trades))
 	for i := range trades {
 		leaves[i] = tradeLeafDigest(trades[i], uint32(i))
@@ -841,16 +841,16 @@ func txRoot(txs []*Tx) [Size]byte {
 // index makes the leaf position-aware, matching the xvmroot leaf discipline. The
 // row image is already the deterministic Q64.64 form, so the digest is
 // cross-architecture stable.
-func orderLeafDigest(row lx.DEXOrder, i uint32) [Size]byte {
-	img := lx.EncodeRow(row)
+func orderLeafDigest(row dex.DEXOrder, i uint32) [Size]byte {
+	img := dex.EncodeRow(row)
 	var idx [4]byte
 	binary.LittleEndian.PutUint32(idx[:], i)
 	return hash.ComputeKeccak256Array(img, idx[:])
 }
 
 // tradeLeafDigest = keccak256(canonical 80B trade image ‖ index_le).
-func tradeLeafDigest(t lx.DEXTrade, i uint32) [Size]byte {
-	img := lx.EncodeTrade(t)
+func tradeLeafDigest(t dex.DEXTrade, i uint32) [Size]byte {
+	img := dex.EncodeTrade(t)
 	var idx [4]byte
 	binary.LittleEndian.PutUint32(idx[:], i)
 	return hash.ComputeKeccak256Array(img, idx[:])
@@ -877,14 +877,14 @@ func ComposeRoot(parent, book, trade, txr [Size]byte, height uint64) [Size]byte 
 // liquidity). Ordering: by side (bids before asks), then — to disambiguate rows
 // from different markets at the same price — by orderID, which is globally unique
 // across the chain (blockDeterministicID). Within a single market this matches
-// lx.sortRows; across markets the unique orderID makes it total.
-func sortRowsCanonical(rows []lx.DEXOrder) {
+// dex.sortRows; across markets the unique orderID makes it total.
+func sortRowsCanonical(rows []dex.DEXOrder) {
 	sort.Slice(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
 		if a.Side != b.Side {
-			return a.Side == lx.DEXSideBid
+			return a.Side == dex.DEXSideBid
 		}
-		if a.Side == lx.DEXSideBid {
+		if a.Side == dex.DEXSideBid {
 			if a.Price.Integer != b.Price.Integer {
 				return a.Price.Integer > b.Price.Integer
 			}
@@ -907,7 +907,7 @@ func sortRowsCanonical(rows []lx.DEXOrder) {
 // state: the canonical resting rows (book), the block's fills (trades), and the
 // block's transactions (txs), composed with the parent root and height. Returns
 // the execution root and the three sub-roots (for receipts / debugging).
-func ExecutionRoot(parent [Size]byte, rows []lx.DEXOrder, trades []lx.DEXTrade, txs []*Tx, height uint64) (root, book, trade, txr [Size]byte) {
+func ExecutionRoot(parent [Size]byte, rows []dex.DEXOrder, trades []dex.DEXTrade, txs []*Tx, height uint64) (root, book, trade, txr [Size]byte) {
 	book = bookRoot(rows)
 	trade = tradeRoot(trades)
 	txr = txRoot(txs)

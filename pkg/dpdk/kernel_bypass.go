@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	// "golang.org/x/sys/unix" // Linux-specific, commented for macOS
 )
 
@@ -40,7 +40,7 @@ type Stats struct {
 
 // OrderProcessor interface for processing orders
 type OrderProcessor interface {
-	ProcessOrder(order *lx.Order) (*lx.Trade, error)
+	ProcessOrder(order *dex.Order) (*dex.Trade, error)
 }
 
 // RingBuffer for zero-copy packet processing
@@ -235,7 +235,7 @@ func (e *KernelBypassEngine) ProcessPackets() error {
 }
 
 // parseOrder parses an order from packet data
-func (e *KernelBypassEngine) parseOrder(data []byte) *lx.Order {
+func (e *KernelBypassEngine) parseOrder(data []byte) *dex.Order {
 	// Simplified binary protocol parsing
 	// In production, this would parse FIX or custom binary protocol
 
@@ -244,12 +244,12 @@ func (e *KernelBypassEngine) parseOrder(data []byte) *lx.Order {
 	}
 
 	// Binary format: [8:orderID][8:price][8:size][1:side][7:padding]
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    *(*uint64)(unsafe.Pointer(&data[0])),
 		Price: *(*float64)(unsafe.Pointer(&data[8])),
 		Size:  *(*float64)(unsafe.Pointer(&data[16])),
-		Side:  lx.Side(data[24]),
-		Type:  lx.Limit,
+		Side:  dex.Side(data[24]),
+		Type:  dex.Limit,
 	}
 
 	return order

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -373,14 +373,14 @@ func BenchmarkMessageMarshal(b *testing.B) {
 func TestParseSide(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected lx.Side
+		expected dex.Side
 	}{
-		{"buy", lx.Buy},
-		{"BUY", lx.Buy},
-		{"sell", lx.Sell},
-		{"SELL", lx.Sell},
-		{"unknown", lx.Buy}, // default
-		{"", lx.Buy},        // default
+		{"buy", dex.Buy},
+		{"BUY", dex.Buy},
+		{"sell", dex.Sell},
+		{"SELL", dex.Sell},
+		{"unknown", dex.Buy}, // default
+		{"", dex.Buy},        // default
 	}
 
 	for _, tt := range tests {
@@ -394,18 +394,18 @@ func TestParseSide(t *testing.T) {
 func TestParseOrderType(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected lx.OrderType
+		expected dex.OrderType
 	}{
-		{"market", lx.Market},
-		{"MARKET", lx.Market},
-		{"limit", lx.Limit},
-		{"LIMIT", lx.Limit},
-		{"stop", lx.Stop},
-		{"STOP", lx.Stop},
-		{"stop_limit", lx.StopLimit},
-		{"STOP_LIMIT", lx.StopLimit},
-		{"unknown", lx.Limit}, // default
-		{"", lx.Limit},        // default
+		{"market", dex.Market},
+		{"MARKET", dex.Market},
+		{"limit", dex.Limit},
+		{"LIMIT", dex.Limit},
+		{"stop", dex.Stop},
+		{"STOP", dex.Stop},
+		{"stop_limit", dex.StopLimit},
+		{"STOP_LIMIT", dex.StopLimit},
+		{"unknown", dex.Limit}, // default
+		{"", dex.Limit},        // default
 	}
 
 	for _, tt := range tests {
@@ -417,8 +417,8 @@ func TestParseOrderType(t *testing.T) {
 }
 
 func TestOppositeSide(t *testing.T) {
-	assert.Equal(t, lx.Sell, oppositeSide(lx.Buy))
-	assert.Equal(t, lx.Buy, oppositeSide(lx.Sell))
+	assert.Equal(t, dex.Sell, oppositeSide(dex.Buy))
+	assert.Equal(t, dex.Buy, oppositeSide(dex.Sell))
 }
 
 // Test server metrics snapshot
@@ -516,17 +516,17 @@ func TestClientSendError(t *testing.T) {
 
 // Create helper to make test server with all components
 func newTestWebSocketServer() *WebSocketServer {
-	oracle := lx.NewPriceOracle()
-	lendingPool := lx.NewLendingPool()
-	riskEngine := lx.NewRiskEngine()
-	marginEngine := lx.NewMarginEngine(oracle, riskEngine)
-	liquidationEngine := lx.NewLiquidationEngine()
-	tradingEngine := lx.NewTradingEngine(lx.EngineConfig{
+	oracle := dex.NewPriceOracle()
+	lendingPool := dex.NewLendingPool()
+	riskEngine := dex.NewRiskEngine()
+	marginEngine := dex.NewMarginEngine(oracle, riskEngine)
+	liquidationEngine := dex.NewLiquidationEngine()
+	tradingEngine := dex.NewTradingEngine(dex.EngineConfig{
 		EnablePerps:   true,
 		EnableVaults:  true,
 		EnableLending: true,
 	})
-	vaultManager := lx.NewVaultManager(tradingEngine)
+	vaultManager := dex.NewVaultManager(tradingEngine)
 
 	config := ServerConfig{
 		Engine:            tradingEngine,
@@ -1329,10 +1329,10 @@ func TestBroadcastOrderBook(t *testing.T) {
 	server.clients[client.ID] = client
 	server.mu.Unlock()
 
-	snapshot := &lx.OrderBookSnapshot{
+	snapshot := &dex.OrderBookSnapshot{
 		Symbol: "BTC-USDT",
-		Bids:   []lx.OrderLevel{{Price: 50000, Size: 1.0}},
-		Asks:   []lx.OrderLevel{{Price: 50100, Size: 2.0}},
+		Bids:   []dex.OrderLevel{{Price: 50000, Size: 1.0}},
+		Asks:   []dex.OrderLevel{{Price: 50100, Size: 2.0}},
 	}
 
 	server.BroadcastOrderBook("BTC-USDT", snapshot)
@@ -1361,7 +1361,7 @@ func TestBroadcastTrade(t *testing.T) {
 	server.clients[client.ID] = client
 	server.mu.Unlock()
 
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      1.5,
 		Timestamp: time.Now(),
@@ -1487,10 +1487,10 @@ func BenchmarkBroadcastOrderBook(b *testing.B) {
 		server.clients[client.ID] = client
 	}
 
-	snapshot := &lx.OrderBookSnapshot{
+	snapshot := &dex.OrderBookSnapshot{
 		Symbol: "BTC-USDT",
-		Bids:   []lx.OrderLevel{{Price: 50000, Size: 1.0}},
-		Asks:   []lx.OrderLevel{{Price: 50100, Size: 2.0}},
+		Bids:   []dex.OrderLevel{{Price: 50000, Size: 1.0}},
+		Asks:   []dex.OrderLevel{{Price: 50100, Size: 2.0}},
 	}
 
 	b.ResetTimer()
@@ -2472,10 +2472,10 @@ func TestNotifyLiquidationNoClient(t *testing.T) {
 	server := newTestWebSocketServer()
 
 	// Create a mock position
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:         "pos123",
 		Symbol:     "BTC-USDT",
-		Side:       lx.Buy,
+		Side:       dex.Buy,
 		Size:       1.0,
 		EntryPrice: 50000.0,
 		MarkPrice:  48000.0,
@@ -2504,10 +2504,10 @@ func TestNotifyLiquidationWithClient(t *testing.T) {
 	server.mu.Unlock()
 
 	// Create a mock position
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:         "pos123",
 		Symbol:     "BTC-USDT",
-		Side:       lx.Buy,
+		Side:       dex.Buy,
 		Size:       1.0,
 		EntryPrice: 50000.0,
 		MarkPrice:  48000.0,
@@ -2554,10 +2554,10 @@ func TestNotifyLiquidationSellSide(t *testing.T) {
 	server.mu.Unlock()
 
 	// Create a SELL position
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:         "pos123",
 		Symbol:     "BTC-USDT",
-		Side:       lx.Sell,
+		Side:       dex.Sell,
 		Size:       1.0,
 		EntryPrice: 50000.0,
 		MarkPrice:  52000.0,

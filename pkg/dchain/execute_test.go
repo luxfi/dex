@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -28,20 +28,20 @@ func submitTx(t *testing.T, side uint8, isMarket bool, price, size float64, user
 // applyAll replays a tx sequence into a fresh book, returning every fill as a
 // canonical DEXTrade row and the resulting book rows. height/txIndex are derived
 // exactly as the VM derives them (block height fixed, txIndex = position).
-func applyAll(t *testing.T, height uint64, ts time.Time, txs []*Tx) ([]lx.DEXTrade, []lx.DEXOrder) {
+func applyAll(t *testing.T, height uint64, ts time.Time, txs []*Tx) ([]dex.DEXTrade, []dex.DEXOrder) {
 	t.Helper()
-	book := lx.NewOrderBook("BTC-USD")
-	var fills []lx.DEXTrade
+	book := dex.NewOrderBook("BTC-USD")
+	var fills []dex.DEXTrade
 	for i, tx := range txs {
 		res, err := applyTx(book, tx, height, ts, uint32(i))
 		if err != nil {
 			t.Fatalf("applyTx[%d] (%s): %v", i, tx.Type, err)
 		}
 		for _, f := range res.Fills {
-			fills = append(fills, lx.TradeToRow(f, res.TakerSide))
+			fills = append(fills, dex.TradeToRow(f, res.TakerSide))
 		}
 	}
-	return fills, lx.BookToRows(book)
+	return fills, dex.BookToRows(book)
 }
 
 // TestApplyTxDeterminism is the step-3 determinism proof at the tx layer: the
@@ -68,7 +68,7 @@ func TestApplyTxDeterminism(t *testing.T) {
 		t.Fatalf("fill count differs: %d vs %d", len(f1), len(f2))
 	}
 	for i := range f1 {
-		if string(lx.EncodeTrade(f1[i])) != string(lx.EncodeTrade(f2[i])) {
+		if string(dex.EncodeTrade(f1[i])) != string(dex.EncodeTrade(f2[i])) {
 			t.Errorf("fill[%d] not byte-identical across replays", i)
 		}
 	}
@@ -76,7 +76,7 @@ func TestApplyTxDeterminism(t *testing.T) {
 		t.Fatalf("book row count differs: %d vs %d", len(r1), len(r2))
 	}
 	for i := range r1 {
-		if string(lx.EncodeRow(r1[i])) != string(lx.EncodeRow(r2[i])) {
+		if string(dex.EncodeRow(r1[i])) != string(dex.EncodeRow(r2[i])) {
 			t.Errorf("book row[%d] not byte-identical across replays", i)
 		}
 	}
@@ -103,7 +103,7 @@ func TestBlockDeterministicID(t *testing.T) {
 // TestApplyPlaceRestsDeterministicOrder proves a place rests with the
 // VM-supplied ID and timestamp (never minted), and the order is recoverable.
 func TestApplyPlaceRestsDeterministicOrder(t *testing.T) {
-	book := lx.NewOrderBook("BTC-USD")
+	book := dex.NewOrderBook("BTC-USD")
 	ts := time.Unix(0, 1_700_000_000_000_000_000).UTC()
 	tx := placeTx(t, zapwire.SideBuy, 100.0, 2.0, "alice")
 
@@ -129,7 +129,7 @@ func TestApplyPlaceRestsDeterministicOrder(t *testing.T) {
 // TestApplyCancelRemovesResting proves cancel removes a resting order and an
 // unknown cancel is a deterministic no-op.
 func TestApplyCancelRemovesResting(t *testing.T) {
-	book := lx.NewOrderBook("BTC-USD")
+	book := dex.NewOrderBook("BTC-USD")
 	ts := time.Unix(0, 1_700_000_000_000_000_000).UTC()
 	res, _ := applyTx(book, placeTx(t, zapwire.SideBuy, 100.0, 2.0, "alice"), 1, ts, 0)
 	id := res.Placed.ID

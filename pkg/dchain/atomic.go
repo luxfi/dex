@@ -10,7 +10,7 @@ import (
 	"fmt"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/vm/chains/atomic"
@@ -216,7 +216,7 @@ func deriveSeamOutputID(exportTxID ids.ID, index uint32) ids.ID {
 // account the taker's own signed D orders draw from, and there is ONE address->account
 // derivation across the deposit, order, and seam paths.
 func crossChainAccount(owner common.Address) userKey {
-	return Account16(lx.AuthSecp256k1, owner)
+	return Account16(dex.AuthSecp256k1, owner)
 }
 
 // --- TxImport / TxExport body codecs ---------------------------------------------

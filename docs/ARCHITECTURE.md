@@ -276,7 +276,12 @@ Client Request
 
 ### Multi-Engine Design
 
-The DEX supports multiple execution backends:
+The DEX supports multiple execution backends. Order-matching throughput is
+11.88M orders/sec (C++, 10 threads, 169 ns avg match) / 2.2M orders/sec (pure
+Go) on the default CPU build, and up to 12.76B orders/sec (AMD 8060S) / 9.13B
+(GB10) on the GPU-native per-book matcher (backend 4). The per-engine msgs/sec
+and latency figures below are **stale December-2024 FIX wire encode/decode
+rates** (a separate axis from matching) and have not been re-verified.
 
 1. **Pure Go Engine**
    - Portable and maintainable
@@ -294,14 +299,19 @@ The DEX supports multiple execution backends:
    - 232K-586K msgs/sec (FIX protocol)
    - 11.9μs average latency
 
-4. **GPU Engine (MLX)**
-   - Metal Performance Shaders on Apple Silicon
-   - Massive parallelization
-   - **3.12M-5.95M msgs/sec (FIX protocol)**
-   - **0.68-1.75μs average latency**
-   - 434M+ orders/sec batch processing
+4. **GPU-native per-book matcher** (`pkg/lx/orderbook_gpu.go`, CGO_ENABLED=1)
+   - Unified `lux-gpu` backend, runtime-select CUDA > HIP > Metal > CPU
+   - Byte-identical to the CPU oracle (`MatchOrderCPU`), parity-verified
+     (`pkg/lxgpu/orderbook_parity_test.go`, `three_mode_parity_test.go`)
+   - Up to 12.76B orders/sec (AMD 8060S) / 9.13B (GB10) / 5.60B (M4 Max) /
+     2.80B (M1 Max); 21.9B on a two-node fabric — deterministic per-book,
+     one thread per book across millions of books
+   - Kernels ship prebuilt from luxcpp/dex
 
-### FIX Protocol Performance (December 2024)
+### FIX Protocol Performance (December 2024 — stale, not re-verified this session)
+
+FIX wire encode/decode rates only (a separate axis from order matching); treat
+as historical, not current.
 
 | Engine | NewOrderSingle | ExecutionReport | MarketDataSnapshot |
 |--------|----------------|-----------------|-------------------|
@@ -309,9 +319,6 @@ The DEX supports multiple execution backends:
 | Hybrid Go/C++ | 167K/sec | 378K/sec | 616K/sec |
 | Pure C++ | 444K/sec | 804K/sec | 1.08M/sec |
 | Rust | 484K/sec | 232K/sec | 586K/sec |
-| **MLX (Apple Silicon)** | **3.12M/sec** | **4.27M/sec** | **5.95M/sec** |
-
-*MLX achieves 7-40x throughput improvement via GPU parallelism
 
 ### Memory Management
 

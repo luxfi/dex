@@ -12,8 +12,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/log"
-	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/rpc"
 )
@@ -53,7 +53,7 @@ const (
 // "initialize" ensures a market, "modifyLiquidity" places/cancels a resting
 // limit order, and "swap" submits a marketable order and gets its fills back.
 // Market identity on the wire is the 32-byte V4 poolId (keccak256 of the
-// PoolKey). There is exactly one matcher (*lx.OrderBook); two wire framings for
+// PoolKey). There is exactly one matcher (*dex.OrderBook); two wire framings for
 // two callers (maker = 8-byte symbol, precompile/proxy = 32-byte poolId).
 const (
 	DEXMethodEnsureMarket = zapwire.MethodEnsureMarket
@@ -77,11 +77,11 @@ const FillWireSize = zapwire.FillWireSize
 // It is multi-market: legacy symbol-keyed methods (place_order/…) operate on a
 // default book (or a per-symbol book when a symbol is supplied), and the
 // poolId-keyed DEX methods (dex_*) operate on per-market books keyed by the
-// 32-byte V4 poolId. Every method routes to the same *lx.OrderBook matcher.
+// 32-byte V4 poolId. Every method routes to the same *dex.OrderBook matcher.
 type ZAPServer struct {
 	// orderBook is the default (single) book the legacy symbol-keyed handlers
 	// use, preserving the original single-book behavior for existing callers.
-	orderBook *lx.OrderBook
+	orderBook *dex.OrderBook
 	server    rpc.Server
 	logger    log.Logger
 	addr      string
@@ -98,7 +98,7 @@ type ZAPServer struct {
 	// adapter and the chains/dexvm proxy hold NONE of this state — they relay to
 	// it over the frozen zapwire frame.
 	marketsMu sync.Mutex
-	markets   map[[32]byte]*lx.OrderBook
+	markets   map[[32]byte]*dex.OrderBook
 
 	// Statistics
 	ordersProcessed atomic.Uint64
@@ -113,12 +113,12 @@ type ZAPServer struct {
 }
 
 // NewZAPServer creates a new ZAP server for ultra-low-latency trading
-func NewZAPServer(orderBook *lx.OrderBook, addr string, logger log.Logger) *ZAPServer {
+func NewZAPServer(orderBook *dex.OrderBook, addr string, logger log.Logger) *ZAPServer {
 	return &ZAPServer{
 		orderBook: orderBook,
 		addr:      addr,
 		logger:    logger,
-		markets:   make(map[[32]byte]*lx.OrderBook),
+		markets:   make(map[[32]byte]*dex.OrderBook),
 		bufferPool: sync.Pool{
 			New: func() interface{} {
 				// Pre-allocate 4KB buffer for responses
@@ -131,7 +131,7 @@ func NewZAPServer(orderBook *lx.OrderBook, addr string, logger log.Logger) *ZAPS
 // market returns the per-poolId book, creating it on first use. The poolId is
 // rendered hex for the book symbol so logs are human-readable. createIfAbsent
 // false returns nil when the market was never ensured.
-func (s *ZAPServer) market(id [32]byte, createIfAbsent bool) *lx.OrderBook {
+func (s *ZAPServer) market(id [32]byte, createIfAbsent bool) *dex.OrderBook {
 	s.marketsMu.Lock()
 	defer s.marketsMu.Unlock()
 	if ob, ok := s.markets[id]; ok {
@@ -140,7 +140,7 @@ func (s *ZAPServer) market(id [32]byte, createIfAbsent bool) *lx.OrderBook {
 	if !createIfAbsent {
 		return nil
 	}
-	ob := lx.NewOrderBook(fmt.Sprintf("%x", id[:6]))
+	ob := dex.NewOrderBook(fmt.Sprintf("%x", id[:6]))
 	s.markets[id] = ob
 	return ob
 }
@@ -286,7 +286,7 @@ func (s *ZAPServer) handleDEXPlace(_ context.Context, payload []byte) ([]byte, e
 	}
 	var id [32]byte
 	copy(id[:], payload[0:32])
-	side := lx.Side(payload[32])
+	side := dex.Side(payload[32])
 	price := decodeFloat64(payload[33:41])
 	size := decodeFloat64(payload[41:49])
 	user := string(trimNull(payload[49:65]))
@@ -296,8 +296,8 @@ func (s *ZAPServer) handleDEXPlace(_ context.Context, payload []byte) ([]byte, e
 	}
 
 	ob := s.market(id, true)
-	order := &lx.Order{
-		Type:   lx.Limit,
+	order := &dex.Order{
+		Type:   dex.Limit,
 		Side:   side,
 		Price:  price,
 		Size:   size,
@@ -353,7 +353,7 @@ func (s *ZAPServer) handleDEXSubmit(_ context.Context, payload []byte) ([]byte, 
 	}
 	var id [32]byte
 	copy(id[:], payload[0:32])
-	side := lx.Side(payload[32])
+	side := dex.Side(payload[32])
 	isMarket := payload[33] == 1
 	limitPrice := decodeFloat64(payload[34:42])
 	size := decodeFloat64(payload[42:50])
@@ -368,7 +368,7 @@ func (s *ZAPServer) handleDEXSubmit(_ context.Context, payload []byte) ([]byte, 
 		return nil, fmt.Errorf("dex_submit: unknown market")
 	}
 
-	order := &lx.Order{
+	order := &dex.Order{
 		Side:   side,
 		Size:   size,
 		User:   user,
@@ -376,12 +376,12 @@ func (s *ZAPServer) handleDEXSubmit(_ context.Context, payload []byte) ([]byte, 
 		Symbol: ob.Symbol,
 	}
 	if isMarket {
-		order.Type = lx.Market
+		order.Type = dex.Market
 	} else {
 		if limitPrice <= 0 {
 			return nil, fmt.Errorf("dex_submit: IOC limit needs positive price")
 		}
-		order.Type = lx.Limit
+		order.Type = dex.Limit
 		order.Price = limitPrice
 	}
 
@@ -579,7 +579,7 @@ func (s *ZAPServer) handleGetOrder(ctx context.Context, payload []byte) ([]byte,
 }
 
 // decodeOrder decodes order from wire format (zero-copy)
-func (s *ZAPServer) decodeOrder(data []byte) *lx.Order {
+func (s *ZAPServer) decodeOrder(data []byte) *dex.Order {
 	if len(data) < OrderWireSize {
 		return nil
 	}
@@ -587,13 +587,13 @@ func (s *ZAPServer) decodeOrder(data []byte) *lx.Order {
 	// Extract symbol (8 bytes, trim null padding)
 	symbol := trimNull(data[0:8])
 
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:        binary.BigEndian.Uint64(data[8:16]),
 		Price:     decodeFloat64(data[16:24]),
 		Size:      decodeFloat64(data[24:32]),
-		Side:      lx.Side(data[32]),
-		Type:      lx.OrderType(data[33]),
-		Flags:     lx.OrderFlags(binary.BigEndian.Uint16(data[34:36])),
+		Side:      dex.Side(data[32]),
+		Type:      dex.OrderType(data[33]),
+		Flags:     dex.OrderFlags(binary.BigEndian.Uint16(data[34:36])),
 		Timestamp: time.Unix(0, int64(binary.BigEndian.Uint64(data[36:44]))),
 		UserID:    string(trimNull(data[44:60])),
 		Symbol:    string(symbol),
@@ -648,7 +648,7 @@ func (s *ZAPServer) encodeQuoteAt(buf []byte, price, size float64, count int) {
 }
 
 // encodeOrderResponse encodes a full order response
-func (s *ZAPServer) encodeOrderResponse(order *lx.Order) []byte {
+func (s *ZAPServer) encodeOrderResponse(order *dex.Order) []byte {
 	resp := s.getBuffer()[:OrderWireSize]
 
 	// Symbol (8 bytes, null-padded)

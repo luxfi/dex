@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,20 +27,20 @@ func TestDEX_OrderMatchingAtomicity(t *testing.T) {
 	const iterations = 500
 
 	for i := 0; i < iterations; i++ {
-		ob := lx.NewOrderBook("ATOM-USD")
+		ob := dex.NewOrderBook("ATOM-USD")
 
-		buy := &lx.Order{
+		buy := &dex.Order{
 			Symbol: "ATOM-USD",
-			Type:   lx.Limit,
-			Side:   lx.Buy,
+			Type:   dex.Limit,
+			Side:   dex.Buy,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "buyer",
 		}
-		sell := &lx.Order{
+		sell := &dex.Order{
 			Symbol: "ATOM-USD",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "seller",
@@ -53,7 +53,7 @@ func TestDEX_OrderMatchingAtomicity(t *testing.T) {
 
 		// Match — single goroutine to avoid reading Order.Status
 		// concurrently with the engine writing it (engine does not
-		// protect Status with atomics — known race in lx.AddOrder/MatchOrders).
+		// protect Status with atomics — known race in dex.AddOrder/MatchOrders).
 		ob.MatchOrders()
 
 		buyOrder := ob.GetOrder(buyID)
@@ -61,8 +61,8 @@ func TestDEX_OrderMatchingAtomicity(t *testing.T) {
 
 		// Post-match invariant: both filled or neither filled.
 		if buyOrder != nil && sellOrder != nil {
-			buyFilled := buyOrder.Status == lx.Filled
-			sellFilled := sellOrder.Status == lx.Filled
+			buyFilled := buyOrder.Status == dex.Filled
+			sellFilled := sellOrder.Status == dex.Filled
 			assert.Equal(t, buyFilled, sellFilled,
 				"iteration %d: atomicity violated — buy filled=%v, sell filled=%v",
 				i, buyFilled, sellFilled)
@@ -85,17 +85,17 @@ func TestDEX_OrderMatchingAtomicity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_DEXPriceTimePriority(t *testing.T) {
-	ob := lx.NewOrderBook("FIFO-USD")
+	ob := dex.NewOrderBook("FIFO-USD")
 
 	const numOrders = 100
 	ids := make([]uint64, numOrders)
 
 	// Insert 100 buy orders at the same price, sequential timestamps
 	for i := 0; i < numOrders; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			Symbol:    "FIFO-USD",
-			Type:      lx.Limit,
-			Side:      lx.Buy,
+			Type:      dex.Limit,
+			Side:      dex.Buy,
 			Price:     50.0,
 			Size:      1.0,
 			UserID:    fmt.Sprintf("buyer-%d", i),
@@ -109,10 +109,10 @@ func TestDEX_DEXPriceTimePriority(t *testing.T) {
 	filledBuyIDs := make([]uint64, 0, numOrders)
 
 	for i := 0; i < numOrders; i++ {
-		sell := &lx.Order{
+		sell := &dex.Order{
 			Symbol: "FIFO-USD",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  50.0,
 			Size:   1.0,
 			UserID: fmt.Sprintf("seller-%d", i),
@@ -145,16 +145,16 @@ func TestDEX_DEXPriceTimePriority(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_PartitionedMatchingEngine(t *testing.T) {
-	ob := lx.NewOrderBook("PART-USD")
+	ob := dex.NewOrderBook("PART-USD")
 
 	submittedOrders := make(map[uint64]bool)
 
 	// Phase 1: Submit orders without matching (simulates partition)
 	for i := 0; i < 50; i++ {
-		buy := &lx.Order{
+		buy := &dex.Order{
 			Symbol: "PART-USD",
-			Type:   lx.Limit,
-			Side:   lx.Buy,
+			Type:   dex.Limit,
+			Side:   dex.Buy,
 			Price:  100.0 + float64(i%5),
 			Size:   float64(1 + i%3),
 			UserID: fmt.Sprintf("buyer-%d", i),
@@ -166,10 +166,10 @@ func TestDEX_PartitionedMatchingEngine(t *testing.T) {
 	}
 
 	for i := 0; i < 50; i++ {
-		sell := &lx.Order{
+		sell := &dex.Order{
 			Symbol: "PART-USD",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  98.0 + float64(i%5),
 			Size:   float64(1 + i%3),
 			UserID: fmt.Sprintf("seller-%d", i),
@@ -230,7 +230,7 @@ func TestDEX_PartitionedMatchingEngine(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_ZMQMessageDelivery(t *testing.T) {
-	ob := lx.NewOrderBook("ZMQ-USD")
+	ob := dex.NewOrderBook("ZMQ-USD")
 
 	const (
 		numProducers = 10
@@ -261,10 +261,10 @@ func TestDEX_ZMQMessageDelivery(t *testing.T) {
 				}
 
 				// Use unique UserID per order to avoid self-trade prevention
-				order := &lx.Order{
+				order := &dex.Order{
 					Symbol: "ZMQ-USD",
-					Type:   lx.Limit,
-					Side:   lx.Side(i % 2),
+					Type:   dex.Limit,
+					Side:   dex.Side(i % 2),
 					Price:  100.0 + float64(i%10),
 					Size:   1.0,
 					UserID: fmt.Sprintf("producer-%d-order-%d", producerID, i),
@@ -322,18 +322,18 @@ func TestDEX_ZMQMessageDelivery(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_NATSFailover(t *testing.T) {
-	ob := lx.NewOrderBook("NATS-USD")
+	ob := dex.NewOrderBook("NATS-USD")
 
-	updates := make(chan lx.MarketDataUpdate, 10000)
+	updates := make(chan dex.MarketDataUpdate, 10000)
 	ob.Subscribe(updates)
 
 	// Phase 1: Normal flow — submit orders
 	phase1IDs := make([]uint64, 0, 20)
 	for i := 0; i < 20; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			Symbol: "NATS-USD",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100.0 + float64(i%5),
 			Size:   1.0,
 			UserID: fmt.Sprintf("user-%d", i),
@@ -360,10 +360,10 @@ drainLoop:
 	// Phase 3: Simulate reconnect — resume order flow
 	phase3IDs := make([]uint64, 0, 20)
 	for i := 20; i < 40; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			Symbol: "NATS-USD",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100.0 + float64(i%5),
 			Size:   1.0,
 			UserID: fmt.Sprintf("user-%d", i),
@@ -404,13 +404,13 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 	const iterations = 1000
 
 	for i := 0; i < iterations; i++ {
-		ob := lx.NewOrderBook("RACE-USD")
+		ob := dex.NewOrderBook("RACE-USD")
 
 		// Place a buy order
-		buy := &lx.Order{
+		buy := &dex.Order{
 			Symbol: "RACE-USD",
-			Type:   lx.Limit,
-			Side:   lx.Buy,
+			Type:   dex.Limit,
+			Side:   dex.Buy,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "buyer",
@@ -419,10 +419,10 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 		require.NotZero(t, buyID)
 
 		// Place a matching sell order
-		sell := &lx.Order{
+		sell := &dex.Order{
 			Symbol: "RACE-USD",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "seller",
@@ -432,7 +432,7 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 
 		var (
 			cancelErr  error
-			trades     []lx.Trade
+			trades     []dex.Trade
 			cancelDone = make(chan struct{})
 			matchDone  = make(chan struct{})
 		)
@@ -470,9 +470,9 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 		buyOrder := ob.GetOrder(buyID)
 		if buyOrder != nil {
 			validStates := map[string]bool{
-				lx.Filled:   true,
-				lx.Canceled: true,
-				lx.Open:     true,
+				dex.Filled:   true,
+				dex.Canceled: true,
+				dex.Open:     true,
 			}
 			assert.True(t, validStates[buyOrder.Status],
 				"iteration %d: unexpected order status %q", i, buyOrder.Status)
@@ -488,15 +488,15 @@ func TestDEX_ConcurrentCancelFill(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_MarketOrderSlippage(t *testing.T) {
-	ob := lx.NewOrderBook("SLIP-USD")
+	ob := dex.NewOrderBook("SLIP-USD")
 
 	// Build a thin ask book with increasing prices
 	askPrices := []float64{100.0, 100.5, 101.0, 102.0, 105.0, 110.0}
 	for i, price := range askPrices {
-		ask := &lx.Order{
+		ask := &dex.Order{
 			Symbol: "SLIP-USD",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  price,
 			Size:   1.0,
 			UserID: fmt.Sprintf("maker-%d", i),
@@ -506,10 +506,10 @@ func TestDEX_MarketOrderSlippage(t *testing.T) {
 	}
 
 	// Submit a large market buy that will eat through multiple levels
-	marketBuy := &lx.Order{
+	marketBuy := &dex.Order{
 		Symbol: "SLIP-USD",
-		Type:   lx.Limit, // Use limit at high price to simulate market
-		Side:   lx.Buy,
+		Type:   dex.Limit, // Use limit at high price to simulate market
+		Side:   dex.Buy,
 		Price:  120.0, // Far above best ask — effectively a market order
 		Size:   4.0,   // Will eat through first 4 levels
 		UserID: "taker",
@@ -554,7 +554,7 @@ func TestDEX_MarketOrderSlippage(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDEX_GatewayLoadShedding(t *testing.T) {
-	ob := lx.NewOrderBook("LOAD-USD")
+	ob := dex.NewOrderBook("LOAD-USD")
 
 	const (
 		numWorkers      = 100
@@ -577,10 +577,10 @@ func TestDEX_GatewayLoadShedding(t *testing.T) {
 			rng := rand.New(rand.NewSource(int64(workerID)))
 
 			for i := 0; i < ordersPerWorker; i++ {
-				order := &lx.Order{
+				order := &dex.Order{
 					Symbol: "LOAD-USD",
-					Type:   lx.Limit,
-					Side:   lx.Side(rng.Intn(2)),
+					Type:   dex.Limit,
+					Side:   dex.Side(rng.Intn(2)),
 					Price:  90.0 + float64(rng.Intn(20)),
 					Size:   float64(1 + rng.Intn(10)),
 					UserID: fmt.Sprintf("w%d-o%d", workerID, i),
@@ -600,7 +600,7 @@ func TestDEX_GatewayLoadShedding(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// Run matching repeatedly until no more trades (drain the book)
-	var trades []lx.Trade
+	var trades []dex.Trade
 	for {
 		batch := ob.MatchOrders()
 		if len(batch) == 0 {

@@ -6,7 +6,7 @@
 
 package standalone
 
-// engineName labels which matcher pkg/lx links into this build. Without cgo,
-// pkg/lx selects the pure-Go CPU matcher (amm_nogpu / orderbook_nogpu).
-// This is a display string only; the matcher selection lives in pkg/lx.
+// engineName labels which matcher pkg/dex links into this build. Without cgo,
+// pkg/dex selects the pure-Go CPU matcher (amm_nogpu / orderbook_nogpu).
+// This is a display string only; the matcher selection lives in pkg/dex.
 const engineName = "cpu"

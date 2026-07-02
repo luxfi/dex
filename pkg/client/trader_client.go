@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // TraderClient is the main client for traders to interact with LX
@@ -28,15 +28,15 @@ type TraderClient struct {
 	userID        string
 
 	// Account information
-	marginAccount *lx.MarginAccount
-	positions     map[string]*lx.MarginPosition
-	orders        map[uint64]*lx.Order
+	marginAccount *dex.MarginAccount
+	positions     map[string]*dex.MarginPosition
+	orders        map[uint64]*dex.Order
 	balances      map[string]*big.Int
 
 	// Market data
-	orderBooks map[string]*lx.OrderBookSnapshot
+	orderBooks map[string]*dex.OrderBookSnapshot
 	prices     map[string]float64
-	trades     map[string][]*lx.Trade
+	trades     map[string][]*dex.Trade
 
 	// Subscriptions
 	subscriptions map[string]bool
@@ -57,15 +57,15 @@ type TraderClient struct {
 
 // OrderUpdate represents an order update event
 type OrderUpdate struct {
-	Order     *lx.Order
-	Status    lx.OrderStatus
+	Order     *dex.Order
+	Status    dex.OrderStatus
 	Timestamp time.Time
 	Message   string
 }
 
 // PositionUpdate represents a position update event
 type PositionUpdate struct {
-	Position  *lx.MarginPosition
+	Position  *dex.MarginPosition
 	Action    string // "opened", "modified", "closed", "liquidated"
 	Timestamp time.Time
 }
@@ -82,7 +82,7 @@ type PriceUpdate struct {
 
 // TradeUpdate represents a trade execution event
 type TradeUpdate struct {
-	Trade     *lx.Trade
+	Trade     *dex.Trade
 	Symbol    string
 	Side      string
 	Timestamp time.Time
@@ -111,12 +111,12 @@ func NewTraderClient(config ClientConfig) (*TraderClient, error) {
 		apiKey:          config.APIKey,
 		apiSecret:       config.APISecret,
 		userID:          config.UserID,
-		positions:       make(map[string]*lx.MarginPosition),
-		orders:          make(map[uint64]*lx.Order),
+		positions:       make(map[string]*dex.MarginPosition),
+		orders:          make(map[uint64]*dex.Order),
 		balances:        make(map[string]*big.Int),
-		orderBooks:      make(map[string]*lx.OrderBookSnapshot),
+		orderBooks:      make(map[string]*dex.OrderBookSnapshot),
 		prices:          make(map[string]float64),
-		trades:          make(map[string][]*lx.Trade),
+		trades:          make(map[string][]*dex.Trade),
 		subscriptions:   make(map[string]bool),
 		callbacks:       make(map[string]func(interface{})),
 		orderUpdates:    make(chan *OrderUpdate, 100),
@@ -220,7 +220,7 @@ func (c *TraderClient) authenticate() error {
 // Trading Methods
 
 // PlaceOrder places a new order
-func (c *TraderClient) PlaceOrder(order *lx.Order) (*lx.Order, error) {
+func (c *TraderClient) PlaceOrder(order *dex.Order) (*dex.Order, error) {
 	if !c.authenticated {
 		return nil, errors.New("not authenticated")
 	}
@@ -279,7 +279,7 @@ func (c *TraderClient) ModifyOrder(orderID uint64, newPrice, newSize float64) er
 // Margin Trading Methods
 
 // OpenMarginPosition opens a new margin position
-func (c *TraderClient) OpenMarginPosition(symbol string, side lx.Side, size, leverage float64) (*lx.MarginPosition, error) {
+func (c *TraderClient) OpenMarginPosition(symbol string, side dex.Side, size, leverage float64) (*dex.MarginPosition, error) {
 	if !c.authenticated {
 		return nil, errors.New("not authenticated")
 	}
@@ -467,7 +467,7 @@ func (c *TraderClient) Unsubscribe(channel string, symbols []string) error {
 }
 
 // GetOrderBook returns current order book for a symbol
-func (c *TraderClient) GetOrderBook(symbol string) (*lx.OrderBookSnapshot, error) {
+func (c *TraderClient) GetOrderBook(symbol string) (*dex.OrderBookSnapshot, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -505,7 +505,7 @@ func (c *TraderClient) GetBalance(asset string) (*big.Int, error) {
 }
 
 // GetPosition returns a specific position
-func (c *TraderClient) GetPosition(positionID string) (*lx.MarginPosition, error) {
+func (c *TraderClient) GetPosition(positionID string) (*dex.MarginPosition, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -517,11 +517,11 @@ func (c *TraderClient) GetPosition(positionID string) (*lx.MarginPosition, error
 }
 
 // GetPositions returns all positions
-func (c *TraderClient) GetPositions() map[string]*lx.MarginPosition {
+func (c *TraderClient) GetPositions() map[string]*dex.MarginPosition {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	positions := make(map[string]*lx.MarginPosition)
+	positions := make(map[string]*dex.MarginPosition)
 	for k, v := range c.positions {
 		positions[k] = v
 	}
@@ -530,11 +530,11 @@ func (c *TraderClient) GetPositions() map[string]*lx.MarginPosition {
 }
 
 // GetOrders returns all orders
-func (c *TraderClient) GetOrders() map[uint64]*lx.Order {
+func (c *TraderClient) GetOrders() map[uint64]*dex.Order {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	orders := make(map[uint64]*lx.Order)
+	orders := make(map[uint64]*dex.Order)
 	for k, v := range c.orders {
 		orders[k] = v
 	}
@@ -633,7 +633,7 @@ func (c *TraderClient) handleOrderUpdate(msg map[string]interface{}) {
 	if orderData, ok := msg["order"].(map[string]interface{}); ok {
 		// Convert to Order struct
 		orderJSON, _ := json.Marshal(orderData)
-		var order lx.Order
+		var order dex.Order
 		json.Unmarshal(orderJSON, &order)
 		update.Order = &order
 
@@ -669,7 +669,7 @@ func (c *TraderClient) handlePositionUpdate(msg map[string]interface{}) {
 	if posData, ok := msg["position"].(map[string]interface{}); ok {
 		// Convert to Position struct
 		posJSON, _ := json.Marshal(posData)
-		var position lx.MarginPosition
+		var position dex.MarginPosition
 		json.Unmarshal(posJSON, &position)
 		update.Position = &position
 
@@ -751,7 +751,7 @@ func (c *TraderClient) handleTradeUpdate(msg map[string]interface{}) {
 	if tradeData, ok := msg["trade"].(map[string]interface{}); ok {
 		// Convert to Trade struct
 		tradeJSON, _ := json.Marshal(tradeData)
-		var trade lx.Trade
+		var trade dex.Trade
 		json.Unmarshal(tradeJSON, &trade)
 		update.Trade = &trade
 
@@ -759,7 +759,7 @@ func (c *TraderClient) handleTradeUpdate(msg map[string]interface{}) {
 		if symbol != "" {
 			c.mu.Lock()
 			if c.trades[symbol] == nil {
-				c.trades[symbol] = make([]*lx.Trade, 0)
+				c.trades[symbol] = make([]*dex.Trade, 0)
 			}
 			c.trades[symbol] = append(c.trades[symbol], &trade)
 
@@ -789,7 +789,7 @@ func (c *TraderClient) handleOrderBookUpdate(msg map[string]interface{}) {
 		if snapshot, ok := msg["snapshot"].(map[string]interface{}); ok {
 			// Convert to OrderBookSnapshot
 			snapshotJSON, _ := json.Marshal(snapshot)
-			var ob lx.OrderBookSnapshot
+			var ob dex.OrderBookSnapshot
 			json.Unmarshal(snapshotJSON, &ob)
 
 			// Update local state

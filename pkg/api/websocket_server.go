@@ -10,20 +10,20 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // WebSocketServer handles real-time trading connections
 type WebSocketServer struct {
 	// Core components
-	engine       *lx.TradingEngine
-	marginEngine *lx.MarginEngine
-	lendingPool  *lx.LendingPool
-	// unifiedPool       *lx.UnifiedLiquidityPool // TODO: Implement
-	oracle            *lx.PriceOracle
-	vaultManager      *lx.VaultManager
-	xchain            *lx.XChainIntegration
-	liquidationEngine *lx.LiquidationEngine
+	engine       *dex.TradingEngine
+	marginEngine *dex.MarginEngine
+	lendingPool  *dex.LendingPool
+	// unifiedPool       *dex.UnifiedLiquidityPool // TODO: Implement
+	oracle            *dex.PriceOracle
+	vaultManager      *dex.VaultManager
+	xchain            *dex.XChainIntegration
+	liquidationEngine *dex.LiquidationEngine
 
 	// WebSocket
 	upgrader  websocket.Upgrader
@@ -165,14 +165,14 @@ func isOriginAllowed(origin string) bool {
 
 // ServerConfig contains server configuration
 type ServerConfig struct {
-	Engine       *lx.TradingEngine
-	MarginEngine *lx.MarginEngine
-	LendingPool  *lx.LendingPool
-	// UnifiedPool       *lx.UnifiedLiquidityPool // TODO: Implement
-	Oracle            *lx.PriceOracle
-	VaultManager      *lx.VaultManager
-	XChain            *lx.XChainIntegration
-	LiquidationEngine *lx.LiquidationEngine
+	Engine       *dex.TradingEngine
+	MarginEngine *dex.MarginEngine
+	LendingPool  *dex.LendingPool
+	// UnifiedPool       *dex.UnifiedLiquidityPool // TODO: Implement
+	Oracle            *dex.PriceOracle
+	VaultManager      *dex.VaultManager
+	XChain            *dex.XChainIntegration
+	LiquidationEngine *dex.LiquidationEngine
 	AuthService       AuthService
 }
 
@@ -373,39 +373,39 @@ func (ws *WebSocketServer) handleAuth(client *Client, msg map[string]interface{}
 // Trading handlers
 
 // Helper function to parse Side from string
-func parseSide(s string) lx.Side {
+func parseSide(s string) dex.Side {
 	switch s {
 	case "buy", "BUY":
-		return lx.Buy
+		return dex.Buy
 	case "sell", "SELL":
-		return lx.Sell
+		return dex.Sell
 	default:
-		return lx.Buy
+		return dex.Buy
 	}
 }
 
 // Helper function to parse OrderType from string
-func parseOrderType(s string) lx.OrderType {
+func parseOrderType(s string) dex.OrderType {
 	switch s {
 	case "market", "MARKET":
-		return lx.Market
+		return dex.Market
 	case "limit", "LIMIT":
-		return lx.Limit
+		return dex.Limit
 	case "stop", "STOP":
-		return lx.Stop
+		return dex.Stop
 	case "stop_limit", "STOP_LIMIT":
-		return lx.StopLimit
+		return dex.StopLimit
 	default:
-		return lx.Limit
+		return dex.Limit
 	}
 }
 
 // Helper function to get opposite side
-func oppositeSide(side lx.Side) lx.Side {
-	if side == lx.Buy {
-		return lx.Sell
+func oppositeSide(side dex.Side) dex.Side {
+	if side == dex.Buy {
+		return dex.Sell
 	}
-	return lx.Buy
+	return dex.Buy
 }
 
 func (ws *WebSocketServer) handlePlaceOrder(client *Client, msg map[string]interface{}, requestID string) {
@@ -458,7 +458,7 @@ func (ws *WebSocketServer) handlePlaceOrder(client *Client, msg map[string]inter
 		return
 	}
 
-	order := &lx.Order{
+	order := &dex.Order{
 		Symbol:    symbol,
 		Side:      parseSide(side),
 		Type:      parseOrderType(orderType),
@@ -585,10 +585,10 @@ func (ws *WebSocketServer) handleOpenPosition(client *Client, msg map[string]int
 	}
 
 	// Create order for position
-	order := &lx.Order{
+	order := &dex.Order{
 		Symbol: symbol,
 		Side:   side,
-		Type:   lx.Market,
+		Type:   dex.Market,
 		Size:   size,
 		User:   client.UserID,
 	}
@@ -935,7 +935,7 @@ func (ws *WebSocketServer) handleGetOrders(client *Client, requestID string) {
 
 // Broadcast methods
 
-func (ws *WebSocketServer) BroadcastOrderBook(symbol string, snapshot *lx.OrderBookSnapshot) {
+func (ws *WebSocketServer) BroadcastOrderBook(symbol string, snapshot *dex.OrderBookSnapshot) {
 	msg := Message{
 		Type: "orderbook_update",
 		Data: map[string]interface{}{
@@ -948,7 +948,7 @@ func (ws *WebSocketServer) BroadcastOrderBook(symbol string, snapshot *lx.OrderB
 	ws.broadcastToSubscribers(fmt.Sprintf("orderbook:%s", symbol), msg)
 }
 
-func (ws *WebSocketServer) BroadcastTrade(trade *lx.Trade) {
+func (ws *WebSocketServer) BroadcastTrade(trade *dex.Trade) {
 	msg := Message{
 		Type: "trade_update",
 		Data: map[string]interface{}{
@@ -1176,10 +1176,10 @@ func (ws *WebSocketServer) checkLiquidations() {
 			// Check if position should be liquidated
 			if ws.marginEngine.ShouldLiquidate(position, markPrice) {
 				// Create liquidation order
-				liquidationOrder := &lx.Order{
+				liquidationOrder := &dex.Order{
 					Symbol: position.Symbol,
 					Side:   oppositeSide(position.Side),
-					Type:   lx.Market,
+					Type:   dex.Market,
 					Size:   position.Size,
 					User:   "liquidation_engine",
 				}
@@ -1203,7 +1203,7 @@ func (ws *WebSocketServer) checkLiquidations() {
 	*/
 }
 
-func (ws *WebSocketServer) notifyLiquidation(userID string, position *lx.MarginPosition) {
+func (ws *WebSocketServer) notifyLiquidation(userID string, position *dex.MarginPosition) {
 	// Find client for user
 	ws.mu.RLock()
 	var targetClient *Client
@@ -1218,7 +1218,7 @@ func (ws *WebSocketServer) notifyLiquidation(userID string, position *lx.MarginP
 	if targetClient != nil {
 		// Calculate realized PnL
 		realizedPnL := (position.MarkPrice - position.EntryPrice) * position.Size
-		if position.Side == lx.Sell {
+		if position.Side == dex.Sell {
 			realizedPnL = -realizedPnL
 		}
 

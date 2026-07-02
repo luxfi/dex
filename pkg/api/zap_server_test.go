@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/log"
-	"github.com/luxfi/dex/pkg/lx"
 	"github.com/luxfi/rpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +28,7 @@ func (nopLogger) WithField(key string, value interface{}) log.Logger { return no
 
 func TestZAPServerBasic(t *testing.T) {
 	// Create orderbook
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 
 	// Create and start ZAP server
 	logger := nopLogger{}
@@ -50,7 +50,7 @@ func TestZAPServerBasic(t *testing.T) {
 	defer client.Close()
 
 	// Test place order
-	orderPayload := encodeTestOrder(1, 50000.0, 1.0, lx.Buy, lx.Limit, "user1")
+	orderPayload := encodeTestOrder(1, 50000.0, 1.0, dex.Buy, dex.Limit, "user1")
 	resp, err := client.CallRaw(ctx, "place_order", orderPayload)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -68,7 +68,7 @@ func TestZAPServerBasic(t *testing.T) {
 }
 
 func TestZAPServerOrderBook(t *testing.T) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 	logger := nopLogger{}
 	server := NewZAPServer(ob, ":0", logger)
 
@@ -88,14 +88,14 @@ func TestZAPServerOrderBook(t *testing.T) {
 	// Place some orders
 	for i := 0; i < 5; i++ {
 		price := 50000.0 - float64(i)*100
-		orderPayload := encodeTestOrder(uint64(i+1), price, 1.0, lx.Buy, lx.Limit, "user1")
+		orderPayload := encodeTestOrder(uint64(i+1), price, 1.0, dex.Buy, dex.Limit, "user1")
 		_, err := client.CallRaw(ctx, "place_order", orderPayload)
 		require.NoError(t, err)
 	}
 
 	for i := 0; i < 5; i++ {
 		price := 50100.0 + float64(i)*100
-		orderPayload := encodeTestOrder(uint64(i+100), price, 1.0, lx.Sell, lx.Limit, "user2")
+		orderPayload := encodeTestOrder(uint64(i+100), price, 1.0, dex.Sell, dex.Limit, "user2")
 		_, err := client.CallRaw(ctx, "place_order", orderPayload)
 		require.NoError(t, err)
 	}
@@ -130,7 +130,7 @@ func TestZAPServerOrderBook(t *testing.T) {
 }
 
 func TestZAPServerCancelOrder(t *testing.T) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 	logger := nopLogger{}
 	server := NewZAPServer(ob, ":0", logger)
 
@@ -148,7 +148,7 @@ func TestZAPServerCancelOrder(t *testing.T) {
 	defer client.Close()
 
 	// Place order
-	orderPayload := encodeTestOrder(1, 50000.0, 1.0, lx.Buy, lx.Limit, "user1")
+	orderPayload := encodeTestOrder(1, 50000.0, 1.0, dex.Buy, dex.Limit, "user1")
 	resp, err := client.CallRaw(ctx, "place_order", orderPayload)
 	require.NoError(t, err)
 
@@ -174,7 +174,7 @@ func TestZAPServerCancelOrder(t *testing.T) {
 }
 
 func TestZAPServerGetOrder(t *testing.T) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 	logger := nopLogger{}
 	server := NewZAPServer(ob, ":0", logger)
 
@@ -192,7 +192,7 @@ func TestZAPServerGetOrder(t *testing.T) {
 	defer client.Close()
 
 	// Place order
-	orderPayload := encodeTestOrder(1, 50000.0, 2.5, lx.Buy, lx.Limit, "user1")
+	orderPayload := encodeTestOrder(1, 50000.0, 2.5, dex.Buy, dex.Limit, "user1")
 	resp, err := client.CallRaw(ctx, "place_order", orderPayload)
 	require.NoError(t, err)
 
@@ -210,16 +210,16 @@ func TestZAPServerGetOrder(t *testing.T) {
 	respOrderID := binary.BigEndian.Uint64(resp[8:16])
 	respPrice := decodeFloat64(resp[16:24])
 	respSize := decodeFloat64(resp[24:32])
-	respSide := lx.Side(resp[32])
+	respSide := dex.Side(resp[32])
 
 	assert.Equal(t, orderID, respOrderID)
 	assert.Equal(t, 50000.0, respPrice)
 	assert.Equal(t, 2.5, respSize)
-	assert.Equal(t, lx.Buy, respSide)
+	assert.Equal(t, dex.Buy, respSide)
 }
 
 func BenchmarkZAPOrderPlacement(b *testing.B) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 	logger := nopLogger{}
 	server := NewZAPServer(ob, ":0", logger)
 
@@ -238,7 +238,7 @@ func BenchmarkZAPOrderPlacement(b *testing.B) {
 	}
 	defer client.Close()
 
-	orderPayload := encodeTestOrder(0, 50000.0, 1.0, lx.Buy, lx.Limit, "user1")
+	orderPayload := encodeTestOrder(0, 50000.0, 1.0, dex.Buy, dex.Limit, "user1")
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -255,16 +255,16 @@ func BenchmarkZAPOrderPlacement(b *testing.B) {
 }
 
 func BenchmarkZAPBestBid(b *testing.B) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 
 	// Add some orders
 	for i := 0; i < 100; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:     uint64(i + 1),
 			Price:  50000.0 - float64(i),
 			Size:   1.0,
-			Side:   lx.Buy,
-			Type:   lx.Limit,
+			Side:   dex.Buy,
+			Type:   dex.Limit,
 			UserID: "user1",
 		}
 		ob.AddOrder(order)
@@ -300,7 +300,7 @@ func BenchmarkZAPBestBid(b *testing.B) {
 }
 
 // Helper to encode a test order
-func encodeTestOrder(id uint64, price, size float64, side lx.Side, orderType lx.OrderType, userID string) []byte {
+func encodeTestOrder(id uint64, price, size float64, side dex.Side, orderType dex.OrderType, userID string) []byte {
 	buf := make([]byte, OrderWireSize)
 
 	// Symbol (8 bytes)

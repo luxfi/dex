@@ -12,7 +12,7 @@ import (
 
 	"github.com/luxfi/crypto"
 	"github.com/luxfi/crypto/mldsa"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 )
 
@@ -28,7 +28,7 @@ import (
 // built via pqAcctFor (the post-quantum lane). user is string(account) — exactly
 // the zapwire user[16] field the wire carries and the ledger keys balances by.
 type testAcct struct {
-	scheme  lx.AuthScheme
+	scheme  dex.AuthScheme
 	priv    *ecdsa.PrivateKey // secp256k1 (nil for PQ)
 	mlpriv  *mldsa.PrivateKey // ML-DSA-65 (nil for classical)
 	pubKey  []byte            // ML-DSA pubkey bytes (nil for secp)
@@ -43,7 +43,7 @@ type testAcct struct {
 func (a *testAcct) authFor(typ TxType, nonce uint64, body []byte) *TxAuth {
 	digest := txAuthDigest(typ, a.scheme, nonce, body)
 	switch a.scheme {
-	case lx.AuthMLDSA65:
+	case dex.AuthMLDSA65:
 		sig, err := a.mlpriv.Sign(rand.Reader, digest[:], stdcrypto.Hash(0))
 		if err != nil {
 			panic("dchain test: ML-DSA sign: " + err.Error())
@@ -109,8 +109,8 @@ func acctFor(t *testing.T, name string) *testAcct {
 	// returns crypto/common.Address; the gate keys on geth/common.Address — the
 	// underlying 20 keccak bytes are identical, so bridge by bytes).
 	addr := common.BytesToAddress(crypto.PubkeyToAddress(priv.PublicKey).Bytes())
-	acc := Account16(lx.AuthSecp256k1, addr)
-	a := &testAcct{scheme: lx.AuthSecp256k1, priv: priv, account: acc, user: string(acc[:])}
+	acc := Account16(dex.AuthSecp256k1, addr)
+	a := &testAcct{scheme: dex.AuthSecp256k1, priv: priv, account: acc, user: string(acc[:])}
 	idents.accts[k] = a
 	return a
 }
@@ -131,9 +131,9 @@ func pqAcctFor(t *testing.T, name string) *testAcct {
 		t.Fatalf("mldsa.GenerateKey: %v", err)
 	}
 	pub := priv.PublicKey.Bytes()
-	addr := lx.AddressFromMLDSAPubKey(pub)
-	acc := Account16(lx.AuthMLDSA65, addr)
-	a := &testAcct{scheme: lx.AuthMLDSA65, mlpriv: priv, pubKey: pub, account: acc, user: string(acc[:])}
+	addr := dex.AddressFromMLDSAPubKey(pub)
+	acc := Account16(dex.AuthMLDSA65, addr)
+	a := &testAcct{scheme: dex.AuthMLDSA65, mlpriv: priv, pubKey: pub, account: acc, user: string(acc[:])}
 	idents.accts[k] = a
 	return a
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // harness_test.go is the dex proof harness. It uses REAL asset ids — the
@@ -82,7 +81,7 @@ func seedDeposit(t *testing.T, db Store, acct AccountID, asset AssetID, amount u
 }
 
 // restOrder places a resting maker LIMIT order and asserts it rested.
-func restOrder(t *testing.T, db Store, pid [32]byte, maker AccountID, side lx.Side, price, size float64, orderID uint64) {
+func restOrder(t *testing.T, db Store, pid [32]byte, maker AccountID, side Side, price, size float64, orderID uint64) {
 	t.Helper()
 	ok, err := PlaceOrder(db, pid, maker, side, price, size, orderID, time.Unix(0, 1_000))
 	if err != nil {
@@ -119,4 +118,4 @@ func totalLedger(t *testing.T, db Store, accts []AccountID, assets []AssetID) ma
 func orderBookRouter() *Router { return NewRouter(NewOrderBookSource()) }
 
 // price builds a PriceInt from a human price (quote per base).
-func price(p float64) lx.PriceInt { return PriceToInt(p) }
+func price(p float64) PriceInt { return PriceToInt(p) }

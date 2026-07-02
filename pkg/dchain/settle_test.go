@@ -9,15 +9,15 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
 // TestUserIDFoldMatchesLx pins the DECOMPLECTED identity split that the custody
 // model rests on:
 //
-//   - The matcher's order-book ROW (lx.DEXOrder.UserID) stays the 8-byte STP
-//     handle (the frozen GPU ABI). lx.OrderToRow folds the user to the leading 8
+//   - The matcher's order-book ROW (dex.DEXOrder.UserID) stays the 8-byte STP
+//     handle (the frozen GPU ABI). dex.OrderToRow folds the user to the leading 8
 //     bytes; that is UNCHANGED and is sufficient for self-trade prevention and
 //     price-time rebuild.
 //   - The d-chain SETTLEMENT identity (userKey16) is the FULL 16-byte wire user
@@ -32,7 +32,7 @@ import (
 func TestUserIDFoldMatchesLx(t *testing.T) {
 	for _, u := range []string{"", "a", "maker-a", "taker-x-very-long-name-overflow"} {
 		// The matcher ROW handle is the 8-byte fold (frozen GPU ABI / STP).
-		row := lx.OrderToRow(&lx.Order{ID: 1, User: u, UserID: u, Size: 1, Price: 1, Side: lx.Buy})
+		row := dex.OrderToRow(&dex.Order{ID: 1, User: u, UserID: u, Size: 1, Price: 1, Side: dex.Buy})
 		var want8 [8]byte
 		copy(want8[:], u)
 		if got, want := row.UserID, binary.BigEndian.Uint64(want8[:]); got != want {
@@ -107,7 +107,7 @@ func TestQuoteUnitsCeilCoversFloor(t *testing.T) {
 			pi := priceToInt(price)
 			lock := quoteUnitsCeil(new(big.Int).SetUint64(base), pi)
 			// matcher floor: floor(base*priceInt/PriceMultiplier)
-			floor := base * uint64(pi) / uint64(lx.PriceMultiplier)
+			floor := base * uint64(pi) / uint64(dex.PriceMultiplier)
 			if lock < floor {
 				t.Errorf("ceil lock %d < floor spend %d for base=%d price=%v", lock, floor, base, price)
 			}

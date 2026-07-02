@@ -28,7 +28,7 @@ commercial license token whose scope list includes `dex`. Contact
 
 - **High performance (measured, Apple M1 Max)**: 11.88M orders/sec (C++ engine, 10 threads), 2.2M orders/sec (pure Go)
 - **Low latency**: 169 ns avg match (p50 125 ns, p99 292 ns) on the C++ engine; 381 ns/order in pure Go
-- **Multi-engine architecture**: pure Go and NUMA-aware C++ — order matching runs on CPU
+- **Multi-engine architecture**: pure Go and NUMA-aware C++ (CPU default build), plus a GPU-native per-book matcher (CGO_ENABLED=1, unified `lux-gpu` backend, parity-verified GPU==CPU) — see "GPU matching"
 - **Quantum-resistant consensus**: DAG with post-quantum signatures
 - **Cross-platform**: Linux, macOS (Intel & Apple Silicon), Windows
 - **Professional Market Data**: Real-time oracle integration with multiple sources
@@ -75,8 +75,8 @@ chmod +x lx-dex
 
 ## Performance
 
-Measured first-hand on Apple M1 Max. Order matching runs on **CPU** — see
-"Why matching stays on CPU" below.
+Measured first-hand on Apple M1 Max. The default (CGO-off) build matches on
+**CPU**; a GPU-native per-book matcher also exists — see "GPU matching" below.
 
 | Engine | Avg match | p50 / p99 | Throughput |
 |--------|-----------|-----------|------------|
@@ -86,14 +86,29 @@ Measured first-hand on Apple M1 Max. Order matching runs on **CPU** — see
 
 C++ order cancel: **49 ns**. Pure-Go matching does **1–2 allocs/op** (not zero-alloc).
 
-### Why matching stays on CPU
+### GPU matching
 
-GPU order matching exists only as a CUDA path on Linux (commercial
-`lux-private/dex`); there is no Apple/Metal matching path. A single match is
-~169 ns — smaller than the dispatch overhead of handing a batch to an
-integrated GPU — so the CPU wins for matching. The GPU pays off in the **FHE**
-layer instead: the Metal NTT kernel is **23× faster** than the CPU NTT at
-N=4096, batch=128, where batched polynomial decomposition dominates.
+The live default (CGO-off) build matches on CPU (11.88M ord/s C++, 169
+ns/match): a single hot-book match is smaller than the dispatch overhead of
+handing one book to an integrated GPU, so the CPU wins for the single-book hot
+path. A GPU-native deterministic *per-book* matcher — byte-identical to the CPU
+oracle (`MatchOrderCPU`) and parity-verified (`pkg/lxgpu/orderbook_parity_test.go`,
+`three_mode_parity_test.go`) — is available with `CGO_ENABLED=1` via the unified
+`lux-gpu` backend (runtime-select CUDA/HIP/Metal), where it wins at planet scale
+by running one thread per book across millions of books. Kernels ship prebuilt
+from luxcpp/dex. Measured throughput (deterministic per-book, GPU==CPU parity):
+
+| Device | Orders/sec |
+|--------|-----------|
+| AMD Radeon 8060S | 12.76B |
+| NVIDIA GB10 | 9.13B |
+| Apple M4 Max | 5.60B |
+| Apple M1 Max | 2.80B |
+| Two-node fabric | 21.9B |
+
+The GPU also drives the **FHE** layer: the Metal NTT kernel is **23.6× faster**
+than the CPU NTT at N=4096, batch=128, where batched polynomial decomposition
+dominates.
 
 ## Architecture
 
@@ -108,7 +123,10 @@ The DEX uses a multi-engine architecture; order matching runs on **CPU**:
 - **Pure Go engine** (`pkg/lx`): portable reference, 2.2M orders/sec, 381 ns/order
 - **C++ engine**: 11.88M orders/sec (10 threads), 5.91M single-thread, 169 ns avg match
 
-### FIX Protocol Performance (December 2024)
+### FIX Protocol Performance (December 2024 — stale, not re-verified this session)
+
+These are FIX wire encode/decode message rates (a separate axis from order
+matching) and have not been re-measured; treat as historical, not current.
 
 | Engine | NewOrderSingle | ExecutionReport | MarketDataSnapshot |
 |--------|----------------|-----------------|-------------------|
@@ -134,8 +152,8 @@ See [docs/](docs/) for detailed documentation.
 # Apple Silicon (Metal)
 CGO_ENABLED=1 make build
 
-# Linux with CUDA
-CGO_ENABLED=1 CUDA=1 make build
+# Linux with CUDA — the lux-gpu backend runtime-selects CUDA; no CUDA make var
+CGO_ENABLED=1 make build
 ```
 
 ### Running Tests

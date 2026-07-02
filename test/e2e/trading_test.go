@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 )
 
 // TestE2ETrading tests end-to-end trading flow
 func TestE2ETrading(t *testing.T) {
 	// Create orderbook
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 
 	// Simulate multiple traders
 	traders := 10
@@ -29,15 +29,15 @@ func TestE2ETrading(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < ordersPerTrader; j++ {
-				side := lx.Buy
+				side := dex.Buy
 				if (traderID+j)%2 == 0 {
-					side = lx.Sell
+					side = dex.Sell
 				}
 
-				order := &lx.Order{
+				order := &dex.Order{
 					ID:     uint64(traderID*ordersPerTrader + j + 1),
 					Symbol: "BTC-USD",
-					Type:   lx.Limit,
+					Type:   dex.Limit,
 					Side:   side,
 					Price:  50000 + float64(j%100),
 					Size:   0.1 + float64(j%10)/10,
@@ -69,17 +69,17 @@ func TestE2ETrading(t *testing.T) {
 
 // TestE2EPerformance tests performance requirements
 func TestE2EPerformance(t *testing.T) {
-	ob := lx.NewOrderBook("PERF-USD")
+	ob := dex.NewOrderBook("PERF-USD")
 
 	numOrders := 10000
 	start := time.Now()
 
 	for i := 0; i < numOrders; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:     uint64(i + 1),
 			Symbol: "PERF-USD",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100 + float64(i%100),
 			Size:   1,
 			UserID: "perf_test",

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -474,7 +474,7 @@ func (vm *VM) handleGetBook(w http.ResponseWriter, r *http.Request) {
 func toTradeJSON(ct committedTrade) tradeJSON {
 	t := ct.Trade
 	side := "buy"
-	if t.TakerSide == lx.DEXSideAsk {
+	if t.TakerSide == dex.DEXSideAsk {
 		side = "sell"
 	}
 	return tradeJSON{
@@ -482,7 +482,7 @@ func toTradeJSON(ct committedTrade) tradeJSON {
 		Seq:          ct.Seq,
 		TradeID:      t.TradeID,
 		Price:        t.Price.Float(),
-		Size:         lx.FixedQtyToFloat(t.Quantity),
+		Size:         dex.FixedQtyToFloat(t.Quantity),
 		TakerSide:    side,
 		MakerOrderID: t.MakerOrderID,
 		TakerOrderID: t.TakerOrderID,
@@ -512,15 +512,15 @@ func sortOrdersJSON(orders []orderJSON) {
 }
 
 // sideString maps a book Side to "buy"/"sell".
-func sideString(s lx.Side) string {
-	if s == lx.Sell {
+func sideString(s dex.Side) string {
+	if s == dex.Sell {
 		return "sell"
 	}
 	return "buy"
 }
 
 // levelsJSON projects aggregated price levels to their display form.
-func levelsJSON(levels []lx.PriceLevel) []levelJSON {
+func levelsJSON(levels []dex.PriceLevel) []levelJSON {
 	out := make([]levelJSON, 0, len(levels))
 	for _, l := range levels {
 		size := l.TotalSize

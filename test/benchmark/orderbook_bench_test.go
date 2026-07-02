@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/luxfi/crypto"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 )
 
 // mustSignOrder builds a SignedOrder with a fresh secp256k1 keypair, signs
 // the SigningHash digest, and stamps the derived address as Sender.
 // Used by BenchmarkBatchVerifyOrders.
-func mustSignOrder(b testing.TB, id uint64) lx.SignedOrder {
+func mustSignOrder(b testing.TB, id uint64) dex.SignedOrder {
 	b.Helper()
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -22,12 +22,12 @@ func mustSignOrder(b testing.TB, id uint64) lx.SignedOrder {
 	var addr common.Address
 	copy(addr[:], crypto.Keccak256(pub[1:])[12:])
 
-	so := lx.SignedOrder{
-		Order: lx.Order{
+	so := dex.SignedOrder{
+		Order: dex.Order{
 			ID:       id,
 			Symbol:   "BTC-USD",
-			Type:     lx.Limit,
-			Side:     lx.Buy,
+			Type:     dex.Limit,
+			Side:     dex.Buy,
 			Price:    100 + float64(id%100)/10,
 			Size:     1 + float64(id%5),
 			ClientID: fmt.Sprintf("c-%d", id),
@@ -48,17 +48,17 @@ func mustSignOrder(b testing.TB, id uint64) lx.SignedOrder {
 
 // BenchmarkOrderBook benchmarks order processing
 func BenchmarkOrderBook(b *testing.B) {
-	ob := lx.NewOrderBook("BENCH-USD")
+	ob := dex.NewOrderBook("BENCH-USD")
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:     uint64(i + 1),
 			Symbol: "BENCH-USD",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100 + float64(i%100)/10,
 			Size:   1,
 			UserID: "bench",
@@ -74,7 +74,7 @@ func BenchmarkOrderBook(b *testing.B) {
 
 // BenchmarkOrderBookParallel benchmarks parallel order processing
 func BenchmarkOrderBookParallel(b *testing.B) {
-	ob := lx.NewOrderBook("PARALLEL-USD")
+	ob := dex.NewOrderBook("PARALLEL-USD")
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -82,11 +82,11 @@ func BenchmarkOrderBookParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			order := &lx.Order{
+			order := &dex.Order{
 				ID:     uint64(i + 1),
 				Symbol: "PARALLEL-USD",
-				Type:   lx.Limit,
-				Side:   lx.Side(i % 2),
+				Type:   dex.Limit,
+				Side:   dex.Side(i % 2),
 				Price:  100 + float64(i%100),
 				Size:   1,
 				UserID: fmt.Sprintf("user_%d", i%10),
@@ -110,7 +110,7 @@ func BenchmarkBatchVerifyOrders(b *testing.B) {
 
 	// Build the corpus once outside the timer — signing 10k orders with
 	// fresh keys takes seconds and would dominate every iteration.
-	orders := make([]lx.SignedOrder, N)
+	orders := make([]dex.SignedOrder, N)
 	for i := 0; i < N; i++ {
 		orders[i] = mustSignOrder(b, uint64(i+1))
 	}
@@ -120,7 +120,7 @@ func BenchmarkBatchVerifyOrders(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Single-element batches → forces per-order dispatch.
 			for j := range orders {
-				if _, err := lx.BatchVerifyOrders(orders[j : j+1]); err != nil {
+				if _, err := dex.BatchVerifyOrders(orders[j : j+1]); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -131,7 +131,7 @@ func BenchmarkBatchVerifyOrders(b *testing.B) {
 	b.Run("GPU_Batch", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			if _, err := lx.BatchVerifyOrders(orders); err != nil {
+			if _, err := dex.BatchVerifyOrders(orders); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -144,10 +144,10 @@ func BenchmarkBatchVerifyOrders(b *testing.B) {
 // no GPU acceleration for it (the GPU path was the order-book matcher only).
 func BenchmarkBatchAMM(b *testing.B) {
 	const N = 100_000
-	reserves := make([]lx.ReservePair, N)
+	reserves := make([]dex.ReservePair, N)
 	amounts := make([]uint64, N)
 	for i := 0; i < N; i++ {
-		reserves[i] = lx.ReservePair{
+		reserves[i] = dex.ReservePair{
 			ReserveX: uint64(1+i) * 1_000_000,
 			ReserveY: uint64(2+i) * 500_000,
 		}
@@ -157,7 +157,7 @@ func BenchmarkBatchAMM(b *testing.B) {
 	b.Run("CPU_Loop", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			if _, err := lx.BatchEvalConstantProductCPU(reserves, amounts); err != nil {
+			if _, err := dex.BatchEvalConstantProductCPU(reserves, amounts); err != nil {
 				b.Fatal(err)
 			}
 		}

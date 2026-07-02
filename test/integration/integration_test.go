@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -14,17 +14,17 @@ import (
 // IntegrationTestSuite tests the complete DEX functionality
 type IntegrationTestSuite struct {
 	suite.Suite
-	engine *lx.TradingEngine
+	engine *dex.TradingEngine
 }
 
 func (suite *IntegrationTestSuite) SetupTest() {
-	config := lx.EngineConfig{
+	config := dex.EngineConfig{
 		EnableMargin:  true,
 		EnableVaults:  true,
 		EnableBridge:  true,
 		EnableOracles: true,
 	}
-	suite.engine = lx.NewTradingEngine(config)
+	suite.engine = dex.NewTradingEngine(config)
 }
 
 func (suite *IntegrationTestSuite) TearDownTest() {
@@ -34,15 +34,15 @@ func (suite *IntegrationTestSuite) TearDownTest() {
 // Test complete order lifecycle
 func (suite *IntegrationTestSuite) TestOrderLifecycle() {
 	// Create orderbook
-	ob := lx.NewOrderBook("BTC-USDT")
+	ob := dex.NewOrderBook("BTC-USDT")
 
 	// Place buy order
-	buyOrder := &lx.Order{
+	buyOrder := &dex.Order{
 		ID:        1,
 		User:      "user1",
 		Symbol:    "BTC-USDT",
-		Side:      lx.Buy,
-		Type:      lx.Limit,
+		Side:      dex.Buy,
+		Type:      dex.Limit,
 		Price:     50000,
 		Size:      1.0,
 		Timestamp: time.Now(),
@@ -52,12 +52,12 @@ func (suite *IntegrationTestSuite) TestOrderLifecycle() {
 	assert.NoError(suite.T(), err)
 
 	// Place sell order (should match)
-	sellOrder := &lx.Order{
+	sellOrder := &dex.Order{
 		ID:        2,
 		User:      "user2",
 		Symbol:    "BTC-USDT",
-		Side:      lx.Sell,
-		Type:      lx.Limit,
+		Side:      dex.Sell,
+		Type:      dex.Limit,
 		Price:     50000,
 		Size:      0.5,
 		Timestamp: time.Now(),
@@ -75,10 +75,10 @@ func (suite *IntegrationTestSuite) TestOrderLifecycle() {
 
 // Test margin trading flow
 func (suite *IntegrationTestSuite) TestMarginTradingFlow() {
-	margin := lx.NewMarginEngine(suite.engine)
+	margin := dex.NewMarginEngine(suite.engine)
 
 	// Open position
-	position, err := margin.OpenPosition("user1", "BTC-USDT", lx.Buy, 0.1, 10)
+	position, err := margin.OpenPosition("user1", "BTC-USDT", dex.Buy, 0.1, 10)
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), position)
 	assert.Equal(suite.T(), 10.0, position.Leverage)
@@ -95,10 +95,10 @@ func (suite *IntegrationTestSuite) TestMarginTradingFlow() {
 
 // Test vault operations
 func (suite *IntegrationTestSuite) TestVaultOperations() {
-	manager := lx.NewVaultManager(suite.engine)
+	manager := dex.NewVaultManager(suite.engine)
 
 	// Create vault
-	config := lx.VaultConfig{
+	config := dex.VaultConfig{
 		ID:         "test-vault",
 		Name:       "Test Vault",
 		MinDeposit: big.NewInt(1000),
@@ -121,7 +121,7 @@ func (suite *IntegrationTestSuite) TestVaultOperations() {
 
 // Test cross-chain bridge
 func (suite *IntegrationTestSuite) TestCrossChainBridge() {
-	bridge := lx.NewCrossChainBridge()
+	bridge := dex.NewCrossChainBridge()
 
 	// Lock tokens on source chain
 	txHash, err := bridge.LockTokens("ETH", "user1", 1.5, "BSC")
@@ -139,15 +139,15 @@ func (suite *IntegrationTestSuite) TestCrossChainBridge() {
 
 // Test liquidation engine
 func (suite *IntegrationTestSuite) TestLiquidationEngine() {
-	engine := lx.NewLiquidationEngine()
-	margin := lx.NewMarginEngine(suite.engine)
+	engine := dex.NewLiquidationEngine()
+	margin := dex.NewMarginEngine(suite.engine)
 
 	// Create underwater position
-	position := &lx.MarginPosition{
+	position := &dex.MarginPosition{
 		ID:                "pos1",
 		User:              "user1",
 		Symbol:            "BTC-USDT",
-		Side:              lx.Buy,
+		Side:              dex.Buy,
 		Size:              1.0,
 		EntryPrice:        50000,
 		MarkPrice:         45000, // Price dropped
@@ -167,11 +167,11 @@ func (suite *IntegrationTestSuite) TestLiquidationEngine() {
 
 // Test oracle integration
 func (suite *IntegrationTestSuite) TestOracleIntegration() {
-	oracle := lx.NewPriceOracle()
+	oracle := dex.NewPriceOracle()
 
 	// Add price sources
-	oracle.AddSource("chainlink", lx.NewChainlinkSource())
-	oracle.AddSource("pyth", lx.NewPythSource())
+	oracle.AddSource("chainlink", dex.NewChainlinkSource())
+	oracle.AddSource("pyth", dex.NewPythSource())
 
 	// Get aggregated price
 	price, err := oracle.GetPrice("BTC-USDT")
@@ -190,7 +190,7 @@ func (suite *IntegrationTestSuite) TestOracleIntegration() {
 
 // Test staking operations
 func (suite *IntegrationTestSuite) TestStakingOperations() {
-	staking := lx.NewStakingManager()
+	staking := dex.NewStakingManager()
 
 	// Stake tokens
 	position, err := staking.Stake("pool1", "user1", big.NewInt(10000))
@@ -213,7 +213,7 @@ func (suite *IntegrationTestSuite) TestStakingOperations() {
 
 // Test high load scenario
 func (suite *IntegrationTestSuite) TestHighLoadScenario() {
-	ob := lx.NewOrderBook("ETH-USDT")
+	ob := dex.NewOrderBook("ETH-USDT")
 
 	// Place many orders concurrently
 	orderCount := 1000
@@ -221,12 +221,12 @@ func (suite *IntegrationTestSuite) TestHighLoadScenario() {
 
 	for i := 0; i < orderCount; i++ {
 		go func(id int) {
-			order := &lx.Order{
+			order := &dex.Order{
 				ID:        uint64(id),
 				User:      fmt.Sprintf("user%d", id%10),
 				Symbol:    "ETH-USDT",
-				Side:      lx.Side(id % 2),
-				Type:      lx.Limit,
+				Side:      dex.Side(id % 2),
+				Type:      dex.Limit,
 				Price:     3000 + float64(id%100),
 				Size:      0.1,
 				Timestamp: time.Now(),

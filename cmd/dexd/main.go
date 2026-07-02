@@ -16,9 +16,9 @@
 //	                consensus sealer loop itself (WaitForEvent -> BuildBlock ->
 //	                Verify -> Accept).
 //
-// The matcher, VM, and engine all live in pkg/dchain + pkg/lx; this binary only
+// The matcher, VM, and engine all live in pkg/dchain + pkg/dex; this binary only
 // selects a run mode and wires it — it duplicates no engine code. CGO_ENABLED
-// picks the matcher in pkg/lx (GPU under cgo, pure-Go CPU without); the default
+// picks the matcher in pkg/dex (GPU under cgo, pure-Go CPU without); the default
 // build is CPU (CGO=0) and links no native code.
 package main
 

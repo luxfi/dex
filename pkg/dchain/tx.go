@@ -3,7 +3,7 @@
 
 // Package dchain is the standalone D-Chain DEX virtual machine: a
 // block.ChainVM (github.com/luxfi/consensus/engine/chain/block) that runs the
-// lx.OrderBook matcher inside consensus. Orders arrive as ZAP frames, are
+// dex.OrderBook matcher inside consensus. Orders arrive as ZAP frames, are
 // queued in a mempool (never executed synchronously), drained into a block in
 // sequence order, matched at Block.Verify against a versiondb overlay so every
 // validator re-derives the fills, and committed to durable zapdb at

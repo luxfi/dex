@@ -5,8 +5,6 @@ package dex
 
 import (
 	"math/big"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // router.go is THE on-chain smart-order-router — the real product. It routes one
@@ -55,7 +53,7 @@ type SwapRequest struct {
 	// Market identity + the taker.
 	PoolID    [32]byte  // = V4 PoolKey.ID()
 	TakerUser AccountID // the taker's FULL 16-byte settlement identity (the spender)
-	Side      lx.Side   // Buy (taker buys base, spends quote) or Sell
+	Side      Side      // Buy (taker buys base, spends quote) or Sell
 	Base      AssetID   // market base asset (full injective id)
 	Quote     AssetID   // market quote asset (full injective id)
 
@@ -69,7 +67,7 @@ type SwapRequest struct {
 	// LimitIsUpper says which side it bounds (true = a BUY ceiling, false = a SELL
 	// floor). Enforced on the realized proceeds price — the taker-authenticated MEV
 	// floor — so a sandwiching counterparty cannot force a fill outside the limit.
-	LimitPrice   lx.PriceInt
+	LimitPrice   PriceInt
 	LimitIsUpper bool
 
 	// MinOut is the V4 slippage floor: the swap reverts if the total proceeds
@@ -87,7 +85,7 @@ type Fill struct {
 	// Trades are the OrderBook fills (for a OrderBook source) — they carry maker order ids so
 	// settlement resolves each maker's full identity via orderuser:. Empty for an
 	// AMM source (an AMM fill has no resting maker; see AMMBaseDelta/AMMQuoteDelta).
-	Trades []lx.Trade
+	Trades []Trade
 
 	// AMMBaseDelta / AMMQuoteDelta are the base/quote units an AMM source moved (an
 	// AMM has no maker rows). The router credits/debits these against the pool's
@@ -253,7 +251,7 @@ func (r *Router) Route(db Store, req SwapRequest, j *Journal) (totalOut, totalIn
 // multiplication (no float): a is better iff a.out * b.in > b.out * a.in. Equal
 // prices keep the incumbent (b) so source priority (the scan order, OrderBook first)
 // breaks the tie.
-func betterMarginalPrice(a, b Quote, _ lx.Side) bool {
+func betterMarginalPrice(a, b Quote, _ Side) bool {
 	// a.out/a.in  >  b.out/b.in   <=>   a.out*b.in > b.out*a.in
 	lhs := new(big.Int).Mul(new(big.Int).SetUint64(a.AmountOut), new(big.Int).SetUint64(b.AmountInUsed))
 	rhs := new(big.Int).Mul(new(big.Int).SetUint64(b.AmountOut), new(big.Int).SetUint64(a.AmountInUsed))
@@ -271,7 +269,7 @@ func enforceProceedsPriceFloor(req SwapRequest, inUsed, out uint64) error {
 	}
 	// Realized price as PriceInt = (quoteUnits * PriceMultiplier) / baseUnits.
 	var quoteUnits, baseUnits uint64
-	if req.Side == lx.Buy {
+	if req.Side == Buy {
 		// Taker bought base (out) by paying quote (in): price = in/out.
 		quoteUnits, baseUnits = inUsed, out
 	} else {

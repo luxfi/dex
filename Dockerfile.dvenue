@@ -9,9 +9,11 @@
 #   /usr/local/bin/dexd     — the ZAP matching engine (luxfi/dex cmd/dexd, run
 #                             as `dexd run`, built CGO_ENABLED=1). This is the
 #                             real CLOB:
-#                             CGO_ENABLED=1 makes pkg/lx link the GPU matching
-#                             kernels (libdex_clob_cuda + libamm_xyk_cuda) and the
-#                             secp256k1 ecrecover bundle via pkg-config. The 0x9010
+#                             CGO_ENABLED=1 makes pkg/lx link the unified GPU
+#                             matching backend (lux-gpu — one liblux_gpu that
+#                             runtime-selects CUDA > HIP > Metal > CPU) and the
+#                             secp256k1 ecrecover bundle (lux-crypto-secp256k1)
+#                             via pkg-config. The 0x9010
 #                             C-Chain precompile and the chains/dexvm atomic proxy
 #                             dial it.
 #   /luxd/build/luxd        — the dchain-tagged node (`-tags dchain`), which
@@ -19,16 +21,18 @@
 #                             serves the P-chain-registered D-Chain. The proxy
 #                             relays to the dexd socket; it is pure-Go (no GPU).
 #
-# ARCH: linux/arm64 ONLY. The matcher's `cgo && linux` path in luxfi/dex pkg/lx
-# (orderbook_cuda.go + amm_gpu_cuda.go) has no non-CUDA fallback on any arch, so
-# the venue can only be built where CUDA exists — the arcd fleet's one CUDA host
-# is spark (NVIDIA GB10, sm_121, aarch64). There is no linux/amd64 CUDA runner.
+# ARCH: linux/arm64. The cgo matcher in luxfi/dex pkg/lx (orderbook_gpu.go +
+# pkg/lxgpu/) is a single runtime-select backend (CUDA > HIP > Metal > CPU) via
+# the unified lux-gpu pkg-config bundle, and it DOES have a CPU fallback
+# (orderbook_nogpu.go, the `!cgo` build). This image links the CUDA build of
+# that prebuilt bundle, so it is built on the arcd fleet's one CUDA host — spark
+# (NVIDIA GB10, sm_121, aarch64). There is no linux/amd64 CUDA runner.
 #
-# PRIVATE DEPS: the three pkg-config libs are fetched as a per-arch tarball from
+# PRIVATE DEPS: the two pkg-config libs are fetched as a per-arch tarball from
 # the luxcpp/dex `dex-gpu-release` workflow (luxdex-venue-<ver>-linux-arm64.tar.gz),
 # extracted to /usr/local — exactly how node/Dockerfile fetches luxcpp/cevm.
-# That tarball carries lux-dex-clob-cuda.pc, lux-dex-amm-cuda.pc and
-# lux-crypto-secp256k1.pc plus their libs/headers under a GNU prefix.
+# That tarball carries lux-gpu.pc and lux-crypto-secp256k1.pc plus their
+# libs/headers under a GNU prefix.
 # ---------------------------------------------------------------------------
 ARG GO_VERSION=1.26.4
 # CUDA 12.x devel image (arm64/sbsa variant) provides nvcc-free libcudart for
@@ -72,8 +76,8 @@ RUN --mount=type=secret,id=ghtok,required=false \
 # --- Fetch the venue GPU dependency bundle (the private link surface) --------
 # Published by luxcpp/dex .github/workflows/dex-gpu-release.yml. Extracting to
 # /usr/local puts the .pc files at /usr/local/lib/pkgconfig and the libs at
-# /usr/local/lib, so pkg-config resolves lux-dex-clob-cuda / lux-dex-amm-cuda /
-# lux-crypto-secp256k1 at the cgo link step below.
+# /usr/local/lib, so pkg-config resolves lux-gpu / lux-crypto-secp256k1 at the
+# cgo link step below.
 #
 # CI/RELEASE GAP (until the dex-gpu-release workflow has run on a tag): the URL
 # below 404s. The build then fails at the dexd link step with a clear
@@ -91,8 +95,9 @@ ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
 # --- Build dexd (the GPU matcher) from luxfi/dex -----------------------------
 # CGO_ENABLED=1 (which sets the `cgo` build tag) makes pkg/lx select its GPU
-# matcher (orderbook_cuda + amm_gpu_cuda + signed_order_gpu, all gated on `cgo`),
-# satisfied by the pkg-config libs above. `-tags cgo` is explicit-for-readability
+# matcher (orderbook_gpu.go via lux-gpu + signed_order_gpu.go via
+# lux-crypto-secp256k1, both gated on `cgo`), satisfied by the pkg-config libs
+# above. `-tags cgo` is explicit-for-readability
 # (CGO_ENABLED=1 already implies it). The operator runs this binary as
 # `dexd run`. The pure-Go CPU build of the same binary is the canonical
 # Dockerfile (CGO_ENABLED=0) — not built here.

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"math/big"
 	"time"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // place.go is the resting-liquidity path: a maker places a LIMIT order that rests
@@ -30,7 +28,7 @@ import (
 // or a zero-notional executable order (dust price / sub-unit size) — the order does
 // NOT rest and nothing is locked, signaled by ok=false. A post-only-would-take
 // rejection also yields ok=false with the lock refunded.
-func PlaceOrder(db Store, poolID [32]byte, maker AccountID, side lx.Side, price, size float64, orderID uint64, ts time.Time) (ok bool, err error) {
+func PlaceOrder(db Store, poolID [32]byte, maker AccountID, side Side, price, size float64, orderID uint64, ts time.Time) (ok bool, err error) {
 	base, quote, bound, err := ReadMarketAssets(db, poolID)
 	if err != nil {
 		return false, err
@@ -70,9 +68,9 @@ func PlaceOrder(db Store, poolID [32]byte, maker AccountID, side lx.Side, price,
 	if err != nil {
 		return false, err
 	}
-	order := &lx.Order{
+	order := &Order{
 		ID:        orderID,
-		Type:      lx.Limit,
+		Type:      Limit,
 		Side:      side,
 		Price:     price,
 		Size:      size,
@@ -91,7 +89,7 @@ func PlaceOrder(db Store, poolID [32]byte, maker AccountID, side lx.Side, price,
 	}
 
 	// Persist the resting row + the per-order reserve + the full settlement identity.
-	row := lx.OrderToRow(order)
+	row := OrderToRow(order)
 	row.OrderID = order.ID
 	if err := PutOrderRow(db, poolID, row); err != nil {
 		return false, err

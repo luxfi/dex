@@ -7,8 +7,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // ownership_test.go proves the fail-closed settlement-identity discipline: a fill
@@ -37,11 +35,11 @@ func TestOwnership_MakerSettlesToFullIdentity(t *testing.T) {
 	// same handle prefix and its own deposit, which must NOT receive the proceeds.
 	seedDeposit(t, db, makerA, tokLUSD, 100_000)
 	seedDeposit(t, db, makerB, tokLUSD, 100_000)
-	restOrder(t, db, pid, makerA, lx.Buy, 50, 100, 1)
+	restOrder(t, db, pid, makerA, Buy, 50, 100, 1)
 	seedDeposit(t, db, taker, tokLETH, 100)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40, OrderID: 1_000, TimestampN: 2_000,
 		Class: ClassPublicDEX,
 	}
@@ -68,7 +66,7 @@ func TestOwnership_FailsClosedOnMissingIdentity(t *testing.T) {
 	maker := account(0xAA)
 	taker := account(0xBB)
 	seedDeposit(t, db, maker, tokLUSD, 100_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 100, 1)
+	restOrder(t, db, pid, maker, Buy, 50, 100, 1)
 	seedDeposit(t, db, taker, tokLETH, 100)
 
 	// Corrupt state: delete the maker's settlement-identity row (orderuser:).
@@ -77,7 +75,7 @@ func TestOwnership_FailsClosedOnMissingIdentity(t *testing.T) {
 	}
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40, OrderID: 1_000, TimestampN: 2_000,
 		Class: ClassPublicDEX,
 	}
@@ -101,7 +99,7 @@ func TestOwnership_CancelFailsClosed(t *testing.T) {
 	pid := seedMarket(t, db, 22, tokLETH, tokLUSD)
 	maker := account(0xAA)
 	seedDeposit(t, db, maker, tokLUSD, 100_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 100, 1)
+	restOrder(t, db, pid, maker, Buy, 50, 100, 1)
 	// Corrupt: delete the identity row but leave the lock reserve.
 	if err := DeleteOrderUser(db, pid, 1); err != nil {
 		t.Fatalf("DeleteOrderUser: %v", err)
@@ -119,7 +117,7 @@ func TestOwnership_CancelRefundsToOwner(t *testing.T) {
 	pid := seedMarket(t, db, 23, tokLETH, tokLUSD)
 	maker := account(0xAA)
 	seedDeposit(t, db, maker, tokLUSD, 100_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 100, 1) // locks 5000 LUSD
+	restOrder(t, db, pid, maker, Buy, 50, 100, 1) // locks 5000 LUSD
 
 	if lk, _ := GetLocked(db, maker, tokLUSD); lk != 5000 {
 		t.Fatalf("locked = %d, want 5000", lk)
@@ -148,11 +146,11 @@ func TestMEVFloor_OrderBookRefusesBelowFloor(t *testing.T) {
 	taker := account(0xBB)
 	// Maker bids only 40 LUSD/LETH; taker's floor is 50 -> the limit sell won't cross.
 	seedDeposit(t, db, maker, tokLUSD, 100_000)
-	restOrder(t, db, pid, maker, lx.Buy, 40, 100, 1)
+	restOrder(t, db, pid, maker, Buy, 40, 100, 1)
 	seedDeposit(t, db, taker, tokLETH, 100)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false, // SELL floor at 50
 		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,
@@ -190,7 +188,7 @@ func TestMEVFloor_AMMLegRejectedByProceedsFloor(t *testing.T) {
 	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false, // floor 50, AMM gives ~40
 		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,
@@ -209,11 +207,11 @@ func TestMEVFloor_AcceptsGoodProceeds(t *testing.T) {
 	maker := account(0xAA)
 	taker := account(0xBB)
 	seedDeposit(t, db, maker, tokLUSD, 100_000)
-	restOrder(t, db, pid, maker, lx.Buy, 55, 100, 1) // bid above the floor
+	restOrder(t, db, pid, maker, Buy, 55, 100, 1) // bid above the floor
 	seedDeposit(t, db, taker, tokLETH, 100)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 40,
 		LimitPrice: price(50), LimitIsUpper: false,
 		OrderID: 1_000, TimestampN: 2_000, Class: ClassPublicDEX,

@@ -6,7 +6,7 @@ package dchain
 import (
 	"sync"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -39,8 +39,8 @@ type txOutcome struct {
 
 // toWireFills converts a submit's matched trades into the FROZEN wire Fill form
 // (price, size, takerSide). This is the single conversion from the internal
-// lx.Trade to the 17-byte wire fill; the handler then calls zapwire.EncodeFills.
-func toWireFills(fills []lx.Trade, takerSide lx.Side) []zapwire.Fill {
+// dex.Trade to the 17-byte wire fill; the handler then calls zapwire.EncodeFills.
+func toWireFills(fills []dex.Trade, takerSide dex.Side) []zapwire.Fill {
 	out := make([]zapwire.Fill, len(fills))
 	for i, f := range fills {
 		out[i] = zapwire.Fill{

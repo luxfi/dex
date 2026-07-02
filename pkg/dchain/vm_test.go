@@ -11,7 +11,7 @@ import (
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/log"
 )
@@ -171,7 +171,7 @@ func TestVMLifecycle(t *testing.T) {
 	headBefore := vm.lastAcceptedID
 	heightBefore := vm.lastAcceptedHeight
 	rootBefore := vm.lastRoot
-	rowsBefore := lx.BookToRows(ob)
+	rowsBefore := dex.BookToRows(ob)
 
 	if err := vm.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown: %v", err)
@@ -196,12 +196,12 @@ func TestVMLifecycle(t *testing.T) {
 	if ob2 == nil {
 		t.Fatal("market book not rebuilt after restart")
 	}
-	rowsAfter := lx.BookToRows(ob2)
+	rowsAfter := dex.BookToRows(ob2)
 	if len(rowsAfter) != len(rowsBefore) {
 		t.Fatalf("rebuilt book has %d rows, want %d", len(rowsAfter), len(rowsBefore))
 	}
 	for i := range rowsBefore {
-		if string(lx.EncodeRow(rowsBefore[i])) != string(lx.EncodeRow(rowsAfter[i])) {
+		if string(dex.EncodeRow(rowsBefore[i])) != string(dex.EncodeRow(rowsAfter[i])) {
 			t.Errorf("rebuilt row %d differs after restart", i)
 		}
 	}

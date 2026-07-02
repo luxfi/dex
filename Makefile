@@ -5,7 +5,9 @@
 #   dexd run        run the standalone D-Chain venue (ZAP + consensus sealer)
 #
 # Default build is CPU (CGO_ENABLED=0) — no GPU/MLX required. The GPU matcher
-# (CGO_ENABLED=1, pkg/lx cuda kernels) is built only by Dockerfile.dvenue.
+# (CGO_ENABLED=1, pkg/lx via the unified lux-gpu pkg-config bundle — one
+# runtime-select backend: CUDA > HIP > Metal > CPU) is built only by
+# Dockerfile.dvenue.
 
 SHELL := /bin/bash
 .PHONY: all build run test test-race bench vet fmt lint deps clean coverage \

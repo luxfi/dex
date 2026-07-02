@@ -6,21 +6,21 @@
 // three_mode_parity_test.go — proves the DEX produces IDENTICAL match outcomes
 // across the three execution engines for the same order sequence:
 //
-//	1. pure-Go    : lx.OrderBook (the canonical Go/CPU reference matcher that
+//	1. pure-Go    : dex.OrderBook (the canonical Go/CPU reference matcher that
 //	                lives in luxfi/dex — the d-chain's matcher)
 //	2. CPU/C++    : orderBookMatchStepCPU — the Go port of the canonical C++ oracle
 //	                (dex_cpu_oracle.hpp), uint256, byte-equal to the C++ backend
 //	3. GPU        : OrderBookMatch via the loaded plugin (Metal locally), uint256,
 //	                device-resident BookArena
 //
-// The three engines have DIFFERENT data models (lx.OrderBook is float/uint64
+// The three engines have DIFFERENT data models (dex.OrderBook is float/uint64
 // and price-level aggregated; the GPU/oracle are uint256 and per-level arenas),
 // so parity is asserted at the shared, model-independent abstraction every OrderBook
 // must agree on: for each incoming order, the TOTAL FILLED QUANTITY and the
 // volume-weighted average execution price (VWAP).
 //
 // Modes 2 and 3 are already proven byte-identical to each other by
-// TestOrderBookGPUvsCPUByteParity. This test adds the third leg — the lx.OrderBook
+// TestOrderBookGPUvsCPUByteParity. This test adds the third leg — the dex.OrderBook
 // pure-Go matcher — and ties all three together.
 //
 // Run (Metal, this Mac):
@@ -35,7 +35,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // u256ToU64 collapses a uint256 to uint64, asserting the high 192 bits are
@@ -56,27 +56,27 @@ func u256ToU64(t *testing.T, v u256) uint64 {
 	return r
 }
 
-// goOrderbookStep feeds one order into the canonical lx.OrderBook and returns
+// goOrderbookStep feeds one order into the canonical dex.OrderBook and returns
 // the (filledQty, vwap) outcome for that order, computed from the trades it
 // produced — the same (filled, vwap) abstraction the GPU/oracle report.
 //
 // userID is derived from the side so a taker never self-trades the resting
-// makers (lx.OrderBook skips self-trades; the GPU/oracle have no owner
+// makers (dex.OrderBook skips self-trades; the GPU/oracle have no owner
 // concept). Two stable users — one per side — keep the models comparable. The
 // order ID and timestamp are set explicitly (never auto-assigned) so the run is
 // deterministic and independent of wall-clock time or process-local counters.
-func goOrderbookStep(ob *lx.OrderBook, s orderBookStep, seq int64) (filled, vwap uint64) {
-	side := lx.Side(s.side) // 0 = bid/buy, 1 = ask/sell
-	user := "bid"           // bid maker/taker
-	if side == lx.Sell {
+func goOrderbookStep(ob *dex.OrderBook, s orderBookStep, seq int64) (filled, vwap uint64) {
+	side := dex.Side(s.side) // 0 = bid/buy, 1 = ask/sell
+	user := "bid"            // bid maker/taker
+	if side == dex.Sell {
 		user = "ask" // ask user — distinct so crosses never self-trade
 	}
 
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:          uint64(seq), // explicit, distinct id per step
 		Symbol:      "PARITY",
 		Side:        side,
-		Type:        lx.Limit,
+		Type:        dex.Limit,
 		Price:       float64(s.price),
 		Size:        float64(s.qty),
 		User:        user,
@@ -89,7 +89,7 @@ func goOrderbookStep(ob *lx.OrderBook, s orderBookStep, seq int64) (filled, vwap
 	// this order produced. AddOrder matches on insert (continuous OrderBook) and
 	// appends each fill to ob.Trades.
 	start := len(ob.Trades)
-	if ob.AddOrder(order) == 0 && order.Status == lx.Rejected {
+	if ob.AddOrder(order) == 0 && order.Status == dex.Rejected {
 		return 0, 0
 	}
 
@@ -120,11 +120,11 @@ func TestThreeModeMatchParity(t *testing.T) {
 
 	seq := paritySequence()
 
-	// --- pure-Go engine (the canonical lx.OrderBook matcher) ---
+	// --- pure-Go engine (the canonical dex.OrderBook matcher) ---
 	// EnableImmediateMatching makes AddOrder cross the incoming order against the
 	// book and rest the residual — the same "match-on-insert, residual rests"
 	// semantic the CPU oracle (orderBookMatchStepCPU) and the GPU kernel implement.
-	ob := lx.NewOrderBook("PARITY")
+	ob := dex.NewOrderBook("PARITY")
 	ob.EnableImmediateMatching = true
 	goOut := make([][2]uint64, len(seq))
 	for i, s := range seq {
