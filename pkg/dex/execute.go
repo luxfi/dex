@@ -5,8 +5,6 @@ package dex
 
 import (
 	"math/big"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // execute.go is the top-level swap orchestrator — the entry point the 0x9999
@@ -63,12 +61,12 @@ func ExecuteSwap(db Store, router *Router, req SwapRequest) (*SwapResult, error)
 	}
 	// An exact-input BUY off a quote budget MUST carry a price ceiling (unbounded-
 	// slippage market buys are refused). A SELL needs no limit.
-	if req.Side == lx.Buy && req.LimitPrice <= 0 {
+	if req.Side == Buy && req.LimitPrice <= 0 {
 		return nil, ErrBuyRequiresLimit
 	}
 	// Resolve the spend/receive assets from the side.
 	inAsset, outAsset := req.Quote, req.Base // BUY: spend quote, receive base
-	if req.Side == lx.Sell {
+	if req.Side == Sell {
 		inAsset, outAsset = req.Base, req.Quote // SELL: spend base, receive quote
 	}
 

@@ -13,7 +13,7 @@ import (
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/versiondb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
 	"github.com/luxfi/rpc"
@@ -68,7 +68,7 @@ type VM struct {
 	outcomes *outcomeRegistry
 
 	// In-RAM accelerator: poolId -> rebuildable book. Truth is the order:* rows.
-	books map[[32]byte]*lx.OrderBook
+	books map[[32]byte]*dex.OrderBook
 
 	// Accepted-block index + linear-chain head.
 	acceptedBlocks     map[ids.ID]*Block
@@ -134,11 +134,11 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	// operator opts in via LUX_DEX_MATCH_ENGINE=gpu-verified. A divergence here is
 	// a hard alarm: the CPU authority was committed and the GPU output discarded,
 	// and the GPU engine should be disabled on this node pending investigation.
-	lx.SetMatchDivergenceSink(func(d lx.MatchDivergence) {
+	dex.SetMatchDivergenceSink(func(d dex.MatchDivergence) {
 		vm.log.Error("dchain GPU shadow divergence (CPU authority committed; GPU output discarded)",
 			"kind", d.Kind, "reason", d.Reason, "detail", d.Detail)
 	})
-	if engine := lx.MatchEngine(); engine != lx.EngineCPU {
+	if engine := dex.MatchEngine(); engine != dex.EngineCPU {
 		vm.log.Warn("dchain match engine: GPU shadow ENABLED — CPU remains the committed authority",
 			"engine", engine.String())
 	}
@@ -160,7 +160,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	vm.autoDriveSeam = vm.runtime != nil && vm.runtime.GetSharedMemory() != nil && vm.cChainID != ids.Empty
 	vm.mempool = newMempool(init.ToEngine)
 	vm.outcomes = newOutcomeRegistry()
-	vm.books = map[[32]byte]*lx.OrderBook{}
+	vm.books = map[[32]byte]*dex.OrderBook{}
 	vm.acceptedBlocks = map[ids.ID]*Block{}
 	vm.processingBlocks = map[ids.ID]*Block{}
 	vm.heightIndex = map[uint64]ids.ID{}

@@ -232,7 +232,7 @@ func (m *ledgerModel) assertConservation(t *testing.T, vm *VM, where string) {
 // recognize the self-cross. The cross then desynced the integer-units lane (which
 // fully consumed the maker, deleting its orderuser:/reserve) from the float lane
 // (which left it resting), and a LATER cross hit the missing orderuser: row and
-// stranded settlement, breaking conservation. Fixed in pkg/lx by resolving both
+// stranded settlement, breaking conservation. Fixed in pkg/dex by resolving both
 // orders through the canonical owner handle (selfTradeKey) in BOTH the place path
 // (checkSelfTrade) and the marketable matcher (tryMatchImmediateLocked), so a
 // rested-then-rebuilt maker and a fresh taker from the same account compare equal

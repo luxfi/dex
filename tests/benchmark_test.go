@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,16 +13,16 @@ import (
 // ---------------------------------------------------------------------------
 
 func BenchmarkOrderInsert(b *testing.B) {
-	ob := lx.NewOrderBook("BENCH-INSERT")
+	ob := dex.NewOrderBook("BENCH-INSERT")
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			Symbol: "BENCH-INSERT",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100.0 + float64(i%100),
 			Size:   1.0,
 			UserID: "bench",
@@ -42,21 +42,21 @@ func BenchmarkOrderMatch(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ob := lx.NewOrderBook("BENCH-MATCH")
+		ob := dex.NewOrderBook("BENCH-MATCH")
 
 		// Insert one buy and one sell that cross
-		ob.AddOrder(&lx.Order{
+		ob.AddOrder(&dex.Order{
 			Symbol: "BENCH-MATCH",
-			Type:   lx.Limit,
-			Side:   lx.Buy,
+			Type:   dex.Limit,
+			Side:   dex.Buy,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "buyer",
 		})
-		ob.AddOrder(&lx.Order{
+		ob.AddOrder(&dex.Order{
 			Symbol: "BENCH-MATCH",
-			Type:   lx.Limit,
-			Side:   lx.Sell,
+			Type:   dex.Limit,
+			Side:   dex.Sell,
 			Price:  100.0,
 			Size:   1.0,
 			UserID: "seller",
@@ -75,14 +75,14 @@ func BenchmarkOrderMatch(b *testing.B) {
 
 func BenchmarkCancelOrder(b *testing.B) {
 	// Pre-fill the book so cancels have work to do
-	ob := lx.NewOrderBook("BENCH-CANCEL")
+	ob := dex.NewOrderBook("BENCH-CANCEL")
 	ids := make([]uint64, b.N)
 
 	for i := 0; i < b.N; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			Symbol: "BENCH-CANCEL",
-			Type:   lx.Limit,
-			Side:   lx.Side(i % 2),
+			Type:   dex.Limit,
+			Side:   dex.Side(i % 2),
 			Price:  100.0 + float64(i%200),
 			Size:   1.0,
 			UserID: "bench",
@@ -111,14 +111,14 @@ func BenchmarkBatchOrders(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ob := lx.NewOrderBook("BENCH-BATCH")
+		ob := dex.NewOrderBook("BENCH-BATCH")
 
 		// Submit a batch of 1000 orders (500 buy, 500 sell)
 		for j := 0; j < batchSize; j++ {
-			order := &lx.Order{
+			order := &dex.Order{
 				Symbol: "BENCH-BATCH",
-				Type:   lx.Limit,
-				Side:   lx.Side(j % 2),
+				Type:   dex.Limit,
+				Side:   dex.Side(j % 2),
 				Price:  90.0 + float64(j%20),
 				Size:   1.0,
 				UserID: fmt.Sprintf("user-%d", j%10),
@@ -145,24 +145,24 @@ func BenchmarkConcurrentMatching(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		books := make([]*lx.OrderBook, numMarkets)
+		books := make([]*dex.OrderBook, numMarkets)
 		for m := 0; m < numMarkets; m++ {
-			books[m] = lx.NewOrderBook(fmt.Sprintf("MKT-%d", m))
+			books[m] = dex.NewOrderBook(fmt.Sprintf("MKT-%d", m))
 
 			// Seed each book with crossing orders
 			for j := 0; j < 10; j++ {
-				books[m].AddOrder(&lx.Order{
+				books[m].AddOrder(&dex.Order{
 					Symbol: fmt.Sprintf("MKT-%d", m),
-					Type:   lx.Limit,
-					Side:   lx.Buy,
+					Type:   dex.Limit,
+					Side:   dex.Buy,
 					Price:  100.0,
 					Size:   1.0,
 					UserID: fmt.Sprintf("buyer-%d", j),
 				})
-				books[m].AddOrder(&lx.Order{
+				books[m].AddOrder(&dex.Order{
 					Symbol: fmt.Sprintf("MKT-%d", m),
-					Type:   lx.Limit,
-					Side:   lx.Sell,
+					Type:   dex.Limit,
+					Side:   dex.Sell,
 					Price:  100.0,
 					Size:   1.0,
 					UserID: fmt.Sprintf("seller-%d", j),
@@ -174,7 +174,7 @@ func BenchmarkConcurrentMatching(b *testing.B) {
 		var wg sync.WaitGroup
 		wg.Add(numMarkets)
 		for m := 0; m < numMarkets; m++ {
-			go func(book *lx.OrderBook) {
+			go func(book *dex.OrderBook) {
 				defer wg.Done()
 				book.MatchOrders()
 			}(books[m])

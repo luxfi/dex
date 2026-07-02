@@ -13,7 +13,7 @@ import (
 
 	"github.com/luxfi/database"
 	"github.com/luxfi/database/versiondb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/ids"
 )
@@ -296,8 +296,8 @@ func (b *Block) Reject(ctx context.Context) error {
 // can resolve any parked ZAP handler with its tx's consensus result).
 type execResult struct {
 	root     [Size]byte
-	fills    []lx.DEXTrade
-	rows     []lx.DEXOrder   // canonical resting rows across all touched markets
+	fills    []dex.DEXTrade
+	rows     []dex.DEXOrder  // canonical resting rows across all touched markets
 	outcomes []txOutcome     // one per tx, in block order
 	atomic   *atomicRequests // cross-chain seam removes/puts to apply at Accept
 }
@@ -314,8 +314,8 @@ type execResult struct {
 func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execResult, error) {
 	// Books for markets touched in this block, rebuilt from the overlay on first
 	// touch so in-block ordering is honored.
-	books := map[[32]byte]*lx.OrderBook{}
-	bookForPool := func(poolID [32]byte) (*lx.OrderBook, error) {
+	books := map[[32]byte]*dex.OrderBook{}
+	bookForPool := func(poolID [32]byte) (*dex.OrderBook, error) {
 		if ob, ok := books[poolID]; ok {
 			return ob, nil
 		}
@@ -334,7 +334,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		return ob, nil
 	}
 
-	var allFills []lx.DEXTrade
+	var allFills []dex.DEXTrade
 	var tradeSeq uint64
 	// ar accumulates the block's cross-chain seam operations (C->D removes / D->C
 	// puts); it is applied atomically with this overlay at Accept. Empty for a block
@@ -610,7 +610,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		// Persist resting deltas to the overlay.
 		switch {
 		case res.Placed != nil:
-			if err := putOrderRow(overlay, poolID, lx.OrderToRow(res.Placed)); err != nil {
+			if err := putOrderRow(overlay, poolID, dex.OrderToRow(res.Placed)); err != nil {
 				return execResult{}, err
 			}
 		case res.Canceled != 0:
@@ -623,7 +623,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			if m.ID == 0 {
 				continue
 			}
-			row := lx.OrderToRow(m)
+			row := dex.OrderToRow(m)
 			row.OrderID = m.ID
 			if err := putOrderRow(overlay, poolID, row); err != nil {
 				return execResult{}, err
@@ -642,8 +642,8 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		}
 		// Record fills in the trade log + the block's fill set.
 		for _, f := range res.Fills {
-			row := lx.TradeToRow(f, res.TakerSide)
-			if err := overlay.Put(tradeKey(b.height, tradeSeq), lx.EncodeTrade(row)); err != nil {
+			row := dex.TradeToRow(f, res.TakerSide)
+			if err := overlay.Put(tradeKey(b.height, tradeSeq), dex.EncodeTrade(row)); err != nil {
 				return execResult{}, err
 			}
 			tradeSeq++
@@ -653,12 +653,12 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 
 	// Persist each touched market's LastOrderID watermark and gather the
 	// canonical resting rows for the book root.
-	var allRows []lx.DEXOrder
+	var allRows []dex.DEXOrder
 	for poolID, ob := range books {
 		if err := writeBookWatermark(overlay, poolID, ob.LastOrderID); err != nil {
 			return execResult{}, err
 		}
-		allRows = append(allRows, lx.BookToRows(ob)...)
+		allRows = append(allRows, dex.BookToRows(ob)...)
 	}
 	sortRowsCanonical(allRows)
 
@@ -933,7 +933,7 @@ func (b *Block) releaseOrderReserve(db *versiondb.Database, poolID [32]byte, ord
 // the remaining resting size. A maker on the opposite side of the taker locked:
 // taker BUY -> maker SOLD base (reserve in base, reduced by fill base units);
 // taker SELL -> maker BOUGHT base (reserve in quote, reduced by fill quote units).
-func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []lx.Trade) error {
+func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []dex.Trade) error {
 	// Aggregate the consumed reserve per maker order id (a maker may fill across
 	// several fills in one cross, though typically one).
 	consumed := map[uint64]uint64{}
@@ -1007,14 +1007,14 @@ func (b *Block) applyToMemBooks() {
 // fresh OrderBook via RowsToBook — the rebuildable-accelerator path. This is the
 // SAME function used at startup (rebuild every book) and during execution (rebuild
 // one market into the overlay), so there is one rebuild path.
-func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*lx.OrderBook, error) {
+func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*dex.OrderBook, error) {
 	prefix := orderPrefixFor(poolID)
 	it := db.NewIteratorWithPrefix(prefix)
 	defer it.Release()
 
-	var rows []lx.DEXOrder
+	var rows []dex.DEXOrder
 	for it.Next() {
-		row, ok := lx.DecodeRow(it.Value())
+		row, ok := dex.DecodeRow(it.Value())
 		if !ok {
 			return nil, fmt.Errorf("dchain: corrupt order row under %x (len %d)", poolID[:8], len(it.Value()))
 		}
@@ -1023,7 +1023,7 @@ func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*l
 	if err := it.Error(); err != nil {
 		return nil, err
 	}
-	ob := lx.RowsToBook(symbol, rows)
+	ob := dex.RowsToBook(symbol, rows)
 	// Restore the EXACT-INTEGER value lane on every rebuilt resting order. The
 	// persisted DEXOrder row keeps quantities in fixed-point, not the matcher's
 	// atomic-unit SizeUnits/RemainingUnits, so an order rebuilt from disk would
@@ -1042,7 +1042,7 @@ func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*l
 // lane and a taker crossing it produces fills with no integer truth (which the
 // custody settle refuses). Idempotent: an order already carrying the lane is left
 // as-is.
-func restoreIntegerLane(ob *lx.OrderBook) {
+func restoreIntegerLane(ob *dex.OrderBook) {
 	for _, o := range ob.Orders {
 		if o == nil {
 			continue

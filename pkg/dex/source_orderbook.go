@@ -6,8 +6,6 @@ package dex
 import (
 	"math/big"
 	"time"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // source_orderBook.go is the V4 native OrderBook liquidity source — the in-process matcher.
@@ -129,7 +127,7 @@ func (*OrderBookSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint6
 	// ledger available (credited by SettleFills). Mirror them to the C surface: the
 	// 0x9999 vault releases outGot of the output asset to the taker's EVM balance.
 	outAsset := req.Base
-	if req.Side == lx.Buy {
+	if req.Side == Buy {
 		outAsset = req.Base // taker buys base
 	} else {
 		outAsset = req.Quote // taker sells base, receives quote
@@ -160,8 +158,8 @@ func (*OrderBookSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint6
 // The id is the block-deterministic id and the timestamp is the block time (both
 // from EVM block context via SwapRequest), so the fills are byte-identical on every
 // validator. The order NEVER rests (IOC).
-func buildMarketableOrder(req SwapRequest, remainingIn uint64) *lx.Order {
-	order := &lx.Order{
+func buildMarketableOrder(req SwapRequest, remainingIn uint64) *Order {
+	order := &Order{
 		ID:        req.OrderID,
 		Side:      req.Side,
 		User:      matcherHint(req.TakerUser),
@@ -169,14 +167,14 @@ func buildMarketableOrder(req SwapRequest, remainingIn uint64) *lx.Order {
 		Symbol:    PoolSymbol(req.PoolID),
 		Timestamp: time.Unix(0, req.TimestampN),
 	}
-	if req.Side == lx.Sell {
+	if req.Side == Sell {
 		order.Size = float64(remainingIn)
 		order.SizeUnits = new(big.Int).SetUint64(remainingIn)
 		if req.LimitPrice > 0 {
-			order.Type = lx.Limit
-			order.Price = float64(req.LimitPrice) / float64(lx.PriceMultiplier)
+			order.Type = Limit
+			order.Price = float64(req.LimitPrice) / float64(PriceMultiplier)
 		} else {
-			order.Type = lx.Market
+			order.Type = Market
 		}
 		return order
 	}
@@ -189,8 +187,8 @@ func buildMarketableOrder(req SwapRequest, remainingIn uint64) *lx.Order {
 	if baseUnits == 0 {
 		return nil // budget cannot buy one base unit at the ceiling
 	}
-	order.Type = lx.Limit
-	order.Price = float64(req.LimitPrice) / float64(lx.PriceMultiplier)
+	order.Type = Limit
+	order.Price = float64(req.LimitPrice) / float64(PriceMultiplier)
 	order.Size = float64(baseUnits)
 	order.SizeUnits = new(big.Int).SetUint64(baseUnits)
 	return order
@@ -199,24 +197,24 @@ func buildMarketableOrder(req SwapRequest, remainingIn uint64) *lx.Order {
 // buyBaseFromQuoteBudget returns floor(quoteBudget * PriceMultiplier / limitPrice)
 // — the base units a quote budget buys at the ceiling price (limitPrice is the
 // PriceInt quote-per-base). 128-bit safe so quoteBudget*PriceMultiplier can't wrap.
-func buyBaseFromQuoteBudget(quoteBudget uint64, limitPrice lx.PriceInt) uint64 {
+func buyBaseFromQuoteBudget(quoteBudget uint64, limitPrice PriceInt) uint64 {
 	if quoteBudget == 0 || limitPrice <= 0 {
 		return 0
 	}
-	return mulDivU64(quoteBudget, uint64(lx.PriceMultiplier), uint64(limitPrice))
+	return mulDivU64(quoteBudget, uint64(PriceMultiplier), uint64(limitPrice))
 }
 
 // fillTotals sums a fill set into (inUsed, outGot) in the matcher's integer lane,
 // from the taker's perspective. For a BUY the taker spends quote (in) and receives
 // base (out); for a SELL the taker spends base (in) and receives quote (out).
-func fillTotals(fills []lx.Trade, side lx.Side) (inUsed, outGot uint64) {
+func fillTotals(fills []Trade, side Side) (inUsed, outGot uint64) {
 	for _, f := range fills {
 		if f.BaseUnits == nil || f.QuoteUnits == nil || !f.BaseUnits.IsUint64() || !f.QuoteUnits.IsUint64() {
 			continue
 		}
 		base := f.BaseUnits.Uint64()
 		quote := f.QuoteUnits.Uint64()
-		if side == lx.Buy {
+		if side == Buy {
 			inUsed += quote
 			outGot += base
 		} else {
@@ -229,11 +227,11 @@ func fillTotals(fills []lx.Trade, side lx.Side) (inUsed, outGot uint64) {
 
 // persistTouchedMakers rewrites/deletes the persisted rows of every maker the cross
 // touched, so the durable book reflects the post-cross resting set.
-func persistTouchedMakers(db Store, poolID [32]byte, book *lx.OrderBook, fills []lx.Trade, takerSide lx.Side) error {
+func persistTouchedMakers(db Store, poolID [32]byte, book *OrderBook, fills []Trade, takerSide Side) error {
 	seen := map[uint64]struct{}{}
 	for _, f := range fills {
 		makerID := f.SellOrder
-		if takerSide == lx.Sell {
+		if takerSide == Sell {
 			makerID = f.BuyOrder
 		}
 		if _, dup := seen[makerID]; dup {
@@ -241,7 +239,7 @@ func persistTouchedMakers(db Store, poolID [32]byte, book *lx.OrderBook, fills [
 		}
 		seen[makerID] = struct{}{}
 		if m := book.GetOrder(makerID); m != nil {
-			row := lx.OrderToRow(m)
+			row := OrderToRow(m)
 			row.OrderID = m.ID
 			if err := PutOrderRow(db, poolID, row); err != nil {
 				return err

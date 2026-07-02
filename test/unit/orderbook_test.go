@@ -4,20 +4,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 )
 
 // TestOrderBookBasics tests basic orderbook functionality
 func TestOrderBookBasics(t *testing.T) {
-	ob := lx.NewOrderBook("BTC-USD")
+	ob := dex.NewOrderBook("BTC-USD")
 
 	// Add buy order
-	buyOrder := &lx.Order{
+	buyOrder := &dex.Order{
 		ID:     1,
 		Symbol: "BTC-USD",
-		Type:   lx.Limit,
-		Side:   lx.Buy,
+		Type:   dex.Limit,
+		Side:   dex.Buy,
 		Price:  50000,
 		Size:   1,
 		UserID: "user1",
@@ -28,11 +28,11 @@ func TestOrderBookBasics(t *testing.T) {
 	assert.NotNil(t, buyOrder.ID)
 
 	// Add matching sell order
-	sellOrder := &lx.Order{
+	sellOrder := &dex.Order{
 		ID:     2,
 		Symbol: "BTC-USD",
-		Type:   lx.Limit,
-		Side:   lx.Sell,
+		Type:   dex.Limit,
+		Side:   dex.Sell,
 		Price:  50000,
 		Size:   1,
 		UserID: "user2",
@@ -48,7 +48,7 @@ func TestOrderBookBasics(t *testing.T) {
 
 // TestConcurrentOrders tests thread-safe order processing
 func TestConcurrentOrders(t *testing.T) {
-	ob := lx.NewOrderBook("ETH-USD")
+	ob := dex.NewOrderBook("ETH-USD")
 
 	done := make(chan bool)
 	orderCount := 1000
@@ -56,11 +56,11 @@ func TestConcurrentOrders(t *testing.T) {
 	// Add orders concurrently
 	go func() {
 		for i := 0; i < orderCount; i++ {
-			order := &lx.Order{
+			order := &dex.Order{
 				ID:     uint64(i + 1),
 				Symbol: "ETH-USD",
-				Type:   lx.Limit,
-				Side:   lx.Side(i % 2),
+				Type:   dex.Limit,
+				Side:   dex.Side(i % 2),
 				Price:  3000 + float64(i%10),
 				Size:   1,
 				UserID: "concurrent_test",
@@ -82,20 +82,20 @@ func TestConcurrentOrders(t *testing.T) {
 func TestOrderTypes(t *testing.T) {
 	tests := []struct {
 		name string
-		side lx.Side
-		typ  lx.OrderType
+		side dex.Side
+		typ  dex.OrderType
 	}{
-		{"BuyLimit", lx.Buy, lx.Limit},
-		{"SellLimit", lx.Sell, lx.Limit},
-		{"BuyMarket", lx.Buy, lx.Market},
-		{"SellMarket", lx.Sell, lx.Market},
+		{"BuyLimit", dex.Buy, dex.Limit},
+		{"SellLimit", dex.Sell, dex.Limit},
+		{"BuyMarket", dex.Buy, dex.Market},
+		{"SellMarket", dex.Sell, dex.Market},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ob := lx.NewOrderBook("TEST-USD")
+			ob := dex.NewOrderBook("TEST-USD")
 
-			order := &lx.Order{
+			order := &dex.Order{
 				ID:     1,
 				Symbol: "TEST-USD",
 				Type:   test.typ,
@@ -105,13 +105,13 @@ func TestOrderTypes(t *testing.T) {
 				UserID: "test",
 			}
 
-			if test.typ == lx.Market {
+			if test.typ == dex.Market {
 				// Market orders need liquidity to execute
 				// Add opposite side first
-				opposite := &lx.Order{
+				opposite := &dex.Order{
 					ID:     99,
 					Symbol: "TEST-USD",
-					Type:   lx.Limit,
+					Type:   dex.Limit,
 					Side:   1 - test.side, // Opposite side
 					Price:  100,
 					Size:   10,

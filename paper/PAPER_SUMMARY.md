@@ -1,17 +1,17 @@
 # LX Whitepaper - Executive Summary
 
 ## Title
-**LX: A 100M+ Trades/Second Decentralized Exchange**  
-*Achieving 597ns Latency Through Quantum-Resistant DAG Consensus*
+**LX: A Planet-Scale Decentralized Exchange**  
+*Quantum-Resistant DAG Consensus — measured 11.88M orders/sec on CPU (C++, 10 threads, 169 ns/match) and up to 12.76B orders/sec on the GPU-native per-book matcher*
 
 ## Key Achievements
 
 ### Performance Metrics
-- **100M+ trades/second** throughput on 100Gbps networks
-- **597 nanosecond** order matching latency
-- **50ms** consensus finality through Lux Consensus
+- **Matching (measured)**: 11.88M orders/sec (C++, 10 threads, 169 ns avg match) / 2.2M orders/sec (pure Go) on the CPU default build; up to 12.76B orders/sec (AMD 8060S) / 9.13B (GB10) on the GPU-native per-book matcher (parity-verified GPU==CPU, CGO_ENABLED=1, unified `lux-gpu` backend)
+- The prior "100M+ trades/second / 597 ns" headline was a modeled projection over an unimplemented DPDK+GPU network path — never measured; removed
+- **50ms** consensus finality (target through Lux Consensus, not yet validated end-to-end)
 - **Zero-copy** architecture throughout
-- **Linear scaling** with additional resources
+- **Linear scaling** with additional resources (design goal)
 
 ### Technical Innovations
 
@@ -21,6 +21,10 @@
 - Parallel processing with cryptographic security
 
 #### 2. Polyglot Engine Design
+
+*The per-engine figures below are modeled design targets, not measured; for the
+measured matching numbers see "Performance Metrics" above.*
+
 | Engine | Throughput | Latency | Use Case |
 |--------|------------|---------|----------|
 | Pure Go | 90K/s | <1ms | Development |
@@ -47,9 +51,9 @@
 - **Binary FIX**: Compact 60-byte messages
 
 #### 6. GPU Acceleration
-- Automatic backend detection (MLX/CUDA/CPU)
-- 50-100x throughput increase for batch matching
-- Support for Apple Silicon (MLX) and NVIDIA (CUDA)
+- GPU-native deterministic per-book matcher (`pkg/lx/orderbook_gpu.go`), byte-identical to the CPU oracle and parity-verified
+- Unified `lux-gpu` backend, runtime-select CUDA > HIP > Metal > CPU (one thread per book across millions of books)
+- Measured: up to 12.76B orders/sec (AMD 8060S) / 9.13B (GB10) / 5.60B (M4 Max) / 2.80B (M1 Max); 21.9B two-node fabric; kernels ship prebuilt from luxcpp/dex
 
 #### 7. Storage Layer
 - luxfi/database abstraction layer
@@ -65,6 +69,14 @@
 - Mellanox ConnectX-6 (100GbE + RDMA)
 
 ### Results
+
+*Modeled projections, NOT measured benchmarks — the DPDK and DPDK+GPU rows use
+an unimplemented kernel-bypass network path and were never run. The only figure
+that lines up with a real measurement is ~2.1M/s pure-Go (measured 2.2M orders/sec,
+381 ns/order). Measured matching is 11.88M orders/sec (C++, 10 threads, 169 ns
+avg match) on CPU and up to 12.76B orders/sec (AMD 8060S) / 9.13B (GB10) on the
+GPU-native per-book matcher.*
+
 | Configuration | Throughput | Latency |
 |--------------|------------|---------|
 | Single Core (Go) | 90K/s | 894ns |
@@ -81,7 +93,7 @@
 | Serum (Solana) | 65K/s | 400ms | Yes |
 | dYdX v4 | 100K/s | 100ms | Partial |
 | Binance (CEX) | 10M/s | 10ms | No |
-| **LX** | **100M+/s** | **597ns** | **Yes** |
+| **LX** | **11.88M/s CPU · up to 12.76B/s GPU** | **169 ns** | **Yes** |
 
 ## Key Optimizations
 

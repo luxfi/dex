@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/log"
 )
 
@@ -78,14 +78,14 @@ func (rl *IPRateLimiter) cleanup() {
 
 // JSONRPCServer handles JSON-RPC requests
 type JSONRPCServer struct {
-	orderBook   *lx.OrderBook
+	orderBook   *dex.OrderBook
 	logger      log.Logger
 	rateLimiter *IPRateLimiter
 }
 
 // NewJSONRPCServer creates a new JSON-RPC server with rate limiting
 // Default: 100 requests per second per IP
-func NewJSONRPCServer(orderBook *lx.OrderBook, logger log.Logger) *JSONRPCServer {
+func NewJSONRPCServer(orderBook *dex.OrderBook, logger log.Logger) *JSONRPCServer {
 	return &JSONRPCServer{
 		orderBook:   orderBook,
 		logger:      logger,

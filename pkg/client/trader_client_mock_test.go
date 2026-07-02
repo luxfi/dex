@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -72,9 +72,9 @@ func TestMockPlaceOrderValidation(t *testing.T) {
 	client := newTestClient(t)
 
 	// Not authenticated
-	_, err := client.PlaceOrder(&lx.Order{
+	_, err := client.PlaceOrder(&dex.Order{
 		Symbol: "BTC/USD",
-		Side:   lx.Buy,
+		Side:   dex.Buy,
 	})
 	assert.Error(t, err)
 }
@@ -99,7 +99,7 @@ func TestMockModifyOrderValidation(t *testing.T) {
 func TestMockOpenMarginPositionValidation(t *testing.T) {
 	client := newTestClient(t)
 
-	_, err := client.OpenMarginPosition("BTC/USD", lx.Buy, 1.0, 10)
+	_, err := client.OpenMarginPosition("BTC/USD", dex.Buy, 1.0, 10)
 	assert.Error(t, err)
 }
 
@@ -408,7 +408,7 @@ func TestMockPositionUpdateActions(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			// Add position for closed/liquidated tests
 			if action == "closed" || action == "liquidated" {
-				client.positions["pos-action"] = &lx.MarginPosition{ID: "pos-action"}
+				client.positions["pos-action"] = &dex.MarginPosition{ID: "pos-action"}
 			}
 
 			msg := map[string]interface{}{
@@ -680,7 +680,7 @@ func TestMockPositionUpdateWithStoredPosition(t *testing.T) {
 	client := newTestClient(t)
 
 	// Pre-store a position
-	client.positions["pos-modify"] = &lx.MarginPosition{
+	client.positions["pos-modify"] = &dex.MarginPosition{
 		ID:       "pos-modify",
 		Symbol:   "BTC/USD",
 		Size:     1.0,
@@ -845,7 +845,7 @@ func TestMockPositionRemovalOnClose(t *testing.T) {
 	client := newTestClient(t)
 
 	// Add a position
-	client.positions["pos-to-close"] = &lx.MarginPosition{
+	client.positions["pos-to-close"] = &dex.MarginPosition{
 		ID:     "pos-to-close",
 		Symbol: "BTC/USD",
 	}
@@ -876,7 +876,7 @@ func TestMockPositionRemovalOnLiquidation(t *testing.T) {
 	client := newTestClient(t)
 
 	// Add a position
-	client.positions["pos-to-liq"] = &lx.MarginPosition{
+	client.positions["pos-to-liq"] = &dex.MarginPosition{
 		ID:     "pos-to-liq",
 		Symbol: "ETH/USD",
 	}
@@ -980,10 +980,10 @@ func TestIntegrationPlaceOrderAuthenticated(t *testing.T) {
 	client.authenticated = true
 
 	// Place order
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:     12345,
 		Symbol: "BTC/USD",
-		Side:   lx.Buy,
+		Side:   dex.Buy,
 		Price:  50000.0,
 		Size:   1.0,
 	}
@@ -1153,7 +1153,7 @@ func TestIntegrationOpenMarginPositionAuthenticated(t *testing.T) {
 	// Start handleMessages to process position response
 	go client.handleMessages()
 
-	pos, err := client.OpenMarginPosition("BTC/USD", lx.Buy, 1.0, 10.0)
+	pos, err := client.OpenMarginPosition("BTC/USD", dex.Buy, 1.0, 10.0)
 	require.NoError(t, err)
 	assert.NotNil(t, pos)
 	assert.Equal(t, "test-pos-1", pos.ID)
@@ -1162,7 +1162,7 @@ func TestIntegrationOpenMarginPositionAuthenticated(t *testing.T) {
 	case msg := <-msgReceived:
 		assert.Equal(t, "open_position", msg["type"])
 		assert.Equal(t, "BTC/USD", msg["symbol"])
-		assert.Equal(t, float64(lx.Buy), msg["side"])
+		assert.Equal(t, float64(dex.Buy), msg["side"])
 		assert.Equal(t, 1.0, msg["size"])
 		assert.Equal(t, 10.0, msg["leverage"])
 	case <-time.After(time.Second):

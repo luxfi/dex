@@ -6,8 +6,6 @@ package dex
 import (
 	"errors"
 	"testing"
-
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // swap_test.go proves the shared core's swap path over REAL assets: a native maker
@@ -28,7 +26,7 @@ func TestSwap_SellIntoRestingBid(t *testing.T) {
 	// Maker deposits 1,000,000 LUSD and rests a BUY of 100 LETH @ 50 LUSD/LETH
 	// (locks 100*50 = 5000 LUSD).
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 100, 1)
+	restOrder(t, db, pid, maker, Buy, 50, 100, 1)
 	// Taker deposits 100 LETH and SELLs 80 LETH (market) into the bid.
 	seedDeposit(t, db, taker, tokLETH, 100)
 
@@ -37,7 +35,7 @@ func TestSwap_SellIntoRestingBid(t *testing.T) {
 	before := totalLedger(t, db, allAccts, allAssets)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD,
 		AmountIn: 80, OrderID: 1_000, TimestampN: 2_000,
 		Class: ClassPublicDEX,
@@ -103,7 +101,7 @@ func Test9999Swap_FillsFromV4WhenOrderBookLiquid(t *testing.T) {
 	taker := account(0xBB)
 	// Deep OrderBook bid: 1000 LETH @ 50.
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 1000, 1)
+	restOrder(t, db, pid, maker, Buy, 50, 1000, 1)
 	seedDeposit(t, db, taker, tokLETH, 100)
 
 	// AMM with shallow reserves (would price worse).
@@ -112,7 +110,7 @@ func Test9999Swap_FillsFromV4WhenOrderBookLiquid(t *testing.T) {
 	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 50, OrderID: 9, TimestampN: 1,
 		Class: ClassPublicDEX,
 	}
@@ -150,7 +148,7 @@ func Test9999Swap_FallsToV2V3WhenNoV4(t *testing.T) {
 	router := NewRouter(NewOrderBookSource(), NewAMMSource(pool))
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 100, OrderID: 9, TimestampN: 1,
 		Class: ClassPublicDEX,
 	}
@@ -159,7 +157,7 @@ func Test9999Swap_FallsToV2V3WhenNoV4(t *testing.T) {
 		t.Fatalf("ExecuteSwap: %v", err)
 	}
 	// out = 100 * 5_000_000 / (100_000 + 100) = 4995 (xy=k, integer).
-	wantOut := lx.ConstantProductOut(100_000, 5_000_000, 100)
+	wantOut := ConstantProductOut(100_000, 5_000_000, 100)
 	if res.AmountOut != wantOut {
 		t.Fatalf("AmountOut = %d, want %d (AMM curve)", res.AmountOut, wantOut)
 	}
@@ -183,7 +181,7 @@ func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 	taker := account(0xBB)
 	// Thin but BETTER OrderBook bid: 10 LETH @ 60 (better than AMM's ~50).
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
-	restOrder(t, db, pid, maker, lx.Buy, 60, 10, 1)
+	restOrder(t, db, pid, maker, Buy, 60, 10, 1)
 	seedDeposit(t, db, taker, tokLETH, 1000)
 
 	// AMM priced ~50.
@@ -193,7 +191,7 @@ func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 
 	// Taker sells 30 LETH. OrderBook absorbs 10 @ 60 = 600; AMM absorbs the other 20.
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 30, OrderID: 9, TimestampN: 1,
 		Class: ClassPublicDEX,
 	}
@@ -229,7 +227,7 @@ func Test9999Swap_BestExecAcrossV4AndAMM(t *testing.T) {
 		t.Fatalf("total AmountIn = %d, want 30", res.AmountIn)
 	}
 	// Output = 600 (OrderBook) + AMM curve(20).
-	ammOut := lx.ConstantProductOut(100_000, 5_000_000, 20)
+	ammOut := ConstantProductOut(100_000, 5_000_000, 20)
 	if res.AmountOut != 600+ammOut {
 		t.Fatalf("AmountOut = %d, want %d (600 OrderBook + %d AMM)", res.AmountOut, 600+ammOut, ammOut)
 	}
@@ -246,7 +244,7 @@ func Test9999Swap_NoLiquidityReverts(t *testing.T) {
 	seedDeposit(t, db, taker, tokLETH, 100)
 	// No OrderBook, no AMM.
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Sell,
+		PoolID: pid, TakerUser: taker, Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 50, OrderID: 9, TimestampN: 1,
 		Class: ClassPublicDEX,
 	}
@@ -264,7 +262,7 @@ func Test9999Swap_BuyRequiresLimit(t *testing.T) {
 	taker := account(0xBB)
 	seedDeposit(t, db, taker, tokLUSD, 10_000)
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Buy,
+		PoolID: pid, TakerUser: taker, Side: Buy,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 5000, OrderID: 9, TimestampN: 1,
 		Class: ClassPublicDEX, // LimitPrice 0 -> refused
 	}
@@ -284,7 +282,7 @@ func TestSwap_BuyWithLimit(t *testing.T) {
 	taker := account(0xBB)
 	// Maker rests a SELL (ask) of 100 LETH @ 50 (locks 100 LETH base).
 	seedDeposit(t, db, maker, tokLETH, 1000)
-	restOrder(t, db, pid, maker, lx.Sell, 50, 100, 1)
+	restOrder(t, db, pid, maker, Sell, 50, 100, 1)
 	// Taker deposits 5000 LUSD, buys base with a ceiling of 50 -> budget buys 100 base.
 	seedDeposit(t, db, taker, tokLUSD, 5000)
 
@@ -293,7 +291,7 @@ func TestSwap_BuyWithLimit(t *testing.T) {
 	before := totalLedger(t, db, allAccts, allAssets)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: taker, Side: lx.Buy,
+		PoolID: pid, TakerUser: taker, Side: Buy,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 5000,
 		LimitPrice: price(50), LimitIsUpper: true,
 		OrderID: 9, TimestampN: 1, Class: ClassPublicDEX,

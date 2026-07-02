@@ -23,7 +23,7 @@ import (
 // onto the single D-Chain DEX.
 //
 // This is deliberately separate from WebSocketServer (this file), which drives the
-// in-process lx.TradingEngine for the rich margin/lending/vault product surface.
+// in-process dex.TradingEngine for the rich margin/lending/vault product surface.
 // The two are orthogonal: WebSocketServer is the product API; VenueWS is the
 // on-chain DEX trading path. Mixing the two matchers into one handler would braid
 // "what the product does" with "where the order book lives"; keeping VenueWS a

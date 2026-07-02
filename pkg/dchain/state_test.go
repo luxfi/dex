@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -85,15 +85,15 @@ func TestEmptyRootsAreStable(t *testing.T) {
 func TestBookRootIgnoresInsertionOrder(t *testing.T) {
 	ts := time.Unix(0, 1_700_000_000_000_000_000).UTC()
 
-	b1 := lx.NewOrderBook("X")
-	b1.ConsensusAddOrder(&lx.Order{ID: 1, Type: lx.Limit, Side: lx.Buy, Price: 100, Size: 1, User: "a", Timestamp: ts})
-	b1.ConsensusAddOrder(&lx.Order{ID: 2, Type: lx.Limit, Side: lx.Sell, Price: 101, Size: 1, User: "b", Timestamp: ts})
+	b1 := dex.NewOrderBook("X")
+	b1.ConsensusAddOrder(&dex.Order{ID: 1, Type: dex.Limit, Side: dex.Buy, Price: 100, Size: 1, User: "a", Timestamp: ts})
+	b1.ConsensusAddOrder(&dex.Order{ID: 2, Type: dex.Limit, Side: dex.Sell, Price: 101, Size: 1, User: "b", Timestamp: ts})
 
-	b2 := lx.NewOrderBook("X")
-	b2.ConsensusAddOrder(&lx.Order{ID: 2, Type: lx.Limit, Side: lx.Sell, Price: 101, Size: 1, User: "b", Timestamp: ts})
-	b2.ConsensusAddOrder(&lx.Order{ID: 1, Type: lx.Limit, Side: lx.Buy, Price: 100, Size: 1, User: "a", Timestamp: ts})
+	b2 := dex.NewOrderBook("X")
+	b2.ConsensusAddOrder(&dex.Order{ID: 2, Type: dex.Limit, Side: dex.Sell, Price: 101, Size: 1, User: "b", Timestamp: ts})
+	b2.ConsensusAddOrder(&dex.Order{ID: 1, Type: dex.Limit, Side: dex.Buy, Price: 100, Size: 1, User: "a", Timestamp: ts})
 
-	if bookRoot(lx.BookToRows(b1)) != bookRoot(lx.BookToRows(b2)) {
+	if bookRoot(dex.BookToRows(b1)) != bookRoot(dex.BookToRows(b2)) {
 		t.Error("book root depends on insertion order")
 	}
 }

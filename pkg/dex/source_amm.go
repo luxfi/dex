@@ -3,9 +3,7 @@
 
 package dex
 
-import (
-	"github.com/luxfi/dex/pkg/lx"
-)
+import ()
 
 // source_amm.go is the V2/V3 AMM liquidity source — the router's FALLTHROUGH when
 // the OrderBook has insufficient depth. The AMM pools are EVM contracts in the SAME
@@ -15,7 +13,7 @@ import (
 // dex is store-agnostic and knows nothing of EVM contract layout, so the
 // concrete reserve read+write is injected via AMMPool: the precompile implements it
 // over the real V2/V3 pool contract storage; a test implements it over an in-Store
-// reserve row. The constant-product MATH (lx.ConstantProductOut, 128-bit exact) and
+// reserve row. The constant-product MATH (ConstantProductOut, 128-bit exact) and
 // the routing/settlement live HERE, in one place, so both homes price and execute
 // an AMM leg identically. This is the seam an RFQ/external-CEX source would later
 // slot into as well — a different reserve/quote backend behind the same Source
@@ -93,7 +91,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	// a SELL spends base (in) and removes quote (out).
 	var newBase, newQuote uint64
 	var baseDelta, quoteDelta uint64
-	if req.Side == lx.Buy {
+	if req.Side == Buy {
 		newBase = baseR - outGot   // base leaves the pool to the taker
 		newQuote = quoteR + inUsed // quote enters the pool from the taker
 		baseDelta, quoteDelta = outGot, inUsed
@@ -113,7 +111,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 	// spent + refund) holds across BOTH OrderBook and AMM legs uniformly.
 	inAsset := req.Quote
 	outAsset := req.Base
-	if req.Side == lx.Sell {
+	if req.Side == Sell {
 		inAsset = req.Base
 		outAsset = req.Quote
 	}
@@ -143,7 +141,7 @@ func (s *AMMSource) ExecuteSwap(db Store, req SwapRequest, remainingIn uint64, j
 // the input is base, the output is quote; for a BUY the input is quote, the output
 // is base. The whole remainingIn is consumed (an AMM has no "depth limit" — it just
 // prices worse as the input grows), so inUsed == remainingIn whenever outGot > 0.
-func (s *AMMSource) curveOut(side lx.Side, baseR, quoteR, remainingIn uint64) (inUsed, outGot uint64) {
+func (s *AMMSource) curveOut(side Side, baseR, quoteR, remainingIn uint64) (inUsed, outGot uint64) {
 	if remainingIn == 0 {
 		return 0, 0
 	}
@@ -151,12 +149,12 @@ func (s *AMMSource) curveOut(side lx.Side, baseR, quoteR, remainingIn uint64) (i
 	if inAfterFee == 0 {
 		return 0, 0
 	}
-	if side == lx.Sell {
+	if side == Sell {
 		// SELL base for quote: rx=baseReserve, ry=quoteReserve, amount=base in.
-		outGot = lx.ConstantProductOut(baseR, quoteR, inAfterFee)
+		outGot = ConstantProductOut(baseR, quoteR, inAfterFee)
 	} else {
 		// BUY base with quote: rx=quoteReserve, ry=baseReserve, amount=quote in.
-		outGot = lx.ConstantProductOut(quoteR, baseR, inAfterFee)
+		outGot = ConstantProductOut(quoteR, baseR, inAfterFee)
 	}
 	if outGot == 0 {
 		return 0, 0

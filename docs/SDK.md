@@ -312,8 +312,8 @@ go test ./...      # Go
 
 ## Performance
 
-- **Order Matching**: 597ns latency (C++ engine)
-- **Throughput**: 100M+ orders/second (with MLX GPU)
+- **Order Matching**: 169 ns avg match (C++, 10 threads; p50 125 ns, p99 292 ns)
+- **Throughput**: 11.88M orders/sec (C++, 10 threads) / 2.2M (pure Go) on the CPU default build; up to 12.76B orders/sec on the GPU-native per-book matcher (CGO_ENABLED=1, `lux-gpu`, parity-verified GPU==CPU; AMD 8060S) / 9.13B (GB10)
 - **Block Time**: 1ms finality
 - **Network**: Quantum-secure with BLS signatures
 

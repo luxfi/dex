@@ -18,7 +18,7 @@
 //     (vm.CreateHandlers, ingest.go) — so the exchange-api/maker reach a
 //     standalone single-operator venue byte-identically to the in-luxd plugin.
 //
-// CGO_ENABLED is the single axis that picks the matcher: pkg/lx links the GPU
+// CGO_ENABLED is the single axis that picks the matcher: pkg/dex links the GPU
 // matcher under cgo (amm_gpu_cuda / amm_gpu_metal / orderbook_gpu_cuda) and the
 // pure-Go CPU matcher without it (amm_nogpu / orderbook_nogpu). This package
 // is matcher-agnostic — it drives dchain.VM either way; engineName

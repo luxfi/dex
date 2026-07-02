@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/log"
 )
 
@@ -24,7 +24,7 @@ type Aggregator struct {
 	candlesMu sync.RWMutex
 
 	// Trade buffer
-	trades   []*lx.Trade
+	trades   []*dex.Trade
 	tradesMu sync.Mutex
 
 	// Subscribers
@@ -145,7 +145,7 @@ func NewAggregator(logger log.Logger, db database.Database) *Aggregator {
 		logger:      logger,
 		db:          db,
 		candles:     make(map[string]map[Interval]*Candle),
-		trades:      make([]*lx.Trade, 0, 1000),
+		trades:      make([]*dex.Trade, 0, 1000),
 		subscribers: make(map[string][]chan *Candle),
 		ctx:         ctx,
 		cancel:      cancel,
@@ -180,7 +180,7 @@ func (a *Aggregator) Stop() {
 }
 
 // AddTrade adds a trade to be processed
-func (a *Aggregator) AddTrade(trade *lx.Trade) {
+func (a *Aggregator) AddTrade(trade *dex.Trade) {
 	a.tradesMu.Lock()
 	a.trades = append(a.trades, trade)
 	a.totalTrades++
@@ -213,7 +213,7 @@ func (a *Aggregator) processTradeBuffer() {
 	}
 
 	trades := a.trades
-	a.trades = make([]*lx.Trade, 0, 1000)
+	a.trades = make([]*dex.Trade, 0, 1000)
 	a.tradesMu.Unlock()
 
 	// Update candles for each trade
@@ -223,7 +223,7 @@ func (a *Aggregator) processTradeBuffer() {
 }
 
 // updateCandles updates all interval candles with a trade
-func (a *Aggregator) updateCandles(trade *lx.Trade) {
+func (a *Aggregator) updateCandles(trade *dex.Trade) {
 	symbol := "BTC-USD" // TODO: Get from trade
 	tradeTime := trade.Timestamp
 

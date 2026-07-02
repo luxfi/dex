@@ -17,7 +17,7 @@ import (
 
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/log"
 )
@@ -492,4 +492,4 @@ func TestRead_BadParams(t *testing.T) {
 }
 
 // compile-time guard: the read row codec stays consistent with the lx trade row.
-var _ = lx.DEXTrade{}
+var _ = dex.DEXTrade{}

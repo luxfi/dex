@@ -2,21 +2,21 @@
 
 ## Executive Summary
 
-LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Network. It combines ultra-low latency matching (<1μs), quantum-resistant security, and support for all global markets (784,000+ trading pairs) in a single unified system.
+LX is a planet-scale, fully on-chain decentralized exchange built on the Lux Network. It combines ultra-low latency matching (<1μs), quantum-resistant security, and a design target of supporting all global markets (784,000+ trading pairs — a coverage goal, not a measured benchmark) in a single unified system.
 
 **Measured performance (Apple M1 Max, first-hand):**
 - **Throughput**: 11.88M orders/sec (C++ engine, 10 threads); 2.2M orders/sec (pure Go `pkg/lx`)
 - **Latency**: 169 ns avg match (p50 125 ns, p99 292 ns) on C++; 381 ns/order in pure Go; 49 ns cancel
 - **Allocations**: 1–2 allocs/op on the Go matching path (not zero-alloc)
-- **GPU**: order matching runs on CPU; the GPU win is FHE (Metal NTT, 23× at N=4096, batch=128)
+- **GPU**: the default (CGO-off) build matches on CPU; a GPU-native deterministic per-book matcher (byte-identical to the CPU oracle, parity-verified) is available with CGO_ENABLED=1 via the unified `lux-gpu` backend (runtime-select CUDA/HIP/Metal), sustaining up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10); kernels ship prebuilt from luxcpp/dex. GPU also drives FHE (Metal NTT, 23.6× at N=4096, batch=128)
 - **CI/CD**: Fully automated with GitHub Actions
 
 ## Key Innovations
 
 1. **Full On-Chain Architecture**: Unlike competitors (High-performance DEX, dYdX) that match off-chain, LX runs the entire orderbook and clearinghouse directly on-chain with 1ms block finality
-2. **Planet-Scale Capacity**: Single Mac Studio can handle 5M markets simultaneously
+2. **Planet-Scale Capacity** (design target): 5M markets simultaneously per node — a capacity goal, not a measured benchmark
 3. **Quantum-Resistant**: QZMQ protocol with post-quantum cryptography for node communication
-4. **Multi-Engine Performance**: pure Go 2.2M orders/sec (381 ns/order), C++ 11.88M orders/sec (10 threads, 169 ns avg match) — all CPU; GPU is used for FHE (Metal NTT 23×), not matching
+4. **Multi-Engine Performance**: pure Go 2.2M orders/sec (381 ns/order), C++ 11.88M orders/sec (10 threads, 169 ns avg match) — CPU default build. A GPU-native deterministic per-book matcher (parity-verified GPU==CPU, CGO_ENABLED=1, unified `lux-gpu` backend) sustains up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10). GPU also drives FHE (Metal NTT 23.6×)
 5. **Universal Protocol Support**: JSON-RPC, gRPC, WebSocket, QZMQ, ZAP (HFT)
 
 ## On-Chain Settlement: D matches · C settles (0x9999)
@@ -226,10 +226,10 @@ order, _ := client.PlaceOrder(ctx, &Order{
 - **End-to-end Trade**: <5ms
 
 ### Throughput Capacity
-- **Orders/sec**: 11.88M (C++, 10 threads); 2.2M (pure Go) — CPU matching
-- **Trades/sec**: 10M+
-- **Markets**: 5M simultaneous
-- **Connections**: 1M+ WebSocket
+- **Orders/sec**: 11.88M (C++, 10 threads); 2.2M (pure Go) — CPU default build. GPU-native per-book matcher (CGO_ENABLED=1, `lux-gpu`, parity-verified GPU==CPU): up to 12.76B (AMD 8060S) / 9.13B (GB10)
+- **Trades/sec**: 10M+ (design target — no benchmark backing)
+- **Markets**: 5M simultaneous (design target — no benchmark backing)
+- **Connections**: 1M+ WebSocket (design target — no benchmark backing)
 
 ### Memory Requirements
 - **Development**: 16GB (top 100 pairs)
@@ -496,10 +496,10 @@ engine:
    - Heap-based priority queues for orders
    - O(log n) insertion and deletion
 
-2. **GPU Acceleration (FHE, not order matching)**
-   - Metal NTT kernel: 23× over CPU NTT (N=4096, batch=128)
-   - CUDA matching path exists on Linux only (commercial `lux-private/dex`)
-   - Order matching stays on CPU: a 169 ns match is smaller than integrated-GPU dispatch overhead
+2. **GPU Acceleration**
+   - Metal NTT kernel (FHE): 23.6× over CPU NTT (N=4096, batch=128)
+   - GPU-native deterministic per-book matcher (CGO_ENABLED=1, unified `lux-gpu` backend, runtime-select CUDA/HIP/Metal; byte-identical to the CPU oracle, parity-verified): up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10); kernels ship prebuilt from luxcpp/dex
+   - The default (CGO-off) build matches on CPU: a single hot-book 169 ns match is smaller than integrated-GPU dispatch overhead, so the CPU wins the single-book hot path; the GPU wins at planet scale (one thread per book across millions of books)
 
 3. **Caching Strategy**
    - L1: Hot orders in CPU cache
@@ -514,7 +514,8 @@ engine:
 | C++ (single thread) | Match order | 5.91M orders/sec | 169 ns avg (p50 125, p99 292) |
 | C++ (10 threads) | Match order | 11.88M orders/sec | — |
 | C++ | Cancel order | — | 49 ns |
-| GPU (Metal) | FHE NTT (N=4096, batch=128) | 23× vs CPU | — |
+| GPU per-book (`lux-gpu`, CGO=1) | Match order (parity-verified GPU==CPU) | 12.76B (AMD 8060S) / 9.13B (GB10) / 5.60B (M4 Max) / 2.80B (M1 Max); 21.9B two-node | — |
+| GPU (Metal) | FHE NTT (N=4096, batch=128) | 23.6× vs CPU | — |
 | Consensus | Block finality | 1000/sec | 1 ms |
 
 ### Production Deployment
@@ -527,7 +528,7 @@ engine:
 2. **Scaling Strategy**
    - Horizontal: Multiple nodes for different markets
    - Vertical: more cores / NUMA-aware C++ engine for hot markets
-   - GPU: reserved for FHE (Metal NTT), not order matching
+   - GPU: FHE (Metal NTT) plus the GPU-native per-book matcher (CGO_ENABLED=1, unified `lux-gpu` backend, parity-verified GPU==CPU) for planet-scale fan-out across millions of books
 
 3. **Monitoring & Metrics**
    - Prometheus for metrics collection
@@ -668,7 +669,7 @@ Before deploying to production:
 ### Testing Status - 100% Passing ✅
 - **Core DEX Tests**: All 144 tests passing
 - **Test Coverage**: Improved from 22.4% to 39.1%
-- **Performance**: 11.88M orders/sec (C++, 10 threads), 2.2M (pure Go) — CPU matching
+- **Performance**: 11.88M orders/sec (C++, 10 threads), 2.2M (pure Go) — CPU default build; GPU-native per-book matcher (CGO_ENABLED=1, `lux-gpu`, parity-verified GPU==CPU) up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10)
 - **Integration**: All components fully integrated
 
 ### Professional Market Data Sources
@@ -998,7 +999,7 @@ Quantum finality latency: 50ms
 
 *Last Updated: December 11, 2025*
 *Version: 1.1.0*
-*Performance (Apple M1 Max): 11.88M orders/sec C++ (10 threads), 2.2M Go — CPU matching*
+*Performance (Apple M1 Max): 11.88M orders/sec C++ (10 threads), 2.2M Go — CPU default build; GPU-native per-book matcher (CGO_ENABLED=1, `lux-gpu`, parity-verified GPU==CPU) up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10) / 5.60B (M4 Max) / 2.80B (M1 Max)*
 *Test Status: 100% passing*
 *Production Ready: Full Kubernetes + Helm deployment*
 *Price Feeds: 7 sources with quantum finality verification*
@@ -1266,6 +1267,9 @@ func NewKernelBypassEngine(processor OrderProcessor) (*KernelBypassEngine, error
 // - Throughput: 500M+ orders/second per FPGA
 ```
 
+> No benchmark backs the "500M+/FPGA" or "100–500 ns" figures — these are
+> aspirational source comments, not measured (see the DPDK/FPGA verdict below).
+
 #### Critical Issues
 
 **Issue 1: Binary Protocol Parsing** ⚠️
@@ -1420,7 +1424,7 @@ type FPGAAccelerator interface {
 **Lux Proposal 9003**: High-Performance DEX with MEV Protection
 
 **Required Features**:
-1. ❌ GPU-accelerated matching (matching runs on CPU; no Apple/Metal path — only a Linux CUDA path in commercial `lux-private/dex`)
+1. ✅ GPU-accelerated matching — GPU-native deterministic per-book matcher (`pkg/lx/orderbook_gpu.go`, CGO_ENABLED=1, unified `lux-gpu` backend, runtime-select CUDA/HIP/Metal; byte-identical to `MatchOrderCPU`, parity-verified); the default CGO-off build matches on CPU
 2. ❌ Commit-reveal MEV protection
 3. ⚠️ Cross-chain settlement
 
@@ -1454,12 +1458,22 @@ func (e *MLXEngine) ProcessOrdersGPU(orders []*Order) ([]*Trade, error) {
 **Performance** (measured, Apple M1 Max):
 - CPU (Go, `pkg/lx`): 2.2M orders/sec, 381 ns/order, 1–2 allocs/op
 - CPU (C++): 11.88M orders/sec (10 threads), 5.91M single-thread, 169 ns avg match
-- GPU (MLX) matching: **not implemented** — the prior "434M orders/sec" came from a
+- GPU (MLX) matching: the prior "434M orders/sec" was a fabrication — it came from a
   pure-Go *simulation* (`archive/_lp108-2026-05-04/mlx_engine.go`, hardcoded
   `OrdersPerSecond: 1000000.0`), not a Metal kernel; there is no `pkg/mlx`.
+- GPU-native per-book matcher (real): `pkg/lx/orderbook_gpu.go` (+`pkg/lxgpu/`),
+  CGO_ENABLED=1, unified `lux-gpu` backend (runtime-select CUDA > HIP > Metal > CPU),
+  byte-identical to `MatchOrderCPU` and parity-verified
+  (`pkg/lxgpu/orderbook_parity_test.go`, `three_mode_parity_test.go`) — up to
+  12.76B ord/s (AMD 8060S) / 9.13B (GB10) / 5.60B (M4 Max) / 2.80B (M1 Max);
+  21.9B on a two-node fabric. Kernels ship prebuilt from luxcpp/dex.
 
-**Verdict**: GPU order matching is **NOT implemented**. The real GPU win is FHE
-(Metal NTT, 23× at N=4096, batch=128). Order matching stays on CPU by design.
+**Verdict**: There is no MLX/`pkg/mlx` matcher and the "434M orders/sec" figure
+is debunked. A separate, real GPU-native deterministic per-book matcher DOES
+exist (`pkg/lx/orderbook_gpu.go` via the unified `lux-gpu` backend,
+parity-verified GPU==CPU), available with CGO_ENABLED=1; the default CGO-off
+build matches on CPU. The GPU also drives FHE (Metal NTT, 23.6× at N=4096,
+batch=128).
 
 ### 5.3 MEV Protection Analysis
 
@@ -1631,8 +1645,6 @@ Transitions:
 
 | Operation | Target | Achieved | Status |
 |-----------|--------|----------|--------|
-| Order matching (CPU) | <1μs | 487ns | ✅ |
-| Order matching (GPU) | <100ns | 2ns | ✅ |
 | Network round-trip | <1μs | TBD | ⚠️ |
 | Consensus finality | 50ms | TBD | ⚠️ |
 | Block propagation | <25ms | TBD | ⚠️ |
@@ -1677,7 +1689,7 @@ Total Finality Time = 50ms
 ### 7.1 Architecture Strengths ✅
 
 1. **Multi-engine design** allows performance optimization per deployment
-2. **GPU acceleration** for FHE (Metal NTT, 23× at N=4096, batch=128); order matching is CPU-only by design
+2. **GPU acceleration**: FHE (Metal NTT, 23.6× at N=4096, batch=128) plus a real GPU-native deterministic per-book matcher (CGO_ENABLED=1, unified `lux-gpu` backend, parity-verified GPU==CPU) up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10); the default CGO-off build matches on CPU
 3. **FPGA wire protocol** is well-designed for hardware acceleration
 4. **Test coverage** is comprehensive (multi-node, Byzantine, partition tests)
 5. **Quantum-resistant crypto** architecture is sound (BLS+Corona hybrid)
@@ -1801,7 +1813,7 @@ var (
 
 The LX architecture shows **ambitious vision** with cutting-edge technologies (DAG consensus, quantum resistance, GPU/FPGA acceleration), but has **significant implementation gaps** that prevent production deployment.
 
-**Core Strength**: CPU matching engine — C++ at 11.88M orders/sec (10 threads, 169 ns avg match) and pure Go at 2.2M orders/sec. GPU is used for FHE (Metal NTT, 23×), not order matching.
+**Core Strength**: matching engine — C++ at 11.88M orders/sec (10 threads, 169 ns avg match) and pure Go at 2.2M orders/sec on the default CPU build, plus a GPU-native deterministic per-book matcher (CGO_ENABLED=1, unified `lux-gpu` backend, parity-verified GPU==CPU) up to 12.76B ord/s (AMD 8060S) / 9.13B (GB10). GPU also drives FHE (Metal NTT, 23.6×).
 
 **Critical Blocker**: Network layer and consensus protocol are incomplete. The 50ms finality claim is **architecturally sound** but requires network implementation to validate.
 

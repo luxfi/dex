@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,7 +242,7 @@ func TestAggregatorStartStop(t *testing.T) {
 func TestAggregatorAddTrade(t *testing.T) {
 	agg := newTestAggregator()
 
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      1.5,
 		Timestamp: time.Now(),
@@ -261,7 +261,7 @@ func TestAggregatorAddMultipleTrades(t *testing.T) {
 	agg := newTestAggregator()
 
 	for i := 0; i < 10; i++ {
-		trade := &lx.Trade{
+		trade := &dex.Trade{
 			Price:     50000.0 + float64(i*100),
 			Size:      float64(i + 1),
 			Timestamp: time.Now(),
@@ -279,7 +279,7 @@ func TestAggregatorProcessTradeBuffer(t *testing.T) {
 	agg := newTestAggregator()
 
 	// Add a trade
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      2.0,
 		Timestamp: time.Now(),
@@ -306,7 +306,7 @@ func TestAggregatorProcessEmptyBuffer(t *testing.T) {
 func TestAggregatorUpdateCandles(t *testing.T) {
 	agg := newTestAggregator()
 
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      1.0,
 		Timestamp: time.Now(),
@@ -330,15 +330,15 @@ func TestAggregatorCandleHighLow(t *testing.T) {
 	baseTime := time.Date(2025, 1, 1, 10, 30, 0, 0, time.UTC)
 
 	// First trade - sets open
-	trade1 := &lx.Trade{Price: 50000.0, Size: 1.0, Timestamp: baseTime}
+	trade1 := &dex.Trade{Price: 50000.0, Size: 1.0, Timestamp: baseTime}
 	agg.updateCandles(trade1)
 
 	// Second trade - higher price (still within same minute)
-	trade2 := &lx.Trade{Price: 51000.0, Size: 1.0, Timestamp: baseTime.Add(10 * time.Second)}
+	trade2 := &dex.Trade{Price: 51000.0, Size: 1.0, Timestamp: baseTime.Add(10 * time.Second)}
 	agg.updateCandles(trade2)
 
 	// Third trade - lower price (still within same minute)
-	trade3 := &lx.Trade{Price: 49000.0, Size: 1.0, Timestamp: baseTime.Add(20 * time.Second)}
+	trade3 := &dex.Trade{Price: 49000.0, Size: 1.0, Timestamp: baseTime.Add(20 * time.Second)}
 	agg.updateCandles(trade3)
 
 	// Check 1-minute candle (not 1-second, since trades span multiple seconds)
@@ -364,7 +364,7 @@ func TestAggregatorGetLatestCandle(t *testing.T) {
 	assert.Nil(t, candle)
 
 	// Add a trade to create candle
-	trade := &lx.Trade{Price: 50000.0, Size: 1.0, Timestamp: time.Now()}
+	trade := &dex.Trade{Price: 50000.0, Size: 1.0, Timestamp: time.Now()}
 	agg.updateCandles(trade)
 
 	// Now should have a candle
@@ -397,7 +397,7 @@ func TestAggregatorGetStatsWithData(t *testing.T) {
 
 	// Add some trades
 	for i := 0; i < 5; i++ {
-		trade := &lx.Trade{Price: 50000.0 + float64(i), Size: 1.0, Timestamp: time.Now()}
+		trade := &dex.Trade{Price: 50000.0 + float64(i), Size: 1.0, Timestamp: time.Now()}
 		agg.AddTrade(trade)
 	}
 	agg.processTradeBuffer()
@@ -543,7 +543,7 @@ func TestAggregatorConcurrentTradeAdds(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(n int) {
 			for j := 0; j < 100; j++ {
-				trade := &lx.Trade{
+				trade := &dex.Trade{
 					Price:     50000.0 + float64(n*100+j),
 					Size:      float64(j + 1),
 					Timestamp: time.Now(),
@@ -669,7 +669,7 @@ func TestAggregatorCleanupOldCandles(t *testing.T) {
 
 func BenchmarkAggregatorAddTrade(b *testing.B) {
 	agg := newTestAggregator()
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      1.0,
 		Timestamp: time.Now(),
@@ -683,7 +683,7 @@ func BenchmarkAggregatorAddTrade(b *testing.B) {
 
 func BenchmarkAggregatorUpdateCandles(b *testing.B) {
 	agg := newTestAggregator()
-	trade := &lx.Trade{
+	trade := &dex.Trade{
 		Price:     50000.0,
 		Size:      1.0,
 		Timestamp: time.Now(),

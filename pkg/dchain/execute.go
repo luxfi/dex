@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -49,11 +49,11 @@ func blockDeterministicID(height uint64, txIndex uint32) uint64 {
 // cancelled order id is removed, on a submit the affected makers are updated.
 type applyResult struct {
 	// Fills are the trades a TxSubmit produced (empty for other tx types).
-	Fills []lx.Trade
+	Fills []dex.Trade
 	// TakerSide is the side the submit took with (for encoding fill rows).
-	TakerSide lx.Side
+	TakerSide dex.Side
 	// Placed is the order a TxPlace rested (nil otherwise).
-	Placed *lx.Order
+	Placed *dex.Order
 	// Canceled is the order id a TxCancel removed (0 otherwise). The cancelled
 	// order's SETTLEMENT identity is NOT carried here: the custody unlock resolves
 	// it exclusively through the orderuser: index by this order id (settle.go /
@@ -62,7 +62,7 @@ type applyResult struct {
 	Canceled uint64
 	// Touched are resting orders whose remaining changed due to a submit cross
 	// (the makers); their rows must be rewritten/deleted.
-	Touched []*lx.Order
+	Touched []*dex.Order
 	// SelfCanceled are resting maker order ids the submit's cross removed for
 	// self-trade prevention (the taker crossed its OWN resting liquidity). They
 	// produced NO fill; the VM persists each removal through the SAME cancel path a
@@ -83,7 +83,7 @@ type applyResult struct {
 // For TxCancel: CancelOrder removes the resting order.
 // For TxSubmit: the marketable order also gets a deterministic ID/ts (ephemeral —
 // it never rests) and SubmitMarketable crosses the book, returning its fills.
-func applyTx(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
+func applyTx(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
 	switch tx.Type {
 	case TxPlace:
 		return applyPlace(book, tx, height, ts, txIndex)
@@ -104,10 +104,10 @@ func applyTx(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex ui
 // consensus entrypoint. Rejected orders (bad price/size, post-only-would-take,
 // self-trade) yield an empty result with no error: a rejected order is a valid,
 // deterministic outcome (no fills, no resting delta), not a chain-level failure.
-func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
+func applyPlace(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
 	body := tx.Body
 	// Place body: poolId[32] + side[1] + price[8] + size[8] + user[16].
-	side := lx.Side(body[zapwire.PoolIDSize])
+	side := dex.Side(body[zapwire.PoolIDSize])
 	price := zapwire.Float64(body[zapwire.PoolIDSize+1 : zapwire.PoolIDSize+9])
 	size := zapwire.Float64(body[zapwire.PoolIDSize+9 : zapwire.PoolIDSize+17])
 	user := string(trimNull(body[zapwire.PoolIDSize+17 : zapwire.PoolIDSize+17+zapwire.UserSize]))
@@ -115,9 +115,9 @@ func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex
 	if !(price > 0) || !(size > 0) {
 		return applyResult{}, nil // deterministic reject
 	}
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:        blockDeterministicID(height, txIndex),
-		Type:      lx.Limit,
+		Type:      dex.Limit,
 		Side:      side,
 		Price:     price,
 		Size:      size,
@@ -139,7 +139,7 @@ func applyPlace(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex
 // cancelled order's owner is NOT captured here: the custody unlock resolves the
 // full settlement identity through the orderuser: index (settleOrderEffects), so
 // the matcher's 8-byte in-RAM owner never participates in a value move.
-func applyCancel(book *lx.OrderBook, tx *Tx) (applyResult, error) {
+func applyCancel(book *dex.OrderBook, tx *Tx) (applyResult, error) {
 	orderID := binary.BigEndian.Uint64(tx.Body[zapwire.PoolIDSize : zapwire.PoolIDSize+8])
 	// Snapshot the order before cancel so we know it existed (for the delta).
 	if book.GetOrder(orderID) == nil {
@@ -156,10 +156,10 @@ func applyCancel(book *lx.OrderBook, tx *Tx) (applyResult, error) {
 // produces are byte-identical across validators; the order itself never rests
 // (SubmitMarketable is IOC). Touched makers are captured BEFORE the cross so the
 // VM can rewrite their rows; SubmitMarketable mutates resting orders in place.
-func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
+func applySubmit(book *dex.OrderBook, tx *Tx, height uint64, ts time.Time, txIndex uint32) (applyResult, error) {
 	body := tx.Body
 	// Submit body: poolId[32] + side[1] + isMarket[1] + price[8] + size[8] + user[16].
-	side := lx.Side(body[zapwire.PoolIDSize])
+	side := dex.Side(body[zapwire.PoolIDSize])
 	isMarket := body[zapwire.PoolIDSize+1] == 1
 	limitPrice := zapwire.Float64(body[zapwire.PoolIDSize+2 : zapwire.PoolIDSize+10])
 	size := zapwire.Float64(body[zapwire.PoolIDSize+10 : zapwire.PoolIDSize+18])
@@ -168,7 +168,7 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 	if !(size > 0) {
 		return applyResult{}, nil
 	}
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:        blockDeterministicID(height, txIndex),
 		Side:      side,
 		Size:      size,
@@ -179,12 +179,12 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		Timestamp: ts,
 	}
 	if isMarket {
-		order.Type = lx.Market
+		order.Type = dex.Market
 	} else {
 		if !(limitPrice > 0) {
 			return applyResult{}, nil
 		}
-		order.Type = lx.Limit
+		order.Type = dex.Limit
 		order.Price = limitPrice
 	}
 
@@ -193,7 +193,7 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 	// the GPU kernel is ALSO dispatched and byte-compared against this CPU result,
 	// which is what is committed REGARDLESS — so the engine choice can never change
 	// the committed fills and a mixed GPU/CPU validator set cannot fork.
-	fills, err := book.SubmitMarketableVerified(order, lx.MatchEngine())
+	fills, err := book.SubmitMarketableVerified(order, dex.MatchEngine())
 	if err != nil {
 		return applyResult{}, nil // deterministic reject (e.g. invalid)
 	}
@@ -205,11 +205,11 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 	selfCanceled := book.DrainSelfCanceled()
 
 	// Collect the makers touched by these fills so the VM rewrites their rows.
-	touched := make([]*lx.Order, 0, len(fills))
+	touched := make([]*dex.Order, 0, len(fills))
 	seen := make(map[uint64]struct{}, len(fills))
 	for _, f := range fills {
 		makerID := f.SellOrder
-		if side == lx.Sell {
+		if side == dex.Sell {
 			makerID = f.BuyOrder
 		}
 		if _, dup := seen[makerID]; dup {
@@ -221,7 +221,7 @@ func applySubmit(book *lx.OrderBook, tx *Tx, height uint64, ts time.Time, txInde
 		} else {
 			// Maker fully filled and removed from the book: synthesize a
 			// tombstone row so the VM deletes its persisted row.
-			touched = append(touched, &lx.Order{ID: makerID, Status: lx.Filled})
+			touched = append(touched, &dex.Order{ID: makerID, Status: dex.Filled})
 		}
 	}
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // replay_test.go proves the matcher-at-Verify determinism: the SAME swap over the
@@ -25,7 +24,7 @@ func buildSeededEconomy(t *testing.T, db Store, tag byte) [32]byte {
 	maker := account(0xAA)
 	taker := account(0xBB)
 	seedDeposit(t, db, maker, tokLUSD, 1_000_000)
-	restOrder(t, db, pid, maker, lx.Buy, 50, 1000, 1)
+	restOrder(t, db, pid, maker, Buy, 50, 1000, 1)
 	seedDeposit(t, db, taker, tokLETH, 500)
 	return pid
 }
@@ -61,7 +60,7 @@ func TestReplay_SameInputSameStateAllValidators(t *testing.T) {
 		db := memdb.New()
 		pid := buildSeededEconomy(t, db, 30)
 		req := SwapRequest{
-			PoolID: pid, TakerUser: account(0xBB), Side: lx.Sell,
+			PoolID: pid, TakerUser: account(0xBB), Side: Sell,
 			Base: tokLETH, Quote: tokLUSD, AmountIn: 137, OrderID: 5_000, TimestampN: 9_000,
 			Class: ClassPublicDEX,
 		}
@@ -92,7 +91,7 @@ func TestReplay_ExecutionRootDeterministic(t *testing.T) {
 	_ = buildSeededEconomy(t, db2, 31)
 
 	req := SwapRequest{
-		PoolID: pid, TakerUser: account(0xBB), Side: lx.Sell,
+		PoolID: pid, TakerUser: account(0xBB), Side: Sell,
 		Base: tokLETH, Quote: tokLUSD, AmountIn: 200, OrderID: 5_000, TimestampN: 9_000,
 		Class: ClassPublicDEX,
 	}

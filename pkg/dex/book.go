@@ -9,11 +9,10 @@ import (
 	"math/big"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // book.go is the resting-book schema + the rebuild-from-rows discipline. The
-// in-RAM lx.OrderBook is a rebuildable ACCELERATOR; the durable order:* rows are
+// in-RAM OrderBook is a rebuildable ACCELERATOR; the durable order:* rows are
 // truth. Both homes fold the same rows into the same book, so the matcher sees the
 // identical liquidity. There is ONE rebuild path (RebuildBook), used at init (fold
 // every market) and during a swap (fold the touched market).
@@ -123,12 +122,12 @@ func WriteBookWatermark(db database.KeyValueWriter, poolID [32]byte, watermark u
 // longer live (filled, cancelled, or zero remaining). The book is the live resting
 // set; spent rows are removed so iteration over order:* yields exactly the
 // rebuildable liquidity.
-func PutOrderRow(db database.KeyValueWriterDeleter, poolID [32]byte, row lx.DEXOrder) error {
+func PutOrderRow(db database.KeyValueWriterDeleter, poolID [32]byte, row DEXOrder) error {
 	key := orderKey(poolID, row.OrderID)
-	if row.Status == lx.DEXStatusFilled || row.Status == lx.DEXStatusCancelled || row.Remaining == 0 {
+	if row.Status == DEXStatusFilled || row.Status == DEXStatusCancelled || row.Remaining == 0 {
 		return db.Delete(key)
 	}
-	return db.Put(key, lx.EncodeRow(row))
+	return db.Put(key, EncodeRow(row))
 }
 
 // DeleteOrderRow removes a resting order row (used on cancel).
@@ -141,14 +140,14 @@ func DeleteOrderRow(db database.KeyValueDeleter, poolID [32]byte, orderID uint64
 // quantities in fixed-point, not the matcher's atomic-unit lane, so we restore the
 // exact-integer SizeUnits/RemainingUnits on every rebuilt order (else its fills
 // would carry no integer truth and the custody settle would refuse them).
-func RebuildBook(db database.Iteratee, poolID [32]byte, symbol string) (*lx.OrderBook, error) {
+func RebuildBook(db database.Iteratee, poolID [32]byte, symbol string) (*OrderBook, error) {
 	prefix := orderPrefixFor(poolID)
 	it := db.NewIteratorWithPrefix(prefix)
 	defer it.Release()
 
-	var rows []lx.DEXOrder
+	var rows []DEXOrder
 	for it.Next() {
-		row, ok := lx.DecodeRow(it.Value())
+		row, ok := DecodeRow(it.Value())
 		if !ok {
 			return nil, fmt.Errorf("dex: corrupt order row under %x (len %d)", poolID[:8], len(it.Value()))
 		}
@@ -157,7 +156,7 @@ func RebuildBook(db database.Iteratee, poolID [32]byte, symbol string) (*lx.Orde
 	if err := it.Error(); err != nil {
 		return nil, err
 	}
-	ob := lx.RowsToBook(symbol, rows)
+	ob := RowsToBook(symbol, rows)
 	restoreIntegerLane(ob)
 	return ob, nil
 }
@@ -166,7 +165,7 @@ func RebuildBook(db database.Iteratee, poolID [32]byte, symbol string) (*lx.Orde
 // quantity lane) on every resting order in a rebuilt book, derived from the order's
 // float size/remaining via the same whole-unit conversion the consensus path uses.
 // Idempotent.
-func restoreIntegerLane(ob *lx.OrderBook) {
+func restoreIntegerLane(ob *OrderBook) {
 	for _, o := range ob.Orders {
 		if o == nil {
 			continue

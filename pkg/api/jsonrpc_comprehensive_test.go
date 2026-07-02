@@ -10,53 +10,53 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/log"
 	"github.com/stretchr/testify/assert"
 )
 
 // Test complete JSON-RPC lifecycle
 func TestJSONRPCServer_CompleteLifecycle(t *testing.T) {
-	orderBook := lx.NewOrderBook("TEST")
+	orderBook := dex.NewOrderBook("TEST")
 	level, _ := log.ToLevel("debug")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
 
 	// Add orders to orderbook
-	orderBook.AddOrder(&lx.Order{
+	orderBook.AddOrder(&dex.Order{
 		ID:        1,
-		Type:      lx.Limit,
-		Side:      lx.Buy,
+		Type:      dex.Limit,
+		Side:      dex.Buy,
 		Price:     99,
 		Size:      10,
 		User:      "buyer1",
 		Timestamp: time.Now(),
 	})
 
-	orderBook.AddOrder(&lx.Order{
+	orderBook.AddOrder(&dex.Order{
 		ID:        2,
-		Type:      lx.Limit,
-		Side:      lx.Buy,
+		Type:      dex.Limit,
+		Side:      dex.Buy,
 		Price:     98,
 		Size:      20,
 		User:      "buyer2",
 		Timestamp: time.Now(),
 	})
 
-	orderBook.AddOrder(&lx.Order{
+	orderBook.AddOrder(&dex.Order{
 		ID:        3,
-		Type:      lx.Limit,
-		Side:      lx.Sell,
+		Type:      dex.Limit,
+		Side:      dex.Sell,
 		Price:     101,
 		Size:      15,
 		User:      "seller1",
 		Timestamp: time.Now(),
 	})
 
-	orderBook.AddOrder(&lx.Order{
+	orderBook.AddOrder(&dex.Order{
 		ID:        4,
-		Type:      lx.Limit,
-		Side:      lx.Sell,
+		Type:      dex.Limit,
+		Side:      dex.Sell,
 		Price:     102,
 		Size:      25,
 		User:      "seller2",
@@ -96,7 +96,7 @@ func TestJSONRPCServer_CompleteLifecycle(t *testing.T) {
 
 // Test error handling for all error codes
 func TestJSONRPCServer_ErrorCodes(t *testing.T) {
-	orderBook := lx.NewOrderBook("ERROR")
+	orderBook := dex.NewOrderBook("ERROR")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -147,7 +147,7 @@ func TestJSONRPCServer_ErrorCodes(t *testing.T) {
 
 // Test handling of different HTTP methods
 func TestJSONRPCServer_HTTPMethods(t *testing.T) {
-	orderBook := lx.NewOrderBook("METHODS")
+	orderBook := dex.NewOrderBook("METHODS")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -175,7 +175,7 @@ func TestJSONRPCServer_HTTPMethods(t *testing.T) {
 
 // Test request/response headers
 func TestJSONRPCServer_Headers(t *testing.T) {
-	orderBook := lx.NewOrderBook("HEADERS")
+	orderBook := dex.NewOrderBook("HEADERS")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -198,7 +198,7 @@ func TestJSONRPCServer_Headers(t *testing.T) {
 
 // Test large request handling
 func TestJSONRPCServer_LargeRequest(t *testing.T) {
-	orderBook := lx.NewOrderBook("LARGE")
+	orderBook := dex.NewOrderBook("LARGE")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -226,14 +226,14 @@ func TestJSONRPCServer_LargeRequest(t *testing.T) {
 
 // Test concurrent requests
 func TestJSONRPCServer_ConcurrentRequests(t *testing.T) {
-	orderBook := lx.NewOrderBook("CONCURRENT")
+	orderBook := dex.NewOrderBook("CONCURRENT")
 
 	// Add some orders
 	for i := 1; i <= 100; i++ {
-		orderBook.AddOrder(&lx.Order{
+		orderBook.AddOrder(&dex.Order{
 			ID:        uint64(i),
-			Type:      lx.Limit,
-			Side:      lx.Buy,
+			Type:      dex.Limit,
+			Side:      dex.Buy,
 			Price:     float64(100 - i%10),
 			Size:      10,
 			User:      "user",
@@ -277,7 +277,7 @@ func TestJSONRPCServer_ConcurrentRequests(t *testing.T) {
 
 // Test request body size limits
 func TestJSONRPCServer_BodySizeLimit(t *testing.T) {
-	orderBook := lx.NewOrderBook("SIZE")
+	orderBook := dex.NewOrderBook("SIZE")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -294,7 +294,7 @@ func TestJSONRPCServer_BodySizeLimit(t *testing.T) {
 
 // Test empty request body
 func TestJSONRPCServer_EmptyBody(t *testing.T) {
-	orderBook := lx.NewOrderBook("EMPTY")
+	orderBook := dex.NewOrderBook("EMPTY")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -314,7 +314,7 @@ func TestJSONRPCServer_EmptyBody(t *testing.T) {
 
 // Test notification (no id field)
 func TestJSONRPCServer_Notification(t *testing.T) {
-	orderBook := lx.NewOrderBook("NOTIFY")
+	orderBook := dex.NewOrderBook("NOTIFY")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -339,7 +339,7 @@ func TestJSONRPCServer_Notification(t *testing.T) {
 
 // Test with various id types
 func TestJSONRPCServer_IDTypes(t *testing.T) {
-	orderBook := lx.NewOrderBook("ID")
+	orderBook := dex.NewOrderBook("ID")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 	server := NewJSONRPCServer(orderBook, logger)
@@ -377,7 +377,7 @@ func TestJSONRPCServer_IDTypes(t *testing.T) {
 
 // Test reading request body multiple times
 func TestJSONRPCServer_BodyReading(t *testing.T) {
-	orderBook := lx.NewOrderBook("BODY")
+	orderBook := dex.NewOrderBook("BODY")
 	level, _ := log.ToLevel("error")
 	logger := log.NewTestLogger(level)
 
@@ -404,23 +404,23 @@ func TestJSONRPCServer_BodyReading(t *testing.T) {
 
 // Benchmark different methods
 func BenchmarkJSONRPCServer_Methods(b *testing.B) {
-	orderBook := lx.NewOrderBook("BENCH")
+	orderBook := dex.NewOrderBook("BENCH")
 
 	// Add many orders
 	for i := 0; i < 10000; i++ {
-		orderBook.AddOrder(&lx.Order{
+		orderBook.AddOrder(&dex.Order{
 			ID:        uint64(i),
-			Type:      lx.Limit,
-			Side:      lx.Buy,
+			Type:      dex.Limit,
+			Side:      dex.Buy,
 			Price:     float64(100 - i%100),
 			Size:      10,
 			User:      "bench",
 			Timestamp: time.Now(),
 		})
-		orderBook.AddOrder(&lx.Order{
+		orderBook.AddOrder(&dex.Order{
 			ID:        uint64(i + 10000),
-			Type:      lx.Limit,
-			Side:      lx.Sell,
+			Type:      dex.Limit,
+			Side:      dex.Sell,
 			Price:     float64(100 + i%100),
 			Size:      10,
 			User:      "bench",

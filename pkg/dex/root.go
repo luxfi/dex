@@ -8,7 +8,6 @@ import (
 
 	"github.com/luxfi/crypto/hash"
 	"github.com/luxfi/crypto/merkle"
-	"github.com/luxfi/dex/pkg/lx"
 )
 
 // root.go is the DEX-state execution root — the same RFC-6962 tagged keccak256
@@ -57,7 +56,7 @@ func bookRootForMarket(db Store, poolID [32]byte) [Size]byte {
 	if err != nil {
 		return merkle.EmptyRoot()
 	}
-	rows := lx.BookToRows(book) // canonical (sorted) order from the matcher
+	rows := BookToRows(book) // canonical (sorted) order from the matcher
 	leaves := make([][Size]byte, len(rows))
 	for i := range rows {
 		leaves[i] = orderLeafDigest(rows[i], uint32(i))
@@ -75,7 +74,7 @@ func tradeRootForResult(res *SwapResult) [Size]byte {
 	idx := uint32(0)
 	for _, f := range res.Fills {
 		for _, tr := range f.Trades {
-			leaves = append(leaves, tradeLeafDigest(lx.TradeToRow(tr, tr.TakerSide), idx))
+			leaves = append(leaves, tradeLeafDigest(TradeToRow(tr, tr.TakerSide), idx))
 			idx++
 		}
 		if f.Source == SourceAMM && (f.AMMBaseDelta != 0 || f.AMMQuoteDelta != 0) {
@@ -87,16 +86,16 @@ func tradeRootForResult(res *SwapResult) [Size]byte {
 }
 
 // orderLeafDigest = keccak256(canonical row image ‖ index_le).
-func orderLeafDigest(row lx.DEXOrder, i uint32) [Size]byte {
-	img := lx.EncodeRow(row)
+func orderLeafDigest(row DEXOrder, i uint32) [Size]byte {
+	img := EncodeRow(row)
 	var idx [4]byte
 	binary.LittleEndian.PutUint32(idx[:], i)
 	return hash.ComputeKeccak256Array(img, idx[:])
 }
 
 // tradeLeafDigest = keccak256(canonical trade image ‖ index_le).
-func tradeLeafDigest(t lx.DEXTrade, i uint32) [Size]byte {
-	img := lx.EncodeTrade(t)
+func tradeLeafDigest(t DEXTrade, i uint32) [Size]byte {
+	img := EncodeTrade(t)
 	var idx [4]byte
 	binary.LittleEndian.PutUint32(idx[:], i)
 	return hash.ComputeKeccak256Array(img, idx[:])

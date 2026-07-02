@@ -55,7 +55,7 @@ import (
 	"testing"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -352,7 +352,7 @@ func makerOrderIDsForSubmit(t *testing.T, vm *VM, blk *Block, tx *Tx, pool [32]b
 	defer it.Release()
 	var ids []uint64
 	for it.Next() {
-		row, ok := lx.DecodeTrade(it.Value())
+		row, ok := dex.DecodeTrade(it.Value())
 		if !ok {
 			t.Fatalf("ownership: corrupt trade row at height %d", blk.height)
 		}

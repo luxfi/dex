@@ -10,7 +10,7 @@ import (
 
 	"github.com/luxfi/crypto/hash"
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/geth/common"
 )
@@ -28,7 +28,7 @@ import (
 //                 one operation, on one account, at one nonce, and a withdraw can
 //                 only ever export to the ref the user signed over.
 //   - VERIFY    : verifyTxSignature recovers the signer via the shared primitive
-//                 (lx.RecoverAuthAddress — the same ecrecover / ML-DSA-65 verify
+//                 (dex.RecoverAuthAddress — the same ecrecover / ML-DSA-65 verify
 //                 the order path uses), folds it to the 16-byte settlement
 //                 account, and REQUIRES it equals the account the tx asserts.
 //
@@ -75,10 +75,10 @@ const (
 // orthogonal to the FROZEN zapwire body: the body says WHAT to do, the envelope
 // proves WHO authorized it and at WHICH nonce.
 type TxAuth struct {
-	Scheme lx.AuthScheme // AuthSecp256k1 or AuthMLDSA65
-	Nonce  uint64        // the signer-account's monotonic sequence number
-	Sig    []byte        // 65-byte r‖s‖v (secp) or 3293-byte ML-DSA-65 signature
-	PubKey []byte        // empty for secp (recovered); 1952-byte key for ML-DSA
+	Scheme dex.AuthScheme // AuthSecp256k1 or AuthMLDSA65
+	Nonce  uint64         // the signer-account's monotonic sequence number
+	Sig    []byte         // 65-byte r‖s‖v (secp) or 3293-byte ML-DSA-65 signature
+	PubKey []byte         // empty for secp (recovered); 1952-byte key for ML-DSA
 }
 
 // authHeaderSize is the fixed prefix of an encoded envelope: scheme[1] +
@@ -109,7 +109,7 @@ func decodeTxAuth(b []byte) (*TxAuth, error) {
 	if len(b) < authHeaderSize {
 		return nil, fmt.Errorf("%w: header short (%d)", ErrTxMalformedAuth, len(b))
 	}
-	a := &TxAuth{Scheme: lx.AuthScheme(b[0]), Nonce: binary.BigEndian.Uint64(b[1:9])}
+	a := &TxAuth{Scheme: dex.AuthScheme(b[0]), Nonce: binary.BigEndian.Uint64(b[1:9])}
 	sigLen := int(binary.BigEndian.Uint16(b[9:11]))
 	pubLen := int(binary.BigEndian.Uint16(b[11:13]))
 	off := authHeaderSize
@@ -131,7 +131,7 @@ func decodeTxAuth(b []byte) (*TxAuth, error) {
 // export ref[32] and the cancel order id — so a signed withdraw can only export
 // to the address the user authorized, and a signed cancel can only target the
 // order id the user named.
-func txAuthDigest(typ TxType, scheme lx.AuthScheme, nonce uint64, body []byte) [32]byte {
+func txAuthDigest(typ TxType, scheme dex.AuthScheme, nonce uint64, body []byte) [32]byte {
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], nonce)
 	return hash.ComputeKeccak256Array(
@@ -154,7 +154,7 @@ func txAuthDigest(typ TxType, scheme lx.AuthScheme, nonce uint64, body []byte) [
 // to; the scheme byte makes a classical and a PQ key never silently share an
 // account. The result, rendered as a string, IS the zapwire user[16] field a
 // caller must put on the wire.
-func Account16(scheme lx.AuthScheme, addr common.Address) [zapwire.UserSize]byte {
+func Account16(scheme dex.AuthScheme, addr common.Address) [zapwire.UserSize]byte {
 	d := hash.ComputeKeccak256Array([]byte(accountDomain), []byte{byte(scheme)}, addr[:])
 	var a [zapwire.UserSize]byte
 	copy(a[:], d[:zapwire.UserSize])
@@ -200,7 +200,7 @@ func verifyTxSignature(tx *Tx) (userKey, error) {
 		return zero, fmt.Errorf("%w: %s", ErrTxUnsigned, tx.Type)
 	}
 	digest := txAuthDigest(tx.Type, tx.Auth.Scheme, tx.Auth.Nonce, tx.Body)
-	addr, err := lx.RecoverAuthAddress(tx.Auth.Scheme, digest, tx.Auth.Sig, tx.Auth.PubKey)
+	addr, err := dex.RecoverAuthAddress(tx.Auth.Scheme, digest, tx.Auth.Sig, tx.Auth.PubKey)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrTxBadSignature, err)
 	}

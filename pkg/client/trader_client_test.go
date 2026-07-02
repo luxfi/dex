@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,8 +94,8 @@ func TestTraderClientInitialState(t *testing.T) {
 
 func TestOrderUpdateStruct(t *testing.T) {
 	update := OrderUpdate{
-		Order:     nil, // Would be *lx.Order in real use
-		Status:    0,   // Would be lx.OrderStatus
+		Order:     nil, // Would be *dex.Order in real use
+		Status:    0,   // Would be dex.OrderStatus
 		Timestamp: time.Now(),
 		Message:   "Order filled",
 	}
@@ -288,7 +288,7 @@ func TestGetPositionExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add position directly
-	testPos := &lx.MarginPosition{
+	testPos := &dex.MarginPosition{
 		ID:       "pos123",
 		Symbol:   "BTC/USDC",
 		Leverage: 10,
@@ -328,8 +328,8 @@ func TestGetPositionsMultiple(t *testing.T) {
 
 	// Add positions
 	client.mu.Lock()
-	client.positions["pos1"] = &lx.MarginPosition{ID: "pos1", Symbol: "BTC/USDC"}
-	client.positions["pos2"] = &lx.MarginPosition{ID: "pos2", Symbol: "ETH/USDC"}
+	client.positions["pos1"] = &dex.MarginPosition{ID: "pos1", Symbol: "BTC/USDC"}
+	client.positions["pos2"] = &dex.MarginPosition{ID: "pos2", Symbol: "ETH/USDC"}
 	client.mu.Unlock()
 
 	positions := client.GetPositions()
@@ -362,9 +362,9 @@ func TestGetOrdersMultiple(t *testing.T) {
 
 	// Add orders
 	client.mu.Lock()
-	client.orders[1] = &lx.Order{ID: 1, Symbol: "BTC/USDC"}
-	client.orders[2] = &lx.Order{ID: 2, Symbol: "ETH/USDC"}
-	client.orders[3] = &lx.Order{ID: 3, Symbol: "SOL/USDC"}
+	client.orders[1] = &dex.Order{ID: 1, Symbol: "BTC/USDC"}
+	client.orders[2] = &dex.Order{ID: 2, Symbol: "ETH/USDC"}
+	client.orders[3] = &dex.Order{ID: 3, Symbol: "SOL/USDC"}
 	client.mu.Unlock()
 
 	orders := client.GetOrders()
@@ -433,10 +433,10 @@ func TestGetOrderBookExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set order book directly
-	testOB := &lx.OrderBookSnapshot{
+	testOB := &dex.OrderBookSnapshot{
 		Symbol: "ETH/USDC",
-		Bids:   []lx.OrderLevel{{Price: 3000, Size: 10}},
-		Asks:   []lx.OrderLevel{{Price: 3010, Size: 5}},
+		Bids:   []dex.OrderLevel{{Price: 3000, Size: 10}},
+		Asks:   []dex.OrderLevel{{Price: 3010, Size: 5}},
 	}
 	client.mu.Lock()
 	client.orderBooks["ETH/USDC"] = testOB
@@ -458,7 +458,7 @@ func TestPlaceOrderNotAuthenticated(t *testing.T) {
 	client, err := NewTraderClient(config)
 	require.NoError(t, err)
 
-	order := &lx.Order{Symbol: "BTC/USDC", Price: 50000}
+	order := &dex.Order{Symbol: "BTC/USDC", Price: 50000}
 	result, err := client.PlaceOrder(order)
 	assert.Error(t, err)
 	assert.Nil(t, result)
@@ -502,7 +502,7 @@ func TestOpenMarginPositionNotAuthenticated(t *testing.T) {
 	client, err := NewTraderClient(config)
 	require.NoError(t, err)
 
-	pos, err := client.OpenMarginPosition("BTC/USDC", lx.Buy, 1.0, 10.0)
+	pos, err := client.OpenMarginPosition("BTC/USDC", dex.Buy, 1.0, 10.0)
 	assert.Error(t, err)
 	assert.Nil(t, pos)
 	assert.Contains(t, err.Error(), "not authenticated")
@@ -760,7 +760,7 @@ func TestProcessMessagePositionClosed(t *testing.T) {
 
 	// First add a position
 	client.mu.Lock()
-	client.positions["pos789"] = &lx.MarginPosition{ID: "pos789"}
+	client.positions["pos789"] = &dex.MarginPosition{ID: "pos789"}
 	client.mu.Unlock()
 
 	msg := map[string]interface{}{
@@ -1518,7 +1518,7 @@ func TestHandlePositionUpdateLiquidated(t *testing.T) {
 
 	// Add a position first
 	client.mu.Lock()
-	client.positions["liqPos"] = &lx.MarginPosition{ID: "liqPos"}
+	client.positions["liqPos"] = &dex.MarginPosition{ID: "liqPos"}
 	client.mu.Unlock()
 
 	msg := map[string]interface{}{

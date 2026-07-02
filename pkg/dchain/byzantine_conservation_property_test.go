@@ -21,7 +21,7 @@
 // later submit was REFUSED at build with "resting order missing full settlement
 // identity (orderuser)" or "insufficient locked balance" — the matcher declining to
 // settle rather than minting (fail-safe, no mint/burn/fork). Root cause was in
-// pkg/lx/orderbook.go tryMatchImmediateLocked: the self-trade skip removed the
+// pkg/dex/orderbook.go tryMatchImmediateLocked: the self-trade skip removed the
 // self-maker from the IN-MEMORY book (removeOrder + delete Orders/ordersMap) without
 // a matching consensus state write, so the in-memory book (which feeds the execRoot
 // via BookToRows) and the persisted order:/orderuser:/reserve rows diverged. FIX:

@@ -8,7 +8,7 @@
 //
 // It is a PURE-GO LEAF: it imports only the standard library, so a public,
 // CGO-disabled build can import these constants and codecs WITHOUT dragging in
-// the cgo/GPU matching engine that lives in dex/pkg/lx. That separation is what
+// the cgo/GPU matching engine that lives in dex/pkg/dex. That separation is what
 // lets the public precompile stay a pure-Go module while still framing requests
 // byte-identically to the venue's d-chain.
 //

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/luxfi/database/memdb"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 )
 
@@ -297,7 +297,7 @@ func TestAuth_SchemesDeriveDistinctAccounts(t *testing.T) {
 	if c.user == p.user {
 		t.Fatal("classical and PQ identities collapsed to the same account")
 	}
-	if c.scheme != lx.AuthSecp256k1 || p.scheme != lx.AuthMLDSA65 {
+	if c.scheme != dex.AuthSecp256k1 || p.scheme != dex.AuthMLDSA65 {
 		t.Fatal("scheme tags wrong")
 	}
 }

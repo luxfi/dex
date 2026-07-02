@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -469,10 +469,10 @@ func TestDAGOrderBookAddOrder(t *testing.T) {
 	dob, err := NewDAGOrderBook("node1", "BTC/USDC")
 	require.NoError(t, err)
 
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    1,
-		Side:  lx.Buy,
-		Type:  lx.Limit,
+		Side:  dex.Buy,
+		Type:  dex.Limit,
 		Price: 50000.0,
 		Size:  1.0,
 	}
@@ -490,10 +490,10 @@ func TestDAGOrderBookAddMultipleOrders(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 1; i <= 5; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:    uint64(i),
-			Side:  lx.Buy,
-			Type:  lx.Limit,
+			Side:  dex.Buy,
+			Type:  dex.Limit,
 			Price: 50000.0 + float64(i*100),
 			Size:  1.0,
 		}
@@ -525,10 +525,10 @@ func TestLuxDAGOrderBookAddOrder(t *testing.T) {
 	lux, err := NewLuxDAGOrderBook("node1", "BTC/USDC")
 	require.NoError(t, err)
 
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    1,
-		Side:  lx.Buy,
-		Type:  lx.Limit,
+		Side:  dex.Buy,
+		Type:  dex.Limit,
 		Price: 50000.0,
 		Size:  1.0,
 	}
@@ -563,10 +563,10 @@ func TestLuxDAGOrderBookRunFPCRound(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add an order
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    1,
-		Side:  lx.Buy,
-		Type:  lx.Limit,
+		Side:  dex.Buy,
+		Type:  dex.Limit,
 		Price: 50000.0,
 		Size:  1.0,
 	}
@@ -587,7 +587,7 @@ func TestLuxDAGOrderBookProcessRemoteVertex(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:        GenerateTestID("remote_vertex"),
-		Order:     &lx.Order{ID: 1, Side: lx.Sell, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:     &dex.Order{ID: 1, Side: dex.Sell, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID:    "node2",
 		Height:    1,
 		Timestamp: time.Now(),
@@ -617,7 +617,7 @@ func TestLuxDAGOrderBookProcessRemoteVertexNilCert(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:     GenerateTestID("remote"),
-		Order:  &lx.Order{ID: 1, Side: lx.Sell, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:  &dex.Order{ID: 1, Side: dex.Sell, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID: "node2",
 		Height: 1,
 	}
@@ -632,7 +632,7 @@ func TestLuxDAGOrderBookProcessRemoteVertexMismatchID(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:     GenerateTestID("v1"),
-		Order:  &lx.Order{ID: 1, Side: lx.Sell, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:  &dex.Order{ID: 1, Side: dex.Sell, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID: "node2",
 		Height: 1,
 	}
@@ -652,7 +652,7 @@ func TestLuxDAGOrderBookProcessRemoteVertexLowThreshold(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:     GenerateTestID("low_thresh"),
-		Order:  &lx.Order{ID: 1, Side: lx.Sell, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:  &dex.Order{ID: 1, Side: dex.Sell, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID: "node2",
 		Height: 1,
 	}
@@ -670,10 +670,10 @@ func TestLuxDAGOrderBookGenerateQuantumCertificate(t *testing.T) {
 	lux, err := NewLuxDAGOrderBook("node1", "BTC/USDC")
 	require.NoError(t, err)
 
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    1,
-		Side:  lx.Buy,
-		Type:  lx.Limit,
+		Side:  dex.Buy,
+		Type:  dex.Limit,
 		Price: 50000.0,
 		Size:  1.0,
 	}
@@ -695,7 +695,7 @@ func TestLuxDAGOrderBookValidateQuantumCertificate(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:     GenerateTestID("validate_cert"),
-		Order:  &lx.Order{ID: 1, Side: lx.Buy, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:  &dex.Order{ID: 1, Side: dex.Buy, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID: "node1",
 		Height: 1,
 	}
@@ -714,10 +714,10 @@ func TestLuxDAGOrderBookProcessQuasarCertificates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add an order which tracks in quasar
-	order := &lx.Order{
+	order := &dex.Order{
 		ID:    1,
-		Side:  lx.Buy,
-		Type:  lx.Limit,
+		Side:  dex.Buy,
+		Type:  dex.Limit,
 		Price: 50000.0,
 		Size:  1.0,
 	}
@@ -825,7 +825,7 @@ func TestLuxDAGOrderBookCreateCertificateMessage(t *testing.T) {
 
 	vertex := &OrderVertex{
 		ID:     GenerateTestID("cert_msg"),
-		Order:  &lx.Order{ID: 1, Side: lx.Buy, Type: lx.Limit, Price: 50000.0, Size: 1.0},
+		Order:  &dex.Order{ID: 1, Side: dex.Buy, Type: dex.Limit, Price: 50000.0, Size: 1.0},
 		NodeID: "node1",
 		Height: 1,
 	}
@@ -838,12 +838,12 @@ func TestLuxDAGOrderBookCreateCertificateMessage(t *testing.T) {
 func TestOrderVertexFields(t *testing.T) {
 	vertex := &OrderVertex{
 		ID:        GenerateTestID("test"),
-		Order:     &lx.Order{ID: 1, Side: lx.Buy},
+		Order:     &dex.Order{ID: 1, Side: dex.Buy},
 		NodeID:    "node1",
 		Height:    10,
 		Parents:   []ID{GenerateTestID("parent1"), GenerateTestID("parent2")},
 		Timestamp: time.Now(),
-		Trades:    []*lx.Trade{{ID: 1, Price: 50000.0}},
+		Trades:    []*dex.Trade{{ID: 1, Price: 50000.0}},
 	}
 
 	assert.Equal(t, "node1", vertex.NodeID)
@@ -911,10 +911,10 @@ func BenchmarkDAGOrderBookAddOrder(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:    uint64(i),
-			Side:  lx.Buy,
-			Type:  lx.Limit,
+			Side:  dex.Buy,
+			Type:  dex.Limit,
 			Price: 50000.0,
 			Size:  1.0,
 		}
@@ -927,10 +927,10 @@ func BenchmarkLuxDAGOrderBookAddOrder(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		order := &lx.Order{
+		order := &dex.Order{
 			ID:    uint64(i),
-			Side:  lx.Buy,
-			Type:  lx.Limit,
+			Side:  dex.Buy,
+			Type:  dex.Limit,
 			Price: 50000.0,
 			Size:  1.0,
 		}

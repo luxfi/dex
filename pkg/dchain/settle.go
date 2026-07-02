@@ -8,7 +8,7 @@ import (
 	"math/big"
 
 	"github.com/luxfi/database"
-	"github.com/luxfi/dex/pkg/lx"
+	"github.com/luxfi/dex/pkg/dex"
 )
 
 // settle.go is the CUSTODY transition — the part that makes "the money live in
@@ -43,8 +43,8 @@ import (
 // never spend more than was locked. MARKET orders lock all available of the
 // spend asset; spend <= lock holds because you cannot spend what you do not have.
 
-// priceMultiplierBig mirrors lx.PriceMultiplier as a big.Int for exact lock math.
-var priceMultiplierBig = big.NewInt(lx.PriceMultiplier)
+// priceMultiplierBig mirrors dex.PriceMultiplier as a big.Int for exact lock math.
+var priceMultiplierBig = big.NewInt(dex.PriceMultiplier)
 
 // quoteUnitsCeil returns ceil(baseUnits * priceInt / PriceMultiplier) — the
 // quote a BUY of baseUnits at limit priceInt could AT MOST owe. It is the CEIL
@@ -52,7 +52,7 @@ var priceMultiplierBig = big.NewInt(lx.PriceMultiplier)
 // floor(...) per fill at the MAKER's price, and maker prices for a buy are <= the
 // taker's limit, so the summed floored spend is <= this ceiled lock. Locking the
 // ceil therefore guarantees lock >= spend, so a settle never overspends the lock.
-func quoteUnitsCeil(baseUnits *big.Int, priceInt lx.PriceInt) uint64 {
+func quoteUnitsCeil(baseUnits *big.Int, priceInt dex.PriceInt) uint64 {
 	if baseUnits == nil || baseUnits.Sign() <= 0 || priceInt <= 0 {
 		return 0
 	}
@@ -81,11 +81,11 @@ func sizeToUnits(size float64) uint64 {
 // priceToInt converts a wire price float to the fixed-point PriceInt grid the
 // matcher keys levels by (round(price * PriceMultiplier)), so the lock's price
 // and the matcher's crossing price are the SAME integer.
-func priceToInt(price float64) lx.PriceInt {
+func priceToInt(price float64) dex.PriceInt {
 	if !(price > 0) {
 		return 0
 	}
-	return lx.PriceInt(price * lx.PriceMultiplier)
+	return dex.PriceInt(price * dex.PriceMultiplier)
 }
 
 // orderLock returns the (asset, amount) a place/limit-submit of (side, price,
@@ -182,7 +182,7 @@ func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset [
 }
 
 // settleFills moves value for the fills a submit produced, INSIDE the ledger,
-// from the matcher's AUTHORITATIVE integer lane (lx.Trade.BaseUnits /
+// from the matcher's AUTHORITATIVE integer lane (dex.Trade.BaseUnits /
 // QuoteUnits). takerSide is the submitting side; each fill's BuyUserID/SellUserID
 // name the two accounts. Using the matcher's own exact integers (not a
 // reconstruction) guarantees the taker is charged EXACTLY what the maker is
@@ -215,7 +215,7 @@ func debitWithdraw(db database.KeyValueReaderWriterDeleter, user string, asset [
 //
 // Settlement fails closed if full account identity is unavailable. Falling back
 // to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
-func settleFills(db database.KeyValueReaderWriterDeleter, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []lx.Trade) (takerSpent uint64, err error) {
+func settleFills(db database.KeyValueReaderWriterDeleter, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []dex.Trade) (takerSpent uint64, err error) {
 	for _, f := range fills {
 		if f.BaseUnits == nil || f.QuoteUnits == nil {
 			return 0, ErrFillMissingUnits
@@ -279,7 +279,7 @@ func settleFills(db database.KeyValueReaderWriterDeleter, poolID [32]byte, taker
 //
 // Settlement fails closed if full account identity is unavailable. Falling back
 // to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
-func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f lx.Trade, takerSide uint8) (userKey, error) {
+func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f dex.Trade, takerSide uint8) (userKey, error) {
 	makerOrderID := f.SellOrder // taker bought -> maker sold
 	if takerSide == sideSell {
 		makerOrderID = f.BuyOrder // taker sold -> maker bought
@@ -295,7 +295,7 @@ func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f lx.Trade, tak
 }
 
 // takerUserID returns the taker user string for a fill given the taker side.
-func takerUserID(f lx.Trade, takerSide uint8) string {
+func takerUserID(f dex.Trade, takerSide uint8) string {
 	if takerSide == sideBuy {
 		return pickUserID(f.BuyUserID, f.Buyer)
 	}
