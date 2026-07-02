@@ -629,6 +629,17 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 				return execResult{}, err
 			}
 		}
+		// A submit that self-crossed cancelled its own resting makers: delete their
+		// order: rows so the durable book matches the matcher's in-memory removal (the
+		// reserve/orderuser: unlock is done in settleOrderEffects, in lockstep).
+		for _, cid := range res.SelfCanceled {
+			if cid == 0 {
+				continue
+			}
+			if err := deleteOrderRow(overlay, poolID, cid); err != nil {
+				return execResult{}, err
+			}
+		}
 		// Record fills in the trade log + the block's fill set.
 		for _, f := range res.Fills {
 			row := lx.TradeToRow(f, res.TakerSide)
@@ -803,39 +814,10 @@ func (b *Block) lockOrderSpend(db *versiondb.Database, tx *Tx, txIndex uint32, p
 func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *Tx, txIndex uint32, res applyResult, base, quote [32]byte, lockedAmt uint64) error {
 	switch tx.Type {
 	case TxCancel:
-		if res.Canceled == 0 {
-			return nil // unknown cancel: no reserve to unlock
-		}
-		asset, amt, ok, err := getOrderLock(db, poolID, res.Canceled)
-		if err != nil {
-			return err
-		}
-		if !ok || amt == 0 {
-			return nil
-		}
-		// The cancelled order's owner reserved `amt` of `asset`; return it to the
-		// order's recorded FULL settlement identity (orderuser:) — the ONLY source.
-		// The in-RAM owner string is 8-byte after a restart, so it MUST NOT be used
-		// for the unlock. A cancelled order that holds a non-zero reserve (amt>0) but
-		// has NO orderuser: row is state corruption: fail closed (block rejected, no
-		// unlock) rather than unlock to a compact-handle-derived account.
-		//
-		// Settlement fails closed if full account identity is unavailable. Falling back
-		// to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
-		owner, ok, uerr := getOrderUser(db, poolID, res.Canceled)
-		if uerr != nil {
-			return uerr
-		}
-		if !ok {
-			return fmt.Errorf("%w: cancel of order %d in market %x", ErrMissingSettlementUser, res.Canceled, poolID[:8])
-		}
-		if err := unlockToAvailable(db, owner, asset, amt); err != nil {
-			return err
-		}
-		if err := putOrderLock(db, poolID, res.Canceled, asset, 0); err != nil { // delete the reserve
-			return err
-		}
-		return deleteOrderUser(db, poolID, res.Canceled) // delete the identity row
+		// A cancel releases the resting order's reserve to its owner and drops its
+		// identity row — the ONE canonical cancel-persist path (releaseOrderReserve),
+		// shared with the self-trade-prevented removals a submit performs.
+		return b.releaseOrderReserve(db, poolID, res.Canceled)
 
 	case TxPlace:
 		if res.Placed != nil {
@@ -893,11 +875,57 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 				return err
 			}
 		}
+		// Release any self-trade-prevented makers this cross removed: the taker
+		// crossed its OWN resting liquidity, so those makers leave the book with no
+		// fill and their reserve returns to the owner (locked -> available) via the
+		// SAME cancel-persist path a TxCancel uses. Conservation-exact: no value is
+		// created or destroyed, the reserve simply moves back to available.
+		for _, cid := range res.SelfCanceled {
+			if err := b.releaseOrderReserve(db, poolID, cid); err != nil {
+				return err
+			}
+		}
 		return nil
 
 	default:
 		return nil
 	}
+}
+
+// releaseOrderReserve returns a resting order's per-order reserve to its recorded
+// owner (locked -> available) and deletes its reserve + orderuser: identity rows —
+// the single canonical cancel-persist primitive, shared by TxCancel and by a
+// submit's self-trade-prevented maker removals. A zero id or an order with no
+// recorded reserve is a no-op (nothing locked to return). The owner is resolved
+// EXCLUSIVELY through the orderuser: index (the full 16-byte settlement identity),
+// never the matcher's 8-byte in-RAM handle: a reserve with no orderuser: row is
+// state corruption and fails closed (block rejected) rather than unlocking to a
+// compact-handle-derived account — a collision there would be value-bearing theft.
+func (b *Block) releaseOrderReserve(db *versiondb.Database, poolID [32]byte, orderID uint64) error {
+	if orderID == 0 {
+		return nil // unknown/no order: nothing to unlock
+	}
+	asset, amt, ok, err := getOrderLock(db, poolID, orderID)
+	if err != nil {
+		return err
+	}
+	if !ok || amt == 0 {
+		return nil // no reserve recorded (pre-custody / asset-less market)
+	}
+	owner, ok, uerr := getOrderUser(db, poolID, orderID)
+	if uerr != nil {
+		return uerr
+	}
+	if !ok {
+		return fmt.Errorf("%w: release of order %d in market %x", ErrMissingSettlementUser, orderID, poolID[:8])
+	}
+	if err := unlockToAvailable(db, owner, asset, amt); err != nil {
+		return err
+	}
+	if err := putOrderLock(db, poolID, orderID, asset, 0); err != nil { // delete the reserve
+		return err
+	}
+	return deleteOrderUser(db, poolID, orderID) // delete the identity row
 }
 
 // decrementMakerReserves reduces each filled maker's per-order reserve by the

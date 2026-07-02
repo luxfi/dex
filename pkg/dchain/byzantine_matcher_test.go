@@ -115,6 +115,73 @@ func TestByzantineMatcher_SelfCrossNeverTrades(t *testing.T) {
 	assertConserved2(t, vm, "after self-cross", []string{alice}, assetLUX, assetLUSD, 100, 1000)
 }
 
+// TestByzantineMatcher_SelfCrossCancelsRestingMakerConsistently is the regression
+// pin for the self-cross desync fix. Previously the marketable matcher removed a
+// self-crossed maker from the IN-MEMORY book only, leaving its durable
+// order:/reserve/orderuser: rows — so a later cross tripped "resting order missing
+// full settlement identity (orderuser)" / "insufficient locked balance" (seed 42,
+// ~step 153). The fix routes the self-cross removal through the SAME cancel-persist
+// path a TxCancel uses. This test drives the exact wedge shape — partial fill, then
+// self-cross of the remainder, then an external cross — and asserts:
+//   - the self-cross CANCELS the resting maker: its reserve returns locked->available
+//     (conservation-exact), the order leaves the book, and NO fill is produced;
+//   - the later external cross runs cleanly (no refusal), finding no phantom
+//     liquidity from the cancelled maker;
+//   - value is conserved at every step.
+func TestByzantineMatcher_SelfCrossCancelsRestingMakerConsistently(t *testing.T) {
+	vm, _ := newTestVM(t, memdb.New())
+	defer vm.Shutdown(context.Background())
+
+	const (
+		alice = "alice"
+		bob   = "bob"
+	)
+	pool := [32]byte{0x5e, 0x1f, 0xed} // "self-fixed"
+	accts := []string{alice, bob}
+
+	addBlock(t, vm,
+		depositTx(t, alice, assetLUX, 100),
+		depositTx(t, bob, assetLUSD, 1000),
+		openMarketTx(t, pool, assetLUX, assetLUSD),
+	)
+
+	// alice rests SELL 20 LUX @ 5 (locks 20 base).
+	addBlock(t, vm, placePoolTx(t, pool, zapwire.SideSell, 5.0, 20.0, alice))
+	assertBalance(t, vm, alice, assetLUX, 80, 20)
+
+	// bob buys 12 @ 5 — PARTIAL fill: alice's order remaining 8, locked 8.
+	addBlock(t, vm, submitPoolTx(t, pool, zapwire.SideBuy, false, 5.0, 12.0, bob))
+	assertBalance(t, vm, alice, assetLUX, 80, 8)  // 12 base sold to bob; 8 still locked
+	assertBalance(t, vm, alice, assetLUSD, 60, 0) // received 12*5 = 60 quote
+
+	// alice self-crosses her own remaining ask: BUY 8 @ 6. The fix CANCELS her
+	// resting sell — reserve released (8 locked -> available), no fill.
+	scSubmit := submitPoolTx(t, pool, zapwire.SideBuy, false, 6.0, 8.0, alice)
+	scBlk := addBlock(t, vm, scSubmit)
+	if n := len(outcomeForTx(scBlk, scSubmit).fills); n != 0 {
+		t.Fatalf("SELF-TRADE EXECUTED: %d fills on a self-cross", n)
+	}
+	// KEY FIX ASSERTION: the self-maker's 8 locked base returned to available — the
+	// order was cancelled consistently in durable state, not stranded.
+	assertBalance(t, vm, alice, assetLUX, 88, 0)
+	assertConserved2(t, vm, "after self-cross cancel", accts, assetLUX, assetLUSD, 100, 1000)
+
+	// bob crosses again: BUY 8 @ 6. The cancelled maker is GONE from the book (not a
+	// phantom that wedges the settle) — this cross runs cleanly with zero fill.
+	bobSubmit := submitPoolTx(t, pool, zapwire.SideBuy, false, 6.0, 8.0, bob)
+	bobBlk := addBlock(t, vm, bobSubmit)
+	if n := len(outcomeForTx(bobBlk, bobSubmit).fills); n != 0 {
+		t.Fatalf("PHANTOM FILL: %d fills against a self-cancelled maker (the old wedge/desync bug)", n)
+	}
+	assertConserved2(t, vm, "after external cross of cancelled book", accts, assetLUX, assetLUSD, 100, 1000)
+
+	// alice's freed collateral is fully withdrawable (the cancel truly released it).
+	_, wo := addBlockOutcomes(t, vm, withdrawTx(t, alice, assetLUX, 88))
+	if got := withdrawRealizedOf(wo, TxWithdraw); got != 88 {
+		t.Fatalf("self-cancelled maker's freed collateral not fully withdrawable: got %d of 88", got)
+	}
+}
+
 // TestByzantineMatcher_PriceTimePriority_BestPriceFirst is threat #1(c): with two
 // resting asks at DIFFERENT prices, a taker must fill the BEST (lowest) ask first
 // and MUST NOT touch the worse ask while better liquidity rests. A byzantine
