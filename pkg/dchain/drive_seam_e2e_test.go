@@ -282,6 +282,7 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 			DB:       prefixdb.New([]byte{statePrefix}, baseDB),
 			Log:      logger,
 			ToEngine: make(chan block.Message, 16),
+			Config:   authConfig(t),
 		}); err != nil {
 			t.Fatalf("Initialize vm: %v", err)
 		}

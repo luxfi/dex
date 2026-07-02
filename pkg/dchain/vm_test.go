@@ -33,6 +33,7 @@ func newTestVM(t *testing.T, db database.Database) (*VM, chan block.Message) {
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,
+		Config:   authConfig(t), // configure the test deposit authority (F9)
 	}); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}

@@ -89,6 +89,7 @@ func bootVenue(t *testing.T, dir string) *venue {
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,
+		Config:   authConfig(t),
 	}); err != nil {
 		t.Fatalf("VM.Initialize: %v", err)
 	}

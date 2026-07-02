@@ -90,8 +90,18 @@ func (vm *VM) submitTx(ctx context.Context, t TxType, payload []byte) (txOutcome
 	// block.execute, so a tx that bypasses this RPC path is still caught at
 	// consensus. The nonce is intentionally NOT checked here (it is stateful and
 	// racy against in-flight blocks); only the consensus gate consumes nonces.
-	if _, verr := verifyTxSignature(tx); verr != nil {
+	signer, verr := verifyTxSignature(tx)
+	if verr != nil {
 		return txOutcome{}, verr
+	}
+	// Boundary pre-screen for the deposit backing gate: reject an unauthorized
+	// deposit (not from the configured bridge authority) at the PUBLIC RPC edge so
+	// it never enters the mempool. This mirrors the AUTHORITATIVE gate (authorizeTx)
+	// that re-runs at consensus, so a deposit that bypasses this RPC path is still
+	// rejected — but rejecting here keeps the public route from admitting an unbacked
+	// mint attempt at all. Fail-closed when no authority is configured.
+	if tx.Type == TxDeposit && (vm.depositAuthority == (userKey{}) || signer != vm.depositAuthority) {
+		return txOutcome{}, fmt.Errorf("%w: deposit not authorized by the configured bridge authority", ErrTxBadSignature)
 	}
 	txID := tx.ID()
 

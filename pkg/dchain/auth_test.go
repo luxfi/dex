@@ -66,7 +66,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
 		// Deposit 100 LUX (signed), then rest a SELL of 10 LUX @ 5 (locks 10 LUX).
-		dep := a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1)))
+		dep := fundAcct(t, a, assetLUX, 100, ref32(1))
 		addBlock(t, vm, dep)
 		assertAcctBalance(t, vm, a, assetLUX, 100, 0)
 
@@ -79,7 +79,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 	t.Run("unsigned_tx_rejected_no_mutation", func(t *testing.T) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
-		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
+		addBlock(t, vm, fundAcct(t, a, assetLUX, 100, ref32(1)))
 
 		// Hand-build a place with NO auth envelope (the audited vulnerability: an
 		// unsigned money-moving command).
@@ -110,7 +110,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 	t.Run("forged_signature_rejected_no_mutation", func(t *testing.T) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
-		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
+		addBlock(t, vm, fundAcct(t, a, assetLUX, 100, ref32(1)))
 
 		// A validly-signed place, then corrupt the signature so it no longer
 		// recovers alice's account.
@@ -131,7 +131,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		vm := setupAuthVM(t)
 		alice := mk(t, "alice")
 		mallory := mk(t, "mallory")
-		addBlock(t, vm, alice.signed(t, TxDeposit, zapwire.EncodeDeposit(alice.user, assetLUX, 100, ref32(1))))
+		addBlock(t, vm, fundAcct(t, alice, assetLUX, 100, ref32(1)))
 
 		// Body asserts ALICE's account; signature is MALLORY's valid signature over
 		// that exact body. The recovered account is mallory != alice -> rejected.
@@ -150,17 +150,18 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 	t.Run("replayed_nonce_rejected_no_double_apply", func(t *testing.T) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
-		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
-		// nonce after deposit = 1; the next signed tx consumes nonce 1.
+		addBlock(t, vm, fundAcct(t, a, assetLUX, 100, ref32(1)))
+		// The deposit is AUTHORITY-signed (F9), so it does NOT advance alice's nonce:
+		// her first own tx consumes nonce 0.
 
 		p1 := a.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
 		addBlock(t, vm, p1)
-		assertAcctBalance(t, vm, a, assetLUX, 90, 10) // first place locked 10
+		assertAcctBalance(t, vm, a, assetLUX, 90, 10) // first place locked 10 (nonce 0)
 
 		// A SECOND, DISTINCT place (different size) but reusing the just-consumed
-		// nonce (1). The nonce gate refuses it; no further lock.
+		// nonce (0). The nonce gate refuses it; no further lock.
 		replayBody := encPlace(authPool, zapwire.SideSell, 5.0, 20.0, a.user)
-		replay, err := NewSignedTx(TxPlace, replayBody, a.authFor(TxPlace, 1, replayBody))
+		replay, err := NewSignedTx(TxPlace, replayBody, a.authFor(TxPlace, 0, replayBody))
 		if err != nil {
 			t.Fatalf("NewSignedTx: %v", err)
 		}
@@ -172,7 +173,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 	t.Run("exact_replay_is_idempotent_not_double", func(t *testing.T) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
-		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
+		addBlock(t, vm, fundAcct(t, a, assetLUX, 100, ref32(1)))
 		p1 := a.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
 		addBlock(t, vm, p1)
 		assertAcctBalance(t, vm, a, assetLUX, 90, 10)
@@ -192,7 +193,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		alice := mk(t, "alice")
 		mallory := mk(t, "mallory")
 		addBlock(t, vm,
-			alice.signed(t, TxDeposit, zapwire.EncodeDeposit(alice.user, assetLUX, 100, ref32(1))),
+			fundAcct(t, alice, assetLUX, 100, ref32(1)),
 		)
 		// Alice rests a SELL of 10 LUX @ 5 (locks 10). It is HER order.
 		pblk := addBlock(t, vm, alice.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, alice.user)))
@@ -219,7 +220,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 	t.Run("withdraw_to_unauthorized_ref_rejected", func(t *testing.T) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
-		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
+		addBlock(t, vm, fundAcct(t, a, assetLUX, 100, ref32(1)))
 		assertAcctBalance(t, vm, a, assetLUX, 100, 0)
 
 		// Alice signs a withdraw exporting to ref R_auth (the destination she

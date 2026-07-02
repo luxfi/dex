@@ -7,12 +7,14 @@ import (
 	stdcrypto "crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"testing"
 
 	"github.com/luxfi/crypto"
 	"github.com/luxfi/crypto/mldsa"
 	"github.com/luxfi/dex/pkg/dex"
+	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/geth/common"
 )
 
@@ -69,6 +71,44 @@ func (a *testAcct) signed(t *testing.T, typ TxType, body []byte) *Tx {
 		t.Fatalf("NewSignedTx(%s): %v", typ, err)
 	}
 	return tx
+}
+
+// depositAuthorityName is the reserved identity of the test's trusted deposit
+// authority (the "bridge"). A TxDeposit MINTS ledger balance, so post-F9 it is
+// authorized ONLY by this account, never by the crediting user. Reserved (leading
+// NUL) so it never collides with a human account name.
+const depositAuthorityName = "\x00dchain-deposit-authority"
+
+// authAcct returns this test's deposit-authority identity. Per-test (its nonce
+// resets with the fresh VM), and it is the SAME account authConfig configures on
+// the VM, so an authAcct-signed deposit passes the authority gate.
+func authAcct(t *testing.T) *testAcct { return acctFor(t, depositAuthorityName) }
+
+// authConfig is the VM init Config JSON that names this test's deposit authority,
+// so every test VM that processes a funding deposit accepts authAcct-signed
+// deposits (and rejects any self-signed one — the F9 fix). Production sets the real
+// bridge account the same way.
+func authConfig(t *testing.T) []byte {
+	a := authAcct(t)
+	return []byte(`{"depositAuthority":"` + hex.EncodeToString(a.account[:]) + `"}`)
+}
+
+// fundAcct builds a BACKED funding deposit crediting a SPECIFIC account (secp or
+// ML-DSA), signed by the trusted deposit AUTHORITY (the F9 model — money enters
+// only when the bridge, which holds the C-side value, authorizes it, NEVER by the
+// crediting account self-signing). The authority signature does NOT advance the
+// beneficiary's nonce (a different signer), so a funded account's first own tx
+// starts at nonce 0.
+func fundAcct(t *testing.T, a *testAcct, asset [32]byte, amount uint64, ref [32]byte) *Tx {
+	t.Helper()
+	return authAcct(t).signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, asset, amount, ref))
+}
+
+// fundTx credits the named (secp) user via the authority — the funding primitive
+// the conservation/byzantine suites use.
+func fundTx(t *testing.T, beneficiary string, asset [32]byte, amount uint64, ref [32]byte) *Tx {
+	t.Helper()
+	return fundAcct(t, acctFor(t, beneficiary), asset, amount, ref)
 }
 
 // identityRegistry maps (test, name) -> a stable testAcct so the same human name
