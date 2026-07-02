@@ -119,12 +119,45 @@ func xarchBuild(t *testing.T, dir string, bigSize float64) {
 		writeHex(t, filepath.Join(dir, rootFile(i)), b.execRoot[:])
 		t.Logf("PROPOSER block%d execRoot=%x", i+1, b.execRoot[:])
 	}
-	avail, locked := ledgerTotals(t, vm)
-	t.Logf("PROPOSER LEDGER LUSD available=%d locked=%d", avail[assetLUSD], locked[assetLUSD])
-	t.Logf("PROPOSER LEDGER LUX  available=%d locked=%d", avail[assetLUX], locked[assetLUX])
-	// Persist the proposer's ledger so the validator arch can compare the MONEY,
-	// not just the (arch-stable) execRoot.
-	writeHex(t, filepath.Join(dir, "ledger.hex"), encodeLedger(avail[assetLUSD], locked[assetLUSD], avail[assetLUX], locked[assetLUX]))
+	agA, agL := ledgerTotals(t, vm)
+	t.Logf("PROPOSER AGGREGATE LUSD avail=%d locked=%d (conserved sum)", agA[assetLUSD], agL[assetLUSD])
+	pa := perAccount(t, vm, maker, taker)
+	logAccounts(t, "PROPOSER", pa)
+	// Persist the proposer's PER-ACCOUNT ledger so the validator arch can compare
+	// the actual withdrawable money, not just the (arch-stable) aggregate/root.
+	writeHex(t, filepath.Join(dir, "ledger.hex"), encodeLedger(pa...))
+}
+
+// perAccount returns [makerLUX.avail, makerLUX.locked, makerLUSD.avail,
+// makerLUSD.locked, takerLUX.avail, takerLUX.locked, takerLUSD.avail,
+// takerLUSD.locked] — the withdrawable/escrowed money each account actually holds.
+func perAccount(t *testing.T, vm *VM, maker, taker string) []uint64 {
+	t.Helper()
+	g := func(u string, a [32]byte, locked bool) uint64 {
+		var v uint64
+		var err error
+		if locked {
+			v, err = getLocked(vm.db, userKey16(u), a)
+		} else {
+			v, err = getAvailable(vm.db, userKey16(u), a)
+		}
+		if err != nil {
+			t.Fatalf("read balance: %v", err)
+		}
+		return v
+	}
+	return []uint64{
+		g(maker, assetLUX, false), g(maker, assetLUX, true),
+		g(maker, assetLUSD, false), g(maker, assetLUSD, true),
+		g(taker, assetLUX, false), g(taker, assetLUX, true),
+		g(taker, assetLUSD, false), g(taker, assetLUSD, true),
+	}
+}
+
+func logAccounts(t *testing.T, who string, v []uint64) {
+	t.Helper()
+	t.Logf("%s MAKER  LUX(avail=%d locked=%d) LUSD(avail=%d locked=%d)", who, v[0], v[1], v[2], v[3])
+	t.Logf("%s TAKER  LUX(avail=%d locked=%d) LUSD(avail=%d locked=%d)", who, v[4], v[5], v[6], v[7])
 }
 
 func encodeLedger(vals ...uint64) []byte {
@@ -190,26 +223,27 @@ func xarchVerify(t *testing.T, dir string) {
 		t.Errorf("HARD CONSENSUS FORK: an honest validator on this architecture REJECTS a valid block proposed on the other architecture, because uint64(float64 size) diverges across archs on the value path. Mixed-arch validator sets cannot agree.")
 		return
 	}
-	t.Logf("execRoots MATCHED across arch (rows use the clamped floatToFixedQty). Now compare the MONEY the block moved — the ledger is NOT a term in the execRoot.")
+	t.Logf("execRoots MATCHED across arch (rows use the clamped floatToFixedQty). Now compare the PER-ACCOUNT withdrawable MONEY — the ledger is NOT a term in the execRoot.")
 
-	avail, locked := ledgerTotals(t, vm)
-	got := []uint64{avail[assetLUSD], locked[assetLUSD], avail[assetLUX], locked[assetLUX]}
+	agA, agL := ledgerTotals(t, vm)
+	t.Logf("VALIDATOR AGGREGATE LUSD avail=%d locked=%d (conserved sum — matches proposer, MASKS the split)", agA[assetLUSD], agL[assetLUSD])
+	got := perAccount(t, vm, "maker-cx", "taker-cx")
+	logAccounts(t, "VALIDATOR", got)
 	want := decodeLedger(readHex(t, filepath.Join(dir, "ledger.hex")))
-	labels := []string{"LUSD.available", "LUSD.locked", "LUX.available", "LUX.locked"}
-	t.Logf("VALIDATOR LEDGER LUSD available=%d locked=%d", got[0], got[1])
-	t.Logf("VALIDATOR LEDGER LUX  available=%d locked=%d", got[2], got[3])
+	labels := []string{"maker.LUX.avail", "maker.LUX.locked", "maker.LUSD.avail", "maker.LUSD.locked",
+		"taker.LUX.avail", "taker.LUX.locked", "taker.LUSD.avail", "taker.LUSD.locked"}
 	desync := false
 	for i := range want {
 		if got[i] != want[i] {
 			desync = true
-			t.Logf("  LEDGER DESYNC on %s: proposer(other-arch)=%d  this-arch=%d  (delta=%d)",
+			t.Logf("  PER-ACCOUNT DESYNC on %s: proposer(other-arch)=%d  this-arch=%d  (delta=%d)",
 				labels[i], want[i], got[i], int64(want[i]-got[i]))
 		}
 	}
 	if desync {
-		t.Errorf("SILENT MONEY DESYNC PROVEN: both validators ACCEPTED the identical block bytes and AGREE on the execRoot, but hold DIFFERENT custody balances. The execRoot does not commit balance:/locked:, and settleFills moves BaseUnits=big.Int(uint64(size)) which diverges across arch. Consensus cannot detect this; withdrawals will be authorized inconsistently.")
+		t.Errorf("SILENT MONEY DESYNC PROVEN: both validators ACCEPTED the identical block bytes and AGREE on the execRoot, yet a given account holds DIFFERENT withdrawable balances on the two architectures. The execRoot does not commit balance:/locked:, and settleFills moves BaseUnits=big.Int(uint64(size)), which diverges across arch. Conservation (aggregate sum) still holds, so no mint — but the PER-ACCOUNT split forks: a withdrawal is authorized for MaxUint64 on one arch and ~half that on the other. Consensus cannot detect this.")
 	} else {
-		t.Logf("ledgers also matched — no divergence on these blocks")
+		t.Logf("per-account ledgers also matched — no divergence on these blocks")
 	}
 }
 
