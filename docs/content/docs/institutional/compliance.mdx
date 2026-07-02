@@ -38,7 +38,7 @@ The matching engine itself is completely asset-agnostic. All regulatory logic li
 ### 1. Define Your Market
 
 ```go
-import "github.com/luxfi/dex/pkg/lx"
+import "github.com/luxfi/dex/pkg/dex"
 
 market := lx.NewSecuritiesMarket(lx.MarketConfig{
     Symbol:     "ACME-USD",
@@ -382,7 +382,7 @@ import (
     "log"
     "time"
 
-    "github.com/luxfi/dex/pkg/lx"
+    "github.com/luxfi/dex/pkg/dex"
 )
 
 func main() {
@@ -441,9 +441,9 @@ func main() {
 See the Go package documentation:
 
 ```bash
-go doc github.com/luxfi/dex/pkg/lx SecuritiesMarket
-go doc github.com/luxfi/dex/pkg/lx MarketConfig
-go doc github.com/luxfi/dex/pkg/lx StandardEligibilityChecker
-go doc github.com/luxfi/dex/pkg/lx TransferRestriction
-go doc github.com/luxfi/dex/pkg/lx ComplianceError
+go doc github.com/luxfi/dex/pkg/dex SecuritiesMarket
+go doc github.com/luxfi/dex/pkg/dex MarketConfig
+go doc github.com/luxfi/dex/pkg/dex StandardEligibilityChecker
+go doc github.com/luxfi/dex/pkg/dex TransferRestriction
+go doc github.com/luxfi/dex/pkg/dex ComplianceError
 ```

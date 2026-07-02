@@ -89,7 +89,7 @@ package main
 
 import (
     "fmt"
-    "github.com/luxfi/dex/pkg/lx"
+    "github.com/luxfi/dex/pkg/dex"
 )
 
 func main() {
@@ -287,7 +287,7 @@ fmt.Printf("Latency: %d ns\n", result.LatencyNanos)
 The `TradingEngine` orchestrates multiple order books and integrates with DeFi components:
 
 ```go
-import "github.com/luxfi/dex/pkg/lx"
+import "github.com/luxfi/dex/pkg/dex"
 
 config := lx.EngineConfig{
     EnablePerps:   true,

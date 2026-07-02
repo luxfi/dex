@@ -2016,7 +2016,7 @@ go test -v ./pkg/gateway/...
 
 Unified swap routing across on-chain V4 pools and off-chain broker venues. This package implements a Uniswap-style Trading API that aggregates liquidity from multiple sources — native DEX precompiles, V2/V3 AMM routers, and the Lux Broker REST API — returning the best-price quote to the caller. All endpoints are `net/http` handlers mounted on a standard `http.ServeMux` (Go 1.22+ method routing).
 
-The package is consumed directly by a regulated securities ATS for its exchange trading API.
+The package is consumed directly by non-custodial trading front-ends and venue operators for their exchange trading API.
 
 ### Constructor
 
@@ -2097,9 +2097,9 @@ ABI encoding for the LXRouter precompile at `0x000000000000000000000000000000000
 
 **Decoding helpers:** `DecodeCalldata` (split selector + params), `DecodeUint256`, `DecodeAddress` — used by tests and downstream consumers to verify built calldata.
 
-### Usage by ATS
+### Usage by a venue operator
 
-A regulated securities ATS imports the trading package and wires it with venue instances:
+A non-custodial venue operator imports the trading package and wires it with venue instances:
 
 ```go
 import "github.com/luxfi/dex/pkg/trading"
