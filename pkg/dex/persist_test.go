@@ -8,36 +8,23 @@ import (
 	"time"
 )
 
-// TestFixedPointRoundTrip proves the Q64.64 price and 1e8 quantity conversions
-// are stable: encoding a float into the deterministic integer domain and back
-// recovers the value to within one ULP of the fixed-point grid, AND — the part
-// that matters for consensus — the integer form itself is identical for the same
-// input every time (it is a pure function of the float bits).
-func TestFixedPointRoundTrip(t *testing.T) {
-	prices := []float64{1, 100, 100.5, 0.00000001, 12345.6789, 999999.99999999, 0.1, 3.14159265358979}
+// TestExactIntegerPriceRoundTrip proves the row price codec carries an EXACT
+// PriceInt with no float64 round-trip — including values above 2^53 that a
+// float64 cannot represent — so a rebuilt row is byte-identical to the live one
+// (the property that makes a restarted validator deterministic).
+func TestExactIntegerPriceRoundTrip(t *testing.T) {
+	prices := []PriceInt{1, 100, 10025000000, 1, 1_234_567_890_123, PriceInt(1) << 40, PriceInt(1)<<52 + 1}
 	for _, p := range prices {
-		fx := floatToFixedPrice(p)
-		// determinism: same input -> same fixed-point.
-		if fx != floatToFixedPrice(p) {
-			t.Fatalf("floatToFixedPrice(%v) not deterministic", p)
+		row := priceRowFor(p)
+		if row.Fraction != 0 {
+			t.Errorf("priceRowFor(%d): Fraction must be 0, got %d", p, row.Fraction)
 		}
-		back := fixedPriceToFloat(fx)
-		// The grid step for the fraction is 2^-64, far finer than 1e-8, so the
-		// recovered value must match to 1e-8.
-		if diff := back - p; diff > 1e-8 || diff < -1e-8 {
-			t.Errorf("price round-trip %v -> %+v -> %v (diff %v)", p, fx, back, diff)
+		if got := priceUnitsFromRow(row); got != p {
+			t.Errorf("price round-trip %d -> %+v -> %d (NOT exact)", p, row, got)
 		}
-	}
-
-	sizes := []float64{1, 0.5, 0.00000001, 1000000, 42.123456}
-	for _, s := range sizes {
-		q := floatToFixedQty(s)
-		if q != floatToFixedQty(s) {
-			t.Fatalf("floatToFixedQty(%v) not deterministic", s)
-		}
-		back := fixedQtyToFloat(q)
-		if diff := back - s; diff > 1e-8 || diff < -1e-8 {
-			t.Errorf("qty round-trip %v -> %d -> %v (diff %v)", s, q, back, diff)
+		// Determinism: same input -> same row.
+		if priceRowFor(p) != row {
+			t.Fatalf("priceRowFor(%d) not deterministic", p)
 		}
 	}
 }
@@ -48,9 +35,9 @@ func TestRowEncodeDecode(t *testing.T) {
 	row := DEXOrder{
 		OrderID:   42,
 		UserID:    userToUint64("alice"),
-		Price:     floatToFixedPrice(100.25),
-		Quantity:  floatToFixedQty(5),
-		Remaining: floatToFixedQty(3),
+		Price:     priceRowFor(10025000000), // 100.25 * 1e8, exact
+		Quantity:  5,
+		Remaining: 3,
 		Timestamp: 1700000000000000000,
 		Side:      DEXSideBid,
 		Type:      DEXOrderLimit,
@@ -96,12 +83,13 @@ func TestBookToRowsRoundTrip(t *testing.T) {
 			t.Fatalf("ConsensusAddOrder(id=%d) = %d", id, got)
 		}
 	}
-	place(1, Buy, 100.0, 2.0, "alice", 0)
-	place(2, Buy, 100.0, 1.5, "bob", 1) // same level, later -> behind id1
-	place(3, Buy, 99.5, 3.0, "carol", 2)
-	place(4, Sell, 101.0, 2.5, "dave", 3)
-	place(5, Sell, 101.5, 1.0, "erin", 4)
-	place(6, Sell, 101.0, 0.5, "frank", 5) // same level, later -> behind id4
+	// Quantities are exact atomic base-unit counts (whole integers).
+	place(1, Buy, 100.0, 20, "alice", 0)
+	place(2, Buy, 100.0, 15, "bob", 1) // same level, later -> behind id1
+	place(3, Buy, 99.5, 30, "carol", 2)
+	place(4, Sell, 101.0, 25, "dave", 3)
+	place(5, Sell, 101.5, 10, "erin", 4)
+	place(6, Sell, 101.0, 5, "frank", 5) // same level, later -> behind id4
 
 	rows1 := BookToRows(ob)
 	if len(rows1) != 6 {
@@ -181,7 +169,8 @@ func TestRowStreamIsCanonicallyOrdered(t *testing.T) {
 	if a[0].Side != DEXSideBid || a[len(a)-1].Side != DEXSideAsk {
 		t.Errorf("expected bids first then asks, got sides %d..%d", a[0].Side, a[len(a)-1].Side)
 	}
-	if a[0].Price.Integer != 51 || a[1].Price.Integer != 50 {
+	// Price.Integer now holds the exact PriceInt (price × PriceMultiplier).
+	if a[0].Price.Integer != 51*uint64(PriceMultiplier) || a[1].Price.Integer != 50*uint64(PriceMultiplier) {
 		t.Errorf("bids not descending: %d then %d", a[0].Price.Integer, a[1].Price.Integer)
 	}
 }

@@ -149,8 +149,12 @@ func (h *VenueWS) handleOrder(ctx context.Context, conn *websocket.Conn, ord ven
 		Timestamp: time.Now().UnixMilli(),
 	}
 	for _, f := range fills {
-		resp.CumQty += f.Size
-		resp.Fills = append(resp.Fills, venueFill{Price: f.Price, Size: f.Size, TakerSide: sideStr(f.TakerSide)})
+		// Wire fills are EXACT integers (price = PriceInt ×1e8, size = base units);
+		// render human floats for the JSON venue client.
+		px := float64(f.Price) / float64(zapwire.PriceScale)
+		sz := float64(f.Size)
+		resp.CumQty += sz
+		resp.Fills = append(resp.Fills, venueFill{Price: px, Size: sz, TakerSide: sideStr(f.TakerSide)})
 	}
 	_ = conn.WriteJSON(resp)
 }

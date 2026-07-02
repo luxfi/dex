@@ -856,20 +856,48 @@ func tradeLeafDigest(t dex.DEXTrade, i uint32) [Size]byte {
 	return hash.ComputeKeccak256Array(img, idx[:])
 }
 
-// ComposeRoot returns the d-chain execution root from the parent root, the three
+// ComposeRoot returns the d-chain execution root from the parent root, the four
 // sub-roots, and the height — the SAME fixed-shape un-tagged keccak256
 // composition xvmroot.Compose uses (this is NOT a Merkle node):
 //
 //	dex_execution_root = keccak256(
-//	    parent ‖ bookRoot ‖ tradeRoot ‖ txRoot ‖ height_u64_le )
+//	    parent ‖ bookRoot ‖ tradeRoot ‖ txRoot ‖ ledgerRoot ‖ height_u64_le )
 //
-// Chaining the parent root makes the root a commitment to the whole accepted
-// history, not just the current snapshot — a validator that forked at any past
-// block produces a different root here.
-func ComposeRoot(parent, book, trade, txr [Size]byte, height uint64) [Size]byte {
+// The ledgerRoot term BINDS THE CUSTODY BALANCES (balance:/locked:/orderasset:)
+// into consensus. Without it, two validators could agree on the book/trade/tx
+// roots while holding DIFFERENT money — a settle divergence would be invisible to
+// consensus and finalize, and withdrawals would then realize inconsistently. A
+// settlement VM MUST commit the money it moves. Chaining the parent root makes the
+// root a commitment to the whole accepted history, not just the current snapshot.
+func ComposeRoot(parent, book, trade, txr, ledger [Size]byte, height uint64) [Size]byte {
 	var h [8]byte
 	binary.LittleEndian.PutUint64(h[:], height)
-	return hash.ComputeKeccak256Array(parent[:], book[:], trade[:], txr[:], h[:])
+	return hash.ComputeKeccak256Array(parent[:], book[:], trade[:], txr[:], ledger[:], h[:])
+}
+
+// ledgerRoot is the RFC-6962 tagged Merkle root over the custody ledger: every
+// balance:, locked:, and per-order orderasset: reserve row, folded in the DB's
+// deterministic key order (each prefix scanned in ascending key order; the three
+// prefixes in a fixed sequence). The leaf binds the full key AND the value, so any
+// divergence in an account's available/locked balance — or a per-order reserve —
+// changes the root. This is what makes a silent cross-arch / mis-settle money
+// desync impossible: it can no longer finalize under an agreed execution root.
+func ledgerRoot(db database.Iteratee) ([Size]byte, error) {
+	var leaves [][Size]byte
+	for _, prefix := range []string{prefixBalance, prefixLocked, prefixOrderLock} {
+		it := db.NewIteratorWithPrefix([]byte(prefix))
+		for it.Next() {
+			// leaf = keccak256(key ‖ value); the key already carries the prefix, so
+			// leaves from different prefixes never collide.
+			leaves = append(leaves, hash.ComputeKeccak256Array(it.Key(), it.Value()))
+		}
+		err := it.Error()
+		it.Release()
+		if err != nil {
+			return [Size]byte{}, err
+		}
+	}
+	return merkle.Root(leaves), nil
 }
 
 // sortRowsCanonical imposes a total, deterministic order on resting rows that may
@@ -904,13 +932,15 @@ func sortRowsCanonical(rows []dex.DEXOrder) {
 }
 
 // ExecutionRoot computes the full d-chain execution root over a block's resulting
-// state: the canonical resting rows (book), the block's fills (trades), and the
-// block's transactions (txs), composed with the parent root and height. Returns
-// the execution root and the three sub-roots (for receipts / debugging).
-func ExecutionRoot(parent [Size]byte, rows []dex.DEXOrder, trades []dex.DEXTrade, txs []*Tx, height uint64) (root, book, trade, txr [Size]byte) {
+// state: the canonical resting rows (book), the block's fills (trades), the block's
+// transactions (txs), and the custody LEDGER commitment (ledger), composed with the
+// parent root and height. ledger is the [Size]byte ledgerRoot the caller computed
+// over the committed balance state (or the zero value where no ledger applies, e.g.
+// the genesis root). Returns the execution root and the three event/state sub-roots.
+func ExecutionRoot(parent [Size]byte, rows []dex.DEXOrder, trades []dex.DEXTrade, txs []*Tx, ledger [Size]byte, height uint64) (root, book, trade, txr [Size]byte) {
 	book = bookRoot(rows)
 	trade = tradeRoot(trades)
 	txr = txRoot(txs)
-	root = ComposeRoot(parent, book, trade, txr, height)
+	root = ComposeRoot(parent, book, trade, txr, ledger, height)
 	return root, book, trade, txr
 }

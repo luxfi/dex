@@ -4,7 +4,6 @@
 package zapwire
 
 import (
-	"math"
 	"testing"
 )
 
@@ -132,22 +131,19 @@ func TestCustodyFramesRoundTrip(t *testing.T) {
 	}
 }
 
-func TestFloat64RoundTrip(t *testing.T) {
-	for _, f := range []float64{0, 1, 0.5, 1e18, 1.0 / 3.0, math.MaxFloat64, math.SmallestNonzeroFloat64} {
-		b := make([]byte, 8)
-		PutFloat64(b, f)
-		if got := Float64(b); got != f {
-			t.Errorf("Float64(PutFloat64(%v)) = %v", f, got)
-		}
-	}
-}
-
-func TestSubmitRoundTrip(t *testing.T) {
+// TestExactIntegerWire pins that the value-bearing wire fields carry EXACT
+// unsigned integers with no IEEE-754 float64 anywhere — a full-range uint64
+// (including >2^53 and the top bit set) round-trips byte-for-byte, which is the
+// property that makes the state transition architecture-independent.
+func TestExactIntegerWire(t *testing.T) {
 	var poolID [32]byte
 	for i := range poolID {
 		poolID[i] = byte(i + 1)
 	}
-	req := EncodeSubmit(poolID, SideBuy, false, 123.5, 10.25, "alice")
+	// price = 123.5 in ×1e8 fixed-point; size = huge base-unit count > 2^53.
+	const wantPrice = uint64(12_350_000_000)
+	const wantSize = uint64(0xFFFFFFFFFFFFFFF0) // near uint64 max, unrepresentable as an exact float64
+	req := EncodeSubmit(poolID, SideBuy, false, wantPrice, wantSize, "alice")
 	if len(req) != SubmitReqSize {
 		t.Fatalf("EncodeSubmit len = %d, want %d", len(req), SubmitReqSize)
 	}
@@ -155,16 +151,22 @@ func TestSubmitRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeSubmit: %v", err)
 	}
-	if gotPool != poolID || side != SideBuy || isMarket || limit != 123.5 || size != 10.25 || user != "alice" {
-		t.Fatalf("DecodeSubmit mismatch: pool=%x side=%d market=%v limit=%v size=%v user=%q",
+	if gotPool != poolID || side != SideBuy || isMarket || limit != wantPrice || size != wantSize || user != "alice" {
+		t.Fatalf("DecodeSubmit mismatch: pool=%x side=%d market=%v limit=%d size=%d user=%q",
 			gotPool, side, isMarket, limit, size, user)
+	}
+	// Place round-trip with the same exact integers.
+	pReq := EncodePlace(poolID, SideSell, wantPrice, wantSize, "bob")
+	gp, ps, pp, psz, pu, perr := DecodePlace(pReq)
+	if perr != nil || gp != poolID || ps != SideSell || pp != wantPrice || psz != wantSize || pu != "bob" {
+		t.Fatalf("DecodePlace mismatch: %x %d %d %d %q err=%v", gp, ps, pp, psz, pu, perr)
 	}
 }
 
 func TestFillsRoundTrip(t *testing.T) {
 	in := []Fill{
 		{Price: 100, Size: 2, TakerSide: SideBuy},
-		{Price: 101.5, Size: 0.5, TakerSide: SideBuy},
+		{Price: 10_150_000_000, Size: 0xFFFFFFFFFFFFFFF0, TakerSide: SideBuy},
 	}
 	resp := EncodeFills(in)
 	if len(resp) != 4+len(in)*FillWireSize {

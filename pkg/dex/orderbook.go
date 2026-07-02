@@ -751,13 +751,25 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 			break
 		}
 
-		// Price check
+		// Price check. On the consensus path both orders carry the exact integer
+		// PriceUnits (the matcher's PriceInt grid), so cross on integers — no float
+		// tie where two distinct prices collapse to one float64. Legacy float-API
+		// orders (PriceUnits==0) keep the float comparison.
 		if order.Type == Limit {
-			if order.Side == Buy && order.Price < bestOrder.Price {
-				break
-			}
-			if order.Side == Sell && order.Price > bestOrder.Price {
-				break
+			if order.PriceUnits != 0 && bestOrder.PriceUnits != 0 {
+				if order.Side == Buy && order.PriceUnits < bestOrder.PriceUnits {
+					break
+				}
+				if order.Side == Sell && order.PriceUnits > bestOrder.PriceUnits {
+					break
+				}
+			} else {
+				if order.Side == Buy && order.Price < bestOrder.Price {
+					break
+				}
+				if order.Side == Sell && order.Price > bestOrder.Price {
+					break
+				}
 			}
 		}
 
@@ -834,10 +846,16 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 		}
 		if tradeUnits != nil {
 			// Quote is an exact integer function of the matched base and the
-			// maker's resting price (its PriceInt key) — never of any float size.
-			priceInt := PriceInt(bestOrder.Price * PriceMultiplier)
+			// maker's resting price (its EXACT PriceInt) — never of any float. On
+			// the consensus path bestOrder.PriceUnits is authoritative; a legacy
+			// order without it falls back to the float grid.
+			priceInt := bestOrder.PriceUnits
+			if priceInt == 0 {
+				priceInt = PriceInt(bestOrder.Price * PriceMultiplier)
+			}
 			trade.BaseUnits = tradeUnits
 			trade.QuoteUnits = quoteUnitsFor(tradeUnits, priceInt)
+			trade.PriceUnits = priceInt
 			// Decrement the exact integer remainders so a multi-level / partial
 			// sweep stays integer-consistent across iterations.
 			takerUnits.Sub(takerUnits, tradeUnits)

@@ -5,7 +5,7 @@ package dex
 
 import (
 	"encoding/binary"
-	"math"
+	"math/big"
 	"sort"
 	"unsafe"
 )
@@ -45,78 +45,39 @@ import (
 // row at the GPU ABI's 8-byte user is the decomplected choice: the book row models
 // matching, d-chain state models settlement identity.
 
-// QuantityScale is the fixed-point scale for the integer base quantity stored in
-// a DEXOrder row (Quantity / Remaining). A float64 size s is stored as
-// round(s * 1e8); 1e8 matches PriceMultiplier so the integer domain is uniform
-// across price and size. The matcher's resting quantities are always
-// non-negative, so the unsigned domain is exact for any size representable in
-// 1e8 units up to ~1.8e11 base units.
-const QuantityScale = float64(PriceMultiplier) // 1e8
+// EXACT-INTEGER PRICE/QUANTITY ENCODING (no float64 crosses into a persisted row).
+//
+// A DEXOrder row stores the price as its exact PriceInt (price × PriceMultiplier)
+// in DEXPrice.Integer (Fraction unused, always 0), and the quantity as an exact
+// atomic-base-unit count in DEXOrder.Quantity/Remaining. This is a pure integer
+// image of the wire's exact integers, so a row rebuilt from disk is byte-identical
+// to the live one — there is NO float64 round-trip that could drift by a ULP and
+// fork a restarted validator. (The old round(size*1e8) / Q64.64-of-float64
+// encoding was non-idempotent under the reload and forked on restart.)
+//
+// Ordering is preserved: DEXPrice comparison is (Integer, Fraction); with
+// Fraction≡0 and Integer=PriceInt, prices order exactly as their PriceInt values.
 
-// floatToFixedPrice converts a float64 price to the Q64.64 DEXPrice form
-// deterministically. The integer part is the floor; the fractional part is the
-// remaining mantissa scaled by 2^64 and rounded to nearest. This is a pure
-// function of the IEEE-754 value: every architecture that agrees on the float
-// bits (which they do for a value carried verbatim on the wire) computes the
-// identical {Integer, Fraction}. Negative or non-finite inputs clamp to zero;
-// the matcher rejects those upstream so they never reach a persisted row.
-func floatToFixedPrice(price float64) DEXPrice {
-	if !(price > 0) { // also catches NaN
-		return DEXPrice{}
+// priceRowFor encodes an exact PriceInt into the row's DEXPrice slot.
+func priceRowFor(p PriceInt) DEXPrice {
+	if p < 0 {
+		p = 0
 	}
-	intPart := math.Floor(price)
-	if intPart > math.MaxUint64 {
-		// Saturate rather than wrap; safePriceToInt already bounds real prices
-		// far below this, so this is a defensive clamp, not a live path.
-		return DEXPrice{Integer: math.MaxUint64, Fraction: math.MaxUint64}
-	}
-	frac := price - intPart
-	// frac in [0,1); scale to the 64-bit fraction domain. math.Round gives the
-	// nearest integer; 2^64 is represented exactly as a float64.
-	fracUnits := math.Round(frac * 18446744073709551616.0) // 2^64
-	var fraction uint64
-	if fracUnits >= 18446744073709551616.0 {
-		// Rounding pushed it to a full unit: carry into the integer part.
-		return DEXPrice{Integer: uint64(intPart) + 1, Fraction: 0}
-	}
-	fraction = uint64(fracUnits)
-	return DEXPrice{Integer: uint64(intPart), Fraction: fraction}
+	return DEXPrice{Integer: uint64(p), Fraction: 0}
 }
 
-// Float converts a Q64.64 DEXPrice to float64 — the single inverse of the
-// fixed-point price form, used to repopulate the in-RAM Order.Price on rebuild
-// and to render a committed price for display/read APIs. The deterministic state
-// (rows, merkle leaves) always uses the integer form, so this float projection
-// never affects consensus.
+// priceUnitsFromRow decodes the exact PriceInt a row committed.
+func priceUnitsFromRow(d DEXPrice) PriceInt { return PriceInt(int64(d.Integer)) }
+
+// Float renders a row DEXPrice as a float64 human/legacy price = PriceInt /
+// PriceMultiplier. Display/read only; the deterministic state uses the integer.
 func (p DEXPrice) Float() float64 {
-	return float64(p.Integer) + float64(p.Fraction)/18446744073709551616.0 // /2^64
+	return float64(int64(p.Integer)) / float64(PriceMultiplier)
 }
 
-// fixedPriceToFloat is the package-internal alias for DEXPrice.Float (one
-// implementation; the existing call sites keep their name).
-func fixedPriceToFloat(p DEXPrice) float64 { return p.Float() }
-
-// FixedQtyToFloat converts an integer 1e8 fixed-unit base quantity back to
-// float64 — the single inverse of floatToFixedQty, exported so read APIs render
-// a committed quantity through the SAME conversion the rebuild path uses.
-func FixedQtyToFloat(q uint64) float64 { return float64(q) / QuantityScale }
-
-// floatToFixedQty converts a float64 base quantity to the integer 1e8 fixed-unit
-// form stored in a row. Rounds to nearest; clamps a negative/NaN to zero.
-func floatToFixedQty(qty float64) uint64 {
-	if !(qty > 0) {
-		return 0
-	}
-	scaled := math.Round(qty * QuantityScale)
-	if scaled >= math.MaxUint64 {
-		return math.MaxUint64
-	}
-	return uint64(scaled)
-}
-
-// fixedQtyToFloat is the package-internal alias for FixedQtyToFloat (one
-// implementation; the existing call sites keep their name).
-func fixedQtyToFloat(q uint64) float64 { return FixedQtyToFloat(q) }
+// FixedQtyToFloat renders an exact base-unit count as float64 for read APIs.
+// The quantity domain is exact integers; this projection is display-only.
+func FixedQtyToFloat(q uint64) float64 { return float64(q) }
 
 // userToUint64 folds a user identity string to the row's 8-byte UserID
 // (big-endian over the leading 8 bytes, zero-padded). Deterministic and total.
@@ -206,28 +167,63 @@ func dexToStatus(s uint8) string {
 	}
 }
 
-// OrderToRow converts a resting Order to its canonical 64-byte DEXOrder row. The
-// price/size are committed to the deterministic Q64.64 / 1e8-integer domain; the
-// padding is zeroed so two equal orders always produce byte-identical rows.
-func OrderToRow(o *Order) DEXOrder {
-	remaining := o.RemainingSize
-	if remaining == 0 && o.Size > 0 && o.Filled == 0 {
-		remaining = o.Size
+// orderRowUnits returns the exact (quantity, remaining) atomic base-unit counts a
+// row commits for an order. The authoritative source is the integer lane
+// (SizeUnits/RemainingUnits, carried exactly from the wire); a legacy float-API
+// order lacking the lane derives whole units from its float Size (truncating).
+func orderRowUnits(o *Order) (qty, rem uint64) {
+	if o.SizeUnits != nil {
+		qty = o.SizeUnits.Uint64()
+	} else {
+		qty = SizeToUnits(o.Size)
 	}
+	switch {
+	case o.RemainingUnits != nil:
+		rem = o.RemainingUnits.Uint64()
+	case o.SizeUnits != nil:
+		// Fresh resting order: the matcher only populates RemainingUnits once the
+		// order crosses; until then the full size remains.
+		rem = qty
+	default:
+		rf := o.RemainingSize
+		if rf == 0 && o.Size > 0 && o.Filled == 0 {
+			rf = o.Size
+		}
+		rem = SizeToUnits(rf)
+	}
+	return
+}
+
+// orderPriceUnits returns the exact PriceInt a row commits for an order — the
+// authoritative PriceUnits carried from the wire, or (legacy) the float grid.
+func orderPriceUnits(o *Order) PriceInt {
+	if o.PriceUnits != 0 {
+		return o.PriceUnits
+	}
+	return PriceInt(o.Price * PriceMultiplier)
+}
+
+// OrderToRow converts a resting Order to its canonical 64-byte DEXOrder row. Price
+// and quantity are committed as EXACT INTEGERS (PriceInt in DEXPrice.Integer,
+// atomic base units in Quantity/Remaining) so the row is a byte-stable image of
+// the wire's exact integers — a rebuilt row equals the live one (no restart fork).
+// Padding is zeroed so two equal orders always produce byte-identical rows.
+func OrderToRow(o *Order) DEXOrder {
 	user := o.User
 	if user == "" {
 		user = o.UserID
 	}
+	qty, rem := orderRowUnits(o)
 	row := DEXOrder{
 		OrderID:   o.ID,
 		UserID:    userToUint64(user),
-		Price:     floatToFixedPrice(o.Price),
-		Quantity:  floatToFixedQty(o.Size),
-		Remaining: floatToFixedQty(remaining),
+		Price:     priceRowFor(orderPriceUnits(o)),
+		Quantity:  qty,
+		Remaining: rem,
 		Timestamp: uint64(o.Timestamp.UnixNano()),
 		Side:      sideToDEX(o.Side),
 		Type:      typeToDEX(o.Type),
-		Status:    statusToDEX(o.Status, remaining, o.Size),
+		Status:    statusToDEX(o.Status, float64(rem), float64(qty)),
 	}
 	row.ClearPadding()
 	return row
@@ -240,18 +236,34 @@ func OrderToRow(o *Order) DEXOrder {
 // stamp (price-time priority is preserved exactly across a restart).
 func RowToOrder(row DEXOrder) *Order {
 	user := uint64ToUser(row.UserID)
-	return &Order{
+	priceUnits := priceUnitsFromRow(row.Price)
+	o := &Order{
 		ID:            row.OrderID,
 		Type:          dexToType(row.Type),
 		Side:          dexToSide(row.Side),
-		Price:         fixedPriceToFloat(row.Price),
-		Size:          fixedQtyToFloat(row.Quantity),
-		RemainingSize: fixedQtyToFloat(row.Remaining),
+		PriceUnits:    priceUnits,
+		Price:         float64(int64(priceUnits)) / float64(PriceMultiplier),
+		Size:          float64(row.Quantity),
+		RemainingSize: float64(row.Remaining),
 		Timestamp:     nanosToTime(int64(row.Timestamp)),
 		User:          user,
 		UserID:        user,
 		Status:        dexToStatus(row.Status),
 	}
+	// Restore the AUTHORITATIVE integer lane directly from the row (identity — no
+	// float64 round-trip), so a rebuilt maker settles and re-serializes byte-for-byte
+	// like the live one. This is what makes a restart deterministic.
+	o.SizeUnits = new(big.Int).SetUint64(row.Quantity)
+	o.RemainingUnits = new(big.Int).SetUint64(row.Remaining)
+	// Restore Filled = Quantity − Remaining so the matcher's fill/removal accounting
+	// (bestOrder.Filled >= bestOrder.Size) still recognizes a partially-filled maker
+	// as complete when its remaining reaches zero across a rebuild. Without this a
+	// rebuilt partial order's Filled resets to 0 and it can never be removed once its
+	// remaining is consumed (a zombie resting order + a stranded reserve).
+	if row.Quantity >= row.Remaining {
+		o.Filled = float64(row.Quantity - row.Remaining)
+	}
+	return o
 }
 
 // EncodeRow writes a DEXOrder as its 64 byte on-disk value. The bytes are the
@@ -301,12 +313,24 @@ func DecodeTrade(b []byte) (DEXTrade, bool) {
 // taker submitted with (the resting maker is the opposite side); it is supplied
 // by the caller because the in-RAM Trade does not always carry it.
 func TradeToRow(t Trade, takerSide Side) DEXTrade {
+	// Exact-integer commit: PriceInt in DEXPrice.Integer, atomic base units in
+	// Quantity. Falls back to the float grid only for a legacy fill with no lane.
+	priceUnits := t.PriceUnits
+	if priceUnits == 0 {
+		priceUnits = PriceInt(t.Price * PriceMultiplier)
+	}
+	var qty uint64
+	if t.BaseUnits != nil {
+		qty = t.BaseUnits.Uint64()
+	} else {
+		qty = SizeToUnits(t.Size)
+	}
 	row := DEXTrade{
 		TradeID:     t.ID,
 		MakerUserID: userToUint64(makerUser(t, takerSide)),
 		TakerUserID: userToUint64(takerUser(t, takerSide)),
-		Price:       floatToFixedPrice(t.Price),
-		Quantity:    floatToFixedQty(t.Size),
+		Price:       priceRowFor(priceUnits),
+		Quantity:    qty,
 		Timestamp:   uint64(t.Timestamp.UnixNano()),
 		TakerSide:   sideToDEX(takerSide),
 	}

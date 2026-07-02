@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/luxfi/database"
@@ -662,7 +661,15 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 	}
 	sortRowsCanonical(allRows)
 
-	root, _, _, _ := ExecutionRoot(b.vm.lastRoot, allRows, allFills, b.txs, b.height)
+	// Commit the CUSTODY LEDGER (balance:/locked:/orderasset:) into the execution
+	// root so validators cannot finalize agreeing on the book while holding different
+	// money — the money is a term in consensus, not an off-root side effect.
+	lroot, lerr := ledgerRoot(overlay)
+	if lerr != nil {
+		return execResult{}, lerr
+	}
+
+	root, _, _, _ := ExecutionRoot(b.vm.lastRoot, allRows, allFills, b.txs, lroot, b.height)
 	return execResult{root: root, fills: allFills, rows: allRows, outcomes: outcomes, atomic: ar}, nil
 }
 
@@ -856,11 +863,17 @@ func (b *Block) settleOrderEffects(db *versiondb.Database, poolID [32]byte, tx *
 		if err != nil {
 			return err
 		}
-		// Decrement each touched maker's per-order reserve by the base/quote it
-		// spent on this cross, so a later cancel of a partially-filled maker unlocks
-		// only the still-resting remainder (a fully-filled maker's reserve is
-		// deleted). The maker's aggregate locked: was already spent by settleFills.
-		if err := b.decrementMakerReserves(db, poolID, side, base, quote, res.Fills); err != nil {
+		// Makers the cross fully filled left the book (applySubmit tombstones them with
+		// Status=Filled). Their per-order reserve is CLOSED and any ceil−floor residual
+		// returned to the owner (a filled order can never be cancelled). Partial makers
+		// keep their decremented reserve for a later cancel.
+		fullyFilled := make(map[uint64]struct{}, len(res.Touched))
+		for _, m := range res.Touched {
+			if m != nil && m.ID != 0 && m.Status == dex.Filled {
+				fullyFilled[m.ID] = struct{}{}
+			}
+		}
+		if err := b.decrementMakerReserves(db, poolID, side, base, quote, res.Fills, fullyFilled); err != nil {
 			return err
 		}
 		// Refund the taker's unspent lock remainder (IOC never rests).
@@ -933,7 +946,18 @@ func (b *Block) releaseOrderReserve(db *versiondb.Database, poolID [32]byte, ord
 // the remaining resting size. A maker on the opposite side of the taker locked:
 // taker BUY -> maker SOLD base (reserve in base, reduced by fill base units);
 // taker SELL -> maker BOUGHT base (reserve in quote, reduced by fill quote units).
-func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []dex.Trade) error {
+//
+// fullyFilled names the makers that LEFT THE BOOK on this cross (a fully-filled
+// order the matcher removed). For those the per-order reserve is CLOSED here and
+// any residual is RETURNED to the owner: a resting BUY locks ceil(size*price) quote
+// but each fill charges floor(base*price) (settlement_units.go quoteUnitsFor), so
+// after a full fill a ceil−floor residual remains in the reserve. A filled order
+// can never be cancelled, so that residual would be FROZEN in locked forever. We
+// release it (locked -> available) through the SAME primitive a cancel uses, so a
+// full fill conserves the maker's over-lock exactly like a cancel would. A maker
+// that is still resting (partial fill) keeps its decremented reserve for a later
+// cancel.
+func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, takerSide uint8, base, quote [32]byte, fills []dex.Trade, fullyFilled map[uint64]struct{}) error {
 	// Aggregate the consumed reserve per maker order id (a maker may fill across
 	// several fills in one cross, though typically one).
 	consumed := map[uint64]uint64{}
@@ -960,20 +984,37 @@ func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, 
 		if !ok {
 			continue // maker placed before custody / no reserve recorded
 		}
-		newReserve := uint64(0)
+		residual := uint64(0)
 		if reserve > amt {
-			newReserve = reserve - amt
+			residual = reserve - amt
 		}
-		if err := putOrderLock(db, poolID, makerOrderID, asset, newReserve); err != nil {
-			return err
-		}
-		// A fully-consumed maker reserve means the maker order left the book; drop
-		// its identity row in lockstep with the reserve so no orphan orderuser:
-		// survives a fully-filled order (keeps the two per-order rows consistent).
-		if newReserve == 0 {
+		if _, left := fullyFilled[makerOrderID]; left {
+			// The order left the book: return the ceil−floor residual to the owner
+			// (it can never be cancelled) and CLOSE the per-order rows. A zero residual
+			// (e.g. a SELL maker whose base lock is exact) makes the unlock a no-op.
+			owner, hasOwner, uerr := getOrderUser(db, poolID, makerOrderID)
+			if uerr != nil {
+				return uerr
+			}
+			if residual > 0 {
+				if !hasOwner {
+					return fmt.Errorf("%w: residual release for filled maker %d in market %x", ErrMissingSettlementUser, makerOrderID, poolID[:8])
+				}
+				if uerr := unlockToAvailable(db, owner, asset, residual); uerr != nil {
+					return uerr
+				}
+			}
+			if err := putOrderLock(db, poolID, makerOrderID, asset, 0); err != nil {
+				return err
+			}
 			if err := deleteOrderUser(db, poolID, makerOrderID); err != nil {
 				return err
 			}
+			continue
+		}
+		// Still resting (partial fill): keep the decremented reserve for a later cancel.
+		if err := putOrderLock(db, poolID, makerOrderID, asset, residual); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1024,44 +1065,13 @@ func rebuildBookFromDB(db database.Iteratee, poolID [32]byte, symbol string) (*d
 		return nil, err
 	}
 	ob := dex.RowsToBook(symbol, rows)
-	// Restore the EXACT-INTEGER value lane on every rebuilt resting order. The
-	// persisted DEXOrder row keeps quantities in fixed-point, not the matcher's
-	// atomic-unit SizeUnits/RemainingUnits, so an order rebuilt from disk would
-	// lose the integer lane — its fills would carry no BaseUnits/QuoteUnits and
-	// the custody ledger could not settle value-exactly. We re-derive the lane
-	// from the order's (now-restored) size so a maker resting across a restart, or
-	// rebuilt into a fresh per-block book, settles a taker's cross to the unit.
-	restoreIntegerLane(ob)
+	// The persisted DEXOrder row stores the EXACT atomic-unit quantity and PriceInt
+	// (persist.go), and RowToOrder restores SizeUnits/RemainingUnits/PriceUnits from
+	// those integers verbatim — so a maker rebuilt from disk carries the identical
+	// value lane the live one had, and settles a taker's cross to the unit. There is
+	// no float re-derivation (the old restoreIntegerLane), so a rebuilt book is
+	// byte-identical to the live one — a restart cannot fork the bookRoot.
 	return ob, nil
-}
-
-// restoreIntegerLane sets SizeUnits/RemainingUnits (the matcher's exact-integer
-// quantity lane) on every resting order in a rebuilt book, derived from the
-// order's float size/remaining via the same whole-unit conversion the consensus
-// place/submit path uses (sizeToUnits). Without this a rebuilt maker has a nil
-// lane and a taker crossing it produces fills with no integer truth (which the
-// custody settle refuses). Idempotent: an order already carrying the lane is left
-// as-is.
-func restoreIntegerLane(ob *dex.OrderBook) {
-	for _, o := range ob.Orders {
-		if o == nil {
-			continue
-		}
-		if o.SizeUnits == nil {
-			if u := sizeToUnits(o.Size); u > 0 {
-				o.SizeUnits = new(big.Int).SetUint64(u)
-			}
-		}
-		if o.RemainingUnits == nil {
-			rem := o.RemainingSize
-			if rem == 0 {
-				rem = o.Size
-			}
-			if u := sizeToUnits(rem); u > 0 {
-				o.RemainingUnits = new(big.Int).SetUint64(u)
-			}
-		}
-	}
 }
 
 // poolSymbol renders a poolId as its hex market symbol.

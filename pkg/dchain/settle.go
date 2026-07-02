@@ -66,42 +66,24 @@ func quoteUnitsCeil(baseUnits *big.Int, priceInt dex.PriceInt) uint64 {
 	return q.Uint64()
 }
 
-// sizeToUnits converts a wire size float to atomic base units. On the consensus
-// path sizes are whole atomic-unit counts (the venue quotes integer lot sizes);
-// the conversion truncates toward zero, so a fractional dust sub-unit is never
-// minted into the lock. It is deterministic over the deterministic float input.
-func sizeToUnits(size float64) uint64 {
-	if !(size > 0) {
-		return 0
-	}
-	u := uint64(size)
-	return u
-}
-
-// priceToInt converts a wire price float to the fixed-point PriceInt grid the
-// matcher keys levels by (round(price * PriceMultiplier)), so the lock's price
-// and the matcher's crossing price are the SAME integer.
-func priceToInt(price float64) dex.PriceInt {
-	if !(price > 0) {
-		return 0
-	}
-	return dex.PriceInt(price * dex.PriceMultiplier)
-}
-
-// orderLock returns the (asset, amount) a place/limit-submit of (side, price,
-// size) on a market with (base, quote) assets must lock. A buy locks quote =
-// ceil(size * price); a sell locks base = size. amount 0 means "nothing to lock"
-// (a degenerate order the matcher will reject anyway). asset is the FULL 32-byte
-// id (base or quote), so the lock keys the SAME ledger row a deposit credited.
-func orderLock(side uint8, price float64, size float64, base, quote [32]byte) (asset [32]byte, amount uint64) {
-	units := sizeToUnits(size)
-	if units == 0 {
+// orderLock returns the (asset, amount) a place/limit-submit of (side, priceUnits,
+// sizeUnits) on a market with (base, quote) assets must lock. Both inputs are the
+// wire's EXACT integers: sizeUnits is atomic base units, priceUnits is the PriceInt
+// grid (price × 1e8). A buy locks quote = ceil(size * price / 1e8); a sell locks
+// base = size. amount 0 means "nothing to lock" (a degenerate order). asset is the
+// FULL 32-byte id (base or quote), so the lock keys the SAME ledger row a deposit
+// credited. No float64 touches this path — the lock is byte-identical on every arch.
+func orderLock(side uint8, priceUnits uint64, sizeUnits uint64, base, quote [32]byte) (asset [32]byte, amount uint64) {
+	if sizeUnits == 0 {
 		return [32]byte{}, 0
 	}
 	if side == sideBuy {
-		return quote, quoteUnitsCeil(new(big.Int).SetUint64(units), priceToInt(price))
+		if priceUnits == 0 || priceUnits > uint64(1)<<63-1 {
+			return [32]byte{}, 0
+		}
+		return quote, quoteUnitsCeil(new(big.Int).SetUint64(sizeUnits), dex.PriceInt(priceUnits))
 	}
-	return base, units
+	return base, sizeUnits
 }
 
 // sideBuy / sideSell are the d-chain's local side constants (== zapwire/lx).
@@ -126,24 +108,23 @@ type marketConstraint struct {
 	base, quote [32]byte
 }
 
-// floorsToZeroLock reports whether an EXECUTABLE order (size>0, and for a limit
-// price>0) on this market would lock ZERO — the zero-notional reject condition.
-// It is exactly the negation of "orderLock yields a positive amount":
+// floorsToZeroLock reports whether an EXECUTABLE order (sizeUnits>0) on this market
+// would lock ZERO — the zero-notional reject condition. It is exactly "orderLock
+// yields a zero amount":
 //
-//	BUY  : size>0 && price>0 && ceil(size*price) == 0   (sub-tick price)
-//	SELL : size>0 && size(base units) == 0              (sub-unit size)
+//	BUY  : priceUnits==0 (price 0) => quote lock ceil(size*price/1e8) == 0
+//	SELL : sizeUnits==0                                                    (handled below)
 //
-// A non-executable order (size<=0, or a limit with price<=0) is NOT this hazard —
-// the matcher rejects it earlier as malformed; floorsToZeroLock returns false so
-// the named dust reject is reserved for the precise "executable yet free" case.
-func (mc marketConstraint) floorsToZeroLock(side uint8, price, size float64) bool {
-	if !(size > 0) {
-		return false // not executable (zero/negative size) — handled as malformed, not dust
+// Because the wire now carries the EXACT PriceInt, the smallest positive price is
+// priceUnits==1 (=1e-8), and ceil(size*1/1e8) >= 1 for any size>=1 — so a positive
+// price can NEVER floor a buy to zero. Only priceUnits==0 does, which this gate
+// catches (rejected with ErrDustPriceOrZeroLock). A zero size is not executable
+// and is handled by the matcher's malformed reject, so it is excluded here.
+func (mc marketConstraint) floorsToZeroLock(side uint8, priceUnits, sizeUnits uint64) bool {
+	if sizeUnits == 0 {
+		return false // not executable (zero size) — handled as malformed, not dust
 	}
-	if side == sideBuy && !(price > 0) {
-		return false // a limit buy needs a price; price<=0 is malformed, not dust
-	}
-	_, lockAmt := orderLock(side, price, size, mc.base, mc.quote)
+	_, lockAmt := orderLock(side, priceUnits, sizeUnits, mc.base, mc.quote)
 	return lockAmt == 0
 }
 

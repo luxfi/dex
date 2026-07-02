@@ -154,7 +154,7 @@ func (c *e2eClient) ensureMarket(t *testing.T, pool [32]byte) {
 // place rests a limit order (maker liquidity). Returns the consensus-assigned id.
 func (c *e2eClient) place(t *testing.T, pool [32]byte, side uint8, price, size float64, user string) uint64 {
 	t.Helper()
-	body := zapwire.EncodePlace(pool, side, price, size, wireUser(t, user))
+	body := encPlace(pool, side, price, size, wireUser(t, user))
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodPlace, signedPayload(t, user, TxPlace, body))
 	if err != nil {
 		t.Fatalf("dex_place %s %v@%v: %v", sideName(side), size, price, err)
@@ -169,7 +169,7 @@ func (c *e2eClient) place(t *testing.T, pool [32]byte, side uint8, price, size f
 // consensus-computed fills (decoded via the proxy's exact frame).
 func (c *e2eClient) submit(t *testing.T, pool [32]byte, side uint8, limit, size float64, user string) []zapwire.Fill {
 	t.Helper()
-	body := zapwire.EncodeSubmit(pool, side, false, limit, size, wireUser(t, user))
+	body := encSubmit(pool, side, false, limit, size, wireUser(t, user))
 	resp, err := c.conn.Call(c.ctx, zapwire.MethodSubmit, signedPayload(t, user, TxSubmit, body))
 	if err != nil {
 		t.Fatalf("dex_submit %s %v@%v: %v", sideName(side), size, limit, err)
@@ -255,14 +255,14 @@ func TestLocalnetVenueE2E(t *testing.T) {
 		if f.TakerSide != zapwire.SideBuy {
 			t.Errorf("fill %d takerSide=%d want buy", i, f.TakerSide)
 		}
-		got1 += f.Size
-		t.Logf("  LUX/LUSD fill %d: %v @ %v (takerSide=%s)", i, f.Size, f.Price, sideName(f.TakerSide))
+		got1 += float64(f.Size) // exact base units
+		t.Logf("  LUX/LUSD fill %d: %d @ %d/1e8 (takerSide=%s)", i, f.Size, f.Price, sideName(f.TakerSide))
 	}
 	if got1 != 12.0 {
 		t.Fatalf("LUX/LUSD filled %v, want 12.0", got1)
 	}
-	if f1[0].Price != 100.0 || f1[1].Price != 101.0 {
-		t.Fatalf("LUX/LUSD fill prices = %v,%v want 100,101 (price-time priority)", f1[0].Price, f1[1].Price)
+	if f1[0].Price != 100*uint64(zapwire.PriceScale) || f1[1].Price != 101*uint64(zapwire.PriceScale) {
+		t.Fatalf("LUX/LUSD fill prices = %d,%d want 100e8,101e8 (price-time priority)", f1[0].Price, f1[1].Price)
 	}
 	// After: the 5@101 ask is fully consumed by the 2-unit take? No: 10@100 fully
 	// + 2 of 5@101 -> 3@101 remains. Asks remaining = 3; bids untouched = 20.
@@ -278,10 +278,10 @@ func TestLocalnetVenueE2E(t *testing.T) {
 	if len(f2) != 1 {
 		t.Fatalf("LUX/LETH cross: got %d fills, want 1", len(f2))
 	}
-	if f2[0].Size != 3.0 || f2[0].Price != 0.049 || f2[0].TakerSide != zapwire.SideSell {
-		t.Fatalf("LUX/LETH fill = %v@%v side=%d, want 3.0@0.049 sell", f2[0].Size, f2[0].Price, f2[0].TakerSide)
+	if f2[0].Size != 3 || f2[0].Price != wirePriceUnits(0.049) || f2[0].TakerSide != zapwire.SideSell {
+		t.Fatalf("LUX/LETH fill = %d@%d side=%d, want 3@%d sell", f2[0].Size, f2[0].Price, f2[0].TakerSide, wirePriceUnits(0.049))
 	}
-	t.Logf("  LUX/LETH fill: %v @ %v (takerSide=sell)", f2[0].Size, f2[0].Price)
+	t.Logf("  LUX/LETH fill: %d @ %d/1e8 (takerSide=sell)", f2[0].Size, f2[0].Price)
 	// LUX/LETH bids now empty; asks (4@0.05 + 6@0.051 = 10) untouched.
 	if n, rem := v.restingByMarket(leth); rem != 10.0 {
 		t.Fatalf("LUX/LETH post-cross resting=%v (orders=%d), want 10.0 (asks only)", rem, n)
@@ -314,8 +314,8 @@ func TestLocalnetVenueE2E(t *testing.T) {
 	cli2, closeCli2 := dialVenue(t, v2.addr)
 	defer closeCli2()
 	f3 := cli2.submit(t, lusd, zapwire.SideBuy, 101.0, 3.0, "taker2")
-	if len(f3) != 1 || f3[0].Size != 3.0 || f3[0].Price != 101.0 {
-		t.Fatalf("post-restart LUX/LUSD cross = %+v, want one 3.0@101 fill", f3)
+	if len(f3) != 1 || f3[0].Size != 3 || f3[0].Price != 101*uint64(zapwire.PriceScale) {
+		t.Fatalf("post-restart LUX/LUSD cross = %+v, want one 3@101e8 fill", f3)
 	}
 	if _, rem := v2.restingByMarket(lusd); rem != 20.0 {
 		t.Fatalf("post-restart LUX/LUSD resting=%v, want 20.0 (bids only, ask fully consumed)", rem)

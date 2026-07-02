@@ -226,8 +226,8 @@ func TestByzantineMatcher_PriceTimePriority_BestPriceFirst(t *testing.T) {
 		t.Fatal("expected the taker to fill against the best resting ask, got zero fills")
 	}
 	for i, f := range oc.fills {
-		if f.Price != 5.0 {
-			t.Fatalf("PRICE-PRIORITY VIOLATED: fill[%d] executed @ %g while a better resting ask @ 5 existed "+
+		if f.Price != 5*uint64(zapwire.PriceScale) { // price 5.0 in ×1e8 fixed-point
+			t.Fatalf("PRICE-PRIORITY VIOLATED: fill[%d] executed @ %d while a better resting ask @ 5e8 existed "+
 				"(matcher filled a worse price first)", i, f.Price)
 		}
 	}
@@ -280,7 +280,7 @@ func TestByzantineMatcher_OverFillClampedToRestingLiquidity(t *testing.T) {
 
 	var filled float64
 	for _, f := range oc.fills {
-		filled += f.Size
+		filled += float64(f.Size) // wire fill size is exact base units
 	}
 	if filled > restingLiquidity {
 		t.Fatalf("OVER-FILL: matcher filled %g > resting liquidity %g (fabricated base from nothing)", filled, restingLiquidity)

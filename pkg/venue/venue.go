@@ -88,8 +88,25 @@ func (v *zapVenue) EnsureMarket(ctx context.Context, poolID [32]byte) error {
 	return nil
 }
 
+// wirePrice scales a human price to the exact ×1e8 fixed-point wire integer; wireSize
+// truncates a human size to whole atomic base units. The ZAP wire carries exact
+// integers only (no float64), so a value-bearing quantity is byte-identical on
+// every validator.
+func wirePrice(price float64) uint64 {
+	if !(price > 0) {
+		return 0
+	}
+	return uint64(price * float64(zapwire.PriceScale))
+}
+func wireSize(size float64) uint64 {
+	if !(size > 0) {
+		return 0
+	}
+	return uint64(size)
+}
+
 func (v *zapVenue) Place(ctx context.Context, poolID [32]byte, side uint8, price, size float64, user string) (uint64, error) {
-	resp, err := v.conn.Call(ctx, zapwire.MethodPlace, zapwire.EncodePlace(poolID, side, price, size, user))
+	resp, err := v.conn.Call(ctx, zapwire.MethodPlace, zapwire.EncodePlace(poolID, side, wirePrice(price), wireSize(size), user))
 	if err != nil {
 		return 0, fmt.Errorf("fix: dex_place: %w", err)
 	}
@@ -119,7 +136,7 @@ func (v *zapVenue) Cancel(ctx context.Context, poolID [32]byte, orderID uint64) 
 }
 
 func (v *zapVenue) Submit(ctx context.Context, poolID [32]byte, side uint8, isMarket bool, limit, size float64, user string) ([]zapwire.Fill, error) {
-	resp, err := v.conn.Call(ctx, zapwire.MethodSubmit, zapwire.EncodeSubmit(poolID, side, isMarket, limit, size, user))
+	resp, err := v.conn.Call(ctx, zapwire.MethodSubmit, zapwire.EncodeSubmit(poolID, side, isMarket, wirePrice(limit), wireSize(size), user))
 	if err != nil {
 		return nil, fmt.Errorf("fix: dex_submit: %w", err)
 	}

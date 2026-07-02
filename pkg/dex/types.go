@@ -70,6 +70,15 @@ type Order struct {
 	// SubmitMarketable) by the wire decoder. See settlement_units.go.
 	SizeUnits      *big.Int
 	RemainingUnits *big.Int
+
+	// PriceUnits is the AUTHORITATIVE fixed-point price (the matcher's PriceInt
+	// grid, price × PriceMultiplier), carried exactly from the wire. The float
+	// Price above is a derived projection (PriceUnits / PriceMultiplier) for the
+	// legacy API / display; it is NEVER the source of a consensus value. Zero on
+	// the legacy float API path (set on the OrderBook / consensus path by the wire
+	// decoder). Persisting the exact PriceUnits makes a rebuilt row byte-identical
+	// to the live one (no float64 round-trip = no restart fork). See persist.go.
+	PriceUnits PriceInt
 }
 
 // Trade represents an executed trade
@@ -98,6 +107,12 @@ type Trade struct {
 	// Nil on the legacy float matcher path; set on SubmitMarketable fills.
 	BaseUnits  *big.Int
 	QuoteUnits *big.Int
+
+	// PriceUnits is the exact fixed-point price this fill executed at (the maker's
+	// resting PriceInt). QuoteUnits = BaseUnits * PriceUnits / PriceMultiplier. It
+	// is carried so the persisted trade row commits the exact integer price, not a
+	// float64 projection. Zero on the legacy float matcher path.
+	PriceUnits PriceInt
 }
 
 // MarketDataUpdate represents market data updates

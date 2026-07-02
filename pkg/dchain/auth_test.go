@@ -41,7 +41,7 @@ type mkAcct func(t *testing.T, name string) *testAcct
 // string) — used to forge wrong-signer / unsigned frames where the body's
 // asserted account is chosen independently of who (if anyone) signs.
 func rawPlace(user string, side uint8, price, size float64) []byte {
-	return zapwire.EncodePlace(authPool, side, price, size, user)
+	return encPlace(authPool, side, price, size, user)
 }
 
 // setupAuthVM brings up a VM with the LUX/LUSD market opened (custody on) so
@@ -70,7 +70,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		addBlock(t, vm, dep)
 		assertAcctBalance(t, vm, a, assetLUX, 100, 0)
 
-		place := a.signed(t, TxPlace, zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
+		place := a.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
 		addBlock(t, vm, place)
 		// The lock moved available->locked: a correctly-signed order took effect.
 		assertAcctBalance(t, vm, a, assetLUX, 90, 10)
@@ -114,7 +114,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 
 		// A validly-signed place, then corrupt the signature so it no longer
 		// recovers alice's account.
-		body := zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user)
+		body := encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user)
 		auth := a.authFor(TxPlace, a.nonce, body)
 		auth.Sig[0] ^= 0xff // tamper
 		forged, err := NewSignedTx(TxPlace, body, auth)
@@ -135,7 +135,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 
 		// Body asserts ALICE's account; signature is MALLORY's valid signature over
 		// that exact body. The recovered account is mallory != alice -> rejected.
-		body := zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, alice.user)
+		body := encPlace(authPool, zapwire.SideSell, 5.0, 10.0, alice.user)
 		auth := mallory.authFor(TxPlace, 0, body)
 		tx, err := NewSignedTx(TxPlace, body, auth)
 		if err != nil {
@@ -153,13 +153,13 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
 		// nonce after deposit = 1; the next signed tx consumes nonce 1.
 
-		p1 := a.signed(t, TxPlace, zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
+		p1 := a.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
 		addBlock(t, vm, p1)
 		assertAcctBalance(t, vm, a, assetLUX, 90, 10) // first place locked 10
 
 		// A SECOND, DISTINCT place (different size) but reusing the just-consumed
 		// nonce (1). The nonce gate refuses it; no further lock.
-		replayBody := zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 20.0, a.user)
+		replayBody := encPlace(authPool, zapwire.SideSell, 5.0, 20.0, a.user)
 		replay, err := NewSignedTx(TxPlace, replayBody, a.authFor(TxPlace, 1, replayBody))
 		if err != nil {
 			t.Fatalf("NewSignedTx: %v", err)
@@ -173,7 +173,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		vm := setupAuthVM(t)
 		a := mk(t, "alice")
 		addBlock(t, vm, a.signed(t, TxDeposit, zapwire.EncodeDeposit(a.user, assetLUX, 100, ref32(1))))
-		p1 := a.signed(t, TxPlace, zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
+		p1 := a.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, a.user))
 		addBlock(t, vm, p1)
 		assertAcctBalance(t, vm, a, assetLUX, 90, 10)
 
@@ -195,7 +195,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 			alice.signed(t, TxDeposit, zapwire.EncodeDeposit(alice.user, assetLUX, 100, ref32(1))),
 		)
 		// Alice rests a SELL of 10 LUX @ 5 (locks 10). It is HER order.
-		pblk := addBlock(t, vm, alice.signed(t, TxPlace, zapwire.EncodePlace(authPool, zapwire.SideSell, 5.0, 10.0, alice.user)))
+		pblk := addBlock(t, vm, alice.signed(t, TxPlace, encPlace(authPool, zapwire.SideSell, 5.0, 10.0, alice.user)))
 		orderID := blockDeterministicID(pblk.height, 0)
 		assertAcctBalance(t, vm, alice, assetLUX, 90, 10)
 

@@ -432,11 +432,14 @@ func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 		orderID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
-	// Aggregate fill stats for cumulative fields.
+	// Aggregate fill stats for cumulative fields. Wire fills carry EXACT integers
+	// (price = PriceInt ×1e8, size = base units); render human floats for FIX.
+	fillPx := func(f zapwire.Fill) float64 { return float64(f.Price) / float64(zapwire.PriceScale) }
+	fillSz := func(f zapwire.Fill) float64 { return float64(f.Size) }
 	var cumQty, notional float64
 	for _, f := range fills {
-		cumQty += f.Size
-		notional += f.Price * f.Size
+		cumQty += fillSz(f)
+		notional += fillPx(f) * fillSz(f)
 	}
 	leaves := qty - cumQty
 	if leaves < 0 {
@@ -469,8 +472,8 @@ func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 	runningCum := 0.0
 	runningNotional := 0.0
 	for i, f := range fills {
-		runningCum += f.Size
-		runningNotional += f.Price * f.Size
+		runningCum += fillSz(f)
+		runningNotional += fillPx(f) * fillSz(f)
 		avg := runningNotional / runningCum
 		last := i == len(fills)-1
 		execType := ExecTypePartialFill
@@ -492,7 +495,7 @@ func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 		s.sendExecReport(execReport{
 			clOrdID: clOrdID, orderID: orderID, symbol: symbol, side: sideStr,
 			execType: execType, ordStatus: ordStatus,
-			orderQty: qty, lastQty: f.Size, lastPx: f.Price,
+			orderQty: qty, lastQty: fillSz(f), lastPx: fillPx(f),
 			leavesQty: thisLeaves, cumQty: runningCum, avgPx: avg,
 		})
 	}

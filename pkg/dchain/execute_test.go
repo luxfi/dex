@@ -16,13 +16,13 @@ var testPool = [32]byte{0xaa, 0xbb, 0xcc}
 func placeTx(t *testing.T, side uint8, price, size float64, user string) *Tx {
 	t.Helper()
 	a := acctFor(t, user)
-	return a.signed(t, TxPlace, zapwire.EncodePlace(testPool, side, price, size, a.user))
+	return a.signed(t, TxPlace, encPlace(testPool, side, price, size, a.user))
 }
 
 func submitTx(t *testing.T, side uint8, isMarket bool, price, size float64, user string) *Tx {
 	t.Helper()
 	a := acctFor(t, user)
-	return a.signed(t, TxSubmit, zapwire.EncodeSubmit(testPool, side, isMarket, price, size, a.user))
+	return a.signed(t, TxSubmit, encSubmit(testPool, side, isMarket, price, size, a.user))
 }
 
 // applyAll replays a tx sequence into a fresh book, returning every fill as a

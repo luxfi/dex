@@ -21,7 +21,6 @@ package zapwire
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 )
 
 // DEX market-routed ZAP method names. These are the poolId-keyed framing of
@@ -53,34 +52,54 @@ const (
 	StatusRejected uint8 = 2
 )
 
-// Wire frame sizes. All multi-byte integers are big-endian; all floats are
-// IEEE-754 float64 in big-endian bit form.
+// Wire frame sizes. ALL multi-byte quantities are big-endian UNSIGNED INTEGERS.
+//
+// CONSENSUS-DETERMINISM (the reason there is no float64 on this wire): a
+// float64 size/price forced every validator to re-derive the settlement
+// integer via uint64(float) / int64(float*scale), whose out-of-range result is
+// implementation-defined per the Go spec and DIFFERS BY CPU ARCHITECTURE
+// (arm64 saturates, amd64 wraps). Two honest validators on different archs then
+// derived different reserves / balances / fills from the SAME ordered block and
+// forked. Carrying exact integers eliminates every value-bearing float→int
+// conversion from the state transition, so the wire is the single source of the
+// exact quantity and every validator agrees byte-for-byte.
+//
+// UNIT CONVENTIONS (opaque to this pure-Go leaf; interpreted by the d-chain):
+//   - size  : uint64 ATOMIC BASE UNITS (a whole count of the base asset's
+//             smallest unit). Bounded by uint64 — the custody ledger is uint64.
+//   - price : uint64 FIXED-POINT with scale 1e8 (price × 1e8), i.e. the matcher's
+//             PriceInt grid. quote owed = size × price / 1e8, exact in integers.
 const (
 	// PoolIDSize is the V4 poolId width: keccak256(PoolKey).
 	PoolIDSize = 32
 	// UserSize is the on-wire user identity width (null-padded).
 	UserSize = 16
 
+	// PriceScale is the fixed-point scale of the wire price field (price × 1e8).
+	// It mirrors dex.PriceMultiplier; duplicated as an untyped const so this
+	// pure-stdlib leaf need not import the matching engine. quote = size*price/1e8.
+	PriceScale = 100000000
+
 	// EnsureMarketReqSize: poolId[32].
 	EnsureMarketReqSize = PoolIDSize
 
-	// PlaceReqSize: poolId[32] + side[1] + price[8] + size[8] + user[16].
+	// PlaceReqSize: poolId[32] + side[1] + price[8:u64 fixed] + size[8:u64 units] + user[16].
 	PlaceReqSize = PoolIDSize + 1 + 8 + 8 + UserSize // 65
 
 	// CancelReqSize: poolId[32] + orderId[8].
 	CancelReqSize = PoolIDSize + 8 // 40
 
-	// SubmitReqSize: poolId[32] + side[1] + isMarket[1] + limitPrice[8] +
-	// size[8] + user[16].
+	// SubmitReqSize: poolId[32] + side[1] + isMarket[1] + limitPrice[8:u64 fixed] +
+	// size[8:u64 units] + user[16].
 	SubmitReqSize = PoolIDSize + 1 + 1 + 8 + 8 + UserSize // 66
 
 	// AckSize: orderId[8] + status[1] + seq[8] + pad[7].
 	AckSize = 24
 
-	// FillWireSize is one fill in a Submit response: price[8] + size[8] +
-	// takerSide[1]. Base traded = sum(size); quote traded = sum(price*size).
-	// The adapter derives the V4 BalanceDelta from these server-produced
-	// numbers ONLY — it never trusts a client-supplied amount.
+	// FillWireSize is one fill in a Submit response: price[8:u64 fixed] +
+	// size[8:u64 base units] + takerSide[1]. Base traded = sum(size); quote
+	// traded = sum(size*price/1e8). The adapter derives the V4 BalanceDelta from
+	// these server-produced integers ONLY — it never trusts a client amount.
 	FillWireSize = 17
 )
 
@@ -90,21 +109,12 @@ const (
 	SideSell uint8 = 1
 )
 
-// Fill is one decoded fill from a Submit response.
+// Fill is one decoded fill from a Submit response. Price is fixed-point ×1e8
+// (PriceScale); Size is atomic base units. quote = Size*Price/PriceScale (exact).
 type Fill struct {
-	Price     float64
-	Size      float64
+	Price     uint64
+	Size      uint64
 	TakerSide uint8
-}
-
-// PutFloat64 writes f as a big-endian IEEE-754 float64 into b[0:8].
-func PutFloat64(b []byte, f float64) {
-	binary.BigEndian.PutUint64(b, math.Float64bits(f))
-}
-
-// Float64 reads a big-endian IEEE-754 float64 from b[0:8].
-func Float64(b []byte) float64 {
-	return math.Float64frombits(binary.BigEndian.Uint64(b))
 }
 
 // padNull copies s into a fresh size-byte buffer, null-padded.
@@ -131,13 +141,14 @@ func EncodeEnsureMarket(poolID [32]byte) []byte {
 	return out
 }
 
-// EncodePlace builds a Place (rest limit order) request payload.
-func EncodePlace(poolID [32]byte, side uint8, price, size float64, user string) []byte {
+// EncodePlace builds a Place (rest limit order) request payload. price is
+// fixed-point ×1e8 (PriceScale); size is atomic base units.
+func EncodePlace(poolID [32]byte, side uint8, price, size uint64, user string) []byte {
 	out := make([]byte, PlaceReqSize)
 	copy(out[0:PoolIDSize], poolID[:])
 	out[PoolIDSize] = side
-	PutFloat64(out[PoolIDSize+1:PoolIDSize+9], price)
-	PutFloat64(out[PoolIDSize+9:PoolIDSize+17], size)
+	binary.BigEndian.PutUint64(out[PoolIDSize+1:PoolIDSize+9], price)
+	binary.BigEndian.PutUint64(out[PoolIDSize+9:PoolIDSize+17], size)
 	copy(out[PoolIDSize+17:], padNull(user, UserSize))
 	return out
 }
@@ -153,15 +164,15 @@ func EncodeCancel(poolID [32]byte, orderID uint64) []byte {
 // EncodeSubmit builds a Submit (marketable order) request payload. When
 // isMarket is true the order sweeps unconditionally and limitPrice is ignored;
 // otherwise it is an IOC limit bounded by limitPrice.
-func EncodeSubmit(poolID [32]byte, side uint8, isMarket bool, limitPrice, size float64, user string) []byte {
+func EncodeSubmit(poolID [32]byte, side uint8, isMarket bool, limitPrice, size uint64, user string) []byte {
 	out := make([]byte, SubmitReqSize)
 	copy(out[0:PoolIDSize], poolID[:])
 	out[PoolIDSize] = side
 	if isMarket {
 		out[PoolIDSize+1] = 1
 	}
-	PutFloat64(out[PoolIDSize+2:PoolIDSize+10], limitPrice)
-	PutFloat64(out[PoolIDSize+10:PoolIDSize+18], size)
+	binary.BigEndian.PutUint64(out[PoolIDSize+2:PoolIDSize+10], limitPrice)
+	binary.BigEndian.PutUint64(out[PoolIDSize+10:PoolIDSize+18], size)
 	copy(out[PoolIDSize+18:], padNull(user, UserSize))
 	return out
 }
@@ -181,8 +192,8 @@ func DecodeFills(resp []byte) ([]Fill, error) {
 	off := 4
 	for i := 0; i < n; i++ {
 		fills[i] = Fill{
-			Price:     Float64(resp[off : off+8]),
-			Size:      Float64(resp[off+8 : off+16]),
+			Price:     binary.BigEndian.Uint64(resp[off : off+8]),
+			Size:      binary.BigEndian.Uint64(resp[off+8 : off+16]),
 			TakerSide: resp[off+16],
 		}
 		off += FillWireSize
@@ -196,8 +207,8 @@ func EncodeFills(fills []Fill) []byte {
 	binary.BigEndian.PutUint32(out[0:4], uint32(len(fills)))
 	off := 4
 	for _, f := range fills {
-		PutFloat64(out[off:off+8], f.Price)
-		PutFloat64(out[off+8:off+16], f.Size)
+		binary.BigEndian.PutUint64(out[off:off+8], f.Price)
+		binary.BigEndian.PutUint64(out[off+8:off+16], f.Size)
 		out[off+16] = f.TakerSide
 		off += FillWireSize
 	}
@@ -206,7 +217,7 @@ func EncodeFills(fills []Fill) []byte {
 
 // DecodeSubmit parses a Submit request payload into its fields. Clients build
 // these; the server and test harnesses decode them.
-func DecodeSubmit(payload []byte) (poolID [32]byte, side uint8, isMarket bool, limitPrice, size float64, user string, err error) {
+func DecodeSubmit(payload []byte) (poolID [32]byte, side uint8, isMarket bool, limitPrice, size uint64, user string, err error) {
 	if len(payload) < SubmitReqSize {
 		err = fmt.Errorf("zapwire: submit request too short: %d", len(payload))
 		return
@@ -214,23 +225,23 @@ func DecodeSubmit(payload []byte) (poolID [32]byte, side uint8, isMarket bool, l
 	copy(poolID[:], payload[0:PoolIDSize])
 	side = payload[PoolIDSize]
 	isMarket = payload[PoolIDSize+1] == 1
-	limitPrice = Float64(payload[PoolIDSize+2 : PoolIDSize+10])
-	size = Float64(payload[PoolIDSize+10 : PoolIDSize+18])
+	limitPrice = binary.BigEndian.Uint64(payload[PoolIDSize+2 : PoolIDSize+10])
+	size = binary.BigEndian.Uint64(payload[PoolIDSize+10 : PoolIDSize+18])
 	user = string(trimNull(payload[PoolIDSize+18 : PoolIDSize+18+UserSize]))
 	return
 }
 
 // DecodePlace parses a Place request payload into its fields (poolId[32] +
 // side[1] + price[8] + size[8] + user[16]).
-func DecodePlace(payload []byte) (poolID [32]byte, side uint8, price, size float64, user string, err error) {
+func DecodePlace(payload []byte) (poolID [32]byte, side uint8, price, size uint64, user string, err error) {
 	if len(payload) < PlaceReqSize {
 		err = fmt.Errorf("zapwire: place request too short: %d", len(payload))
 		return
 	}
 	copy(poolID[:], payload[0:PoolIDSize])
 	side = payload[PoolIDSize]
-	price = Float64(payload[PoolIDSize+1 : PoolIDSize+9])
-	size = Float64(payload[PoolIDSize+9 : PoolIDSize+17])
+	price = binary.BigEndian.Uint64(payload[PoolIDSize+1 : PoolIDSize+9])
+	size = binary.BigEndian.Uint64(payload[PoolIDSize+9 : PoolIDSize+17])
 	user = string(trimNull(payload[PoolIDSize+17 : PoolIDSize+17+UserSize]))
 	return
 }
