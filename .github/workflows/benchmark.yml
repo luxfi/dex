@@ -11,7 +11,7 @@ on:
 jobs:
   benchmark:
     name: Performance Benchmarks
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     
     steps:
     - uses: actions/checkout@v4
