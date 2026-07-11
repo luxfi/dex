@@ -18,7 +18,7 @@ jobs:
   # Validate version is < v2.0.0 (Go modules v2+ requirement)
   validate-version:
     name: Validate Version
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -39,7 +39,7 @@ jobs:
   create-release:
     name: Create Release
     needs: validate-version
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
@@ -174,7 +174,7 @@ jobs:
   build-typescript:
     name: TypeScript SDK
     needs: [validate-version, create-release]
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -294,7 +294,7 @@ jobs:
   generate-checksums:
     name: Generate Checksums
     needs: [validate-version, build-go, build-typescript, build-python, build-rust]
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

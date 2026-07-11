@@ -11,7 +11,7 @@ on:
 jobs:
   placeholder:
     name: Deploy Status
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - name: Deploy Info
         run: |

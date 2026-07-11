@@ -19,7 +19,7 @@ jobs:
   # Go SDK Tests
   test-go:
     name: Go SDK
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     defaults:
       run:
         working-directory: sdk/lx-trading-go
@@ -60,7 +60,7 @@ jobs:
   # TypeScript SDK Tests
   test-typescript:
     name: TypeScript SDK
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     defaults:
       run:
         working-directory: sdk/lx-trading-ts
@@ -90,7 +90,7 @@ jobs:
   # Python SDK Tests
   test-python:
     name: Python SDK
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     defaults:
       run:
         working-directory: sdk/lx-trading-py
@@ -131,7 +131,7 @@ jobs:
   # Rust SDK Tests
   test-rust:
     name: Rust SDK
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     defaults:
       run:
         working-directory: sdk/lx-trading-core
@@ -165,7 +165,7 @@ jobs:
   integration-check:
     name: Integration Check
     needs: [test-go, test-typescript, test-python, test-rust]
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - name: All SDK tests passed
         run: echo "All SDK tests passed successfully!"
@@ -175,7 +175,7 @@ jobs:
     name: Notify on Failure
     needs: [test-go, test-typescript, test-python, test-rust, test-cpp]
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - name: Report failure
         run: |

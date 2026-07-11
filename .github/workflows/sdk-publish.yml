@@ -34,7 +34,7 @@ env:
 jobs:
   validate:
     name: Validate Version
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     outputs:
       version: ${{ steps.validate.outputs.version }}
     steps:
@@ -59,7 +59,7 @@ jobs:
     name: Publish to npm
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'npm'
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +113,7 @@ jobs:
     name: Publish to PyPI
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'pypi'
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     environment:
       name: pypi
       url: https://pypi.org/project/lux-dex/
@@ -152,7 +152,7 @@ jobs:
     name: Publish to crates.io
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'crates'
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +180,7 @@ jobs:
     name: Publish Summary
     needs: [validate, publish-npm, publish-pypi, publish-crates]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - name: Summary
         run: |

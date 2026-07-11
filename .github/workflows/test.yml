@@ -9,7 +9,7 @@ on:
 jobs:
   test-go:
     name: Go Tests
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     
     steps:
     - uses: actions/checkout@v4
