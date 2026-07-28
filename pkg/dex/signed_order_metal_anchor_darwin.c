@@ -16,5 +16,5 @@ extern int secp256k1_ecrecover_address_batch_metal(
 // External, visible global: prevents the linker from DCE'ing the reference.
 // The address comparison is unconditional so the optimizer cannot fold it
 // out as a constant.
-void* const lux_secp256k1_metal_anchor =
+void* const lux_dex_secp256k1_metal_anchor =
     (void*)&secp256k1_ecrecover_address_batch_metal;
