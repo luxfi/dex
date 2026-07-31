@@ -1,16 +1,40 @@
 name: SDK CI
 
+# The four language SDKs under sdk/, on the native runners
+# (git.hanzo.ai -> git-runner).
+#
+# This replaces .github/workflows/sdk-ci.yml, which had never run at all. Two
+# independent reasons:
+#
+#   * every job named `runs-on: lux-build-amd64`. No runner on this forge
+#     carries that label -- the pools are `lux-build-linux-<arch>` -- and a job
+#     naming a label nothing carries does not fail, it waits.
+#
+#   * `notify-failure` declared `needs: [..., test-cpp]` and there is no
+#     test-cpp job in the file. A dangling `needs` is a validation error, and it
+#     rejects the WHOLE workflow, not just that job. notify-failure only echoed
+#     a failure message anyway, so it is dropped rather than given a job to
+#     depend on.
+#
+# The codecov uploads go too: they need CODECOV_TOKEN, a GitHub-Actions-era org
+# secret not provisioned here. Coverage is still measured by each SDK's own test
+# command.
+
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, develop]
     paths:
       - 'sdk/**'
-      - '.github/workflows/sdk-ci.yml'
+      - '.hanzo/workflows/sdk-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'sdk/**'
 
+# A newer commit makes the older run irrelevant.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -19,7 +43,7 @@ jobs:
   # Go SDK Tests
   test-go:
     name: Go SDK
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     defaults:
       run:
         working-directory: sdk/lx-trading-go
@@ -47,20 +71,13 @@ jobs:
           go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: sdk/lx-trading-go/coverage.out
-          flags: go-sdk
-          fail_ci_if_error: false
-
       - name: Build
         run: go build ./...
 
   # TypeScript SDK Tests
   test-typescript:
     name: TypeScript SDK
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     defaults:
       run:
         working-directory: sdk/lx-trading-ts
@@ -90,7 +107,7 @@ jobs:
   # Python SDK Tests
   test-python:
     name: Python SDK
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     defaults:
       run:
         working-directory: sdk/lx-trading-py
@@ -121,17 +138,10 @@ jobs:
         run: |
           pytest tests/ -v --cov=lx_trading --cov-report=xml
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: sdk/lx-trading-py/coverage.xml
-          flags: python-sdk
-          fail_ci_if_error: false
-
   # Rust SDK Tests
   test-rust:
     name: Rust SDK
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     defaults:
       run:
         working-directory: sdk/lx-trading-core
@@ -165,19 +175,9 @@ jobs:
   integration-check:
     name: Integration Check
     needs: [test-go, test-typescript, test-python, test-rust]
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     steps:
       - name: All SDK tests passed
         run: echo "All SDK tests passed successfully!"
 
   # Notify on failure
-  notify-failure:
-    name: Notify on Failure
-    needs: [test-go, test-typescript, test-python, test-rust, test-cpp]
-    if: failure()
-    runs-on: lux-build-amd64
-    steps:
-      - name: Report failure
-        run: |
-          echo "One or more SDK tests failed!"
-          exit 1

@@ -1,0 +1,105 @@
+name: Release
+
+# Builds ghcr.io/luxfi/dex — the CPU dexd venue, CGO_ENABLED=0 pure-Go matcher,
+# ./Dockerfile — on the native runners (git.hanzo.ai → git-runner).
+#
+# This replaces .github/workflows/docker.yml, which ran on `runs-on: lux-build`.
+# That was an ARC autoscaling runner set that no longer exists: the cluster has
+# no ARC CRDs, no ARC namespace and no such pool, so every tag queued a job
+# nothing could pick up, and an unclaimable job does not fail — it waits.
+#
+# The workflow was already self-contained rather than calling
+# hanzoai/.github/.github/workflows/docker-build.yml@main, and its own comment
+# records why: that shared reusable "has been failing to resolve org-wide (422
+# error parsing called workflow)". That stays inlined here for the same reason.
+#
+# ghcr auth had to change. The old login used `github.repository_owner` with the
+# instance GITHUB_TOKEN, which on this forge is a Hanzo Git token with no rights
+# at ghcr.io. GHCR_USER / GHCR_TOKEN are org Actions secrets sourced from KMS.
+#
+# Semver-only: v* tags publish, and every run also gets sha-<sha7>. No floating
+# tags — no :latest, no :main.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# A release is not made irrelevant by a newer one — let it finish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: |
+            network=host
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USER }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/luxfi/dex
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=tag
+            type=sha,format=short,prefix=sha-
+
+      - name: Write the private-module token for BuildKit
+        # The Dockerfile mounts secret id=gh_token and interpolates it into a
+        # git url.insteadOf, so trailing whitespace truncates the URL there and
+        # git resolves the credential prefix as the host ("Could not resolve
+        # host: x-access-token"). luxfi/node hit exactly this. GH_TOKEN is the
+        # org secret; UNIVERSE_PAT is the per-repo fallback.
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          UNIVERSE_PAT: ${{ secrets.UNIVERSE_PAT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          tok="${GH_TOKEN:-}"; src=GH_TOKEN
+          if [ -z "$tok" ]; then tok="${UNIVERSE_PAT:-}"; src=UNIVERSE_PAT; fi
+          if [ -z "$tok" ]; then
+            echo "::error::Neither GH_TOKEN (org) nor UNIVERSE_PAT (repo) is set — private luxfi/* and hanzos3 deps cannot be resolved."
+            exit 1
+          fi
+          echo "::add-mask::$tok"
+          echo "using secret: $src"
+          printf '%s' "$tok" | tr -d '\r\n' > "${RUNNER_TEMP}/gh_token"
+
+      - name: Build and push (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            CGO_ENABLED=0
+          secrets: |
+            gh_token=${{ runner.temp }}/gh_token
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64
+          cache-to: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64,mode=max

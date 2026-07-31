@@ -1,5 +1,28 @@
 name: SDK Publish
 
+# Publishes the SDKs to npm, PyPI and crates.io, on the native runners
+# (git.hanzo.ai -> git-runner). Manual dispatch only, with a dry-run switch.
+#
+# This replaces .github/workflows/sdk-publish.yml, whose every job named
+# `runs-on: lux-build-amd64`. No runner on this forge carries that label -- the
+# pools are `lux-build-linux-<arch>` -- and a job naming a label nothing carries
+# does not fail, it waits. Nothing has been publishable.
+#
+# This is the surviving SDK distribution path. sdk-release.yml, which built
+# per-platform SDK binaries and attached them to a GitHub release, is deleted:
+# its matrices named macos-13, macos-14, windows-latest, ubuntu-latest,
+# lux-amd64 and lux-arm64, none of which exist here. Package publishing is
+# platform-independent and keeps working; per-platform SDK binaries are gone
+# until we own macOS and Windows runners.
+
+permissions:
+  contents: read
+
+# Publishing must not be cancelled by a second dispatch landing behind it.
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -34,7 +57,7 @@ env:
 jobs:
   validate:
     name: Validate Version
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     outputs:
       version: ${{ steps.validate.outputs.version }}
     steps:
@@ -59,7 +82,7 @@ jobs:
     name: Publish to npm
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'npm'
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +136,7 @@ jobs:
     name: Publish to PyPI
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'pypi'
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     environment:
       name: pypi
       url: https://pypi.org/project/lux-dex/
@@ -152,7 +175,7 @@ jobs:
     name: Publish to crates.io
     needs: validate
     if: inputs.packages == 'all' || inputs.packages == 'crates'
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +203,7 @@ jobs:
     name: Publish Summary
     needs: [validate, publish-npm, publish-pypi, publish-crates]
     if: always()
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     steps:
       - name: Summary
         run: |

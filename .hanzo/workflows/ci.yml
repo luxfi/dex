@@ -1,0 +1,56 @@
+name: CI
+
+# The Go suite, on the native runners (git.hanzo.ai → git-runner).
+#
+# This replaces .github/workflows/ci.yml, which named `runs-on: lux-build-amd64`.
+# No runner on this forge carries that label — the pools are
+# `lux-build-linux-<arch>` — and a job naming a label nothing carries does not
+# fail, it waits.
+#
+# It also absorbs what was worth absorbing from test.yml and security.yml, both
+# of which are deleted. test.yml ran `go test ./pkg/lx/... || true` and then
+# echoed "Test suite executed successfully" — it could not fail, so it reported
+# nothing that this job's `go test ./...` does not report properly.
+# security.yml's dependency-check job listed modules into a file and echoed
+# "Dependencies scanned for vulnerabilities" without scanning anything; the
+# govulncheck step below is what that job was pretending to be.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer commit makes the older run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go mod download
+      - run: go test ./...
+      - run: go build ./...
+
+  govulncheck:
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # Advisory, into the job log. Making it blocking is a policy decision.
+      - run: govulncheck ./... || true
