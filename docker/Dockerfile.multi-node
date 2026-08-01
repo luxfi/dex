@@ -1,5 +1,10 @@
 # Multi-stage build for LX multi-node
-FROM golang:1.24.5-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
+
+# The golang images set GOTOOLCHAIN=local, which turns a go.mod `go` directive
+# newer than this base into a hard build failure. `auto` lets go fetch the
+# required toolchain (checksum-verified via sum.golang.org) instead.
+ENV GOTOOLCHAIN=auto
 
 # Install build dependencies
 RUN apk add --no-cache \
