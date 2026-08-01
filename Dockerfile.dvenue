@@ -34,7 +34,9 @@
 # That tarball carries lux-gpu.pc and lux-crypto-secp256k1.pc plus their
 # libs/headers under a GNU prefix.
 # ---------------------------------------------------------------------------
-ARG GO_VERSION=1.26.4
+# Must be >= the `go` directive in go.mod (1.26.4); pinned to the latest stable
+# patch so the image ships current compiler/stdlib security fixes.
+ARG GO_VERSION=1.26.5
 # CUDA 12.x devel image (arm64/sbsa variant) provides nvcc-free libcudart for
 # the cgo link of dexd. Runtime stage uses the matching -runtime image.
 ARG CUDA_VERSION=12.4.1
@@ -55,6 +57,11 @@ RUN wget -q "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" \
     && tar -C /usr/local -xzf "go${GO_VERSION}.linux-arm64.tar.gz" \
     && rm "go${GO_VERSION}.linux-arm64.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
+
+# A go.mod `go` directive newer than the toolchain above is a hard failure
+# under GOTOOLCHAIN=local. `auto` lets go fetch the required toolchain
+# (checksum-verified via sum.golang.org) instead of dying at the floor.
+ENV GOTOOLCHAIN=auto
 
 # luxfi module resolution: skip checksum DB (tags may be rewritten), proxy for
 # public deps, direct for luxfi/*.

@@ -19,7 +19,10 @@
 # Dockerfile.dvenue (spark only, needs the private luxcpp dep tarball). The CPU
 # image here is the canonical, portable testnet path; see README.md "GPU".
 # ---------------------------------------------------------------------------
-ARG GO_VERSION=1.26.4
+# Must be >= the `go` directive in go.mod (1.26.4); pinned to the latest stable
+# patch so the image ships current compiler/stdlib security fixes. GOTOOLCHAIN
+# below stays `auto` so a future floor bump downloads rather than hard-fails.
+ARG GO_VERSION=1.26.5
 FROM golang:${GO_VERSION}-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
