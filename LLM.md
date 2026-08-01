@@ -343,6 +343,22 @@ make up  # Starts complete stack with monitoring
 
 ## Development Workflow
 
+### Go toolchain policy
+Every Dockerfile stage that compiles Go must (1) pin its base to the latest
+stable patch — currently `1.26.5`, never below the go.mod `go` directive — and
+(2) set `ENV GOTOOLCHAIN=auto`.
+
+The official `golang` images ship `GOTOOLCHAIN=local`, which turns "base older
+than the governing `go` directive" into a hard failure —
+`go: go.mod requires go >= X (running go Y; GOTOOLCHAIN=local)` — instead of
+fetching the needed toolchain. This is not hypothetical here:
+`sdk/lx-trading-go/go.mod` declares `go 1.26.5`, above the root module's
+`1.26.4`, so a submodule build under `GOTOOLCHAIN=local` dies at exactly that.
+
+The root `go` directive stays at `1.26.4` — raising it pushes a hard
+patch-level floor onto every consumer. Building an older directive with a newer
+toolchain is always valid. `docs/Dockerfile` is exempt (no Go).
+
 ### Building
 ```bash
 # Build all components
