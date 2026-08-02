@@ -20,8 +20,8 @@ type XChainSource struct {
 	interval time.Duration
 	healthy  bool
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
@@ -53,15 +53,15 @@ type XLevel struct {
 // NewXChainSource creates an X-Chain price source.
 func NewXChainSource(rpcURL, wsURL string) *XChainSource {
 	return &XChainSource{
-		rpcURL:   rpcURL,
-		wsURL:    wsURL,
-		markets:  xchainMarkets(),
-		prices:   make(map[string]*Data),
-		last:     make(map[string]time.Time),
-		books:    make(map[string]*XOrderbook),
-		interval: 50 * time.Millisecond, // Faster polling - native chain
-		healthy:  true,
-		done:     make(chan struct{}),
+		rpcURL:    rpcURL,
+		wsURL:     wsURL,
+		markets:   xchainMarkets(),
+		prices:    make(map[string]*Data),
+		last:      make(map[string]time.Time),
+		books:     make(map[string]*XOrderbook),
+		interval:  50 * time.Millisecond, // Faster polling - native chain
+		healthy:   true,
+		lifecycle: newLifecycle(),
 	}
 }
 
@@ -115,7 +115,7 @@ func (s *XChainSource) Start() error {
 	s.polling = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	return nil
 }
 
@@ -285,7 +285,7 @@ func (s *XChainSource) Weight() float64 { return 2.0 }
 
 // Close stops the source.
 func (s *XChainSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.polling = false
 	s.mu.Unlock()

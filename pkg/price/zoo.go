@@ -22,8 +22,8 @@ type ZooChainSource struct {
 	interval time.Duration
 	healthy  bool
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
@@ -47,16 +47,16 @@ type ZooReserves struct {
 // NewZooChainSource creates a Zoo Chain price source.
 func NewZooChainSource(rpcURL, wsURL string) *ZooChainSource {
 	return &ZooChainSource{
-		rpcURL:   rpcURL,
-		wsURL:    wsURL,
-		routers:  zooRouters(),
-		tokens:   zooTokens(),
-		prices:   make(map[string]*Data),
-		last:     make(map[string]time.Time),
-		reserves: make(map[string]*ZooReserves),
-		interval: 100 * time.Millisecond,
-		healthy:  true,
-		done:     make(chan struct{}),
+		rpcURL:    rpcURL,
+		wsURL:     wsURL,
+		routers:   zooRouters(),
+		tokens:    zooTokens(),
+		prices:    make(map[string]*Data),
+		last:      make(map[string]time.Time),
+		reserves:  make(map[string]*ZooReserves),
+		interval:  100 * time.Millisecond,
+		healthy:   true,
+		lifecycle: newLifecycle(),
 	}
 }
 
@@ -162,7 +162,7 @@ func (s *ZooChainSource) Start() error {
 	s.polling = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	return nil
 }
 
@@ -300,7 +300,7 @@ func (s *ZooChainSource) Weight() float64 { return 1.7 }
 
 // Close stops the source.
 func (s *ZooChainSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.polling = false
 	s.mu.Unlock()

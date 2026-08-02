@@ -23,8 +23,8 @@ type CChainSource struct {
 	interval time.Duration
 	healthy  bool
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
@@ -47,16 +47,16 @@ type Reserves struct {
 // NewCChainSource creates a C-Chain price source.
 func NewCChainSource(rpcURL, wsURL string) *CChainSource {
 	return &CChainSource{
-		rpcURL:   rpcURL,
-		wsURL:    wsURL,
-		routers:  cchainRouters(),
-		tokens:   cchainTokens(),
-		prices:   make(map[string]*Data),
-		last:     make(map[string]time.Time),
-		reserves: make(map[string]*Reserves),
-		interval: 100 * time.Millisecond,
-		healthy:  true,
-		done:     make(chan struct{}),
+		rpcURL:    rpcURL,
+		wsURL:     wsURL,
+		routers:   cchainRouters(),
+		tokens:    cchainTokens(),
+		prices:    make(map[string]*Data),
+		last:      make(map[string]time.Time),
+		reserves:  make(map[string]*Reserves),
+		interval:  100 * time.Millisecond,
+		healthy:   true,
+		lifecycle: newLifecycle(),
 	}
 }
 
@@ -131,7 +131,7 @@ func (s *CChainSource) Start() error {
 	s.polling = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	return nil
 }
 
@@ -270,7 +270,7 @@ func (s *CChainSource) Weight() float64 { return 1.8 }
 
 // Close stops the source.
 func (s *CChainSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.polling = false
 	s.mu.Unlock()

@@ -21,21 +21,21 @@ type ChainlinkSource struct {
 	healthy  bool
 	failures int
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
 // NewChainlinkSource creates a Chainlink price source.
 func NewChainlinkSource() *ChainlinkSource {
 	return &ChainlinkSource{
-		feeds:    chainlinkFeeds(),
-		prices:   make(map[string]*Data),
-		last:     make(map[string]time.Time),
-		interval: 2 * time.Second,
-		timeout:  5 * time.Second,
-		healthy:  true,
-		done:     make(chan struct{}),
+		feeds:     chainlinkFeeds(),
+		prices:    make(map[string]*Data),
+		last:      make(map[string]time.Time),
+		interval:  2 * time.Second,
+		timeout:   5 * time.Second,
+		healthy:   true,
+		lifecycle: newLifecycle(),
 	}
 }
 
@@ -59,7 +59,7 @@ func (s *ChainlinkSource) Start() error {
 	s.polling = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	s.poll()
 	return nil
 }
@@ -184,7 +184,7 @@ func (s *ChainlinkSource) Weight() float64 { return 1.0 }
 
 // Close stops the source.
 func (s *ChainlinkSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.polling = false
 	s.mu.Unlock()

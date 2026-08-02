@@ -23,8 +23,8 @@ type AChainSource struct {
 	healthy  bool
 	quorum   int // Minimum validators for consensus
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
@@ -67,7 +67,7 @@ func NewAChainSource(rpcURL, wsURL string) *AChainSource {
 		interval:     200 * time.Millisecond, // Attestation interval
 		healthy:      true,
 		quorum:       3, // 3 of N validators for consensus
-		done:         make(chan struct{}),
+		lifecycle:    newLifecycle(),
 	}
 }
 
@@ -124,7 +124,7 @@ func (s *AChainSource) Start() error {
 	s.polling = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	return nil
 }
 
@@ -335,7 +335,7 @@ func (s *AChainSource) Weight() float64 { return 1.5 }
 
 // Close stops the source.
 func (s *AChainSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.polling = false
 	s.mu.Unlock()

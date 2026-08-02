@@ -26,20 +26,20 @@ type PythSource struct {
 	healthy   bool
 	heartbeat time.Time
 
-	mu   sync.RWMutex
-	done chan struct{}
+	mu sync.RWMutex
+	lifecycle
 }
 
 // NewPythSource creates a Pyth Network price source.
 func NewPythSource(wsURL, apiURL string) *PythSource {
 	return &PythSource{
-		wsURL:    wsURL,
-		apiURL:   apiURL,
-		client:   &http.Client{Timeout: 5 * time.Second},
-		priceIDs: pythPriceIDs(),
-		prices:   make(map[string]*Data),
-		subs:     make(map[string]bool),
-		done:     make(chan struct{}),
+		wsURL:     wsURL,
+		apiURL:    apiURL,
+		client:    &http.Client{Timeout: 5 * time.Second},
+		priceIDs:  pythPriceIDs(),
+		prices:    make(map[string]*Data),
+		subs:      make(map[string]bool),
+		lifecycle: newLifecycle(),
 	}
 }
 
@@ -72,8 +72,8 @@ func (s *PythSource) Connect() error {
 	s.healthy = true
 	s.heartbeat = time.Now()
 
-	go s.read()
-	go s.ping()
+	s.run(s.read)
+	s.run(s.ping)
 
 	// Subscribe to all price feeds
 	for symbol := range s.priceIDs {
@@ -287,7 +287,7 @@ func (s *PythSource) Weight() float64 { return 1.2 }
 
 // Close shuts down the source.
 func (s *PythSource) Close() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.conn != nil {

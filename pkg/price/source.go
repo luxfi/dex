@@ -14,8 +14,8 @@ type OrderbookSource struct {
 	lastUpdate map[string]time.Time
 	interval   time.Duration
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	running bool
 }
 
@@ -33,7 +33,7 @@ func NewOrderbookSource(books OrderbookProvider) *OrderbookSource {
 		prices:     make(map[string]*Data),
 		lastUpdate: make(map[string]time.Time),
 		interval:   10 * time.Millisecond,
-		done:       make(chan struct{}),
+		lifecycle:  newLifecycle(),
 	}
 }
 
@@ -47,7 +47,7 @@ func (s *OrderbookSource) Start() error {
 	s.running = true
 	s.mu.Unlock()
 
-	go s.loop()
+	s.run(s.loop)
 	return nil
 }
 
@@ -166,7 +166,7 @@ func (s *OrderbookSource) Weight() float64 { return 1.0 }
 
 // Stop halts the source.
 func (s *OrderbookSource) Stop() error {
-	close(s.done)
+	s.stop()
 	s.mu.Lock()
 	s.running = false
 	s.mu.Unlock()
