@@ -74,13 +74,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           UNIVERSE_PAT: ${{ secrets.UNIVERSE_PAT }}
+          # Measured on this forge: repos/luxfi/dex has no secrets at all and
+          # orgs/luxfi holds exactly GHCR_USER + GHCR_TOKEN. So GH_TOKEN and
+          # UNIVERSE_PAT are both "" here and the step below always exits 1.
+          # GHCR_TOKEN has to be a real GitHub PAT for ghcr.io to accept it, so it
+          # resolves private modules too.
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
           umask 077
           tok="${GH_TOKEN:-}"; src=GH_TOKEN
           if [ -z "$tok" ]; then tok="${UNIVERSE_PAT:-}"; src=UNIVERSE_PAT; fi
+          if [ -z "$tok" ]; then tok="${GHCR_TOKEN:-}"; src=GHCR_TOKEN; fi
           if [ -z "$tok" ]; then
-            echo "::error::Neither GH_TOKEN (org) nor UNIVERSE_PAT (repo) is set — private luxfi/* and hanzos3 deps cannot be resolved."
+            echo "::error::None of GH_TOKEN, UNIVERSE_PAT or GHCR_TOKEN is set — private luxfi/* and hanzos3 deps cannot be resolved."
             exit 1
           fi
           echo "::add-mask::$tok"
