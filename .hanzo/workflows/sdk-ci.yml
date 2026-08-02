@@ -51,10 +51,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # go-version-file, not a pinned version: this pin was older than the go
+      # directive in go.mod, and the job image sets GOTOOLCHAIN=local — so the
+      # build refuses before compiling:
+      #   go: go.mod requires go >= X (running go Y; GOTOOLCHAIN=local)
+      # Reading the version from go.mod keeps the two from drifting again.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
           cache-dependency-path: sdk/lx-trading-go/go.sum
 
       - name: Download dependencies
