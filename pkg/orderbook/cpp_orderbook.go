@@ -5,6 +5,7 @@ package orderbook
 
 /*
 #include <stdlib.h>
+#include <stdint.h>   // uint64_t below; stdlib.h does not declare it
 // Placeholder for C++ order book implementation
 void* create_orderbook() { return NULL; }
 void destroy_orderbook(void* ob) {}

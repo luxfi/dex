@@ -24,8 +24,8 @@ type QChainVerifier struct {
 	interval time.Duration
 	healthy  bool
 
-	mu      sync.RWMutex
-	done    chan struct{}
+	mu sync.RWMutex
+	lifecycle
 	polling bool
 }
 
@@ -84,7 +84,7 @@ func NewQChainVerifier(rpcURL, wsURL string) *QChainVerifier {
 		quorum:     3,
 		interval:   100 * time.Millisecond,
 		healthy:    true,
-		done:       make(chan struct{}),
+		lifecycle:  newLifecycle(),
 	}
 }
 
@@ -152,7 +152,7 @@ func (v *QChainVerifier) Start() error {
 	v.polling = true
 	v.mu.Unlock()
 
-	go v.loop()
+	v.run(v.loop)
 	return nil
 }
 
@@ -370,7 +370,7 @@ func (v *QChainVerifier) Close() error {
 	v.polling = false
 	v.mu.Unlock()
 
-	close(v.done)
+	v.stop()
 	return nil
 }
 

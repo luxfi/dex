@@ -301,15 +301,3 @@ func LinuxOptimizations(fd int) {
 	// For now, using standard socket options only
 	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 }
-
-// DarwinOptimizations applies macOS-specific optimizations
-func DarwinOptimizations(fd int) {
-	if runtime.GOOS != "darwin" {
-		return
-	}
-
-	// Set SO_NOSIGPIPE to prevent SIGPIPE
-	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_NOSIGPIPE, 1)
-
-	// Other macOS-specific optimizations would go here
-}

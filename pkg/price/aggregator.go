@@ -11,6 +11,7 @@ import (
 
 // Oracle aggregates prices from multiple sources with configurable strategies.
 type Oracle struct {
+	lifecycle
 	sources    map[string]Source
 	strategy   Aggregator
 	symbolMap  *SymbolMap
@@ -35,7 +36,8 @@ type Oracle struct {
 // NewOracle creates a price oracle with default configuration.
 func NewOracle() *Oracle {
 	return &Oracle{
-		sources: make(map[string]Source),
+		lifecycle: newLifecycle(),
+		sources:   make(map[string]Source),
 		strategy: &WeightedMedian{
 			MinSources:   1,
 			MaxDeviation: 0.10,
@@ -76,8 +78,8 @@ func (o *Oracle) Start() error {
 		return nil // Already running
 	}
 
-	go o.loop()
-	go o.calcAverages()
+	o.run(o.loop)
+	o.run(o.calcAverages)
 	return nil
 }
 
@@ -85,9 +87,13 @@ func (o *Oracle) loop() {
 	ticker := time.NewTicker(o.interval)
 	defer ticker.Stop()
 
-	for o.running.Load() {
-		<-ticker.C
-		o.update()
+	for {
+		select {
+		case <-o.done:
+			return
+		case <-ticker.C:
+			o.update()
+		}
 	}
 }
 
@@ -184,8 +190,12 @@ func (o *Oracle) calcAverages() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	for o.running.Load() {
-		<-ticker.C
+	for {
+		select {
+		case <-o.done:
+			return
+		case <-ticker.C:
+		}
 
 		o.mu.Lock()
 		for symbol, hist := range o.history {
@@ -266,8 +276,10 @@ func (o *Oracle) Stop() {
 		o.verifier.Close()
 	}
 
-	// Give time for goroutines to exit
-	time.Sleep(100 * time.Millisecond)
+	// Join the goroutines. This was a 100ms sleep, which could not work:
+	// calcAverages blocks on a 1s ticker, so it ran up to a full second after
+	// Stop() returned.
+	o.stop()
 }
 
 // SetVerifier attaches a Q-Chain quantum finality verifier.
