@@ -25,8 +25,8 @@
 //! across the SDK's core functionality.
 
 use lx_trading::*;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -154,10 +154,15 @@ fn test_order_request_limit() {
 
 #[test]
 fn test_order_request_builder() {
-    let order = OrderRequest::limit("BTC-USDC", Side::Buy, Decimal::from(1), Decimal::from(50000))
-        .with_venue("binance")
-        .with_client_id("my-order-123")
-        .post_only();
+    let order = OrderRequest::limit(
+        "BTC-USDC",
+        Side::Buy,
+        Decimal::from(1),
+        Decimal::from(50000),
+    )
+    .with_venue("binance")
+    .with_client_id("my-order-123")
+    .post_only();
 
     assert_eq!(order.venue, Some("binance".into()));
     assert_eq!(order.client_order_id, "my-order-123");
@@ -192,7 +197,10 @@ fn test_ticker_calculations() {
     assert_eq!(ticker.spread(), Some(Decimal::from(100)));
     // spread_percent = 100/50000 * 100 = 0.2%
     let spread_pct = ticker.spread_percent().unwrap();
-    assert!((spread_pct - Decimal::from_str("0.2").unwrap()).abs() < Decimal::from_str("0.001").unwrap());
+    assert!(
+        (spread_pct - Decimal::from_str("0.2").unwrap()).abs()
+            < Decimal::from_str("0.001").unwrap()
+    );
 }
 
 #[test]
@@ -466,8 +474,18 @@ fn test_metrics_collector() {
     metrics.record_order_filled("venue1", Decimal::from(1), Decimal::from(50000));
 
     let order_metrics = metrics.order_metrics();
-    assert_eq!(order_metrics.submitted.load(std::sync::atomic::Ordering::Relaxed), 2);
-    assert_eq!(order_metrics.filled.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(
+        order_metrics
+            .submitted
+            .load(std::sync::atomic::Ordering::Relaxed),
+        2
+    );
+    assert_eq!(
+        order_metrics
+            .filled
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
 }
 
 #[test]
@@ -500,7 +518,12 @@ fn test_venue_metrics() {
     );
 
     let venue = metrics.venue_metrics("binance");
-    assert_eq!(venue.orders_submitted.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(
+        venue
+            .orders_submitted
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
     assert_eq!(venue.trades.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
 
@@ -596,10 +619,7 @@ fn test_max_drawdown() {
 
 #[test]
 fn test_moving_averages() {
-    let prices: Vec<Decimal> = vec![1, 2, 3, 4, 5]
-        .into_iter()
-        .map(Decimal::from)
-        .collect();
+    let prices: Vec<Decimal> = vec![1, 2, 3, 4, 5].into_iter().map(Decimal::from).collect();
 
     let sma_val = sma(&prices).unwrap();
     assert_eq!(sma_val, Decimal::from(3));

@@ -156,7 +156,7 @@ impl CrossChainRouter {
 
         match transport {
             CrossChainTransport::Direct => 0,
-            CrossChainTransport::Warp => 500, // Sub-second
+            CrossChainTransport::Warp => 500,   // Sub-second
             CrossChainTransport::CexApi => 100, // API call
             CrossChainTransport::Teleport => {
                 let src = self.config.chains.get(source_chain);

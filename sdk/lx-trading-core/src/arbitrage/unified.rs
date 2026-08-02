@@ -115,7 +115,15 @@ impl<C: TradingClient + 'static> UnifiedArbitrage<C> {
         let executions = self.executions.clone();
 
         let execute_task = tokio::spawn(async move {
-            execute_loop(client, config, running, opportunity_queue, total_pnl, executions).await;
+            execute_loop(
+                client,
+                config,
+                running,
+                opportunity_queue,
+                total_pnl,
+                executions,
+            )
+            .await;
         });
         self.execute_task = Some(execute_task);
     }
@@ -362,8 +370,10 @@ async fn execute_opportunity<C: TradingClient>(
     let sell_request = OrderRequest::limit(&opp.symbol, Side::Sell, opp.max_size, opp.sell_price)
         .with_venue(&opp.sell_venue);
 
-    let (buy_result, sell_result) =
-        tokio::join!(client.place_order(buy_request), client.place_order(sell_request));
+    let (buy_result, sell_result) = tokio::join!(
+        client.place_order(buy_request),
+        client.place_order(sell_request)
+    );
 
     exec_result.end_time = current_time_ms();
 

@@ -39,13 +39,27 @@ pub enum WsEvent {
     /// Fill notification
     Fill(Fill),
     /// Connection status change
-    Connected { venue: String },
-    Disconnected { venue: String, reason: String },
+    Connected {
+        venue: String,
+    },
+    Disconnected {
+        venue: String,
+        reason: String,
+    },
     /// Error
-    Error { venue: String, message: String },
+    Error {
+        venue: String,
+        message: String,
+    },
     /// Subscription confirmation
-    Subscribed { channel: String, symbol: String },
-    Unsubscribed { channel: String, symbol: String },
+    Subscribed {
+        channel: String,
+        symbol: String,
+    },
+    Unsubscribed {
+        channel: String,
+        symbol: String,
+    },
 }
 
 /// Orderbook update (can be snapshot or delta)
@@ -212,9 +226,9 @@ impl WsConnection {
         *self.state.write() = ConnectionState::Connecting;
 
         let url = Url::parse(&self.config.url)?;
-        let (ws_stream, _) = connect_async(url).await.map_err(|e| {
-            Error::WebsocketError(format!("Failed to connect: {e}"))
-        })?;
+        let (ws_stream, _) = connect_async(url)
+            .await
+            .map_err(|e| Error::WebsocketError(format!("Failed to connect: {e}")))?;
 
         let (write, read) = ws_stream.split();
         let (command_tx, command_rx) = mpsc::channel(256);
@@ -551,22 +565,38 @@ fn parse_orderbook_update(value: &serde_json::Value, venue: &str) -> Result<Orde
     let mut bids = Vec::new();
     let mut asks = Vec::new();
 
-    if let Some(bid_array) = value.get("bids").or_else(|| value.get("b")).and_then(|v| v.as_array()) {
+    if let Some(bid_array) = value
+        .get("bids")
+        .or_else(|| value.get("b"))
+        .and_then(|v| v.as_array())
+    {
         for bid in bid_array {
             if let (Some(price), Some(qty)) = (
-                bid.get(0).or_else(|| bid.get("price")).and_then(parse_decimal),
-                bid.get(1).or_else(|| bid.get("quantity")).and_then(parse_decimal),
+                bid.get(0)
+                    .or_else(|| bid.get("price"))
+                    .and_then(parse_decimal),
+                bid.get(1)
+                    .or_else(|| bid.get("quantity"))
+                    .and_then(parse_decimal),
             ) {
                 bids.push(PriceLevel::new(price, qty));
             }
         }
     }
 
-    if let Some(ask_array) = value.get("asks").or_else(|| value.get("a")).and_then(|v| v.as_array()) {
+    if let Some(ask_array) = value
+        .get("asks")
+        .or_else(|| value.get("a"))
+        .and_then(|v| v.as_array())
+    {
         for ask in ask_array {
             if let (Some(price), Some(qty)) = (
-                ask.get(0).or_else(|| ask.get("price")).and_then(parse_decimal),
-                ask.get(1).or_else(|| ask.get("quantity")).and_then(parse_decimal),
+                ask.get(0)
+                    .or_else(|| ask.get("price"))
+                    .and_then(parse_decimal),
+                ask.get(1)
+                    .or_else(|| ask.get("quantity"))
+                    .and_then(parse_decimal),
             ) {
                 asks.push(PriceLevel::new(price, qty));
             }
@@ -604,7 +634,11 @@ fn parse_trade(value: &serde_json::Value, venue: &str) -> Result<Trade> {
         .get("trade_id")
         .or_else(|| value.get("t"))
         .or_else(|| value.get("id"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_default();
 
     let order_id = value
@@ -740,7 +774,11 @@ fn parse_order_update(value: &serde_json::Value, venue: &str) -> Result<OrderUpd
     let order_id = value
         .get("order_id")
         .or_else(|| value.get("i"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_default();
 
     let client_order_id = value
@@ -765,7 +803,9 @@ fn parse_order_update(value: &serde_json::Value, venue: &str) -> Result<OrderUpd
         Some("NEW") | Some("new") | Some("open") => OrderStatus::Open,
         Some("PARTIALLY_FILLED") | Some("partially_filled") => OrderStatus::PartiallyFilled,
         Some("FILLED") | Some("filled") => OrderStatus::Filled,
-        Some("CANCELED") | Some("CANCELLED") | Some("canceled") | Some("cancelled") => OrderStatus::Cancelled,
+        Some("CANCELED") | Some("CANCELLED") | Some("canceled") | Some("cancelled") => {
+            OrderStatus::Cancelled
+        }
         Some("EXPIRED") | Some("expired") => OrderStatus::Expired,
         Some("REJECTED") | Some("rejected") => OrderStatus::Rejected,
         _ => OrderStatus::Pending,
@@ -810,13 +850,21 @@ fn parse_fill(value: &serde_json::Value, venue: &str) -> Result<Fill> {
     let trade_id = value
         .get("trade_id")
         .or_else(|| value.get("t"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_default();
 
     let order_id = value
         .get("order_id")
         .or_else(|| value.get("i"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_default();
 
     let symbol = value

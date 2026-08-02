@@ -143,7 +143,10 @@ fn print_status(config: &MakerConfig, state: &MakerState, bid: Decimal, ask: Dec
     println!("Position: {} BTC", state.position);
     println!("Bid: ${} | Ask: ${}", bid, ask);
     println!("Spread: {:.1} bps", spread_bps);
-    println!("Trades: {} | Volume: {} BTC", state.trade_count, state.volume);
+    println!(
+        "Trades: {} | Volume: {} BTC",
+        state.trade_count, state.volume
+    );
     println!("Realized PnL: ${:.2}", state.realized_pnl);
     println!(
         "Position Limit: {:.1}%",
@@ -210,7 +213,10 @@ async fn main() -> Result<()> {
         price_offset += Decimal::try_from(change * 50000.0).unwrap_or_default();
         let current_price = base_price + price_offset;
 
-        println!("\n[Iteration {}] Reference Price: ${:.2}", iteration, current_price);
+        println!(
+            "\n[Iteration {}] Reference Price: ${:.2}",
+            iteration, current_price
+        );
 
         // Calculate quotes
         let (bid_price, ask_price) = {
@@ -226,13 +232,9 @@ async fn main() -> Result<()> {
         let can_ask = check_position_limits(&config, &s, Side::Sell);
 
         if can_bid {
-            let bid_order = OrderRequest::limit(
-                &config.symbol,
-                Side::Buy,
-                config.order_size,
-                bid_price,
-            )
-            .post_only();
+            let bid_order =
+                OrderRequest::limit(&config.symbol, Side::Buy, config.order_size, bid_price)
+                    .post_only();
             println!("  BID: {} @ ${}", config.order_size, bid_price);
 
             // Simulate random fill (30% chance)
@@ -244,13 +246,9 @@ async fn main() -> Result<()> {
         }
 
         if can_ask {
-            let ask_order = OrderRequest::limit(
-                &config.symbol,
-                Side::Sell,
-                config.order_size,
-                ask_price,
-            )
-            .post_only();
+            let ask_order =
+                OrderRequest::limit(&config.symbol, Side::Sell, config.order_size, ask_price)
+                    .post_only();
             println!("  ASK: {} @ ${}", config.order_size, ask_price);
 
             // Simulate random fill (30% chance)

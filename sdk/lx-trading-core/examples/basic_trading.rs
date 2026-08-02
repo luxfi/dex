@@ -146,11 +146,7 @@ async fn main() -> Result<()> {
     println!("\n--- Execution Analysis ---");
     let buy_quantity = dec!(2.5);
     if let Some(vwap) = book.vwap_buy(buy_quantity) {
-        println!(
-            "VWAP to buy {} BTC: ${}",
-            buy_quantity,
-            vwap.round_dp(2)
-        );
+        println!("VWAP to buy {} BTC: ${}", buy_quantity, vwap.round_dp(2));
         if let Some(best_ask) = book.best_ask() {
             let slippage = ((vwap - best_ask) / best_ask) * dec!(100);
             println!("Expected slippage: {}%", slippage.round_dp(4));

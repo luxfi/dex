@@ -141,9 +141,7 @@ impl Error {
     pub fn is_temporary(&self) -> bool {
         matches!(
             self,
-            Error::RateLimited { .. }
-                | Error::NoLiquidity(_)
-                | Error::Timeout { .. }
+            Error::RateLimited { .. } | Error::NoLiquidity(_) | Error::Timeout { .. }
         )
     }
 

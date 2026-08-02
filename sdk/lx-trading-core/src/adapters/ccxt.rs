@@ -106,15 +106,12 @@ print(json.dumps(result))
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::CcxtError(format!(
-                "CCXT {method} failed: {stderr}"
-            )));
+            return Err(Error::CcxtError(format!("CCXT {method} failed: {stderr}")));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        serde_json::from_str(&stdout).map_err(|e| {
-            Error::DeserializationError(format!("Failed to parse CCXT response: {e}"))
-        })
+        serde_json::from_str(&stdout)
+            .map_err(|e| Error::DeserializationError(format!("Failed to parse CCXT response: {e}")))
     }
 
     /// Convert CCXT order to our Order type
@@ -255,7 +252,9 @@ impl VenueAdapter for CcxtAdapter {
 
     async fn connect(&mut self) -> Result<()> {
         // Load markets to verify connection
-        let _: serde_json::Value = self.ccxt_call("load_markets", serde_json::json!({})).await?;
+        let _: serde_json::Value = self
+            .ccxt_call("load_markets", serde_json::json!({}))
+            .await?;
         self.connected.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -276,8 +275,9 @@ impl VenueAdapter for CcxtAdapter {
     }
 
     async fn get_markets(&self) -> Result<Vec<MarketInfo>> {
-        let markets: serde_json::Value =
-            self.ccxt_call("load_markets", serde_json::json!({})).await?;
+        let markets: serde_json::Value = self
+            .ccxt_call("load_markets", serde_json::json!({}))
+            .await?;
 
         let mut result = Vec::new();
         if let Some(obj) = markets.as_object() {
@@ -322,13 +322,27 @@ impl VenueAdapter for CcxtAdapter {
         Ok(Ticker {
             symbol: ticker["symbol"].as_str().unwrap_or("").to_string(),
             venue: self.name.clone(),
-            bid: ticker["bid"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            ask: ticker["ask"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            last: ticker["last"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            volume_24h: ticker["baseVolume"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            high_24h: ticker["high"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            low_24h: ticker["low"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-            change_24h: ticker["percentage"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+            bid: ticker["bid"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            ask: ticker["ask"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            last: ticker["last"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            volume_24h: ticker["baseVolume"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            high_24h: ticker["high"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            low_24h: ticker["low"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
+            change_24h: ticker["percentage"]
+                .as_f64()
+                .and_then(|f| Decimal::try_from(f).ok()),
             timestamp: ticker["timestamp"].as_i64().unwrap_or(0),
         })
     }
@@ -344,13 +358,27 @@ impl VenueAdapter for CcxtAdapter {
                 result.push(Ticker {
                     symbol: ticker["symbol"].as_str().unwrap_or("").to_string(),
                     venue: self.name.clone(),
-                    bid: ticker["bid"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    ask: ticker["ask"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    last: ticker["last"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    volume_24h: ticker["baseVolume"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    high_24h: ticker["high"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    low_24h: ticker["low"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
-                    change_24h: ticker["percentage"].as_f64().and_then(|f| Decimal::try_from(f).ok()),
+                    bid: ticker["bid"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    ask: ticker["ask"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    last: ticker["last"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    volume_24h: ticker["baseVolume"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    high_24h: ticker["high"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    low_24h: ticker["low"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
+                    change_24h: ticker["percentage"]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok()),
                     timestamp: ticker["timestamp"].as_i64().unwrap_or(0),
                 });
             }
@@ -409,8 +437,9 @@ impl VenueAdapter for CcxtAdapter {
     }
 
     async fn get_balances(&self) -> Result<Vec<Balance>> {
-        let balances: serde_json::Value =
-            self.ccxt_call("fetch_balance", serde_json::json!({})).await?;
+        let balances: serde_json::Value = self
+            .ccxt_call("fetch_balance", serde_json::json!({}))
+            .await?;
 
         let mut result = Vec::new();
         if let Some(total) = balances["total"].as_object() {
@@ -545,8 +574,7 @@ impl VenueAdapter for CcxtAdapter {
             None => serde_json::json!([]),
         };
 
-        let orders: Vec<serde_json::Value> =
-            self.ccxt_call("cancel_all_orders", params).await?;
+        let orders: Vec<serde_json::Value> = self.ccxt_call("cancel_all_orders", params).await?;
 
         orders
             .into_iter()
@@ -554,4 +582,3 @@ impl VenueAdapter for CcxtAdapter {
             .collect()
     }
 }
-
