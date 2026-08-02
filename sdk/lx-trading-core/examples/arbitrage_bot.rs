@@ -99,9 +99,11 @@ impl ArbitrageBot {
         println!("[OK] Scanner initialized");
 
         // Initialize Cross-Chain Router
-        let mut router_config = CrossChainConfig::default();
-        router_config.warp_enabled = true;
-        router_config.teleport_enabled = true;
+        let mut router_config = CrossChainConfig {
+            warp_enabled: true,
+            teleport_enabled: true,
+            ..Default::default()
+        };
         router_config.chains.insert(
             "lux_mainnet".into(),
             CrossChainInfo {
@@ -172,6 +174,18 @@ impl ArbitrageBot {
         println!("Min divergence: 10 bps");
         println!("Min profit: $5");
         println!();
+
+        // Route detected opportunities into handle_opportunity. Without this the
+        // bot never executes and its final report is all zeros -- the callback is
+        // the only path from detection to execution.
+        let router = self.router.clone();
+        let stats = self.stats.clone();
+        self.lx_first
+            .on_opportunity(Box::new(move |opp| {
+                let (router, stats) = (router.clone(), stats.clone());
+                tokio::spawn(async move { Self::handle_opportunity(&opp, &router, &stats).await });
+            }))
+            .await;
 
         // Spawn price feed simulator
         let lx_first = self.lx_first.clone();

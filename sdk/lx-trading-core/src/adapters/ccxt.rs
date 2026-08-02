@@ -33,7 +33,7 @@ pub struct CcxtAdapter {
 
 impl CcxtAdapter {
     pub async fn new(name: &str, config: CcxtConfig) -> Result<Self> {
-        let mut capabilities = VenueCapabilities::orderBook();
+        let mut capabilities = VenueCapabilities::order_book();
         // CCXT exchanges typically don't support batch orders through unified API
         capabilities.batch_orders = false;
 

@@ -14,7 +14,6 @@
 //! ```
 
 use anyhow::Result;
-use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 use lx_trading::{
@@ -86,7 +85,7 @@ async fn main() -> Result<()> {
     println!("[1] Configuration created");
 
     // Initialize client
-    let client = UnifiedClient::new(config)?;
+    let _client = UnifiedClient::new(config)?;
     println!("[2] UnifiedClient created");
 
     // In a real scenario, we would initialize venues

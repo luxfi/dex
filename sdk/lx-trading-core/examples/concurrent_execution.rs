@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use futures::future::join_all;
-use parking_lot::RwLock;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tokio::sync::{mpsc, Semaphore};
@@ -31,7 +30,6 @@ use lx_trading::{OrderRequest, OrderStatus, Side};
 struct OrderResult {
     venue: String,
     order_id: String,
-    symbol: String,
     side: Side,
     quantity: Decimal,
     price: Decimal,
@@ -79,11 +77,8 @@ impl ExecutionStats {
         let rejected = self.orders_rejected.load(Ordering::Relaxed);
         let total_latency = self.total_latency_us.load(Ordering::Relaxed);
 
-        let avg_latency = if submitted > 0 {
-            total_latency / submitted / 1000 // Convert to ms
-        } else {
-            0
-        };
+        // ms
+        let avg_latency = total_latency.checked_div(submitted).unwrap_or(0) / 1000;
 
         let fill_rate = if submitted > 0 {
             (filled as f64 / submitted as f64) * 100.0
@@ -137,8 +132,7 @@ async fn execute_order(
     let result = OrderResult {
         venue: venue.to_string(),
         order_id,
-        symbol: request.symbol.clone(),
-        side: request.side.clone(),
+        side: request.side,
         quantity: request.quantity,
         price: request.price.unwrap_or(dec!(50000)),
         status,
@@ -168,7 +162,7 @@ async fn submit_to_venues(
 }
 
 /// Fetch market data from multiple venues concurrently
-async fn fetch_market_data(venues: &[&str], symbol: &str) -> Vec<(String, Decimal)> {
+async fn fetch_market_data(venues: &[&str], _symbol: &str) -> Vec<(String, Decimal)> {
     use rand::Rng;
 
     let futures: Vec<_> = venues
@@ -366,7 +360,6 @@ async fn main() -> Result<()> {
         OrderResult {
             venue: "slow_venue".to_string(),
             order_id: "timeout-test".to_string(),
-            symbol: "BTC-USDC".to_string(),
             side: Side::Buy,
             quantity: dec!(1.0),
             price: dec!(50000),

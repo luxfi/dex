@@ -224,11 +224,11 @@ fn find_simple_arb(
 
     // Sort by ask (lowest first for buying)
     let mut buy_order: Vec<_> = sources.to_vec();
-    buy_order.sort_by(|a, b| a.ask.cmp(&b.ask));
+    buy_order.sort_by_key(|s| s.ask);
 
     // Sort by bid (highest first for selling)
     let mut sell_order: Vec<_> = sources.to_vec();
-    sell_order.sort_by(|a, b| b.bid.cmp(&a.bid));
+    sell_order.sort_by_key(|s| std::cmp::Reverse(s.bid));
 
     for buy_src in &buy_order {
         for sell_src in &sell_order {
