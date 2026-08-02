@@ -45,7 +45,7 @@ pub struct VenueCapabilities {
 
 impl VenueCapabilities {
     /// Create capabilities for a typical OrderBook/orderbook venue
-    pub fn orderBook() -> Self {
+    pub fn order_book() -> Self {
         Self {
             limit_orders: true,
             market_orders: true,

@@ -39,8 +39,8 @@ impl Orderbook {
 
     /// Sort bids descending (best bid first), asks ascending (best ask first)
     pub fn sort(&mut self) {
-        self.bids.sort_by(|a, b| b.price.cmp(&a.price));
-        self.asks.sort_by(|a, b| a.price.cmp(&b.price));
+        self.bids.sort_by_key(|l| std::cmp::Reverse(l.price));
+        self.asks.sort_by_key(|l| l.price);
     }
 
     /// Get best bid price

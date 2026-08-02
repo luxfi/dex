@@ -337,9 +337,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_detect_buy_opportunity() {
-        let mut config = LxFirstConfig::default();
-        config.min_divergence_bps = Decimal::from(5);
-        config.min_profit = Decimal::from(1);
+        let config = LxFirstConfig {
+            min_divergence_bps: Decimal::from(5),
+            min_profit: Decimal::from(1),
+            ..Default::default()
+        };
 
         let arb = LxFirstArbitrage::new(config);
         arb.start().await;

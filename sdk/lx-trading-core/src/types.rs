@@ -23,10 +23,11 @@ impl fmt::Display for Side {
 }
 
 /// Order type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OrderType {
     Market,
+    #[default]
     Limit,
     LimitMaker,
     StopLoss,
@@ -35,17 +36,12 @@ pub enum OrderType {
     TakeProfitLimit,
 }
 
-impl Default for OrderType {
-    fn default() -> Self {
-        Self::Limit
-    }
-}
-
 /// Time in force
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum TimeInForce {
     /// Good till cancelled
+    #[default]
     GTC,
     /// Immediate or cancel
     IOC,
@@ -55,12 +51,6 @@ pub enum TimeInForce {
     GTD,
     /// Post only (maker only)
     PostOnly,
-}
-
-impl Default for TimeInForce {
-    fn default() -> Self {
-        Self::GTC
-    }
 }
 
 /// Order status

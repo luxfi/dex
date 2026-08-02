@@ -712,8 +712,8 @@ async fn test_unified_client_creation() {
 // =============================================================================
 
 #[test]
-fn test_venue_capabilities_orderBook() {
-    let caps = adapters::VenueCapabilities::orderBook();
+fn test_venue_capabilities_order_book() {
+    let caps = adapters::VenueCapabilities::order_book();
 
     assert!(caps.limit_orders);
     assert!(caps.market_orders);

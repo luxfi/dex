@@ -19,7 +19,6 @@
 //! cargo run --example market_maker
 //! ```
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,11 +28,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tokio::time::interval;
 
-use lx_trading::{
-    math::{mid_price, spread_bps},
-    orderbook::Orderbook,
-    Order, OrderRequest, Side, Ticker,
-};
+use lx_trading::{OrderRequest, Side};
 
 /// Market maker configuration
 #[derive(Debug, Clone)]
@@ -72,10 +67,6 @@ impl Default for MakerConfig {
 struct MakerState {
     /// Current position (positive = long, negative = short)
     position: Decimal,
-    /// Active bid order
-    bid_order: Option<Order>,
-    /// Active ask order
-    ask_order: Option<Order>,
     /// Total realized PnL
     realized_pnl: Decimal,
     /// Number of trades executed
@@ -88,8 +79,6 @@ impl Default for MakerState {
     fn default() -> Self {
         Self {
             position: Decimal::ZERO,
-            bid_order: None,
-            ask_order: None,
             realized_pnl: Decimal::ZERO,
             trade_count: 0,
             volume: Decimal::ZERO,
@@ -232,7 +221,7 @@ async fn main() -> Result<()> {
         let can_ask = check_position_limits(&config, &s, Side::Sell);
 
         if can_bid {
-            let bid_order =
+            let _bid_order =
                 OrderRequest::limit(&config.symbol, Side::Buy, config.order_size, bid_price)
                     .post_only();
             println!("  BID: {} @ ${}", config.order_size, bid_price);
@@ -246,7 +235,7 @@ async fn main() -> Result<()> {
         }
 
         if can_ask {
-            let ask_order =
+            let _ask_order =
                 OrderRequest::limit(&config.symbol, Side::Sell, config.order_size, ask_price)
                     .post_only();
             println!("  ASK: {} @ ${}", config.order_size, ask_price);

@@ -27,7 +27,7 @@ pub struct LxDexAdapter {
 
 impl LxDexAdapter {
     pub async fn new(name: &str, config: NativeVenueConfig) -> Result<Self> {
-        let mut capabilities = VenueCapabilities::orderBook();
+        let mut capabilities = VenueCapabilities::order_book();
         capabilities.streaming = config.ws_url.is_some();
 
         let client = reqwest::Client::builder()

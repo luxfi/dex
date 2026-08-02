@@ -178,21 +178,21 @@ async fn simulate_events(tx: mpsc::Sender<WsEvent>, running: Arc<AtomicBool>) {
                     bids: vec![
                         PriceLevel::new(
                             current_price - dec!(5),
-                            Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default(),
+                            Decimal::try_from(rng.gen_range(0.1..2.0)).unwrap_or_default(),
                         ),
                         PriceLevel::new(
                             current_price - dec!(10),
-                            Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default(),
+                            Decimal::try_from(rng.gen_range(0.5..3.0)).unwrap_or_default(),
                         ),
                     ],
                     asks: vec![
                         PriceLevel::new(
                             current_price + dec!(5),
-                            Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default(),
+                            Decimal::try_from(rng.gen_range(0.1..2.0)).unwrap_or_default(),
                         ),
                         PriceLevel::new(
                             current_price + dec!(10),
-                            Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default(),
+                            Decimal::try_from(rng.gen_range(0.5..3.0)).unwrap_or_default(),
                         ),
                     ],
                     timestamp: chrono::Utc::now().timestamp_millis(),
@@ -212,12 +212,10 @@ async fn simulate_events(tx: mpsc::Sender<WsEvent>, running: Arc<AtomicBool>) {
                         Side::Sell
                     },
                     price: current_price,
-                    quantity: Decimal::try_from(rng.gen_range(0.01..0.5) as f64)
-                        .unwrap_or_default(),
+                    quantity: Decimal::try_from(rng.gen_range(0.01..0.5)).unwrap_or_default(),
                     fee: lx_trading::Fee {
                         asset: "USDC".to_string(),
-                        amount: Decimal::try_from(rng.gen_range(0.01..1.0) as f64)
-                            .unwrap_or_default(),
+                        amount: Decimal::try_from(rng.gen_range(0.01..1.0)).unwrap_or_default(),
                         rate: Some(dec!(0.001)),
                     },
                     timestamp: chrono::Utc::now().timestamp_millis(),

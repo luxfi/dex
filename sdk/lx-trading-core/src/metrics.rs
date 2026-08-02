@@ -49,7 +49,7 @@ impl MetricsCollector {
     }
 
     /// Record latency using a timer
-    pub fn start_timer(&self, operation: &str) -> Timer {
+    pub fn start_timer(&self, operation: &str) -> Timer<'_> {
         Timer {
             collector: self,
             operation: operation.to_string(),
