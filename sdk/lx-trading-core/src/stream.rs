@@ -91,7 +91,10 @@ pub struct OrderbookStream {
 
 impl OrderbookStream {
     /// Create a new orderbook stream for a specific symbol
-    pub fn new(symbol: impl Into<String>, mut event_rxs: Vec<broadcast::Receiver<WsEvent>>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        mut event_rxs: Vec<broadcast::Receiver<WsEvent>>,
+    ) -> Self {
         let symbol = symbol.into();
         let (tx, rx) = mpsc::channel(1024);
 
@@ -102,10 +105,9 @@ impl OrderbookStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::OrderbookUpdate(update) = event {
-                        if update.symbol == symbol_filter
-                            && tx.send(update).await.is_err() {
-                                break;
-                            }
+                        if update.symbol == symbol_filter && tx.send(update).await.is_err() {
+                            break;
+                        }
                     }
                 }
             });
@@ -136,7 +138,10 @@ pub struct TradeStream {
 
 impl TradeStream {
     /// Create a new trade stream for a specific symbol
-    pub fn new(symbol: impl Into<String>, mut event_rxs: Vec<broadcast::Receiver<WsEvent>>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        mut event_rxs: Vec<broadcast::Receiver<WsEvent>>,
+    ) -> Self {
         let symbol = symbol.into();
         let (tx, rx) = mpsc::channel(1024);
 
@@ -147,10 +152,9 @@ impl TradeStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::Trade(trade) = event {
-                        if trade.symbol == symbol_filter
-                            && tx.send(trade).await.is_err() {
-                                break;
-                            }
+                        if trade.symbol == symbol_filter && tx.send(trade).await.is_err() {
+                            break;
+                        }
                     }
                 }
             });
@@ -181,7 +185,10 @@ pub struct TickerStream {
 
 impl TickerStream {
     /// Create a new ticker stream for a specific symbol
-    pub fn new(symbol: impl Into<String>, mut event_rxs: Vec<broadcast::Receiver<WsEvent>>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        mut event_rxs: Vec<broadcast::Receiver<WsEvent>>,
+    ) -> Self {
         let symbol = symbol.into();
         let (tx, rx) = mpsc::channel(1024);
 
@@ -192,10 +199,9 @@ impl TickerStream {
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
                     if let WsEvent::Ticker(ticker) = event {
-                        if ticker.symbol == symbol_filter
-                            && tx.send(ticker).await.is_err() {
-                                break;
-                            }
+                        if ticker.symbol == symbol_filter && tx.send(ticker).await.is_err() {
+                            break;
+                        }
                     }
                 }
             });
@@ -238,7 +244,10 @@ pub struct AggregatedTicker {
 
 impl AggregatedTickerStream {
     /// Create a new aggregated ticker stream
-    pub fn new(symbol: impl Into<String>, mut event_rxs: Vec<broadcast::Receiver<WsEvent>>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        mut event_rxs: Vec<broadcast::Receiver<WsEvent>>,
+    ) -> Self {
         let symbol = symbol.into();
         let (tx, rx) = mpsc::channel(1024);
 
@@ -292,7 +301,10 @@ impl Stream for AggregatedTickerStream {
     }
 }
 
-fn calculate_aggregated_ticker(symbol: &str, tickers: &HashMap<String, Ticker>) -> AggregatedTicker {
+fn calculate_aggregated_ticker(
+    symbol: &str,
+    tickers: &HashMap<String, Ticker>,
+) -> AggregatedTicker {
     use rust_decimal::Decimal;
 
     let mut best_bid: Option<(Decimal, String)> = None;

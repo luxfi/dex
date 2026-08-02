@@ -113,11 +113,7 @@ async fn execute_order(
     // Generate random values before await
     let (latency_ms, outcome_filled, outcome_rejected): (u64, bool, bool) = {
         let mut rng = rand::thread_rng();
-        (
-            rng.gen_range(10..50),
-            rng.gen_bool(0.85),
-            rng.gen_bool(0.5),
-        )
+        (rng.gen_range(10..50), rng.gen_bool(0.85), rng.gen_bool(0.5))
     };
 
     // Simulate network latency (10-50ms)
@@ -289,7 +285,10 @@ async fn main() -> Result<()> {
     println!("\n--- Example 2: Concurrent Order Submission ---");
     let order = OrderRequest::limit("BTC-USDC", Side::Buy, dec!(0.1), dec!(50000));
 
-    println!("Submitting order to {} venues concurrently...", venues.len());
+    println!(
+        "Submitting order to {} venues concurrently...",
+        venues.len()
+    );
     let start = Instant::now();
     let results = submit_to_venues(&venues, order, Arc::clone(&stats)).await;
     let submit_time = start.elapsed();
@@ -329,7 +328,12 @@ async fn main() -> Result<()> {
     let batch_time = start.elapsed();
 
     let successful = results.iter().filter(|r| r.is_ok()).count();
-    println!("Completed: {}/{} in {:?}", successful, results.len(), batch_time);
+    println!(
+        "Completed: {}/{} in {:?}",
+        successful,
+        results.len(),
+        batch_time
+    );
 
     // Example 4: Stream-based order processing
     println!("\n--- Example 4: Stream-Based Order Processing ---");

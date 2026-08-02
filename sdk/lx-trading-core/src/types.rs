@@ -197,12 +197,7 @@ impl OrderRequest {
         }
     }
 
-    pub fn limit(
-        symbol: impl Into<String>,
-        side: Side,
-        quantity: Decimal,
-        price: Decimal,
-    ) -> Self {
+    pub fn limit(symbol: impl Into<String>, side: Side, quantity: Decimal, price: Decimal) -> Self {
         Self {
             client_order_id: Uuid::new_v4().to_string(),
             symbol: symbol.into(),
@@ -281,7 +276,10 @@ impl Order {
     pub fn is_done(&self) -> bool {
         matches!(
             self.status,
-            OrderStatus::Filled | OrderStatus::Cancelled | OrderStatus::Rejected | OrderStatus::Expired
+            OrderStatus::Filled
+                | OrderStatus::Cancelled
+                | OrderStatus::Rejected
+                | OrderStatus::Expired
         )
     }
 
@@ -334,7 +332,12 @@ pub struct Balance {
 }
 
 impl Balance {
-    pub fn new(asset: impl Into<String>, venue: impl Into<String>, free: Decimal, locked: Decimal) -> Self {
+    pub fn new(
+        asset: impl Into<String>,
+        venue: impl Into<String>,
+        free: Decimal,
+        locked: Decimal,
+    ) -> Self {
         Self {
             asset: asset.into(),
             venue: venue.into(),
@@ -438,9 +441,14 @@ mod tests {
 
     #[test]
     fn test_order_request_builder() {
-        let order = OrderRequest::limit("BTC-USDC", Side::Buy, Decimal::from(1), Decimal::from(50000))
-            .with_venue("binance")
-            .post_only();
+        let order = OrderRequest::limit(
+            "BTC-USDC",
+            Side::Buy,
+            Decimal::from(1),
+            Decimal::from(50000),
+        )
+        .with_venue("binance")
+        .post_only();
 
         assert_eq!(order.symbol, "BTC-USDC");
         assert_eq!(order.side, Side::Buy);

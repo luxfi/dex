@@ -43,10 +43,7 @@ pub async fn create_native_adapter(
 }
 
 /// Create adapter from CCXT config
-pub async fn create_ccxt_adapter(
-    name: &str,
-    config: &CcxtConfig,
-) -> Result<Arc<dyn VenueAdapter>> {
+pub async fn create_ccxt_adapter(name: &str, config: &CcxtConfig) -> Result<Arc<dyn VenueAdapter>> {
     let adapter = CcxtAdapter::new(name, config.clone()).await?;
     Ok(Arc::new(adapter))
 }

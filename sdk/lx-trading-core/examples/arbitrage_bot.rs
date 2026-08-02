@@ -23,8 +23,8 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 
 use lx_trading::arbitrage::{
-    ChainType, CrossChainConfig, CrossChainInfo, CrossChainRouter, LxFirstArbitrage,
-    LxFirstConfig, LxFirstOpportunity, LxPrice, Scanner, ScannerConfig, VenuePrice,
+    ChainType, CrossChainConfig, CrossChainInfo, CrossChainRouter, LxFirstArbitrage, LxFirstConfig,
+    LxFirstOpportunity, LxPrice, Scanner, ScannerConfig, VenuePrice,
 };
 
 // ============================================
@@ -59,11 +59,7 @@ impl ArbitrageBot {
             min_divergence_bps: dec!(10),
             min_profit: dec!(5),
             max_position_size: dec!(10000),
-            symbols: vec![
-                "BTC-USDC".into(),
-                "ETH-USDC".into(),
-                "LUX-USDC".into(),
-            ],
+            symbols: vec!["BTC-USDC".into(), "ETH-USDC".into(), "LUX-USDC".into()],
             venue_latencies: [
                 ("binance".into(), 50),
                 ("mexc".into(), 100),
@@ -207,10 +203,7 @@ impl ArbitrageBot {
         self.print_final_stats().await;
     }
 
-    async fn simulate_price_feeds(
-        lx_first: Arc<LxFirstArbitrage>,
-        running: Arc<RwLock<bool>>,
-    ) {
+    async fn simulate_price_feeds(lx_first: Arc<LxFirstArbitrage>, running: Arc<RwLock<bool>>) {
         use rand::{rngs::StdRng, Rng, SeedableRng};
 
         let base_prices = [
@@ -362,8 +355,7 @@ impl ArbitrageBot {
         println!("Total Executions:    {}", s.total_executions);
         println!("Total PnL:           ${:.2}", s.total_pnl);
         if s.total_executions > 0 && s.total_opportunities > 0 {
-            let win_rate =
-                (s.total_executions as f64 / s.total_opportunities as f64) * 100.0;
+            let win_rate = (s.total_executions as f64 / s.total_opportunities as f64) * 100.0;
             let avg_pnl = s.total_pnl / Decimal::from(s.total_executions);
             println!("Execution Rate:      {win_rate:.1}%");
             println!("Avg PnL per Trade:   ${avg_pnl:.2}");

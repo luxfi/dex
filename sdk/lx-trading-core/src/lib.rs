@@ -83,10 +83,13 @@ pub use stream::{FillStream, OrderStream, OrderbookStream, StreamBuilder, TradeS
 pub use types::*;
 pub use ws::{WsConfig, WsConnection, WsEvent};
 
-// FFI exports
-#[cfg(feature = "ffi")]
-pub mod ffi;
+// No FFI module. `ffi = []` and `#[cfg(feature = "ffi")] pub mod ffi;` were
+// declared but src/ffi.rs has never existed in this repo and nothing references
+// `ffi::`. The feature could therefore never build — and because CI runs
+// `cargo clippy --all-features` and `cargo test --all-features`, every run
+// enabled it and failed on the missing file. `cargo fmt` stumbled on it too:
+//   Error writing files: failed to resolve mod `ffi`: src/ffi.rs does not exist
 
-// Python bindings
-#[cfg(feature = "python")]
-pub mod python;
+// No Python bindings module. `python = ["pyo3"]` and
+// `#[cfg(feature = "python")] pub mod python;` were declared but src/python.rs
+// has never existed here either — same dead shape as the ffi one above.

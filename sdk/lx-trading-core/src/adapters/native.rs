@@ -63,8 +63,7 @@ impl LxDexAdapter {
         let mut request = self.client.request(method, &url);
 
         // Add auth headers if configured
-        if let (Some(api_key), Some(_api_secret)) =
-            (&self.config.api_key, &self.config.api_secret)
+        if let (Some(api_key), Some(_api_secret)) = (&self.config.api_key, &self.config.api_secret)
         {
             request = request
                 .header("X-API-KEY", api_key.as_str())
@@ -124,14 +123,13 @@ impl VenueAdapter for LxDexAdapter {
 
     async fn connect(&mut self) -> Result<()> {
         // Test connection with a simple request
-        let _: serde_json::Value = self.signed_request(
-            reqwest::Method::GET,
-            "/api/v1/health",
-            None,
-        ).await.map_err(|e| Error::ConnectionFailed {
-            venue: self.name.clone(),
-            message: e.to_string(),
-        })?;
+        let _: serde_json::Value = self
+            .signed_request(reqwest::Method::GET, "/api/v1/health", None)
+            .await
+            .map_err(|e| Error::ConnectionFailed {
+                venue: self.name.clone(),
+                message: e.to_string(),
+            })?;
 
         self.connected.store(true, Ordering::Relaxed);
         Ok(())
@@ -153,7 +151,8 @@ impl VenueAdapter for LxDexAdapter {
     }
 
     async fn get_markets(&self) -> Result<Vec<MarketInfo>> {
-        self.signed_request(reqwest::Method::GET, "/api/v1/markets", None).await
+        self.signed_request(reqwest::Method::GET, "/api/v1/markets", None)
+            .await
     }
 
     async fn get_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -240,18 +239,21 @@ impl VenueAdapter for LxDexAdapter {
 
     async fn place_order(&self, request: OrderRequest) -> Result<Order> {
         let body = serde_json::to_value(&request)?;
-        self.signed_request(reqwest::Method::POST, "/api/v1/orders", Some(body)).await
+        self.signed_request(reqwest::Method::POST, "/api/v1/orders", Some(body))
+            .await
     }
 
     async fn place_orders(&self, requests: Vec<OrderRequest>) -> Result<Vec<Order>> {
         let body = serde_json::json!({ "orders": requests });
-        self.signed_request(reqwest::Method::POST, "/api/v1/orders/batch", Some(body)).await
+        self.signed_request(reqwest::Method::POST, "/api/v1/orders/batch", Some(body))
+            .await
     }
 
     async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<Order> {
         let path = format!("/api/v1/orders/{order_id}");
         let body = serde_json::json!({ "symbol": symbol });
-        self.signed_request(reqwest::Method::DELETE, &path, Some(body)).await
+        self.signed_request(reqwest::Method::DELETE, &path, Some(body))
+            .await
     }
 
     async fn cancel_orders(&self, order_ids: &[(String, String)]) -> Result<Vec<Order>> {
@@ -260,7 +262,8 @@ impl VenueAdapter for LxDexAdapter {
                 serde_json::json!({ "order_id": id, "symbol": sym })
             }).collect::<Vec<_>>()
         });
-        self.signed_request(reqwest::Method::DELETE, "/api/v1/orders/batch", Some(body)).await
+        self.signed_request(reqwest::Method::DELETE, "/api/v1/orders/batch", Some(body))
+            .await
     }
 
     async fn cancel_all_orders(&self, symbol: Option<&str>) -> Result<Vec<Order>> {
@@ -268,7 +271,8 @@ impl VenueAdapter for LxDexAdapter {
             Some(s) => serde_json::json!({ "symbol": s }),
             None => serde_json::json!({}),
         };
-        self.signed_request(reqwest::Method::DELETE, "/api/v1/orders/all", Some(body)).await
+        self.signed_request(reqwest::Method::DELETE, "/api/v1/orders/all", Some(body))
+            .await
     }
 }
 
@@ -387,7 +391,8 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn get_markets(&self) -> Result<Vec<MarketInfo>> {
-        self.request(reqwest::Method::GET, "/api/v1/amm/pools", None).await
+        self.request(reqwest::Method::GET, "/api/v1/amm/pools", None)
+            .await
     }
 
     async fn get_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -416,7 +421,8 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn get_balances(&self) -> Result<Vec<Balance>> {
-        self.request(reqwest::Method::GET, "/api/v1/account/balances", None).await
+        self.request(reqwest::Method::GET, "/api/v1/account/balances", None)
+            .await
     }
 
     async fn get_balance(&self, asset: &str) -> Result<Balance> {
@@ -447,13 +453,15 @@ impl VenueAdapter for LxAmmAdapter {
         let pair = TradingPair::from_symbol(&request.symbol)
             .ok_or_else(|| Error::InvalidOrder("Invalid symbol format".into()))?;
 
-        let trade = self.execute_swap(
-            &pair.base,
-            &pair.quote,
-            request.quantity,
-            is_buy,
-            Decimal::from(1), // 1% default slippage
-        ).await?;
+        let trade = self
+            .execute_swap(
+                &pair.base,
+                &pair.quote,
+                request.quantity,
+                is_buy,
+                Decimal::from(1), // 1% default slippage
+            )
+            .await?;
 
         // Convert trade to order format
         Ok(Order {
@@ -484,11 +492,15 @@ impl VenueAdapter for LxAmmAdapter {
     }
 
     async fn cancel_order(&self, _order_id: &str, _symbol: &str) -> Result<Order> {
-        Err(Error::NotImplemented("AMM swaps cannot be cancelled".into()))
+        Err(Error::NotImplemented(
+            "AMM swaps cannot be cancelled".into(),
+        ))
     }
 
     async fn cancel_orders(&self, _order_ids: &[(String, String)]) -> Result<Vec<Order>> {
-        Err(Error::NotImplemented("AMM swaps cannot be cancelled".into()))
+        Err(Error::NotImplemented(
+            "AMM swaps cannot be cancelled".into(),
+        ))
     }
 
     async fn cancel_all_orders(&self, _symbol: Option<&str>) -> Result<Vec<Order>> {
@@ -509,7 +521,8 @@ impl VenueAdapter for LxAmmAdapter {
             "amount": amount.to_string(),
             "side": if is_buy { "buy" } else { "sell" }
         });
-        self.request(reqwest::Method::POST, "/api/v1/amm/quote", Some(body)).await
+        self.request(reqwest::Method::POST, "/api/v1/amm/quote", Some(body))
+            .await
     }
 
     async fn execute_swap(
@@ -527,7 +540,8 @@ impl VenueAdapter for LxAmmAdapter {
             "side": if is_buy { "buy" } else { "sell" },
             "slippage": slippage_percent.to_string()
         });
-        self.request(reqwest::Method::POST, "/api/v1/amm/swap", Some(body)).await
+        self.request(reqwest::Method::POST, "/api/v1/amm/swap", Some(body))
+            .await
     }
 
     async fn get_pool_info(&self, base_token: &str, quote_token: &str) -> Result<PoolInfo> {
@@ -550,7 +564,12 @@ impl VenueAdapter for LxAmmAdapter {
             "quote_amount": quote_amount.to_string(),
             "slippage": slippage_percent.to_string()
         });
-        self.request(reqwest::Method::POST, "/api/v1/amm/liquidity/add", Some(body)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/amm/liquidity/add",
+            Some(body),
+        )
+        .await
     }
 
     async fn remove_liquidity(
@@ -564,10 +583,16 @@ impl VenueAdapter for LxAmmAdapter {
             "liquidity": liquidity_amount.to_string(),
             "slippage": slippage_percent.to_string()
         });
-        self.request(reqwest::Method::POST, "/api/v1/amm/liquidity/remove", Some(body)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/amm/liquidity/remove",
+            Some(body),
+        )
+        .await
     }
 
     async fn get_lp_positions(&self) -> Result<Vec<LpPosition>> {
-        self.request(reqwest::Method::GET, "/api/v1/amm/positions", None).await
+        self.request(reqwest::Method::GET, "/api/v1/amm/positions", None)
+            .await
     }
 }

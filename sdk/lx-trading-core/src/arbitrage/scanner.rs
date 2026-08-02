@@ -200,7 +200,12 @@ async fn scan(
         }
 
         // Simple arbitrage
-        opportunities.extend(find_simple_arb(symbol, &valid_sources, config, &chains_guard));
+        opportunities.extend(find_simple_arb(
+            symbol,
+            &valid_sources,
+            config,
+            &chains_guard,
+        ));
 
         // CEX-DEX arbitrage
         opportunities.extend(find_cex_dex_arb(symbol, &valid_sources, config));
@@ -263,7 +268,10 @@ fn find_simple_arb(
 
             let now = current_time_ms();
             let opp = ArbitrageOpportunity {
-                id: format!("simple-{}-{}-{}-{}", symbol, buy_src.venue, sell_src.venue, now),
+                id: format!(
+                    "simple-{}-{}-{}-{}",
+                    symbol, buy_src.venue, sell_src.venue, now
+                ),
                 arb_type: ArbType::Simple,
                 buy_source: buy_src.clone(),
                 sell_source: sell_src.clone(),

@@ -74,13 +74,17 @@ impl MetricsCollector {
     /// Record an order submission
     pub fn record_order_submitted(&self, venue: &str) {
         self.orders.submitted.fetch_add(1, Ordering::Relaxed);
-        self.venue_metrics(venue).orders_submitted.fetch_add(1, Ordering::Relaxed);
+        self.venue_metrics(venue)
+            .orders_submitted
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record an order fill
     pub fn record_order_filled(&self, venue: &str, quantity: Decimal, price: Decimal) {
         self.orders.filled.fetch_add(1, Ordering::Relaxed);
-        self.venue_metrics(venue).orders_filled.fetch_add(1, Ordering::Relaxed);
+        self.venue_metrics(venue)
+            .orders_filled
+            .fetch_add(1, Ordering::Relaxed);
 
         // Track volume
         let volume = quantity * price;
@@ -88,7 +92,9 @@ impl MetricsCollector {
             .to_string()
             .parse::<u64>()
             .unwrap_or(0);
-        self.orders.total_volume_micro.fetch_add(volume_u64, Ordering::Relaxed);
+        self.orders
+            .total_volume_micro
+            .fetch_add(volume_u64, Ordering::Relaxed);
         self.venue_metrics(venue)
             .volume_micro
             .fetch_add(volume_u64, Ordering::Relaxed);
@@ -97,13 +103,17 @@ impl MetricsCollector {
     /// Record an order cancellation
     pub fn record_order_cancelled(&self, venue: &str) {
         self.orders.cancelled.fetch_add(1, Ordering::Relaxed);
-        self.venue_metrics(venue).orders_cancelled.fetch_add(1, Ordering::Relaxed);
+        self.venue_metrics(venue)
+            .orders_cancelled
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record an order rejection
     pub fn record_order_rejected(&self, venue: &str) {
         self.orders.rejected.fetch_add(1, Ordering::Relaxed);
-        self.venue_metrics(venue).orders_rejected.fetch_add(1, Ordering::Relaxed);
+        self.venue_metrics(venue)
+            .orders_rejected
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a trade
@@ -128,8 +138,12 @@ impl MetricsCollector {
             .parse::<u64>()
             .unwrap_or(0);
 
-        self.trades.total_volume_micro.fetch_add(volume_u64, Ordering::Relaxed);
-        self.trades.total_fees_micro.fetch_add(fee_u64, Ordering::Relaxed);
+        self.trades
+            .total_volume_micro
+            .fetch_add(volume_u64, Ordering::Relaxed);
+        self.trades
+            .total_fees_micro
+            .fetch_add(fee_u64, Ordering::Relaxed);
 
         match side {
             crate::types::Side::Buy => self.trades.buys.fetch_add(1, Ordering::Relaxed),
@@ -145,8 +159,12 @@ impl MetricsCollector {
         // Update venue metrics
         let venue_metrics = self.venue_metrics(venue);
         venue_metrics.trades.fetch_add(1, Ordering::Relaxed);
-        venue_metrics.volume_micro.fetch_add(volume_u64, Ordering::Relaxed);
-        venue_metrics.fees_micro.fetch_add(fee_u64, Ordering::Relaxed);
+        venue_metrics
+            .volume_micro
+            .fetch_add(volume_u64, Ordering::Relaxed);
+        venue_metrics
+            .fees_micro
+            .fetch_add(fee_u64, Ordering::Relaxed);
     }
 
     /// Record venue latency
@@ -289,7 +307,8 @@ pub struct Timer<'a> {
 
 impl<'a> Drop for Timer<'a> {
     fn drop(&mut self) {
-        self.collector.record_latency(&self.operation, self.start.elapsed());
+        self.collector
+            .record_latency(&self.operation, self.start.elapsed());
     }
 }
 
@@ -514,7 +533,8 @@ impl VenueMetrics {
             orders_cancelled: self.orders_cancelled.load(Ordering::Relaxed),
             orders_rejected: self.orders_rejected.load(Ordering::Relaxed),
             trades: self.trades.load(Ordering::Relaxed),
-            volume: Decimal::from(self.volume_micro.load(Ordering::Relaxed)) / Decimal::from(1_000_000),
+            volume: Decimal::from(self.volume_micro.load(Ordering::Relaxed))
+                / Decimal::from(1_000_000),
             fees: Decimal::from(self.fees_micro.load(Ordering::Relaxed)) / Decimal::from(1_000_000),
             latency: self.latency_tracker.read().stats(),
         }
@@ -577,9 +597,7 @@ mod tests {
 
     #[test]
     fn test_percentile() {
-        let samples: Vec<Duration> = (1..=100)
-            .map(Duration::from_millis)
-            .collect();
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
 
         // Percentile calculation uses floor, so p50 of 100 items = index 50 = 51ms
         let p50 = percentile(&samples, 0.50);

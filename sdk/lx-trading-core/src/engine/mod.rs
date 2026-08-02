@@ -213,12 +213,7 @@ impl UnifiedClient {
     }
 
     /// Place market buy order with smart routing
-    pub async fn buy(
-        &self,
-        symbol: &str,
-        quantity: Decimal,
-        venue: Option<&str>,
-    ) -> Result<Order> {
+    pub async fn buy(&self, symbol: &str, quantity: Decimal, venue: Option<&str>) -> Result<Order> {
         let request = OrderRequest::market(symbol, Side::Buy, quantity);
 
         if let Some(v) = venue {
@@ -449,7 +444,10 @@ impl UnifiedClient {
     }
 
     /// Get LP positions
-    pub async fn lp_positions(&self, venue: &str) -> Result<Vec<crate::adapters::adapter::LpPosition>> {
+    pub async fn lp_positions(
+        &self,
+        venue: &str,
+    ) -> Result<Vec<crate::adapters::adapter::LpPosition>> {
         let adapter = self
             .venues
             .get(venue)

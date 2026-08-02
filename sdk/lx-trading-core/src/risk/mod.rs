@@ -60,9 +60,7 @@ impl RiskManager {
         }
 
         // Check order size
-        if !self.config.max_order_size.is_zero()
-            && request.quantity > self.config.max_order_size
-        {
+        if !self.config.max_order_size.is_zero() && request.quantity > self.config.max_order_size {
             return Err(Error::RiskLimitExceeded(format!(
                 "Order size {} exceeds max {}",
                 request.quantity, self.config.max_order_size
@@ -72,7 +70,12 @@ impl RiskManager {
         // Check position limit
         let pair = TradingPair::from_symbol(&request.symbol);
         if let Some(pair) = pair {
-            let current_position = self.positions.read().get(&pair.base).copied().unwrap_or_default();
+            let current_position = self
+                .positions
+                .read()
+                .get(&pair.base)
+                .copied()
+                .unwrap_or_default();
             let new_position = match request.side {
                 Side::Buy => current_position + request.quantity,
                 Side::Sell => current_position - request.quantity,
@@ -173,7 +176,11 @@ impl RiskManager {
 
     /// Get current position for an asset
     pub fn position(&self, asset: &str) -> Decimal {
-        self.positions.read().get(asset).copied().unwrap_or_default()
+        self.positions
+            .read()
+            .get(asset)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Get all positions

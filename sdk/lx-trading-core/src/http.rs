@@ -127,7 +127,8 @@ impl RetryConfig {
 
     /// Calculate delay for retry attempt
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        let base_delay = self.initial_delay.as_millis() as f64 * self.multiplier.powi(attempt as i32);
+        let base_delay =
+            self.initial_delay.as_millis() as f64 * self.multiplier.powi(attempt as i32);
         let capped_delay = base_delay.min(self.max_delay.as_millis() as f64);
 
         // Add jitter
@@ -321,7 +322,9 @@ impl HttpClient {
 
     /// Set a default header
     pub fn set_default_header(&self, key: impl Into<String>, value: impl Into<String>) {
-        self.default_headers.write().insert(key.into(), value.into());
+        self.default_headers
+            .write()
+            .insert(key.into(), value.into());
     }
 
     /// Get metrics
@@ -381,7 +384,9 @@ impl HttpClient {
 
         while attempt <= self.retry_config.max_retries {
             if attempt > 0 {
-                self.metrics.retried_requests.fetch_add(1, Ordering::Relaxed);
+                self.metrics
+                    .retried_requests
+                    .fetch_add(1, Ordering::Relaxed);
                 let delay = self.retry_config.delay_for_attempt(attempt - 1);
                 tokio::time::sleep(delay).await;
             }
@@ -401,7 +406,9 @@ impl HttpClient {
                     let status = response.status();
 
                     if status.is_success() {
-                        self.metrics.successful_requests.fetch_add(1, Ordering::Relaxed);
+                        self.metrics
+                            .successful_requests
+                            .fetch_add(1, Ordering::Relaxed);
                         let text = response.text().await.map_err(|e| {
                             Error::NetworkError(format!("Failed to read response: {e}"))
                         })?;
@@ -416,7 +423,9 @@ impl HttpClient {
 
                     // Check for rate limiting
                     if status == StatusCode::TOO_MANY_REQUESTS {
-                        self.metrics.rate_limited_requests.fetch_add(1, Ordering::Relaxed);
+                        self.metrics
+                            .rate_limited_requests
+                            .fetch_add(1, Ordering::Relaxed);
 
                         // Extract retry-after header if present
                         if let Some(retry_after) = response.headers().get("retry-after") {
@@ -531,12 +540,15 @@ impl HttpClient {
             .fetch_add(latency.as_micros() as u64, Ordering::Relaxed);
 
         let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            Error::NetworkError(format!("Failed to read response: {e}"))
-        })?;
+        let text = response
+            .text()
+            .await
+            .map_err(|e| Error::NetworkError(format!("Failed to read response: {e}")))?;
 
         if status.is_success() {
-            self.metrics.successful_requests.fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .successful_requests
+                .fetch_add(1, Ordering::Relaxed);
         } else {
             self.metrics.failed_requests.fetch_add(1, Ordering::Relaxed);
         }

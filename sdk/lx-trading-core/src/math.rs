@@ -139,7 +139,7 @@ pub fn slippage(expected_price: Decimal, actual_price: Decimal, side: Side) -> D
     }
 
     let diff = match side {
-        Side::Buy => actual_price - expected_price,  // Higher is worse for buys
+        Side::Buy => actual_price - expected_price, // Higher is worse for buys
         Side::Sell => expected_price - actual_price, // Lower is worse for sells
     };
 
@@ -589,15 +589,14 @@ mod tests {
             Decimal::from(1),
         );
         // f* = (0.6*2 - 0.4)/2 = (1.2 - 0.4)/2 = 0.4
-        assert!((kelly - Decimal::from_str("0.4").unwrap()).abs() < Decimal::from_str("0.01").unwrap());
+        assert!(
+            (kelly - Decimal::from_str("0.4").unwrap()).abs() < Decimal::from_str("0.01").unwrap()
+        );
     }
 
     #[test]
     fn test_sma() {
-        let prices: Vec<Decimal> = vec![1, 2, 3, 4, 5]
-            .into_iter()
-            .map(Decimal::from)
-            .collect();
+        let prices: Vec<Decimal> = vec![1, 2, 3, 4, 5].into_iter().map(Decimal::from).collect();
         let avg = sma(&prices).unwrap();
         assert_eq!(avg, Decimal::from(3));
     }
@@ -617,14 +616,20 @@ mod tests {
 
         let dd = max_drawdown(&curve);
         // Peak was 120, trough was 80, drawdown = (120-80)/120 = 33.33%
-        assert!((dd - Decimal::from_str("33.333333").unwrap()).abs() < Decimal::from_str("0.001").unwrap());
+        assert!(
+            (dd - Decimal::from_str("33.333333").unwrap()).abs()
+                < Decimal::from_str("0.001").unwrap()
+        );
     }
 
     #[test]
     fn test_order_book_imbalance() {
         let imbalance = order_book_imbalance(Decimal::from(100), Decimal::from(50));
         // (100-50)/(100+50) = 50/150 = 0.333...
-        assert!((imbalance - Decimal::from_str("0.333333").unwrap()).abs() < Decimal::from_str("0.001").unwrap());
+        assert!(
+            (imbalance - Decimal::from_str("0.333333").unwrap()).abs()
+                < Decimal::from_str("0.001").unwrap()
+        );
     }
 
     #[test]
@@ -650,7 +655,10 @@ mod tests {
         assert!((result - Decimal::from(2)).abs() < Decimal::from_str("0.0001").unwrap());
 
         let result = sqrt(Decimal::from(2)).unwrap();
-        assert!((result - Decimal::from_str("1.41421").unwrap()).abs() < Decimal::from_str("0.001").unwrap());
+        assert!(
+            (result - Decimal::from_str("1.41421").unwrap()).abs()
+                < Decimal::from_str("0.001").unwrap()
+        );
     }
 
     #[test]
@@ -663,7 +671,10 @@ mod tests {
 
         // Buy 15 units - fills 10@100 + 5@101 = 1505/15 = 100.333...
         let vwap = execution_vwap(&levels, Decimal::from(15)).unwrap();
-        assert!((vwap - Decimal::from_str("100.333333").unwrap()).abs() < Decimal::from_str("0.001").unwrap());
+        assert!(
+            (vwap - Decimal::from_str("100.333333").unwrap()).abs()
+                < Decimal::from_str("0.001").unwrap()
+        );
     }
 
     #[test]

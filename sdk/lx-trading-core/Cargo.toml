@@ -17,8 +17,6 @@ default = ["ccxt", "hummingbot", "native"]
 ccxt = []
 hummingbot = []
 native = []
-python = ["pyo3"]
-ffi = []
 
 [dependencies]
 # Async runtime
@@ -63,7 +61,10 @@ anyhow = "1.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
 # Python bindings (optional)
-pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
+# pyo3 removed with the dead `python` feature it existed for. An optional
+# dependency implicitly declares a feature of the same name, so --all-features
+# kept building it — and CI runs `cargo clippy --all-features` and
+# `cargo test --all-features`. Nothing in this crate uses pyo3 now.
 
 # C FFI
 libc = "0.2"

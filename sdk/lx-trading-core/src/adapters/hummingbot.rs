@@ -83,8 +83,14 @@ impl HummingbotAdapter {
     fn build_body(&self, mut body: serde_json::Value) -> serde_json::Value {
         if let Some(obj) = body.as_object_mut() {
             obj.insert("chain".to_string(), serde_json::json!(self.config.chain));
-            obj.insert("network".to_string(), serde_json::json!(self.config.network));
-            obj.insert("connector".to_string(), serde_json::json!(self.config.connector));
+            obj.insert(
+                "network".to_string(),
+                serde_json::json!(self.config.network),
+            );
+            obj.insert(
+                "connector".to_string(),
+                serde_json::json!(self.config.connector),
+            );
             if let Some(wallet) = &self.config.wallet_address {
                 obj.insert("address".to_string(), serde_json::json!(wallet));
             }
@@ -260,8 +266,16 @@ impl VenueAdapter for HummingbotAdapter {
         let mut balances = Vec::new();
         if let Some(bal) = response["balances"].as_object() {
             for (asset, amount) in bal {
-                let value = amount.as_str().and_then(|s| s.parse::<Decimal>().ok()).unwrap_or_default();
-                balances.push(Balance::new(asset.clone(), &self.name, value, Decimal::ZERO));
+                let value = amount
+                    .as_str()
+                    .and_then(|s| s.parse::<Decimal>().ok())
+                    .unwrap_or_default();
+                balances.push(Balance::new(
+                    asset.clone(),
+                    &self.name,
+                    value,
+                    Decimal::ZERO,
+                ));
             }
         }
 
@@ -282,7 +296,9 @@ impl VenueAdapter for HummingbotAdapter {
     }
 
     async fn get_order(&self, _order_id: &str, _symbol: &str) -> Result<Order> {
-        Err(Error::NotImplemented("Gateway AMM does not have orders".into()))
+        Err(Error::NotImplemented(
+            "Gateway AMM does not have orders".into(),
+        ))
     }
 
     async fn get_order_history(

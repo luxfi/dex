@@ -57,7 +57,10 @@ impl EventStats {
         );
         println!("Trades: {}", self.trades.load(Ordering::Relaxed));
         println!("Tickers: {}", self.tickers.load(Ordering::Relaxed));
-        println!("Order Updates: {}", self.order_updates.load(Ordering::Relaxed));
+        println!(
+            "Order Updates: {}",
+            self.order_updates.load(Ordering::Relaxed)
+        );
         println!("Fills: {}", self.fills.load(Ordering::Relaxed));
         println!("Errors: {}", self.errors.load(Ordering::Relaxed));
     }
@@ -67,7 +70,11 @@ impl EventStats {
 fn handle_orderbook_update(update: &OrderbookUpdate, stats: &EventStats) {
     stats.orderbook_updates.fetch_add(1, Ordering::Relaxed);
 
-    let update_type = if update.is_snapshot { "SNAPSHOT" } else { "DELTA" };
+    let update_type = if update.is_snapshot {
+        "SNAPSHOT"
+    } else {
+        "DELTA"
+    };
     println!(
         "[ORDERBOOK] {} {} | Bids: {} | Asks: {}",
         update.symbol,
@@ -169,12 +176,24 @@ async fn simulate_events(tx: mpsc::Sender<WsEvent>, running: Arc<AtomicBool>) {
                     venue: "lx_dex".to_string(),
                     is_snapshot,
                     bids: vec![
-                        PriceLevel::new(current_price - dec!(5), Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default()),
-                        PriceLevel::new(current_price - dec!(10), Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default()),
+                        PriceLevel::new(
+                            current_price - dec!(5),
+                            Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default(),
+                        ),
+                        PriceLevel::new(
+                            current_price - dec!(10),
+                            Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default(),
+                        ),
                     ],
                     asks: vec![
-                        PriceLevel::new(current_price + dec!(5), Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default()),
-                        PriceLevel::new(current_price + dec!(10), Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default()),
+                        PriceLevel::new(
+                            current_price + dec!(5),
+                            Decimal::try_from(rng.gen_range(0.1..2.0) as f64).unwrap_or_default(),
+                        ),
+                        PriceLevel::new(
+                            current_price + dec!(10),
+                            Decimal::try_from(rng.gen_range(0.5..3.0) as f64).unwrap_or_default(),
+                        ),
                     ],
                     timestamp: chrono::Utc::now().timestamp_millis(),
                     sequence: rng.gen(),
@@ -187,12 +206,18 @@ async fn simulate_events(tx: mpsc::Sender<WsEvent>, running: Arc<AtomicBool>) {
                     order_id: format!("order-{}", rng.gen::<u64>()),
                     symbol: "BTC-USDC".to_string(),
                     venue: "lx_dex".to_string(),
-                    side: if rng.gen_bool(0.5) { Side::Buy } else { Side::Sell },
+                    side: if rng.gen_bool(0.5) {
+                        Side::Buy
+                    } else {
+                        Side::Sell
+                    },
                     price: current_price,
-                    quantity: Decimal::try_from(rng.gen_range(0.01..0.5) as f64).unwrap_or_default(),
+                    quantity: Decimal::try_from(rng.gen_range(0.01..0.5) as f64)
+                        .unwrap_or_default(),
                     fee: lx_trading::Fee {
                         asset: "USDC".to_string(),
-                        amount: Decimal::try_from(rng.gen_range(0.01..1.0) as f64).unwrap_or_default(),
+                        amount: Decimal::try_from(rng.gen_range(0.01..1.0) as f64)
+                            .unwrap_or_default(),
                         rate: Some(dec!(0.001)),
                     },
                     timestamp: chrono::Utc::now().timestamp_millis(),
