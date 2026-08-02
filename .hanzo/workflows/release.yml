@@ -108,5 +108,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
-          cache-from: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64
-          cache-to: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64,mode=max
+          # ignore-error: the cache image does not exist until the first build has
+          # published it, and without this buildx treats that 404 as fatal --
+          #   failed to configure registry cache importer:
+          #   ghcr.io/luxfi/dex:buildcache-amd64: not found
+          # so a cold cache failed the build instead of simply being cold.
+          cache-from: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64,ignore-error=true
+          cache-to: type=registry,ref=ghcr.io/luxfi/dex:buildcache-amd64,mode=max,ignore-error=true
