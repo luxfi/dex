@@ -1,6 +1,7 @@
 import { source } from "@/lib/source"
 import type { Metadata } from "next"
-import { DocsPage, DocsBody, DocsTitle, DocsDescription, defaultMdxComponents } from "@hanzo/ui"
+import { DocsPage, DocsBody, DocsTitle, DocsDescription } from "@hanzo/docs-ui/layouts/docs/page"
+import defaultMdxComponents from "@hanzo/docs-ui/mdx"
 import { notFound } from "next/navigation"
 
 export default async function Page(props: {
