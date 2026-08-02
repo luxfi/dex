@@ -19,7 +19,7 @@
     "build": "tsc",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
-    "test": "node --test --experimental-test-coverage dist/**/*.test.js",
+    "test": "node --test --experimental-test-coverage \"dist/**/*.test.js\"",
     "lint": "tsc --noEmit"
   },
   "keywords": [
@@ -52,6 +52,6 @@
     "typescript": "^5.3.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }
