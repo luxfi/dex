@@ -12,7 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dex-server ./cmd/dex-server/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dex-server ./cmd/dex-server/main.go && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dvenue ./cmd/dvenue
 
 FROM alpine:3.21
 
@@ -22,10 +23,12 @@ RUN apk add --no-cache ca-certificates && \
 
 WORKDIR /home/dex
 COPY --from=builder /app/dex-server .
+COPY --from=builder /app/dvenue /usr/local/bin/dvenue
 RUN chown dex:dex dex-server
 
 USER dex
-EXPOSE 8080 9090 50051
+# 8080/9090 dex-server; 9099 dvenue (D-Chain venue, ZAP)
+EXPOSE 8080 9090 9099
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
