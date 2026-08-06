@@ -19,7 +19,7 @@ require (
 	github.com/luxfi/rpc v1.1.0
 	github.com/luxfi/runtime v1.3.1
 	github.com/luxfi/version v1.0.1
-	github.com/luxfi/vm v1.3.5
+	github.com/luxfi/vm v1.3.6
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.81.1
@@ -91,7 +91,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/luxfi/accel v1.2.4 // indirect
 	github.com/luxfi/age v1.6.0 // indirect
-	github.com/luxfi/api v1.1.1 // indirect
+	github.com/luxfi/api v1.1.3 // indirect
 	github.com/luxfi/atomic v1.0.0 // indirect
 	github.com/luxfi/cache v1.3.1 // indirect
 	github.com/luxfi/compress v0.1.1 // indirect
@@ -106,10 +106,10 @@ require (
 	github.com/luxfi/metric v1.8.1 // indirect
 	github.com/luxfi/mock v0.1.1 // indirect
 	github.com/luxfi/p2p v1.22.1 // indirect
-	github.com/luxfi/precompile v0.19.3 // indirect
 	github.com/luxfi/proto v1.4.2 // indirect
 	github.com/luxfi/resource v0.1.1 // indirect
 	github.com/luxfi/sampler v1.1.0 // indirect
+	github.com/luxfi/threshold v1.12.3 // indirect
 	github.com/luxfi/upgrade v1.0.3 // indirect
 	github.com/luxfi/utils v1.3.1 // indirect
 	github.com/luxfi/validators v1.3.1 // indirect
