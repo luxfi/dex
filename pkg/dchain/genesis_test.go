@@ -12,6 +12,7 @@ import (
 
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database/memdb"
+	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
 )
 
@@ -63,15 +64,31 @@ const (
 		"00000000"
 )
 
-// mainnetCreationDocument is the D-Chain's chain-creation record on Lux mainnet,
-// byte for byte: the dchain.json the node bakes into the P-Chain CreateChainTx and
-// hands the VM as block.Init.Genesis. 375 bytes, no trailing newline.
+// The three chain-creation documents below are the bytes actually recorded in each
+// fleet's P-Chain CreateChainTx — recovered from the tx and confirmed byte for byte
+// against each pod's own /data/genesis.json dChainGenesis field, two independent
+// sources. They are NOT the dchain.json in the luxfi/genesis module: that file
+// appends a "chainId" out of sort order and drops the trailing newline, and it
+// created none of these chains. The module file is the binary's idea of the
+// configuration; these are the chain's.
 //
-// It is copied here rather than imported because a golden vector is a constant. If
-// the operator's config ever changes these bytes the mainnet D-Chain's genesis
-// changes with them — which is a chain-splitting act, and this test is where it
-// must be seen and consciously re-pinned.
-const mainnetCreationDocument = `{
+// Two traps live in these bytes, and both are why the VM treats the document as an
+// opaque byte string end to end — never parsed, never normalized, never re-encoded:
+//
+//   - The trailing newline is load-bearing and NOT uniform: mainnet and testnet
+//     have one, devnet does not. Trimming or appending one breaks exactly two of
+//     the three.
+//   - The em dash is the literal six-character sequence \u2014, not UTF-8. A JSON
+//     decode/re-encode round trip changes both the length and the hash.
+//
+// Length is not an identity. devnet's on-chain document is 375 bytes and so is the
+// module file, and they are different byte strings — a size check passes and means
+// nothing. These tests compare digests.
+
+// mainnetDocument is the D-Chain's chain-creation record on lux-mainnet, byte for
+// byte: 356 bytes, keccak256 77c9bcee54ebf7e7848ca15c79abf9166557301b6847cbea17cf24da49559ce4,
+// with a trailing newline.
+const mainnetDocument = `{
   "description": "Decentralized Exchange \u2014 native CLOB + AMM + perpetuals",
   "feeConfig": {
     "makerFeeBps": 2,
@@ -85,13 +102,51 @@ const mainnetCreationDocument = `{
   "timestamp": 1730446786,
   "tradingPairs": [],
   "version": 1,
-  "vm": "DexVM",
-  "chainId": 96469
-}`
+  "vm": "DexVM"
+}
+`
 
-// mainnetGenesisID is the height-0 block id of a D-Chain created from
-// mainnetCreationDocument.
-const mainnetGenesisID = "2cdEmT9KrxfGzaRiCLJXAkSmkuPzzVSDR6iMzeGSVYkpLknRTm"
+// testnetDocument is the D-Chain's chain-creation record on lux-testnet, byte for
+// byte: 356 bytes, keccak256 f79028985fa19654ee5c7f3dad9320321ce16702ba998bdb37081129dd11d292,
+// with a trailing newline.
+const testnetDocument = `{
+  "description": "Decentralized Exchange \u2014 native CLOB + AMM + perpetuals",
+  "feeConfig": {
+    "makerFeeBps": 2,
+    "takerFeeBps": 5
+  },
+  "liquidityPools": [],
+  "message": "Lux D-Chain Genesis",
+  "name": "D-Chain",
+  "networkId": 2,
+  "perpetualMarkets": [],
+  "timestamp": 1730531602,
+  "tradingPairs": [],
+  "version": 1,
+  "vm": "DexVM"
+}
+`
+
+// devnetDocument is the D-Chain's chain-creation record on lux-devnet, byte for
+// byte: 375 bytes, keccak256 e24a3c8d4a06446a416698c48fc6129f9ed4a02146fffd78294c08421f8dc2e2,
+// with NO trailing newline.
+const devnetDocument = `{
+  "chainId": 96470,
+  "description": "Decentralized Exchange \u2014 native CLOB + AMM + perpetuals",
+  "feeConfig": {
+    "makerFeeBps": 2,
+    "takerFeeBps": 5
+  },
+  "liquidityPools": [],
+  "message": "Lux D-Chain Genesis",
+  "name": "D-Chain",
+  "networkId": 3,
+  "perpetualMarkets": [],
+  "timestamp": 1730531602,
+  "tradingPairs": [],
+  "version": 1,
+  "vm": "DexVM"
+}`
 
 // TestGenesisGolden pins the document-less genesis image byte for byte. It fails on
 // any change to the block encoding or the execution-root composition.
@@ -129,39 +184,65 @@ func TestGenesisGolden(t *testing.T) {
 	}
 }
 
-// TestGenesisBindsCreationDocument pins the mainnet D-Chain's genesis and proves
-// the creation document actually reaches it — a document-bound genesis that equals
-// the document-less one would mean init.Genesis is being ignored again.
+// fleet is a live D-Chain: the bytes its CreateChainTx recorded, their digest, and
+// the height-0 block those bytes produce under this binary.
+type fleet struct {
+	name    string
+	doc     string
+	digest  string
+	genesis string
+}
+
+// fleets pins every live D-Chain creation document and the genesis each one yields.
+// A change to any document, or to how a document reaches height 0, moves a real
+// chain — so it must be seen here first.
+var fleets = []fleet{
+	{"lux-mainnet", mainnetDocument, "77c9bcee54ebf7e7848ca15c79abf9166557301b6847cbea17cf24da49559ce4", "w2iF9fBMeo67qux1ZKwGSK7bYLApPBcLTi9TqaVDyJFkj1Uzo"},
+	{"lux-testnet", testnetDocument, "f79028985fa19654ee5c7f3dad9320321ce16702ba998bdb37081129dd11d292", "9LFXAU4RPXz3TWdoUergnwfrH5QbqhS9necFDzGvHKx7fmohZ"},
+	{"lux-devnet", devnetDocument, "e24a3c8d4a06446a416698c48fc6129f9ed4a02146fffd78294c08421f8dc2e2", "2vEdPNLxNWn85q2RX4EhZFAEJuLcAAJE9yAJR9K7jic1sVNTVw"},
+}
+
+// TestGenesisBindsCreationDocument pins each fleet's genesis and proves the creation
+// document actually reaches it. A document-bound genesis equal to the document-less
+// one would mean init.Genesis is being ignored again.
 func TestGenesisBindsCreationDocument(t *testing.T) {
-	doc := []byte(mainnetCreationDocument)
-	if len(doc) != 375 {
-		t.Fatalf("mainnet creation document is %d bytes, want 375", len(doc))
-	}
-	// Pinned separately from the genesis id so a bad transcription of the document
-	// is distinguishable from a change in the derivation.
-	const wantDigest = "0e19a1b63f4ee93cc436d8bbefe4a2694a947d1bbd0a47e11a874c8476c3d1ee"
-	if got := genesisOrigin(doc); hex.EncodeToString(got[:]) != wantDigest {
-		t.Fatalf("creation document digest = %x, want %s", got, wantDigest)
-	}
-
 	vm := &VM{}
-	bound := vm.canonicalGenesis(doc)
-	if bound.id.String() != mainnetGenesisID {
-		t.Fatalf("mainnet genesis id = %s, want %s\n"+
-			"Either the creation document or the genesis derivation changed; both split the chain.",
-			bound.id, mainnetGenesisID)
-	}
-	if bound.id == vm.canonicalGenesis(nil).id {
-		t.Fatal("a chain created from a document has the same genesis as one created from none; " +
-			"the creation document is not reaching height 0")
+	unbound := vm.canonicalGenesis(nil)
+	seen := map[ids.ID]string{}
+
+	for _, f := range fleets {
+		doc := []byte(f.doc)
+
+		// The digest is pinned separately from the genesis id so a bad transcription
+		// of the document is distinguishable from a change in the derivation. It is
+		// also the only honest identity check: devnet's document and the luxfi/genesis
+		// module's are both 375 bytes and are not the same bytes.
+		if got := genesisOrigin(doc); hex.EncodeToString(got[:]) != f.digest {
+			t.Errorf("%s: creation document digest = %x, want %s", f.name, got, f.digest)
+			continue
+		}
+
+		g := vm.canonicalGenesis(doc)
+		if g.id.String() != f.genesis {
+			t.Errorf("%s: genesis = %s, want %s\n"+
+				"Either the creation document or the derivation moved; both split the chain.",
+				f.name, g.id, f.genesis)
+		}
+		if g.id == unbound.id {
+			t.Errorf("%s: genesis equals the document-less one; the creation document is not reaching height 0", f.name)
+		}
+		if other, dup := seen[g.id]; dup {
+			t.Errorf("%s and %s share a genesis; a block from one is replayable on the other", f.name, other)
+		}
+		seen[g.id] = f.name
 	}
 
-	// A one-byte edit to the document must move the genesis. Nothing in the
-	// document may be cosmetic as far as chain identity is concerned.
-	edited := append([]byte{}, doc...)
-	edited[len(edited)-2] = '8' // chainId 96469 -> 96468
-	if vm.canonicalGenesis(edited).id == bound.id {
-		t.Fatal("editing the creation document left the genesis unchanged")
+	// A one-byte edit must move the genesis. Nothing in the document may be cosmetic
+	// as far as chain identity is concerned — including the trailing newline, which
+	// mainnet has and devnet does not.
+	if vm.canonicalGenesis([]byte(mainnetDocument)).id ==
+		vm.canonicalGenesis([]byte(strings.TrimRight(mainnetDocument, "\n"))).id {
+		t.Fatal("trimming the trailing newline left the genesis unchanged")
 	}
 }
 
@@ -170,7 +251,7 @@ func TestGenesisBindsCreationDocument(t *testing.T) {
 // default, and must record it.
 func TestGenesisHonoursSuppliedDocument(t *testing.T) {
 	db := memdb.New()
-	doc := []byte(mainnetCreationDocument)
+	doc := []byte(mainnetDocument)
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
@@ -183,9 +264,9 @@ func TestGenesisHonoursSuppliedDocument(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	if vm.lastAcceptedID.String() != mainnetGenesisID {
+	if vm.lastAcceptedID.String() != fleets[0].genesis {
 		t.Fatalf("height-0 head = %s, want the document-bound genesis %s",
-			vm.lastAcceptedID, mainnetGenesisID)
+			vm.lastAcceptedID, fleets[0].genesis)
 	}
 	stored, err := readGenesis(db)
 	if err != nil {
@@ -201,7 +282,7 @@ func TestGenesisHonoursSuppliedDocument(t *testing.T) {
 // SAME chain it left. It does, because it rebuilds genesis from the immutable
 // creation record rather than from whatever its binary believes.
 func TestGenesisSurvivesWipe(t *testing.T) {
-	doc := []byte(mainnetCreationDocument)
+	doc := []byte(mainnetDocument)
 	init := func(db *memdb.Database) *VM {
 		t.Helper()
 		vm := &VM{}
@@ -230,7 +311,7 @@ func TestGenesisSurvivesWipe(t *testing.T) {
 // moved.
 func TestGenesisRefusesDisagreement(t *testing.T) {
 	db := memdb.New()
-	born := []byte(mainnetCreationDocument)
+	born := []byte(mainnetDocument)
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
@@ -260,7 +341,7 @@ func TestGenesisRefusesDisagreement(t *testing.T) {
 	msg := err.Error()
 	for _, want := range []string{
 		"expected", "derived", "stored", // all three views named
-		mainnetGenesisID, // the stored one
+		fleets[0].genesis, // the stored one
 		(&VM{}).canonicalGenesis(other).id.String(), // the one it would have used
 		(&VM{}).canonicalGenesis(nil).id.String(),   // the binary's default
 	} {
@@ -272,45 +353,81 @@ func TestGenesisRefusesDisagreement(t *testing.T) {
 
 // TestGenesisLiveFleets pins what is actually running, not what ought to be.
 //
-// Read from luxd on 2026-08-07, all 15 pods agreeing, every chain at height 0:
+// Read from luxd on 2026-08-07, all 15 pods agreeing, every chain at height 0 with
+// zero markets — the genesis block is the only block that has ever existed:
 //
 //	lux-mainnet  D=29Rnd1kbr9ZRyPF1AobiZvvF8LWMP9bmJhRC6979VBJkiXbRoD  MuetnVSb…
 //	lux-testnet  D=2wWhbR6rBZmfNHcxrBX1Rm1y7uH4rWnK5xzed6GqstcdyPyPyM  MuetnVSb…
 //	lux-devnet   D=23wLjqidbQ6wHA2hfGvkM8WMgbwpxgY8ryyZJsjoWZr9uG2pp1  mpxP6xF3…
 //
-// The fleets are on two different genesis blocks. This test asserts the current
-// binary can produce the devnet one and CANNOT produce the mainnet/testnet one —
-// that is the live split stated as a fact, so nobody has to rediscover it.
+// The 84-byte images are reconstructed from each chain's reported execution root
+// and the fixed block layout, then checked to hash to the id luxd reports. They are
+// derivations, not database reads: the D-Chain exposes no block-read RPC and the
+// indexer is off.
+//
+// Two facts are asserted here so nobody has to rediscover them. First, the fleets
+// are on two different genesis blocks — mainnet and testnet on a root composition
+// this code no longer contains. Second, and this is the defect itself: not one of
+// the three is the genesis its own creation document implies. Every live D-Chain
+// was born from the binary, not from its chain-creation record.
 func TestGenesisLiveFleets(t *testing.T) {
-	live, err := hex.DecodeString(preLedgerImageHex)
+	live := map[string]string{
+		"lux-mainnet": preLedgerImageHex,
+		"lux-testnet": preLedgerImageHex,
+		"lux-devnet":  genesisImageHex,
+	}
+	byName := map[string]fleet{}
+	for _, f := range fleets {
+		byName[f.name] = f
+	}
+
+	for name, imageHex := range live {
+		raw, err := hex.DecodeString(imageHex)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blk, err := parseBlock(&VM{}, raw)
+		if err != nil {
+			t.Fatalf("%s: parse the live genesis image: %v", name, err)
+		}
+
+		want := genesisIDPreLedger
+		if name == "lux-devnet" {
+			want = genesisID
+		}
+		if blk.id.String() != want {
+			t.Fatalf("%s: live image hashes to %s, not the id luxd reports (%s)", name, blk.id, want)
+		}
+
+		// The whole defect in one assertion: what is running is not what the chain
+		// was created as.
+		bound := (&VM{}).canonicalGenesis([]byte(byName[name].doc))
+		if blk.id == bound.id {
+			t.Fatalf("%s: the live genesis already matches its creation document (%s) — "+
+				"this fleet no longer needs re-founding and the report is stale", name, bound.id)
+		}
+	}
+
+	// Mainnet and testnet cannot be reached from this code at all: their genesis was
+	// built by a root composition it no longer contains, so a dexvm plugin built
+	// here must refuse to serve them rather than fork at block 1.
+	preLedger, err := hex.DecodeString(preLedgerImageHex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mainnetLive, err := parseBlock(&VM{}, live)
+	stranded, err := parseBlock(&VM{}, preLedger)
 	if err != nil {
-		t.Fatalf("parse the live mainnet genesis image: %v", err)
+		t.Fatal(err)
 	}
-	if mainnetLive.id.String() != genesisIDPreLedger {
-		t.Fatalf("live mainnet image hashes to %s, not the id luxd reports (%s)",
-			mainnetLive.id, genesisIDPreLedger)
-	}
-
-	// No document produces the devnet chain; that is the one this binary can serve.
-	if (&VM{}).canonicalGenesis(nil).id.String() != genesisID {
-		t.Fatal("the document-less genesis no longer matches lux-devnet")
-	}
-
-	// Nothing this binary can derive reproduces mainnet/testnet. Their genesis was
-	// built by a root composition this code no longer contains, so a dexvm plugin
-	// built from here cannot join those chains — it must refuse, not fork at
-	// block 1.
-	for name, g := range map[string]*Block{
-		"no document":     (&VM{}).canonicalGenesis(nil),
-		"mainnet doc":     (&VM{}).canonicalGenesis([]byte(mainnetCreationDocument)),
-		"arbitrary bytes": (&VM{}).canonicalGenesis([]byte("anything at all")),
+	for _, doc := range [][]byte{
+		nil,
+		[]byte(mainnetDocument),
+		[]byte(testnetDocument),
+		[]byte(devnetDocument),
+		[]byte("anything at all"),
 	} {
-		if g.id == mainnetLive.id {
-			t.Fatalf("%s reproduced the pre-ledger mainnet genesis; the pin is wrong", name)
+		if (&VM{}).canonicalGenesis(doc).id == stranded.id {
+			t.Fatalf("this binary reproduced the pre-ledger genesis from a %d-byte document; the pin is wrong", len(doc))
 		}
 	}
 }
@@ -352,7 +469,7 @@ func TestGenesisRecoversHeight0ChainThenRefuses(t *testing.T) {
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
-		Genesis:  []byte(mainnetCreationDocument),
+		Genesis:  []byte(mainnetDocument),
 		Config:   authConfig(t),
 	})
 	if err == nil {
