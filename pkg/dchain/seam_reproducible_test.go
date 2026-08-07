@@ -55,8 +55,8 @@ func TestSeam_ImportReplaysWithoutSharedMemory(t *testing.T) {
 	h.buildAccept(t)
 
 	const locked = 200
-	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+	orderID := DeriveOrderID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDOrderOp(t, orderID, takerAddr, quote, locked,
 		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
 
 	// Build the seam block WITHOUT accepting it, so the parent state is still the state
@@ -85,11 +85,11 @@ func TestSeam_ImportReplaysWithoutSharedMemory(t *testing.T) {
 	// this block's own Accept would. A replaying node sees this world, never the one
 	// above.
 	if err := h.dSM.Apply(map[ids.ID]*atomic.Requests{
-		h.cChainID: {RemoveRequests: [][]byte{intentID[:]}},
+		h.cChainID: {RemoveRequests: [][]byte{orderID[:]}},
 	}); err != nil {
 		t.Fatalf("consume object: %v", err)
 	}
-	if vals, _ := h.dSM.Get(h.cChainID, [][]byte{intentID[:]}); len(vals) == 1 && len(vals[0]) != 0 {
+	if vals, _ := h.dSM.Get(h.cChainID, [][]byte{orderID[:]}); len(vals) == 1 && len(vals[0]) != 0 {
 		t.Fatal("the object must be gone for this test to mean anything")
 	}
 
@@ -162,20 +162,20 @@ func TestSeam_ForgedObjectKillsTheBlockNotTheRoot(t *testing.T) {
 
 	const locked = 200
 	op := seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100}
-	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked, op)
+	orderID := DeriveOrderID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDOrderOp(t, orderID, takerAddr, quote, locked, op)
 
 	// An honest block passes.
-	honest := h.importTx(t, intentID)
+	honest := h.importTx(t, orderID)
 	h.vm.autoDriveSeam = false
 	h.vm.mempool.Add(honest)
 	h.buildAccept(t)
 
 	// A forged block: the id names a real object, but the bytes claim TEN TIMES the
 	// value. Nothing in execution can catch this — it binds what it is handed.
-	forgedID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 1)
-	h.writeCToDIntentOp(t, forgedID, takerAddr, quote, locked, op)
-	forgedObj := encodeSeamIntentObject(takerAddr, quote, locked*10, op)
+	forgedID := DeriveOrderID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 1)
+	h.writeCToDOrderOp(t, forgedID, takerAddr, quote, locked, op)
+	forgedObj := encodeSeamOrderObject(takerAddr, quote, locked*10, op)
 	forged, err := NewTx(TxImport, EncodeSeamImportBody(forgedID, forgedObj))
 	if err != nil {
 		t.Fatalf("NewTx: %v", err)
@@ -188,7 +188,7 @@ func TestSeam_ForgedObjectKillsTheBlockNotTheRoot(t *testing.T) {
 
 	// And an import naming an object that is not there at all is equally refused.
 	absentID := ids.ID{0xAB, 0x5E, 0x17}
-	absent, _ := NewTx(TxImport, EncodeSeamImportBody(absentID, encodeSeamIntentObject(takerAddr, quote, locked, op)))
+	absent, _ := NewTx(TxImport, EncodeSeamImportBody(absentID, encodeSeamOrderObject(takerAddr, quote, locked, op)))
 	blk2 := newBlock(h.vm, h.vm.lastAcceptedID, h.vm.lastAcceptedHeight+1, h.vm.blockTimestamp(), [Size]byte{}, []*Tx{absent})
 	if err := blk2.Verify(context.Background()); err == nil {
 		t.Fatal("a block importing an object that is not in shared memory was accepted (unbacked mint)")
@@ -211,7 +211,7 @@ func TestSeam_BootstrapGateIsRequired(t *testing.T) {
 	quote := assetID32(0x90)
 	op := seamOp{Market: [32]byte{0x5E, 0xA4}, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100}
 	absentID := ids.ID{0x60, 0x0F}
-	tx, _ := NewTx(TxImport, EncodeSeamImportBody(absentID, encodeSeamIntentObject(takerAddr, quote, 200, op)))
+	tx, _ := NewTx(TxImport, EncodeSeamImportBody(absentID, encodeSeamOrderObject(takerAddr, quote, 200, op)))
 	blk := newBlock(h.vm, h.vm.lastAcceptedID, h.vm.lastAcceptedHeight+1, h.vm.blockTimestamp(), [Size]byte{}, []*Tx{tx})
 
 	h.vm.normalOp = false
@@ -239,7 +239,7 @@ func TestSeam_BootstrapGateIsRequired(t *testing.T) {
 	}
 }
 
-// TestSeam_OldAndNewCannotDisagree is the wire-change safety proof. The intent
+// TestSeam_OldAndNewCannotDisagree is the wire-change safety proof. The order
 // object and the TxImport body both changed width, so the question that matters is not
 // "can a mixed fleet keep working" (it cannot) but "can a mixed fleet DISAGREE about a
 // block". It cannot, and the reason is that the two generations are mutually UNPARSEABLE
@@ -255,13 +255,13 @@ func TestSeam_BootstrapGateIsRequired(t *testing.T) {
 // This test asserts the mechanism directly: a frame of the wrong width for its type is
 // refused at parse, in both directions, and a block containing one cannot be decoded.
 func TestSeam_OldAndNewCannotDisagree(t *testing.T) {
-	intentID := ids.ID{0xF1, 0xA6}
+	orderID := ids.ID{0xF1, 0xA6}
 	owner := common.HexToAddress("0x00112233445566778899aabbccddeeff00112233")
 	op := seamOp{Market: [32]byte{0x01}, Side: seamSideSell, LimitPrice: 2 * dex.PriceMultiplier, Size: 10}
-	object := encodeSeamIntentObject(owner, assetID32(0x90), 100, op)
+	object := encodeSeamOrderObject(owner, assetID32(0x90), 100, op)
 
 	// The new frame, as this build writes it.
-	newTx, err := NewTx(TxImport, EncodeSeamImportBody(intentID, object))
+	newTx, err := NewTx(TxImport, EncodeSeamImportBody(orderID, object))
 	if err != nil {
 		t.Fatalf("NewTx: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestSeam_OldAndNewCannotDisagree(t *testing.T) {
 
 	// What an OLD node would put on the wire: the id alone. A new node must REFUSE it,
 	// not execute it against an invented operation.
-	oldFrame := append([]byte{byte(TxImport)}, intentID[:]...)
+	oldFrame := append([]byte{byte(TxImport)}, orderID[:]...)
 	if _, err := ParseTx(oldFrame); err == nil {
 		t.Fatal("a new node parsed an OLD 32-byte TxImport body. It would then have to import " +
 			"value with no operation attached — an order the taker never authorized.")
@@ -293,17 +293,17 @@ func TestSeam_OldAndNewCannotDisagree(t *testing.T) {
 	// And an object of the OLD width is refused by the decoder even if it reaches it:
 	// no operation, no import.
 	valueOnly := encodeSeamObject(railSwap, owner, assetID32(0x90), 100, 0)
-	if _, _, _, _, ok := decodeSeamIntentObject(valueOnly); ok {
-		t.Fatal("a 69-byte value object decoded as an intent")
+	if _, _, _, _, ok := decodeSeamOrderObject(valueOnly); ok {
+		t.Fatal("a 69-byte value object decoded as an order")
 	}
 }
 
-// TestSeamIntentWire_GoldenMatchesPrecompile pins THIS repo's intent encoder against the
-// SAME cross-repo golden precompile/dex pins its encodeIntentObject to. The two repos
+// TestSeamOrderWire_GoldenMatchesPrecompile pins THIS repo's order encoder against the
+// SAME cross-repo golden precompile/dex pins its encodeOrderObject to. The two repos
 // cannot import each other, so this vector is the only thing keeping the operation wire
 // in lockstep — and an operation that decodes differently on the two sides is a taker's
 // order executed at terms they never authorized.
-func TestSeamIntentWire_GoldenMatchesPrecompile(t *testing.T) {
+func TestSeamOrderWire_GoldenMatchesPrecompile(t *testing.T) {
 	const golden = "00" + // rail (swap)
 		"112233445566778899aabbccddeeff0102030405" + // owner (20)
 		"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf" + // asset (32)
@@ -321,24 +321,24 @@ func TestSeamIntentWire_GoldenMatchesPrecompile(t *testing.T) {
 		market[i] = byte(0xB0 + i)
 	}
 	op := seamOp{Market: market, Side: seamSideSell, LimitPrice: 2 * dex.PriceMultiplier, Size: 1000}
-	got := encodeSeamIntentObject(owner, asset, 0x0102030405060708, op)
-	if len(got) != seamIntentObjectSize {
-		t.Fatalf("intent object width %d, want %d", len(got), seamIntentObjectSize)
+	got := encodeSeamOrderObject(owner, asset, 0x0102030405060708, op)
+	if len(got) != seamOrderObjectSize {
+		t.Fatalf("order object width %d, want %d", len(got), seamOrderObjectSize)
 	}
 	if hexOf(got) != golden {
-		t.Fatalf("C->D intent wire DIVERGED from the precompile golden:\n got=%s\nwant=%s\n"+
+		t.Fatalf("C->D order wire DIVERGED from the precompile golden:\n got=%s\nwant=%s\n"+
 			"the operation would decode differently on the two sides — a taker's order run at "+
 			"terms they never authorized. Re-align dex/pkg/dchain and precompile/dex in lockstep.",
 			hexOf(got), golden)
 	}
 	// Round trip, and the value head is byte-identical to the canonical 69-byte object.
-	gotOwner, gotAsset, gotAmount, gotOp, ok := decodeSeamIntentObject(got)
+	gotOwner, gotAsset, gotAmount, gotOp, ok := decodeSeamOrderObject(got)
 	if !ok || gotOwner != owner || gotAsset != asset || gotAmount != 0x0102030405060708 || gotOp != op {
 		t.Fatalf("round trip lost a field: ok=%v op=%+v", ok, gotOp)
 	}
 	head := encodeSeamObject(railSwap, owner, asset, 0x0102030405060708, 0)
 	if hexOf(got[:seamObjectSize]) != hexOf(head) {
-		t.Fatal("the intent's value head diverged from the canonical 69-byte object: every " +
+		t.Fatal("the order's value head diverged from the canonical 69-byte object: every " +
 			"settlement-side decoder reads exactly those bytes")
 	}
 }
@@ -408,8 +408,8 @@ func TestSeam_RejectDoesNotRequeueDriveLegs(t *testing.T) {
 	takerAddr := h.addr(t, "requeue-taker")
 	quote := assetID32(0x90)
 	const locked = 200
-	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+	orderID := DeriveOrderID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDOrderOp(t, orderID, takerAddr, quote, locked,
 		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
 
 	// A client tx rides along so the test can tell "requeued nothing" from "requeued
@@ -540,10 +540,10 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 	step(openMarketTx(t, pool, base, quote), depositTx(t, "twonode-maker", base, 100))
 	step(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
 
-	// One C->D intent, flushed once into the shared partition both nodes read.
+	// One C->D order, flushed once into the shared partition both nodes read.
 	const locked = 200
-	intentID := DeriveIntentID(96369, cChainID, dChainID, takerAddr, quote, locked, pool, 0)
-	obj := encodeSeamIntentObject(takerAddr, quote, locked, seamOp{
+	orderID := DeriveOrderID(96369, cChainID, dChainID, takerAddr, quote, locked, pool, 0)
+	obj := encodeSeamOrderObject(takerAddr, quote, locked, seamOp{
 		Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100,
 	})
 	// C's accept flushes the object into EVERY node's own shared memory, because every
@@ -551,10 +551,10 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 	for _, n := range []*node{pNode, fNode} {
 		if err := n.cSM.Apply(map[ids.ID]*atomic.Requests{
 			dChainID: {PutRequests: []*atomic.Element{{
-				Key: intentID[:], Value: obj, Traits: [][]byte{takerAddr[:], SeamPendingTrait},
+				Key: orderID[:], Value: obj, Traits: [][]byte{takerAddr[:], SeamPendingTrait},
 			}}},
 		}); err != nil {
-			t.Fatalf("flush intent: %v", err)
+			t.Fatalf("flush order: %v", err)
 		}
 	}
 
@@ -565,7 +565,7 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 		t.Fatal("the proposer's block carries no import")
 	}
 	orderBlk := step()
-	if _, ok := findTx(orderBlk, TxIntentSubmit); !ok {
+	if _, ok := findTx(orderBlk, TxOrderSubmit); !ok {
 		t.Fatal("the proposer's block carries no taker order")
 	}
 	if proposer.lastRoot != follower.lastRoot {
@@ -574,7 +574,7 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 	}
 
 	// And the trade actually happened, on BOTH nodes' ledgers.
-	acct := seamAccount(intentID)
+	acct := seamAccount(orderID)
 	for name, vm := range map[string]*VM{"proposer": proposer, "follower": follower} {
 		got, err := getAvailable(vm.db, acct, base)
 		if err != nil || got != 100 {
@@ -591,7 +591,7 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 	expBlk := step()
 	exp, ok := findTx(expBlk, TxExport)
 	if !ok {
-		t.Fatal("no export driven for the settled intent")
+		t.Fatal("no export driven for the settled order")
 	}
 	if proposer.lastRoot != follower.lastRoot {
 		t.Fatalf("nodes diverged on the export block: proposer %x, follower %x",

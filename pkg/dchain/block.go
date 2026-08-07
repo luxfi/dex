@@ -266,7 +266,7 @@ func (b *Block) Accept(ctx context.Context) error {
 	// Commit the overlay AND the block's cross-chain seam operations (C->D removes /
 	// D->C puts) in one atomic write (atomic.go). With no seam txs this is the plain
 	// overlay commit; with seam txs the shared-memory ops land atomically with the
-	// state so a consumed intent / produced settlement can never diverge from the
+	// state so a consumed order / produced settlement can never diverge from the
 	// committed ledger.
 	if err := b.vm.commitSeamAtomic(b.overlay, b.atomic); err != nil {
 		return fmt.Errorf("dchain: commit block %s: %w", b.id, err)
@@ -484,24 +484,24 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 
 		case TxImport:
-			// CONSUME a C->D atomic intent object and fund the taker's native D
+			// CONSUME a C->D atomic order object and fund the taker's native D
 			// account (atomic.go). Authority is the consumed object, not a signature
 			// (TxImport.requiresAuth() is false), so the auth gate above skipped it.
 			// The object's BYTES ride in the body, so this binds them and never reads
 			// shared memory: execution is a pure function of the block and replays
 			// byte-identically forever. Block.verifySeamImports proves those bytes are
 			// the real recorded object.
-			intentID, object, derr := decodeSeamImportBody(tx.Body)
+			orderID, object, derr := decodeSeamImportBody(tx.Body)
 			if derr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam import decode: %w", i, derr)
 			}
-			credited, ok, ierr := b.vm.executeImport(overlay, ar, intentID, object)
+			credited, ok, ierr := b.vm.executeImport(overlay, ar, orderID, object)
 			if ierr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam import: %w", i, ierr)
 			}
 			if !ok {
 				// Deterministic per-tx reject (object not flushed yet / replay / unwired
-				// seam). NOT marked seen, so a not-yet-available intent retries later.
+				// seam). NOT marked seen, so a not-yet-available order retries later.
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
@@ -516,11 +516,11 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			// DEBIT the taker's settled native D balance and write a D->C settlement
 			// object the precompile's ImportSettlement consumes (atomic.go). The
 			// exporting tx id seeds the deterministic output id; object-authorized.
-			intentID, asset, amount, spent, derr := decodeSeamExportBody(tx.Body)
+			orderID, asset, amount, spent, derr := decodeSeamExportBody(tx.Body)
 			if derr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam export decode: %w", i, derr)
 			}
-			outputID, ok, eerr := b.vm.executeExport(overlay, ar, txID, intentID, asset, amount, spent)
+			outputID, ok, eerr := b.vm.executeExport(overlay, ar, txID, orderID, asset, amount, spent)
 			if eerr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam export: %w", i, eerr)
 			}
@@ -528,14 +528,14 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
-			// CLOSE the intent escrow once this export has fully drained the taker's
+			// CLOSE the order escrow once this export has fully drained the taker's
 			// cross-chain account (drive.go) — making each cross-chain swap one-shot, so a
-			// settled intent is not re-exported by a later block's drive and the owner can
-			// import a fresh intent. Order-independent: it fires on whichever leg empties
+			// settled order is not re-exported by a later block's drive and the owner can
+			// import a fresh order. Order-independent: it fires on whichever leg empties
 			// the account (the lone proceeds leg of a full fill, or the refund leg of a
 			// partial fill). A still-funded account is left open for a subsequent leg.
-			if cerr := b.vm.closeSeamIntentIfDrained(overlay, intentID); cerr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam intent close: %w", i, cerr)
+			if cerr := b.vm.closeSeamOrderIfDrained(overlay, orderID); cerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam order close: %w", i, cerr)
 			}
 			// orderID carries a compact handle of the output id for the ack; the keeper
 			// reads the full id from the seamout: record (or recomputes deriveSeamOutputID).
@@ -548,7 +548,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		}
 
 		// ---- The seam's taker order ----
-		// TxIntentSubmit carries the intent id ALONE; resolveSeamOrder turns it into
+		// TxOrderSubmit carries the order id ALONE; resolveSeamOrder turns it into
 		// the taker's actual order frame. From there the tx is an ordinary submit: it
 		// flows through the IDENTICAL custody gate, matcher and settlement path a
 		// signed dex_submit takes, with nothing duplicated for the seam.
@@ -556,7 +556,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		// orderTx is the DERIVED frame; tx stays the real transaction, so the outcome,
 		// the seen: key and the tx root all remain bound to what the block contains.
 		orderTx := tx
-		if tx.Type == TxIntentSubmit {
+		if tx.Type == TxOrderSubmit {
 			derived, rejected, serr := b.resolveSeamOrder(overlay, tx)
 			if serr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam submit: %w", i, serr)
@@ -1193,39 +1193,39 @@ func (b *Block) verifySeamImports() error {
 		if tx.Type != TxImport {
 			continue
 		}
-		intentID, object, err := decodeSeamImportBody(tx.Body)
+		orderID, object, err := decodeSeamImportBody(tx.Body)
 		if err != nil {
 			return fmt.Errorf("dchain: block %s: %w", b.id, err)
 		}
-		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{intentID[:]})
+		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{orderID[:]})
 		if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
 			return fmt.Errorf("dchain: seam import unbacked in block %s (height %d): object %s is not in shared memory: %w",
-				b.id, b.height, intentID, gerr)
+				b.id, b.height, orderID, gerr)
 		}
 		if !bytes.Equal(vals[0], object) {
 			return fmt.Errorf("dchain: seam import forged in block %s (height %d): object %s declared %x but shared memory holds %x",
-				b.id, b.height, intentID, object[:8], vals[0][:min(8, len(vals[0]))])
+				b.id, b.height, orderID, object[:8], vals[0][:min(8, len(vals[0]))])
 		}
 	}
 	return nil
 }
 
-// markSeamSubmitted advances an intent escrow to seamIntentSubmitted — "this intent's
+// markSeamSubmitted advances an order escrow to seamOrderSubmitted — "this order's
 // order has had its one chance". Every terminal path of the submit leg goes through it,
 // including the rejects, because an escrow left `open` is never re-driven and never
 // exported: its principal would sit on D while C's deadline reclaim refunds the taker
 // the same principal.
-func (b *Block) markSeamSubmitted(db database.KeyValueWriter, intentID ids.ID, rec seamIntentRecord) error {
-	rec.Status = seamIntentSubmitted
-	return putSeamIntent(db, intentID, rec)
+func (b *Block) markSeamSubmitted(db database.KeyValueWriter, orderID ids.ID, rec seamOrderRecord) error {
+	rec.Status = seamOrderSubmitted
+	return putSeamOrder(db, orderID, rec)
 }
 
-// resolveSeamOrder turns a TxIntentSubmit into the order frame it stands for, and
-// advances the intent's escrow past the point of no return.
+// resolveSeamOrder turns a TxOrderSubmit into the order frame it stands for, and
+// advances the order's escrow past the point of no return.
 //
 // THE OPERATION IS DERIVED, NOT CARRIED. The taker declared it once, in the C->D
 // object, and this block's own TxImport recorded it into the escrow. seamSubmitBody is
-// the one definition of what that intent means as an order; restating it on the wire
+// the one definition of what that order means as an order; restating it on the wire
 // would create a second copy for the two to be reconciled against each other.
 //
 // THE MARKET IS NAMED BY THE OTHER CHAIN, so it must never be able to abort a block. C
@@ -1241,23 +1241,23 @@ func (b *Block) markSeamSubmitted(db database.KeyValueWriter, intentID ids.ID, r
 // the same principal. A rejected order costs the taker nothing — the export drive
 // returns their whole principal — but a stranded one costs the pool.
 func (b *Block) resolveSeamOrder(db *versiondb.Database, tx *Tx) (orderTx *Tx, rejected bool, err error) {
-	var intentID ids.ID
-	copy(intentID[:], tx.Body)
+	var orderID ids.ID
+	copy(orderID[:], tx.Body)
 
-	rec, exists, gerr := getSeamIntent(db, intentID)
+	rec, exists, gerr := getSeamOrder(db, orderID)
 	if gerr != nil {
 		return nil, false, gerr
 	}
 	// `open` is the ONLY state an order may run from: this block's import credited the
-	// intent's account and no order has run yet. A missing escrow (the import rejected,
-	// or this names an intent that was never imported) and an already-`submitted` one
+	// order's account and no order has run yet. A missing escrow (the import rejected,
+	// or this names an order that was never imported) and an already-`submitted` one
 	// (a replay) both reject, moving nothing — and neither has an escrow to advance.
-	if !exists || rec.Status != seamIntentOpen {
+	if !exists || rec.Status != seamOrderOpen {
 		return nil, true, nil
 	}
 
-	// From here the intent's one chance is spent, whatever the answer.
-	if perr := b.markSeamSubmitted(db, intentID, rec); perr != nil {
+	// From here the order's one chance is spent, whatever the answer.
+	if perr := b.markSeamSubmitted(db, orderID, rec); perr != nil {
 		return nil, false, perr
 	}
 
@@ -1271,5 +1271,5 @@ func (b *Block) resolveSeamOrder(db *versiondb.Database, tx *Tx) (orderTx *Tx, r
 	} else if !bound {
 		return nil, true, nil
 	}
-	return &Tx{Type: TxSubmit, Body: seamSubmitBody(intentID, rec)}, false, nil
+	return &Tx{Type: TxSubmit, Body: seamSubmitBody(orderID, rec)}, false, nil
 }

@@ -22,8 +22,8 @@ import (
 // shared-memory objects the 0x9999 precompile (precompile/dex) speaks. It is the
 // D-side mirror of native_dchain_client.go:
 //
-//   - IMPORT (C->D): the precompile's SubmitSwapIntent locked the taker's tokenIn on
-//     C and wrote a C->D atomic INTENT object keyed by intentID. This VM CONSUMES that
+//   - IMPORT (C->D): the precompile's SubmitSwapOrder locked the taker's tokenIn on
+//     C and wrote a C->D atomic ORDER object keyed by orderID. This VM CONSUMES that
 //     object (Get under the C chain, then a shared-memory Remove) and FUNDS the taker's
 //     native D account with the recorded asset — the matcher then trades it natively.
 //     D is funded ONLY by consuming a C->D object (no mint): the value was already
@@ -39,13 +39,13 @@ import (
 //
 //	rail(1) | owner(20) | asset(32) | amount(8) | spent(8)
 //
-// and DeriveIntentID reproduces its SHA-256 intent-id derivation, so an object this
-// VM exports is consumable by ImportSettlement and an intent the precompile minted is
+// and DeriveOrderID reproduces its SHA-256 order-id derivation, so an object this
+// VM exports is consumable by ImportSettlement and an order the precompile minted is
 // importable here — ONE wire across precompile / proxy (chains/dexvm) / native. The
 // proxy carried the SAME 69-byte value but behind its own txs codec; this is the
 // native realization that needs no proxy and no external venue.
 //
-// A C->D SWAP INTENT CARRIES MORE THAN VALUE. Those 69 bytes are a value: "this much
+// A C->D SWAP ORDER CARRIES MORE THAN VALUE. Those 69 bytes are a value: "this much
 // of this asset belongs to this owner". A value says what moves; it does not say what
 // to DO with it. That is why this seam produced nothing: executeImport consumed the
 // object, credited the taker's D account, and stopped, because it had been told
@@ -53,15 +53,15 @@ import (
 // so driveSeamExports (which only fires on realized output) never fired, so Phase B
 // had no object and the settle reverted. The seam was unreachable BY CONSTRUCTION.
 //
-// So a C->D swap intent appends the OPERATION the taker authorized on C:
+// So a C->D swap order appends the OPERATION the taker authorized on C:
 //
 //	market(32) | side(1) | limitPrice(8) | size(8)   = 49 bytes
 //
-// giving a 118-byte intent object. WIDTH IS THE DISCRIMINATOR, and there are exactly
+// giving a 118-byte order object. WIDTH IS THE DISCRIMINATOR, and there are exactly
 // two canonical widths:
 //
 //	 69 -> a VALUE object: what this VM EXPORTS (D->C settlements). Instructs nothing.
-//	118 -> a C->D SWAP INTENT: value + operation. What this VM IMPORTS.
+//	118 -> a C->D SWAP ORDER: value + operation. What this VM IMPORTS.
 //
 // The value head is byte-for-byte unchanged, so the golden vectors pinning it stay
 // valid and every existing consumer of those bytes is untouched. Anything that is
@@ -108,12 +108,12 @@ const (
 // limitPrice(8) | size(8) = 49 bytes. IDENTICAL to precompile/dex seamOpSize.
 const seamOpSize = 32 + 1 + 8 + 8
 
-// seamIntentObjectSize is the fixed C->D SWAP INTENT object width: the 69-byte value
+// seamOrderObjectSize is the fixed C->D SWAP ORDER object width: the 69-byte value
 // head plus the 49-byte operation tail = 118 bytes. IDENTICAL to precompile/dex
-// intentObjectSize9999.
-const seamIntentObjectSize = seamObjectSize + seamOpSize
+// orderObjectSize9999.
+const seamOrderObjectSize = seamObjectSize + seamOpSize
 
-// seamOp is the CLOB operation a C->D swap intent instructs — every field a value
+// seamOp is the CLOB operation a C->D swap order instructs — every field a value
 // the taker fixed on C when they signed the swap, so this VM places their order
 // without inventing any part of it.
 //
@@ -136,25 +136,28 @@ type seamOp struct {
 
 // valid reports whether an operation is executable at all: a non-zero size, a
 // non-zero limit, and a side the matcher knows. An invalid operation is refused at
-// import — the intent's principal stays on C, reclaimable at its deadline, rather
+// import — the order's principal stays on C, reclaimable at its deadline, rather
 // than being credited on D against an order that can never run.
 func (op seamOp) valid() bool {
 	return op.Size != 0 && op.LimitPrice != 0 && op.LimitPrice <= maxPriceUnits &&
 		(op.Side == seamSideBuy || op.Side == seamSideSell)
 }
 
-// nativeIntentDomain scopes the intent-id derivation — IDENTICAL to precompile/dex
-// nativeIntentDomain so the id this VM recomputes for an imported object matches the
+// nativeOrderDomain scopes the order-id derivation — IDENTICAL to precompile/dex
+// nativeOrderDomain so the id this VM recomputes for an imported object matches the
 // id the precompile minted it under.
-const nativeIntentDomain = "lux.dex.native.intent.v1"
+//
+// The literal is the hash input, not a label, so it does not track this identifier:
+// changing a byte of it moves every order id the seam has ever derived.
+const nativeOrderDomain = "lux.dex.native.intent.v1"
 
 // Seam state schema (under the VM's init.DB namespace, committed in the block overlay
 // alongside the ledger so the consume/credit/escrow land atomically with the block):
 //
-//	seamintent:<intentID:32> ->
+//	seamintent:<orderID:32> ->
 //	        owner(20)|assetIn(32)|remaining(8)|status(1)|market(32)|side(1)|limit(8)|size(8)
-//	    the per-intent escrow written on IMPORT. It is the intent's WHOLE life in one
-//	    row: the import replay guard (a second import of the same intentID finds it),
+//	    the per-order escrow written on IMPORT. It is the order's WHOLE life in one
+//	    row: the import replay guard (a second import of the same orderID finds it),
 //	    the export binding (the full 20-byte owner the D->C object must name, the
 //	    locked asset, and the remaining principal the same-asset refund leg is capped
 //	    by — the D-side analog of the precompile's per-taker cap), the OPERATION the
@@ -166,7 +169,7 @@ const nativeIntentDomain = "lux.dex.native.intent.v1"
 //	    both directions: an order that filled nothing leaves only AssetIn and would
 //	    NEVER export, stranding the principal on D while C's deadline reclaim refunds
 //	    it (a mint); and any unrelated asset in the account would trigger an export
-//	    that is not this intent's. Recording the fact instead of inferring it makes
+//	    that is not this order's. Recording the fact instead of inferring it makes
 //	    each leg fire exactly once:
 //
 //	        open -> submitted -> reclaimed
@@ -175,34 +178,37 @@ const nativeIntentDomain = "lux.dex.native.intent.v1"
 //	         |         +-- the taker's order has RUN (filled, partially filled, or not
 //	         |             at all); whatever is in the account now is the final answer
 //	         +-- value imported, order not yet placed
-//	seamout:<outputID:32>    -> intentID(32)|asset(32)|amount(8)
+//	seamout:<outputID:32>    -> orderID(32)|asset(32)|amount(8)
 //	    the per-export settlement record written on EXPORT, so a keeper/SDK can read
 //	    which D->C object id to claim in the precompile's Phase-B hookData.
+//
+// These are on-disk key bytes and do not track their identifier names: renaming
+// "seamintent:" would orphan every escrow row already written.
 const (
-	prefixSeamIntent = "seamintent:"
-	prefixSeamOut    = "seamout:"
+	prefixSeamOrder = "seamintent:"
+	prefixSeamOut   = "seamout:"
 )
 
 const (
-	seamIntentOpen      uint8 = 0
-	seamIntentReclaimed uint8 = 1
-	// seamIntentSubmitted: the taker's order has RUN. Whatever the seam account holds
+	seamOrderOpen      uint8 = 0
+	seamOrderReclaimed uint8 = 1
+	// seamOrderSubmitted: the taker's order has RUN. Whatever the seam account holds
 	// from here on is the swap's final answer — proceeds, leftover input, or both —
 	// and the export drive settles ALL of it back to C. This is the state that makes
 	// a zero-fill swap exportable, closing the strand-then-reclaim mint.
-	seamIntentSubmitted uint8 = 2
+	seamOrderSubmitted uint8 = 2
 )
 
-// seamIntentRecordSize is the fixed escrow row width:
+// seamOrderRecordSize is the fixed escrow row width:
 // owner(20)|assetIn(32)|remaining(8)|status(1)|market(32)|side(1)|limit(8)|size(8).
-const seamIntentRecordSize = 20 + 32 + 8 + 1 + 32 + 1 + 8 + 8
+const seamOrderRecordSize = 20 + 32 + 8 + 1 + 32 + 1 + 8 + 8
 
-// seamIntentRecord is the decoded per-intent escrow.
-type seamIntentRecord struct {
+// seamOrderRecord is the decoded per-order escrow.
+type seamOrderRecord struct {
 	Owner     common.Address // the taker's full 20-byte C address (the D->C object owner)
 	AssetIn   [32]byte       // the locked input asset (the refund leg is capped in these units)
 	Remaining uint64         // remaining locked principal not yet refunded
-	Status    uint8          // seamIntentOpen / seamIntentSubmitted / seamIntentReclaimed
+	Status    uint8          // seamOrderOpen / seamOrderSubmitted / seamOrderReclaimed
 	Op        seamOp         // the CLOB operation the taker authorized on C
 }
 
@@ -210,24 +216,24 @@ var (
 	// ErrSeamNoAtomicMemory: the seam needs cross-chain shared memory + a resolved C
 	// chain id; a single-chain runtime cannot import/export (no mint, fail closed).
 	ErrSeamNoAtomicMemory = errors.New("dchain: native seam requires cross-chain atomic memory + C-Chain id")
-	// ErrSeamIntentReplay: a C->D intent id already imported (the escrow row exists).
-	ErrSeamIntentReplay = errors.New("dchain: C->D intent already imported (replay)")
+	// ErrSeamOrderReplay: a C->D order id already imported (the escrow row exists).
+	ErrSeamOrderReplay = errors.New("dchain: C->D order already imported (replay)")
 	// ErrSeamObjectMissing: no C->D object found in shared memory for the claimed id
 	// (not flushed yet, or already consumed) — never credit an unbacked import.
-	ErrSeamObjectMissing = errors.New("dchain: no C->D atomic object found for intent id")
+	ErrSeamObjectMissing = errors.New("dchain: no C->D atomic object found for order id")
 	// ErrSeamObjectMalformed: the recorded object is not the canonical 69-byte width.
 	ErrSeamObjectMalformed = errors.New("dchain: C->D atomic object malformed")
 	// ErrSeamWrongRail: a C->D object whose rail is not railSwap reached the swap seam.
 	ErrSeamWrongRail = errors.New("dchain: C->D atomic object is not a swap-rail object")
 	// ErrSeamBadAmount: a zero (or unrepresentable) object amount.
 	ErrSeamBadAmount = errors.New("dchain: C->D atomic object amount out of range")
-	// ErrSeamNoIntent: an export names no open intent escrow for the recorded owner.
-	ErrSeamNoIntent = errors.New("dchain: D->C export names no open intent escrow")
-	// ErrSeamExportExceedsIntent: a same-asset (refund) export exceeds the intent's
+	// ErrSeamNoOrder: an export names no open order escrow for the recorded owner.
+	ErrSeamNoOrder = errors.New("dchain: D->C export names no open order escrow")
+	// ErrSeamExportExceedsOrder: a same-asset (refund) export exceeds the order's
 	// remaining locked principal — the D-side per-taker cap (the export analog of the
-	// precompile's ErrSettleExceedsIntent), so an over-refund can never draw on other
+	// precompile's ErrSettleExceedsOrder), so an over-refund can never draw on other
 	// takers' pooled input.
-	ErrSeamExportExceedsIntent = errors.New("dchain: D->C refund export exceeds the intent's remaining locked principal")
+	ErrSeamExportExceedsOrder = errors.New("dchain: D->C refund export exceeds the order's remaining locked principal")
 )
 
 // encodeSeamObject serializes a cross-chain value object as the shared-memory value,
@@ -261,12 +267,12 @@ func decodeSeamObject(v []byte) (rail seamRail, owner common.Address, asset [32]
 	return rail, owner, asset, amount, spent, true
 }
 
-// encodeSeamIntentObject serializes a C->D swap intent — the canonical value head
+// encodeSeamOrderObject serializes a C->D swap order — the canonical value head
 // with spent=0 (a C->D leg has matched nothing yet) followed by the operation tail.
-// BYTE-IDENTICAL with precompile/dex encodeIntentObject; the golden vector in
+// BYTE-IDENTICAL with precompile/dex encodeOrderObject; the golden vector in
 // atomic_seam_wire_test.go pins the two encoders against the same string.
-func encodeSeamIntentObject(owner common.Address, asset [32]byte, amount uint64, op seamOp) []byte {
-	v := make([]byte, 0, seamIntentObjectSize)
+func encodeSeamOrderObject(owner common.Address, asset [32]byte, amount uint64, op seamOp) []byte {
+	v := make([]byte, 0, seamOrderObjectSize)
 	v = append(v, encodeSeamObject(railSwap, owner, asset, amount, 0)...)
 	tail := make([]byte, seamOpSize)
 	copy(tail[0:32], op.Market[:])
@@ -276,14 +282,14 @@ func encodeSeamIntentObject(owner common.Address, asset [32]byte, amount uint64,
 	return append(v, tail...)
 }
 
-// decodeSeamIntentObject reads back a C->D swap intent. ok=false for any width other
+// decodeSeamOrderObject reads back a C->D swap order. ok=false for any width other
 // than the canonical 118, or any rail other than railSwap — so a 69-byte VALUE object
-// (an op-less intent from a not-yet-upgraded C node, or a settlement object misrouted
+// (an op-less order from a not-yet-upgraded C node, or a settlement object misrouted
 // here) is REFUSED rather than imported with an invented operation. Fail closed: no
 // operation, no import. The taker's principal stays locked on C and is reclaimable at
-// the intent's own deadline.
-func decodeSeamIntentObject(v []byte) (owner common.Address, asset [32]byte, amount uint64, op seamOp, ok bool) {
-	if len(v) != seamIntentObjectSize {
+// the order's own deadline.
+func decodeSeamOrderObject(v []byte) (owner common.Address, asset [32]byte, amount uint64, op seamOp, ok bool) {
+	if len(v) != seamOrderObjectSize {
 		return common.Address{}, [32]byte{}, 0, seamOp{}, false
 	}
 	rail, owner, asset, amount, _, headOK := decodeSeamObject(v[:seamObjectSize])
@@ -298,9 +304,9 @@ func decodeSeamIntentObject(v []byte) (owner common.Address, asset [32]byte, amo
 	return owner, asset, amount, op, true
 }
 
-// DeriveIntentID computes the deterministic id of a C->D atomic intent object — the
+// DeriveOrderID computes the deterministic id of a C->D atomic order object — the
 // shared-memory key the precompile PUTs it under (and that this VM's import consumes).
-// It is BYTE-IDENTICAL to precompile/dex DeriveIntentID:
+// It is BYTE-IDENTICAL to precompile/dex DeriveOrderID:
 //
 //	SHA-256( domain | networkID | cChainID | dChainID |
 //	         account | assetIn | amountIn | marketID | nonce )
@@ -308,7 +314,7 @@ func decodeSeamIntentObject(v []byte) (owner common.Address, asset [32]byte, amo
 // Every component is fixed width. The native VM does not re-derive ids on the import
 // path (it consumes by the key carried in the TxImport body); this is exported so the
 // keeper / SDK / tests derive the SAME id the precompile minted, off-chain.
-func DeriveIntentID(
+func DeriveOrderID(
 	networkID uint32,
 	cChainID, dChainID ids.ID,
 	account common.Address,
@@ -318,7 +324,7 @@ func DeriveIntentID(
 	nonce uint64,
 ) ids.ID {
 	h := sha256.New()
-	h.Write([]byte(nativeIntentDomain))
+	h.Write([]byte(nativeOrderDomain))
 	var u4 [4]byte
 	binary.BigEndian.PutUint32(u4[:], networkID)
 	h.Write(u4[:])
@@ -348,44 +354,44 @@ func deriveSeamOutputID(exportTxID ids.ID, index uint32) ids.ID {
 	return ids.ID(sha256.Sum256(buf[:]))
 }
 
-// seamAccount is the PER-INTENT ledger account a cross-chain swap runs in: the 16-byte
-// fold of the intent id, domain-separated so it can never collide with an Account16
+// seamAccount is the PER-ORDER ledger account a cross-chain swap runs in: the 16-byte
+// fold of the order id, domain-separated so it can never collide with an Account16
 // derived from a signer address.
 //
 // WHY NOT THE TAKER'S OWN ACCOUNT. The import used to credit Account16(secp, owner) —
 // the same account the taker's own signed D orders draw from — so that the taker could
 // place the order themselves. Now the seam places it, and sharing the account becomes a
 // live conservation hole: the export drive settles the account's balances back to C,
-// and it cannot tell this intent's proceeds from the taker's unrelated native D
+// and it cannot tell this order's proceeds from the taker's unrelated native D
 // balance. A taker holding 1000 ZOO natively and swapping in for 5 ZOO would have all
 // 1005 exported, and C would credit 1005 out of the shared seam reserve while only 5
 // of it was ever backed by this seam — draining other takers' pooled input. That is
 // theft from the pool, reachable the moment the seam works.
 //
-// One account per intent removes the attribution problem instead of bounding it: the
-// account is born when the intent is imported, only this intent's order draws on it,
-// and everything left in it at the end IS this intent's answer. The spent witness
+// One account per order removes the attribution problem instead of bounding it: the
+// account is born when the order is imported, only this order's order draws on it,
+// and everything left in it at the end IS this order's answer. The spent witness
 // (Remaining - leftover) becomes exact rather than inferred, the escrow closes on a
 // truly empty account, and a taker's native D balance is untouchable by the seam.
 //
 // The D->C object's owner is still the escrow's RECORDED 20-byte C address
 // (executeExport), so the account change is invisible to C: value returns to exactly
 // the same place it always did.
-func seamAccount(intentID ids.ID) userKey {
-	d := hash.ComputeKeccak256Array([]byte(seamAccountDomain), intentID[:])
+func seamAccount(orderID ids.ID) userKey {
+	d := hash.ComputeKeccak256Array([]byte(seamAccountDomain), orderID[:])
 	var a userKey
 	copy(a[:], d[:len(a)])
 	return a
 }
 
-// seamAccountDomain scopes the intent -> account fold. Distinct from accountDomain
+// seamAccountDomain scopes the order -> account fold. Distinct from accountDomain
 // (auth.go), so a seam account and a signer's account live in disjoint spaces and no
-// signature can ever authorize a draw on an intent's escrow account.
+// signature can ever authorize a draw on an order's escrow account.
 const seamAccountDomain = "lux.dchain.seam.account.v1"
 
 // --- TxImport / TxExport body codecs ---------------------------------------------
 
-// EncodeSeamImportBody builds a TxImport body: intentID[32] | object[118] — the
+// EncodeSeamImportBody builds a TxImport body: orderID[32] | object[118] — the
 // shared-memory key of the C->D object to consume, AND THE OBJECT'S OWN BYTES.
 //
 // WHY THE OBJECT TRAVELS IN THE TRANSACTION (the D-side half of the same defect the
@@ -415,30 +421,30 @@ const seamAccountDomain = "lux.dchain.seam.account.v1"
 //
 // The ship rule did not weaken, it moved: D is still funded ONLY by consuming a real
 // C->D object. What changed is where that is proven.
-func EncodeSeamImportBody(intentID ids.ID, object []byte) []byte {
+func EncodeSeamImportBody(orderID ids.ID, object []byte) []byte {
 	b := make([]byte, seamImportBodySize)
-	copy(b[0:32], intentID[:])
+	copy(b[0:32], orderID[:])
 	copy(b[32:], object)
 	return b
 }
 
-// decodeSeamImportBody splits a TxImport body into the intent id and the carried
+// decodeSeamImportBody splits a TxImport body into the order id and the carried
 // object bytes. The fixed bodySize gate already rejects any other width at parse, so
 // this only fails on internal misuse.
-func decodeSeamImportBody(body []byte) (intentID ids.ID, object []byte, err error) {
+func decodeSeamImportBody(body []byte) (orderID ids.ID, object []byte, err error) {
 	if len(body) != seamImportBodySize {
 		return ids.Empty, nil, fmt.Errorf("dchain: seam import body width %d, want %d", len(body), seamImportBodySize)
 	}
-	copy(intentID[:], body[0:32])
-	return intentID, body[32:], nil
+	copy(orderID[:], body[0:32])
+	return orderID, body[32:], nil
 }
 
-// EncodeSeamExportBody builds a TxExport body: intentID[32] | asset[32] | amount[8] |
+// EncodeSeamExportBody builds a TxExport body: orderID[32] | asset[32] | amount[8] |
 // spent[8]. asset/amount are the D->C object's value; spent is the matched input
 // witness on a proceeds leg (0 on a refund). Exported for the keeper / SDK / tests.
-func EncodeSeamExportBody(intentID ids.ID, asset [32]byte, amount, spent uint64) []byte {
+func EncodeSeamExportBody(orderID ids.ID, asset [32]byte, amount, spent uint64) []byte {
 	b := make([]byte, seamExportBodySize)
-	copy(b[0:32], intentID[:])
+	copy(b[0:32], orderID[:])
 	copy(b[32:64], asset[:])
 	binary.BigEndian.PutUint64(b[64:72], amount)
 	binary.BigEndian.PutUint64(b[72:80], spent)
@@ -448,28 +454,28 @@ func EncodeSeamExportBody(intentID ids.ID, asset [32]byte, amount, spent uint64)
 // decodeSeamExportBody parses a TxExport body. A short body is a malformed tx (block
 // abort) — the fixed bodySize gate already rejects undersized frames at parse, so this
 // only fails on internal misuse.
-func decodeSeamExportBody(body []byte) (intentID ids.ID, asset [32]byte, amount, spent uint64, err error) {
+func decodeSeamExportBody(body []byte) (orderID ids.ID, asset [32]byte, amount, spent uint64, err error) {
 	if len(body) < seamExportBodySize {
 		return ids.Empty, [32]byte{}, 0, 0, fmt.Errorf("dchain: seam export body too short: %d", len(body))
 	}
-	copy(intentID[:], body[0:32])
+	copy(orderID[:], body[0:32])
 	copy(asset[:], body[32:64])
 	amount = binary.BigEndian.Uint64(body[64:72])
 	spent = binary.BigEndian.Uint64(body[72:80])
-	return intentID, asset, amount, spent, nil
+	return orderID, asset, amount, spent, nil
 }
 
-// --- per-intent escrow (seamintent:) ---------------------------------------------
+// --- per-order escrow (seamintent:) ---------------------------------------------
 
-func seamIntentKey(intentID ids.ID) []byte {
-	k := make([]byte, len(prefixSeamIntent)+32)
-	copy(k, prefixSeamIntent)
-	copy(k[len(prefixSeamIntent):], intentID[:])
+func seamOrderKey(orderID ids.ID) []byte {
+	k := make([]byte, len(prefixSeamOrder)+32)
+	copy(k, prefixSeamOrder)
+	copy(k[len(prefixSeamOrder):], orderID[:])
 	return k
 }
 
-func encodeSeamIntent(r seamIntentRecord) []byte {
-	v := make([]byte, seamIntentRecordSize)
+func encodeSeamOrder(r seamOrderRecord) []byte {
+	v := make([]byte, seamOrderRecordSize)
 	copy(v[0:20], r.Owner[:])
 	copy(v[20:52], r.AssetIn[:])
 	binary.BigEndian.PutUint64(v[52:60], r.Remaining)
@@ -481,11 +487,11 @@ func encodeSeamIntent(r seamIntentRecord) []byte {
 	return v
 }
 
-func decodeSeamIntent(v []byte) (seamIntentRecord, error) {
-	if len(v) != seamIntentRecordSize {
-		return seamIntentRecord{}, fmt.Errorf("dchain: corrupt seam intent len=%d", len(v))
+func decodeSeamOrder(v []byte) (seamOrderRecord, error) {
+	if len(v) != seamOrderRecordSize {
+		return seamOrderRecord{}, fmt.Errorf("dchain: corrupt seam order len=%d", len(v))
 	}
-	var r seamIntentRecord
+	var r seamOrderRecord
 	copy(r.Owner[:], v[0:20])
 	copy(r.AssetIn[:], v[20:52])
 	r.Remaining = binary.BigEndian.Uint64(v[52:60])
@@ -497,21 +503,21 @@ func decodeSeamIntent(v []byte) (seamIntentRecord, error) {
 	return r, nil
 }
 
-func putSeamIntent(db database.KeyValueWriter, intentID ids.ID, r seamIntentRecord) error {
-	return db.Put(seamIntentKey(intentID), encodeSeamIntent(r))
+func putSeamOrder(db database.KeyValueWriter, orderID ids.ID, r seamOrderRecord) error {
+	return db.Put(seamOrderKey(orderID), encodeSeamOrder(r))
 }
 
-func getSeamIntent(db database.KeyValueReader, intentID ids.ID) (seamIntentRecord, bool, error) {
-	v, err := db.Get(seamIntentKey(intentID))
+func getSeamOrder(db database.KeyValueReader, orderID ids.ID) (seamOrderRecord, bool, error) {
+	v, err := db.Get(seamOrderKey(orderID))
 	if err == database.ErrNotFound {
-		return seamIntentRecord{}, false, nil
+		return seamOrderRecord{}, false, nil
 	}
 	if err != nil {
-		return seamIntentRecord{}, false, err
+		return seamOrderRecord{}, false, err
 	}
-	r, derr := decodeSeamIntent(v)
+	r, derr := decodeSeamOrder(v)
 	if derr != nil {
-		return seamIntentRecord{}, false, derr
+		return seamOrderRecord{}, false, derr
 	}
 	return r, true, nil
 }
@@ -525,9 +531,9 @@ func seamOutKey(outputID ids.ID) []byte {
 	return k
 }
 
-func putSeamOut(db database.KeyValueWriter, outputID, intentID ids.ID, asset [32]byte, amount uint64) error {
+func putSeamOut(db database.KeyValueWriter, outputID, orderID ids.ID, asset [32]byte, amount uint64) error {
 	v := make([]byte, 32+32+8)
-	copy(v[0:32], intentID[:])
+	copy(v[0:32], orderID[:])
 	copy(v[32:64], asset[:])
 	binary.BigEndian.PutUint64(v[64:72], amount)
 	return db.Put(seamOutKey(outputID), v)
@@ -568,22 +574,22 @@ func (vm *VM) seamSharedMemory() atomic.SharedMemory {
 	return vm.runtime.GetSharedMemory()
 }
 
-// executeImport CONSUMES a C->D atomic intent object and FUNDS the taker's native D
-// account with the recorded asset. It mirrors precompile SubmitSwapIntent's other
+// executeImport CONSUMES a C->D atomic order object and FUNDS the taker's native D
+// account with the recorded asset. It mirrors precompile SubmitSwapOrder's other
 // side and the proxy executeImport, but credits the native ledger so the in-consensus
 // matcher trades the funds:
 //
-//  1. replay guard: the intent escrow must not already exist (one import per intent).
+//  1. replay guard: the order escrow must not already exist (one import per order).
 //  2. BIND the object bytes the TRANSACTION carried — never a shared-memory read. The
 //     credited owner/asset/amount and the recorded operation are the OBJECT's, never
 //     declared separately by the tx. That those bytes are the real recorded object is
 //     proven on the BLOCK (Block.verifySeamImports), not here.
 //  3. GATE: the operation must be executable at all (a real market side, a non-zero
-//     size, a non-zero limit). An intent whose order could never run is refused before
+//     size, a non-zero limit). An order whose order could never run is refused before
 //     any value is credited — the principal stays on C, reclaimable at its deadline.
-//  4. CREDIT available[seamAccount(intentID), asset] += amount (fund the intent's OWN
+//  4. CREDIT available[seamAccount(orderID), asset] += amount (fund the order's OWN
 //     ledger account, isolated from the taker's native D balance).
-//  5. RECORD the per-intent escrow — owner/assetIn/remaining for the export binding and
+//  5. RECORD the per-order escrow — owner/assetIn/remaining for the export binding and
 //     cap, the OPERATION for the seam submit, status=open.
 //  6. ACCUMULATE the shared-memory Remove under the C chain (applied at Accept), so the
 //     object is consumed exactly once.
@@ -597,22 +603,22 @@ func (vm *VM) seamSharedMemory() atomic.SharedMemory {
 // Every input is now the block's own bytes or the committed overlay, so two nodes
 // executing this block at any time, in any order, from any starting point, compute the
 // identical result.
-func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicRequests, intentID ids.ID, object []byte) (credited uint64, ok bool, err error) {
+func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicRequests, orderID ids.ID, object []byte) (credited uint64, ok bool, err error) {
 	if vm.cChainID == ids.Empty {
 		return 0, false, nil // seam not wired: deterministic reject, no mint
 	}
 
 	// (1) replay guard — the escrow row is the durable consumed marker.
-	if _, exists, gerr := getSeamIntent(db, intentID); gerr != nil {
+	if _, exists, gerr := getSeamOrder(db, orderID); gerr != nil {
 		return 0, false, gerr
 	} else if exists {
-		return 0, false, nil // already imported (ErrSeamIntentReplay condition); reject
+		return 0, false, nil // already imported (ErrSeamOrderReplay condition); reject
 	}
 
 	// (2) BIND the CARRIED object. Width and rail are checked by the decoder: a
 	// 69-byte value object has no operation and is refused rather than imported with
 	// an invented one.
-	owner, asset, amount, op, decOK := decodeSeamIntentObject(object)
+	owner, asset, amount, op, decOK := decodeSeamOrderObject(object)
 	if !decOK || amount == 0 {
 		return 0, false, nil // malformed: reject (never reinterpret into a credit)
 	}
@@ -622,19 +628,19 @@ func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 		return 0, false, nil
 	}
 
-	// (4) CREDIT the intent's OWN account (no mint — the value was removed from the
+	// (4) CREDIT the order's OWN account (no mint — the value was removed from the
 	// taker on C and is consumed here exactly once).
-	acct := seamAccount(intentID)
+	acct := seamAccount(orderID)
 	if cerr := creditAvailable(db, acct, asset, amount); cerr != nil {
 		return 0, false, cerr
 	}
 
 	// (5) RECORD the escrow: the export binding + cap, and the operation to run.
-	if perr := putSeamIntent(db, intentID, seamIntentRecord{
+	if perr := putSeamOrder(db, orderID, seamOrderRecord{
 		Owner:     owner,
 		AssetIn:   asset,
 		Remaining: amount,
-		Status:    seamIntentOpen,
+		Status:    seamOrderOpen,
 		Op:        op,
 	}); perr != nil {
 		return 0, false, perr
@@ -642,12 +648,12 @@ func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 
 	// (6) ACCUMULATE the Remove under the C chain (consumed once, applied at Accept).
 	req := ar.forChain(vm.cChainID)
-	req.RemoveRequests = append(req.RemoveRequests, intentID[:])
+	req.RemoveRequests = append(req.RemoveRequests, orderID[:])
 	return amount, true, nil
 }
 
-// seamSubmitBody derives the zapwire Submit frame for an imported intent — the ONE
-// definition of "the order this intent means". The drive uses it to decide there is
+// seamSubmitBody derives the zapwire Submit frame for an imported order — the ONE
+// definition of "the order this order means". The drive uses it to decide there is
 // work; execute uses it to run the order. Both derive it from the SAME committed
 // escrow, so the operation is declared exactly once (in the object, at import) and
 // never restated on the wire for the two sides to cross-check.
@@ -657,26 +663,26 @@ func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 // unbounded market-buy path — which locks the account's entire balance and sweeps a
 // caller-chosen size — is unreachable from the seam.
 //
-// The user is the intent's OWN account, so the lock, the cross and the settlement all
-// draw on exactly the value this intent imported.
-func seamSubmitBody(intentID ids.ID, rec seamIntentRecord) []byte {
-	acct := seamAccount(intentID)
+// The user is the order's OWN account, so the lock, the cross and the settlement all
+// draw on exactly the value this order imported.
+func seamSubmitBody(orderID ids.ID, rec seamOrderRecord) []byte {
+	acct := seamAccount(orderID)
 	return zapwire.EncodeSubmit(rec.Op.Market, rec.Op.Side, false, rec.Op.LimitPrice, rec.Op.Size, string(acct[:]))
 }
 
 // executeExport DEBITS the taker's native D balance and writes a D->C settlement
 // object the precompile's ImportSettlement consumes. It is driven AFTER the native
 // matcher has settled (the proceeds / refund live in the taker's available balance),
-// and binds the object to the intent so Phase B's checks pass:
+// and binds the object to the order so Phase B's checks pass:
 //
-//  1. load the intent escrow (must be open) — the export draws against THIS intent;
+//  1. load the order escrow (must be open) — the export draws against THIS order;
 //     the D->C object's owner is the escrow's RECORDED 20-byte owner, never the tx, so
 //     an export can never redirect value to a different account.
 //  2. PER-TAKER CAP: a same-asset (refund) export (asset == escrow.AssetIn) is bounded
-//     by the intent's remaining locked principal and decrements it — the D-side analog
+//     by the order's remaining locked principal and decrements it — the D-side analog
 //     of the precompile's per-taker cap. A proceeds export (different asset) is bounded
 //     only by the available balance the matcher actually credited.
-//  3. DEBIT available[seamAccount(intentID), asset] -= amount (refuses an over-debit:
+//  3. DEBIT available[seamAccount(orderID), asset] -= amount (refuses an over-debit:
 //     the export is backed by realized D value, so it can never credit more on C than D
 //     matched — conservation).
 //  4. ENCODE the D->C object (rail=railSwap, owner, asset, amount, spent) and ACCUMULATE
@@ -685,8 +691,8 @@ func seamSubmitBody(intentID ids.ID, rec seamIntentRecord) []byte {
 //
 // spent is the matched INPUT that produced a proceeds output (0 on a refund) — the
 // witness the precompile's taker-authenticated MEV floor checks. Returns ok=false for a
-// deterministic per-tx reject (no intent, over-cap, insufficient balance, unwired seam).
-func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicRequests, exportTxID, intentID ids.ID, asset [32]byte, amount, spent uint64) (outputID ids.ID, ok bool, err error) {
+// deterministic per-tx reject (no order, over-cap, insufficient balance, unwired seam).
+func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicRequests, exportTxID, orderID ids.ID, asset [32]byte, amount, spent uint64) (outputID ids.ID, ok bool, err error) {
 	sm := vm.seamSharedMemory()
 	if sm == nil || vm.cChainID == ids.Empty {
 		return ids.Empty, false, nil // seam not wired: reject
@@ -695,18 +701,18 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 		return ids.Empty, false, nil
 	}
 
-	// (1) the intent escrow must exist and its ORDER MUST HAVE RUN. Exporting from an
+	// (1) the order escrow must exist and its ORDER MUST HAVE RUN. Exporting from an
 	// `open` escrow would settle a swap whose order has not been placed yet — the
 	// premature refund the old "does the account hold realized output?" heuristic was
 	// there to prevent. Now it is the recorded fact, so a zero-fill swap (which
 	// produces no output, and which that heuristic could therefore NEVER export)
 	// settles too, instead of stranding the taker's principal on D.
-	rec, exists, gerr := getSeamIntent(db, intentID)
+	rec, exists, gerr := getSeamOrder(db, orderID)
 	if gerr != nil {
 		return ids.Empty, false, gerr
 	}
-	if !exists || rec.Status != seamIntentSubmitted {
-		return ids.Empty, false, nil // ErrSeamNoIntent condition
+	if !exists || rec.Status != seamOrderSubmitted {
+		return ids.Empty, false, nil // ErrSeamNoOrder condition
 	}
 
 	// (2) PER-TAKER CAP on the same-asset refund leg (the export analog of the
@@ -714,12 +720,12 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 	// not principal-capped — output units legitimately differ from input units.
 	refund := asset == rec.AssetIn
 	if refund && amount > rec.Remaining {
-		return ids.Empty, false, nil // ErrSeamExportExceedsIntent condition
+		return ids.Empty, false, nil // ErrSeamExportExceedsOrder condition
 	}
 
 	// (3) DEBIT the realized D balance (refuses over-debit: conservation — C can never be
 	// credited more than D matched). The matcher credited exactly the proceeds/refund.
-	acct := seamAccount(intentID)
+	acct := seamAccount(orderID)
 	if derr := debitAvailable(db, acct, asset, amount); derr != nil {
 		if errors.Is(derr, ErrInsufficientAvailable) {
 			return ids.Empty, false, nil // not enough realized value: reject
@@ -741,11 +747,11 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 	// (5) decrement the remaining principal on a refund + RECORD the settlement.
 	if refund {
 		rec.Remaining -= amount
-		if perr := putSeamIntent(db, intentID, rec); perr != nil {
+		if perr := putSeamOrder(db, orderID, rec); perr != nil {
 			return ids.Empty, false, perr
 		}
 	}
-	if perr := putSeamOut(db, outputID, intentID, asset, amount); perr != nil {
+	if perr := putSeamOut(db, outputID, orderID, asset, amount); perr != nil {
 		return ids.Empty, false, perr
 	}
 	return outputID, true, nil
@@ -761,7 +767,7 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 // its SharedMemory is the ZAP client, and a database.Batch cannot cross a process
 // boundary. atomiczap.Apply refuses one outright (ErrBatchUnsupported), and there was
 // NO batch-less path here — so every block carrying a seam op failed at Accept, which
-// is fatal. The D-Chain would have halted on the first cross-chain intent it ever
+// is fatal. The D-Chain would have halted on the first cross-chain order it ever
 // imported.
 //
 // COMMIT FIRST, THEN APPLY. Without a shared batch, exactly-once is unreachable; the
@@ -772,10 +778,10 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 // object RE-CREATES it. A skip is survivable on both legs, because neither side's
 // replay protection depends on the shared-memory op:
 //
-//   - a skipped Remove of an imported C->D intent: the object lingers, but executeImport's
+//   - a skipped Remove of an imported C->D order: the object lingers, but executeImport's
 //     replay guard is the durable `seamintent:` escrow row in COMMITTED STATE, written
 //     above. A re-import is refused. Inert garbage.
-//   - a skipped Put of a D->C export: the taker's proceeds do not reach C. C's intent
+//   - a skipped Put of a D->C export: the taker's proceeds do not reach C. C's order
 //     carries a finite deadline by construction, so the taker's locked principal is
 //     reclaimable there; the D-side escrow is already drained, so nothing is minted.
 //     Bounded, and loud.
