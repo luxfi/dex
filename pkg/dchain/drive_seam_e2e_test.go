@@ -322,7 +322,7 @@ func TestDrive_NoExportBeforeTheOrderRuns(t *testing.T) {
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
 	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
 		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
-	if exports, err := h.vm.driveSeamExports(); err != nil || len(exports) != 0 {
+	if exports, err := h.vm.driveSeamExports(maxSeamDrivePerBlock); err != nil || len(exports) != 0 {
 		t.Fatalf("no-export-before-import: driveSeamExports = %d txs err=%v, want 0", len(exports), err)
 	}
 
@@ -341,7 +341,7 @@ func TestDrive_NoExportBeforeTheOrderRuns(t *testing.T) {
 	if !exists || rec.Status != seamIntentOpen {
 		t.Fatalf("escrow status = %d (exists=%v), want open", rec.Status, exists)
 	}
-	if exports, err := h.vm.driveSeamExports(); err != nil || len(exports) != 0 {
+	if exports, err := h.vm.driveSeamExports(maxSeamDrivePerBlock); err != nil || len(exports) != 0 {
 		t.Fatalf("no-export-before-the-order-runs: driveSeamExports = %d txs err=%v, want 0", len(exports), err)
 	}
 }
@@ -377,7 +377,7 @@ func TestDrive_ReplayImportedOnce(t *testing.T) {
 	// re-stages it) and drive again. The escrow already exists, so the import drive filters
 	// it out: no re-import, no double credit.
 	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked, op)
-	imports, err := h.vm.driveSeamImports()
+	imports, err := h.vm.driveSeamImports(maxSeamDrivePerBlock)
 	if err != nil {
 		t.Fatalf("driveSeamImports: %v", err)
 	}

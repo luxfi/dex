@@ -125,7 +125,7 @@ const maxSeamDrivePerBlock = 256
 // runs only on the proposer, and everything it produces is committed in the block's own
 // bytes (hashed into txRoot) for every validator to re-execute without touching shared
 // memory again.
-func (vm *VM) driveSeamImports() ([]*Tx, error) {
+func (vm *VM) driveSeamImports(limit int) ([]*Tx, error) {
 	if !vm.autoDriveSeam {
 		return nil, nil
 	}
@@ -185,7 +185,7 @@ func (vm *VM) driveSeamImports() ([]*Tx, error) {
 			return nil, fmt.Errorf("dchain: build TxIntentSubmit: %w", terr)
 		}
 		out = append(out, imp, sub)
-		if len(out) >= maxSeamDrivePerBlock {
+		if len(out) >= limit {
 			return out, nil
 		}
 	}
@@ -241,7 +241,7 @@ func readSeamObject(sm atomic.SharedMemory, cChainID, intentID ids.ID) ([]byte, 
 // so the per-taker cap is applied against the still-open escrow, and execute CLOSES the
 // escrow once the account is fully drained (closeSeamIntentIfDrained), making each swap
 // one-shot.
-func (vm *VM) driveSeamExports() ([]*Tx, error) {
+func (vm *VM) driveSeamExports(limit int) ([]*Tx, error) {
 	if !vm.autoDriveSeam {
 		return nil, nil
 	}
@@ -250,7 +250,7 @@ func (vm *VM) driveSeamExports() ([]*Tx, error) {
 		return nil, nil // seam not wired: an export cannot be written (no D->C object)
 	}
 
-	escrows, err := listSeamIntents(vm.db, seamIntentSubmitted, maxSeamDrivePerBlock)
+	escrows, err := listSeamIntents(vm.db, seamIntentSubmitted, limit)
 	if err != nil {
 		return nil, fmt.Errorf("dchain: seam export enumerate: %w", err)
 	}
@@ -304,45 +304,34 @@ func (vm *VM) driveSeamExports() ([]*Tx, error) {
 			}
 			out = append(out, tx)
 		}
-		if len(out) >= maxSeamDrivePerBlock {
+		if len(out) >= limit {
 			return out, nil
 		}
 	}
 	return out, nil
 }
 
-// hasSeamWork reports whether the drive would emit ANY tx from the current committed state
-// — a pending un-imported intent, or an open escrow with realized output to export. It is
-// the WaitForEvent trigger so the engine calls BuildBlock for a pure-seam block (one with
-// no mempool txs). It short-circuits on the first match to stay cheap on the poll path.
+// hasSeamWork reports whether the drive would emit ANY tx from the current committed
+// state. It is the WaitForEvent trigger, so the engine calls BuildBlock for a pure-seam
+// block (one with no mempool txs).
+//
+// It ASKS THE DRIVE rather than re-deriving the question, and that is not laziness: a
+// separate predicate is a second definition of "there is work", and the two drift. The
+// previous one answered "is there a settled escrow?" while the export drive answers
+// "would that escrow produce a leg?" — an escrow holding nothing available (its value
+// exported in an earlier block, or still locked) satisfied the first and not the second,
+// so the engine was told to build a block forever and BuildBlock returned ErrEmptyMempool
+// every time. One definition, no gap between the trigger and the work.
 func (vm *VM) hasSeamWork() bool {
 	if !vm.autoDriveSeam {
 		return false
 	}
-	sm := vm.seamSharedMemory()
-	if sm == nil || vm.cChainID == ids.Empty {
-		return false
+	// Bounded to ONE leg: the question is "is there work", not "how much".
+	if imports, err := vm.driveSeamImports(1); err == nil && len(imports) > 0 {
+		return true
 	}
-	// Any un-imported pending intent?
-	keys, err := enumerateSeamPending(sm, vm.cChainID, maxSeamDrivePerBlock)
-	if err == nil {
-		for _, k := range keys {
-			if len(k) != 32 {
-				continue
-			}
-			var intentID ids.ID
-			copy(intentID[:], k)
-			if _, imported, gerr := getSeamIntent(vm.db, intentID); gerr == nil && !imported {
-				return true
-			}
-		}
-	}
-	// Any settled escrow still holding value to send back?
-	escrows, eerr := listSeamIntents(vm.db, seamIntentSubmitted, 1)
-	if eerr != nil {
-		return false
-	}
-	return len(escrows) > 0
+	exports, err := vm.driveSeamExports(1)
+	return err == nil && len(exports) > 0
 }
 
 // closeSeamIntentIfDrained marks a SUBMITTED intent escrow seamIntentReclaimed once its
