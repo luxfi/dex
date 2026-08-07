@@ -7,10 +7,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/luxfi/consensus/engine/chain/block"
+	"github.com/luxfi/database/memdb"
+	"github.com/luxfi/database/prefixdb"
 	"github.com/luxfi/database/versiondb"
 	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
+	"github.com/luxfi/log"
+	"github.com/luxfi/runtime"
 	luxvm "github.com/luxfi/vm"
 	"github.com/luxfi/vm/chains/atomic"
 )
@@ -434,6 +439,179 @@ func TestSeam_RejectDoesNotRequeueDriveLegs(t *testing.T) {
 		}
 		if tx.Type != TxDeposit {
 			t.Fatalf("unexpected requeued tx type %s", tx.Type)
+		}
+	}
+}
+
+// TestSeam_TwoNodesAgreeOnASeamBlock is the closest deterministic stand-in for the
+// devnet gate: a SECOND, independent node — its own state store, its own shared-memory
+// handle, never having seen the proposer's mempool — verifies the proposer's seam block
+// and derives the identical state root.
+//
+// It is the cross-node half of syncability. TestSeam_ImportReplaysWithoutSharedMemory
+// proves one node can re-execute its own block after the object is gone; this proves a
+// different node reaches the same answer in the first place. Together they are what
+// "the settle does not wedge a syncing node" means.
+func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewNoOpLogger()
+	baseDB := memdb.New()
+	dChainID := ids.GenerateTestID()
+	cChainID := ids.GenerateTestID()
+
+	// SHARED MEMORY IS PER-NODE, not per-network: it is that node's local
+	// materialization of both chains' accepted history, and each validator applies its
+	// own copy of a block's cross-chain operations. Modelling it as one store shared
+	// between the two nodes is wrong in a way that hides the real question and invents
+	// a fake one — the second node's Apply then collides with the first's ("duplicate
+	// put", a fatal Accept) for a Put that in production it would be making into its
+	// own store. Two memories, two C-side flushes of the same object.
+	type node struct {
+		vm  *VM
+		cSM atomic.SharedMemory
+	}
+	newNode := func(memPrefix, statePrefix byte) *node {
+		m := atomic.NewMemory(prefixdb.New([]byte{memPrefix}, baseDB))
+		vm := &VM{}
+		if err := vm.Initialize(ctx, block.Init{
+			Runtime: &runtime.Runtime{
+				ChainID:      dChainID,
+				CChainID:     cChainID,
+				NetworkID:    96369,
+				Log:          logger,
+				SharedMemory: m.NewSharedMemory(dChainID),
+			},
+			DB:       prefixdb.New([]byte{statePrefix}, baseDB),
+			Log:      logger,
+			ToEngine: make(chan block.Message, 16),
+			Config:   authConfig(t),
+		}); err != nil {
+			t.Fatalf("Initialize: %v", err)
+		}
+		if !vm.autoDriveSeam {
+			t.Fatal("the seam must be wired for this test to mean anything")
+		}
+		return &node{vm: vm, cSM: m.NewSharedMemory(cChainID)}
+	}
+	pNode := newNode(0x10, 0x11)
+	fNode := newNode(0x20, 0x21)
+	proposer, follower := pNode.vm, fNode.vm
+	defer proposer.Shutdown(ctx)
+	defer follower.Shutdown(ctx)
+
+	pool := [32]byte{0x7A, 0x70}
+	base := assetID32(0xB0)
+	quote := assetID32(0x90)
+	maker := acctFor(t, "twonode-maker")
+	takerAddr := common.HexToAddress("0x00112233445566778899aabbccddeeff00112233")
+
+	// Both nodes accept the SAME setup blocks, so they start from identical state.
+	// (The follower verifies each one, which is what keeps them in lockstep.)
+	step := func(txs ...*Tx) *Block {
+		t.Helper()
+		for _, tx := range txs {
+			proposer.mempool.Add(tx)
+		}
+		blkI, err := proposer.BuildBlock(ctx)
+		if err != nil {
+			t.Fatalf("BuildBlock: %v", err)
+		}
+		blk := blkI.(*Block)
+		// The follower parses the proposer's BYTES — not its objects — and verifies.
+		fblkI, err := follower.ParseBlock(ctx, blk.Bytes())
+		if err != nil {
+			t.Fatalf("follower ParseBlock: %v", err)
+		}
+		fblk := fblkI.(*Block)
+		if err := fblk.Verify(ctx); err != nil {
+			t.Fatalf("follower Verify (height %d): %v", blk.height, err)
+		}
+		if err := blk.Verify(ctx); err != nil {
+			t.Fatalf("proposer Verify: %v", err)
+		}
+		if err := blk.Accept(ctx); err != nil {
+			t.Fatalf("proposer Accept: %v", err)
+		}
+		if err := fblk.Accept(ctx); err != nil {
+			t.Fatalf("follower Accept: %v", err)
+		}
+		return blk
+	}
+
+	step(openMarketTx(t, pool, base, quote), depositTx(t, "twonode-maker", base, 100))
+	step(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
+
+	// One C->D intent, flushed once into the shared partition both nodes read.
+	const locked = 200
+	intentID := DeriveIntentID(96369, cChainID, dChainID, takerAddr, quote, locked, pool, 0)
+	obj := encodeSeamIntentObject(takerAddr, quote, locked, seamOp{
+		Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100,
+	})
+	// C's accept flushes the object into EVERY node's own shared memory, because every
+	// node runs C too. Both nodes therefore see the identical object.
+	for _, n := range []*node{pNode, fNode} {
+		if err := n.cSM.Apply(map[ids.ID]*atomic.Requests{
+			dChainID: {PutRequests: []*atomic.Element{{
+				Key: intentID[:], Value: obj, Traits: [][]byte{takerAddr[:], SeamPendingTrait},
+			}}},
+		}); err != nil {
+			t.Fatalf("flush intent: %v", err)
+		}
+	}
+
+	// The seam block. The follower's Verify enforces root equality internally, so
+	// reaching here at all is the agreement — but assert the shape too.
+	seamBlk := step()
+	if _, ok := findTx(seamBlk, TxImport); !ok {
+		t.Fatal("the proposer's block carries no import")
+	}
+	if _, ok := findTx(seamBlk, TxIntentSubmit); !ok {
+		t.Fatal("the proposer's block carries no taker order")
+	}
+	if proposer.lastRoot != follower.lastRoot {
+		t.Fatalf("nodes diverged on the seam block: proposer %x, follower %x",
+			proposer.lastRoot[:8], follower.lastRoot[:8])
+	}
+
+	// And the trade actually happened, on BOTH nodes' ledgers.
+	acct := seamAccount(intentID)
+	for name, vm := range map[string]*VM{"proposer": proposer, "follower": follower} {
+		got, err := getAvailable(vm.db, acct, base)
+		if err != nil || got != 100 {
+			t.Fatalf("%s: seam account base = %d (err=%v), want 100 — the cross did not "+
+				"replicate", name, got, err)
+		}
+		mk, _ := getAvailable(vm.db, maker.account, quote)
+		if mk != 200 {
+			t.Fatalf("%s: maker quote = %d, want 200", name, mk)
+		}
+	}
+
+	// The export block: the follower must agree on the D->C object too.
+	expBlk := step()
+	exp, ok := findTx(expBlk, TxExport)
+	if !ok {
+		t.Fatal("no export driven for the settled intent")
+	}
+	if proposer.lastRoot != follower.lastRoot {
+		t.Fatalf("nodes diverged on the export block: proposer %x, follower %x",
+			proposer.lastRoot[:8], follower.lastRoot[:8])
+	}
+	// BOTH nodes produced the SAME D->C object into their own shared memory — byte for
+	// byte, under the same key. That is what lets C consume it exactly once no matter
+	// which validator it reads from.
+	outputID := deriveSeamOutputID(exp.ID(), 0)
+	var first []byte
+	for name, n := range map[string]*node{"proposer": pNode, "follower": fNode} {
+		vals, gerr := n.cSM.Get(dChainID, [][]byte{outputID[:]})
+		if gerr != nil || len(vals) != 1 || len(vals[0]) != seamObjectSize {
+			t.Fatalf("%s: D->C settlement object: err=%v vals=%d", name, gerr, len(vals))
+		}
+		if first == nil {
+			first = vals[0]
+		} else if string(first) != string(vals[0]) {
+			t.Fatalf("the two nodes exported DIFFERENT bytes under the same key: %x vs %x",
+				first, vals[0])
 		}
 	}
 }
