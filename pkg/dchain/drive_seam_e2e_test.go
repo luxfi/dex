@@ -501,6 +501,17 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 			t.Fatalf("intents not in ascending id order at %d", i)
 		}
 		prev = string(gotID[:])
+		// And the body is one of the exact bodies the flushed objects imply — the
+		// proposer carried the REAL object bytes, not a re-encoding of its own.
+		found := false
+		for _, w := range want {
+			if string(imp.Body) == string(w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("pair %d import body matches no flushed intent object", i)
+		}
 	}
-	_ = want
 }
