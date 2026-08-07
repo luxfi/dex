@@ -311,8 +311,26 @@ func (b *Block) Reject(ctx context.Context) error {
 	}
 	b.status = statusRejected
 	delete(b.vm.processingBlocks, b.id) // rejected; drop the processing entry
-	b.vm.mempool.Requeue(b.txs)
+	// Requeue only what a CLIENT submitted. The seam legs in this block came from the
+	// drive, which regenerates exactly the ones still warranted from committed state on
+	// the next BuildBlock; putting them back would make the next block carry each leg
+	// twice — once from the mempool, once from the drive. (Both copies are refused by
+	// the replay guards, so this is a duplication, not a double spend.)
+	b.vm.mempool.Requeue(clientTxs(b.txs))
 	return nil
+}
+
+// clientTxs filters out the proposer-generated seam legs, leaving the txs a client
+// actually submitted.
+func clientTxs(txs []*Tx) []*Tx {
+	out := make([]*Tx, 0, len(txs))
+	for _, tx := range txs {
+		if tx.Type.isSeamDriven() {
+			continue
+		}
+		out = append(out, tx)
+	}
+	return out
 }
 
 // execResult carries what execute derived: the per-market resulting rows, the

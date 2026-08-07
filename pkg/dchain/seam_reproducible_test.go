@@ -386,3 +386,54 @@ func encodeRawTxList(raws [][]byte) []byte {
 	}
 	return out
 }
+
+// TestSeam_RejectDoesNotRequeueDriveLegs pins that a rejected block's seam legs do NOT
+// go back into the mempool. They came from the drive, which regenerates exactly the ones
+// still warranted from committed state, so requeuing them would make the next block
+// carry each leg twice — once from the mempool, once from the drive. Both copies are
+// refused by the replay guards, so this is duplication rather than a double spend, but a
+// block that carries the same import twice is a block nobody can read.
+func TestSeam_RejectDoesNotRequeueDriveLegs(t *testing.T) {
+	h := newSeamHarness(t)
+	defer h.vm.Shutdown(context.Background())
+
+	pool := [32]byte{0x5E, 0xA5}
+	h.vm.mempool.Add(openMarketTx(t, pool, assetID32(0xB0), assetID32(0x90)))
+	h.buildAccept(t)
+
+	takerAddr := h.addr(t, "requeue-taker")
+	quote := assetID32(0x90)
+	const locked = 200
+	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
+
+	// A client tx rides along so the test can tell "requeued nothing" from "requeued
+	// only the client's".
+	h.vm.mempool.Add(depositTx(t, "requeue-taker", assetID32(0xB0), 1))
+
+	blkI, err := h.vm.BuildBlock(context.Background())
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	blk := blkI.(*Block)
+	if _, ok := findTx(blk, TxImport); !ok {
+		t.Fatal("no seam leg in the block under test")
+	}
+	if h.vm.mempool.Len() != 0 {
+		t.Fatalf("mempool should be drained, have %d", h.vm.mempool.Len())
+	}
+
+	if err := blk.Reject(context.Background()); err != nil {
+		t.Fatalf("Reject: %v", err)
+	}
+	for _, tx := range h.vm.mempool.Drain(0) {
+		if tx.Type.isSeamDriven() {
+			t.Fatalf("a rejected block requeued a proposer-generated %s: the next block would "+
+				"carry it twice, once from the mempool and once from the drive", tx.Type)
+		}
+		if tx.Type != TxDeposit {
+			t.Fatalf("unexpected requeued tx type %s", tx.Type)
+		}
+	}
+}

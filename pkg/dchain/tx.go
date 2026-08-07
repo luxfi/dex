@@ -110,6 +110,21 @@ func (t TxType) requiresAuth() bool {
 	}
 }
 
+// isSeamDriven reports whether a tx is produced by the PROPOSER-SIDE DRIVE rather
+// than submitted by a client. Drive txs are a pure function of committed state
+// (drive.go), so the next BuildBlock regenerates exactly the ones that are still
+// warranted. Requeuing them into the mempool on a rejected block therefore cannot
+// help and can only duplicate: the block would carry each leg twice, once from the
+// mempool and once from the drive.
+func (t TxType) isSeamDriven() bool {
+	switch t {
+	case TxImport, TxIntentSubmit, TxExport:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t TxType) String() string {
 	switch t {
 	case TxEnsureMarket:
