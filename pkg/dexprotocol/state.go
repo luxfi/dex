@@ -122,6 +122,10 @@ var (
 	ErrTerminalExists = errors.New("dexprotocol: a terminal execution already exists under that id")
 	ErrWrongProof     = errors.New("dexprotocol: the proof does not match the transition being attempted")
 	ErrWrongParent    = errors.New("dexprotocol: the execution is not scoped to this accepted C parent")
+
+	ErrOverReserved      = errors.New("dexprotocol: this would commit more than the order authorized")
+	ErrAuthorizedChanged = errors.New("dexprotocol: the order's authorized quantity changed between reservations")
+	ErrNotConserved      = errors.New("dexprotocol: the order account disagrees with the executions it summarises")
 )
 
 // THE ENTIRE PROOF SYSTEM, THREE RULES:
@@ -206,6 +210,7 @@ type Ledger struct {
 	reserved map[ids.ID]ReservedExecution
 	traded   map[ids.ID]Trade
 	released map[ids.ID]Released
+	orders   map[ids.ID]*orderAccount
 }
 
 func NewLedger() *Ledger {
@@ -213,8 +218,33 @@ func NewLedger() *Ledger {
 		reserved: make(map[ids.ID]ReservedExecution),
 		traded:   make(map[ids.ID]Trade),
 		released: make(map[ids.ID]Released),
+		orders:   make(map[ids.ID]*orderAccount),
 	}
 }
+
+// orderAccount is the per-order quantity account. Exclusivity across the three
+// storage domains says an ExecID cannot be in two places; it says NOTHING about how
+// much of an order has been committed. Without this, D can certify ten executions
+// against one order for its full quantity, every one of them individually valid,
+// and settle whichever the C successors happen to include.
+//
+// EVERY DEFECT THE LAST REVIEW FOUND WAS A CONSERVATION BUG, not a determinism bug.
+// So the quantities are tracked here and asserted after every transition, rather
+// than left as a property that happens to hold.
+//
+// UNITS. These are Execution.Quantity's units — the market's LOTS — never the
+// order's Input, which is in token base units. The conversion is the market's lot
+// size, which is market metadata and deliberately does not live in this package: a
+// caller that knows the market converts once and passes `authorized` in. One
+// conversion, at one boundary, in the direction the book already speaks.
+type orderAccount struct {
+	authorized uint64
+	reserved   uint64
+	traded     uint64
+}
+
+// available is what is left to commit against this order.
+func (a *orderAccount) available() uint64 { return a.authorized - a.reserved - a.traded }
 
 // terminalExists reports whether the id has already reached a terminal domain.
 // Checked on entry and on every transition, so an id can never be resurrected.
@@ -229,18 +259,42 @@ func (l *Ledger) terminalExists(id ids.ID) bool {
 // Reserve admits a verified execution. Refuses an id that is already reserved or
 // already terminal — the latter is what stops a replayed certificate from
 // re-reserving liquidity that was already settled or released.
-func (l *Ledger) Reserve(parent AcceptedBlock, v VerifiedExecution) (ReservedExecution, error) {
-	id := v.Execution().ExecID
+// authorized is the order's total quantity in the book's units, converted by the
+// caller from the signed Order.Input. It is checked for AGREEMENT across every
+// reservation against the same order, so a caller cannot enlarge an order by
+// converting it differently the second time.
+func (l *Ledger) Reserve(parent AcceptedBlock, v VerifiedExecution, authorized uint64) (ReservedExecution, error) {
+	e := v.Execution()
+	id := e.ExecID
 	if l.terminalExists(id) {
 		return ReservedExecution{}, fmt.Errorf("%w: %s", ErrTerminalExists, id)
 	}
 	if _, ok := l.reserved[id]; ok {
 		return ReservedExecution{}, fmt.Errorf("%w: %s", ErrAlreadyOpen, id)
 	}
+	if authorized == 0 {
+		return ReservedExecution{}, fmt.Errorf("%w: order %s authorizes nothing", ErrOverReserved, e.OrderID)
+	}
+	acct, ok := l.orders[e.OrderID]
+	if !ok {
+		acct = &orderAccount{authorized: authorized}
+	} else if acct.authorized != authorized {
+		return ReservedExecution{}, fmt.Errorf("%w: order %s was %d, now %d",
+			ErrAuthorizedChanged, e.OrderID, acct.authorized, authorized)
+	}
+	// THE CHECK THAT MAKES OVER-RESERVATION IMPOSSIBLE. Each execution against an
+	// order is individually valid; only the running total says whether D has
+	// certified more than the trader signed for.
+	if e.Quantity > acct.available() {
+		return ReservedExecution{}, fmt.Errorf("%w: order %s has %d left, execution wants %d",
+			ErrOverReserved, e.OrderID, acct.available(), e.Quantity)
+	}
 	r, err := Reserve(parent, v)
 	if err != nil {
 		return ReservedExecution{}, err
 	}
+	acct.reserved += e.Quantity
+	l.orders[e.OrderID] = acct
 	l.reserved[id] = r
 	return r, nil
 }
@@ -257,6 +311,12 @@ func (l *Ledger) Settle(id ids.ID, q AcceptedBlock, proof ExecProof) (Trade, err
 	if err != nil {
 		return Trade{}, err
 	}
+	// Reserved becomes traded: the order's committed total is unchanged, which is
+	// exactly right — settling spends what was already held, it does not spend more.
+	if acct, ok := l.orders[r.exec.OrderID]; ok {
+		acct.reserved -= r.exec.Quantity
+		acct.traded += r.exec.Quantity
+	}
 	delete(l.reserved, id)
 	l.traded[id] = t
 	return t, nil
@@ -271,6 +331,13 @@ func (l *Ledger) Release(id ids.ID, q AcceptedBlock, proof ExecProof) (Released,
 	rel, err := Release(r, q, proof)
 	if err != nil {
 		return Released{}, err
+	}
+	// The quantity returns to the order's available balance. This is what lets the
+	// same unexecuted order be matched AGAIN — the property the portable Order was
+	// designed for. A release that failed to give the quantity back would silently
+	// shrink every order that ever lost a race.
+	if acct, ok := l.orders[r.exec.OrderID]; ok {
+		acct.reserved -= r.exec.Quantity
 	}
 	delete(l.reserved, id)
 	l.released[id] = rel
@@ -297,4 +364,66 @@ func (l *Ledger) Exclusive() error {
 // Counts reports each domain's size, for conservation assertions and metrics.
 func (l *Ledger) Counts() (reserved, traded, released int) {
 	return len(l.reserved), len(l.traded), len(l.released)
+}
+
+// Conserved is the quantity invariant, the counterpart to Exclusive. Exclusive says
+// an ExecID cannot be in two domains; Conserved says quantity is neither created nor
+// destroyed:
+//
+//	per order:  reserved + traded ≤ authorized
+//	per order:  reserved == Σ quantity of its executions still in the reserved domain
+//	per order:  traded   == Σ quantity of its executions in the traded domain
+//
+// The second and third clauses are what make this an ASSERTION rather than a
+// restatement: they recompute the totals from the domains themselves, so an
+// accounting update that drifted from the objects it claims to summarise is caught
+// instead of trusted. Assert it after EVERY transition, not only after swaps that
+// went the happy way.
+func (l *Ledger) Conserved() error {
+	reserved := make(map[ids.ID]uint64, len(l.orders))
+	traded := make(map[ids.ID]uint64, len(l.orders))
+	for _, r := range l.reserved {
+		reserved[r.exec.OrderID] += r.exec.Quantity
+	}
+	for _, t := range l.traded {
+		traded[t.exec.OrderID] += t.exec.Quantity
+	}
+	for id, acct := range l.orders {
+		if acct.reserved+acct.traded > acct.authorized {
+			return fmt.Errorf("%w: order %s authorized %d, reserved %d + traded %d",
+				ErrOverReserved, id, acct.authorized, acct.reserved, acct.traded)
+		}
+		if acct.reserved != reserved[id] {
+			return fmt.Errorf("%w: order %s account says reserved %d, domain holds %d",
+				ErrNotConserved, id, acct.reserved, reserved[id])
+		}
+		if acct.traded != traded[id] {
+			return fmt.Errorf("%w: order %s account says traded %d, domain holds %d",
+				ErrNotConserved, id, acct.traded, traded[id])
+		}
+	}
+	// An execution whose order has no account is quantity from nowhere.
+	for id := range reserved {
+		if _, ok := l.orders[id]; !ok {
+			return fmt.Errorf("%w: reserved execution for unaccounted order %s", ErrNotConserved, id)
+		}
+	}
+	for id := range traded {
+		if _, ok := l.orders[id]; !ok {
+			return fmt.Errorf("%w: traded execution for unaccounted order %s", ErrNotConserved, id)
+		}
+	}
+	return nil
+}
+
+// OrderQuantities reports one order's account: what the trader authorized, what is
+// held against it right now, and what has been permanently spent. Released quantity
+// does not appear because it is not a category — it went back to available, which is
+// authorized - reserved - traded.
+func (l *Ledger) OrderQuantities(orderID ids.ID) (authorized, reserved, traded uint64, ok bool) {
+	acct, ok := l.orders[orderID]
+	if !ok {
+		return 0, 0, 0, false
+	}
+	return acct.authorized, acct.reserved, acct.traded, true
 }
