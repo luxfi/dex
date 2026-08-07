@@ -45,6 +45,28 @@ func witnessFor(e Execution) []byte {
 	return append(e.Encode(), []byte("certificate-bytes")...)
 }
 
+// acceptedConsuming builds a verified AcceptedBlock whose ExecRoot contains exactly
+// the given executions, plus a proof for the FIRST one (inclusion if it was listed,
+// non-inclusion otherwise). This is how a relayer would present the two rules.
+func acceptedConsuming(t *testing.T, id, parent ids.ID, consumed ...ids.ID) (AcceptedBlock, ExecProof) {
+	t.Helper()
+	set := NewExecSet()
+	for _, c := range consumed {
+		set.Add(c)
+	}
+	root := set.Root()
+	msg := EncodeAcceptedBlock(id, parent, 1, root)
+	ab, err := VerifyAcceptedBlock(msg, []byte("cert"), okVerifier{})
+	if err != nil {
+		t.Fatalf("VerifyAcceptedBlock: %v", err)
+	}
+	target := sampleExecution().ExecID
+	if len(consumed) > 0 {
+		target = consumed[0]
+	}
+	return ab, set.Prove(target)
+}
+
 func verified(t *testing.T, e Execution) VerifiedExecution {
 	t.Helper()
 	v, err := VerifyExecution(witnessFor(e), VerifyContext{
@@ -180,10 +202,9 @@ func TestVerifyRequiresACertificateAndAVerifier(t *testing.T) {
 // Settle there is no ReservedExecution left, so "settle then release" is not a
 // runtime rejection — the ledger has nothing to hand back.
 func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
-	accepted, err := NewAcceptedBlock(testCBlock, testParent)
-	if err != nil {
-		t.Fatalf("NewAcceptedBlock: %v", err)
-	}
+	e0 := sampleExecution()
+	accepted, incl := acceptedConsuming(t, testCBlock, testParent, e0.ExecID)
+	qEmpty, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	t.Run("settled is terminal", func(t *testing.T) {
 		l := NewLedger()
@@ -191,16 +212,16 @@ func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
 		if _, err := l.Reserve(verified(t, e)); err != nil {
 			t.Fatalf("reserve: %v", err)
 		}
-		if _, err := l.Settle(e.ExecID, accepted); err != nil {
+		if _, err := l.Settle(e.ExecID, accepted, incl); err != nil {
 			t.Fatalf("settle: %v", err)
 		}
 		if err := l.Exclusive(); err != nil {
 			t.Fatalf("exclusivity broken after settle: %v", err)
 		}
-		if _, err := l.Release(e.ExecID, accepted); !errors.Is(err, ErrNotReserved) {
+		if _, err := l.Release(e.ExecID, qEmpty, nonIncl); !errors.Is(err, ErrNotReserved) {
 			t.Fatalf("releasing a SETTLED execution must find nothing reserved, got %v", err)
 		}
-		if _, err := l.Settle(e.ExecID, accepted); !errors.Is(err, ErrNotReserved) {
+		if _, err := l.Settle(e.ExecID, accepted, incl); !errors.Is(err, ErrNotReserved) {
 			t.Fatalf("settling twice must find nothing reserved, got %v", err)
 		}
 		if r, tr, rel := l.Counts(); r != 0 || tr != 1 || rel != 0 {
@@ -214,10 +235,10 @@ func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
 		if _, err := l.Reserve(verified(t, e)); err != nil {
 			t.Fatalf("reserve: %v", err)
 		}
-		if _, err := l.Release(e.ExecID, accepted); err != nil {
+		if _, err := l.Release(e.ExecID, qEmpty, nonIncl); err != nil {
 			t.Fatalf("release: %v", err)
 		}
-		if _, err := l.Settle(e.ExecID, accepted); !errors.Is(err, ErrNotReserved) {
+		if _, err := l.Settle(e.ExecID, accepted, incl); !errors.Is(err, ErrNotReserved) {
 			t.Fatalf("Reserved -> Released -> Traded MUST be impossible, got %v", err)
 		}
 		if err := l.Exclusive(); err != nil {
@@ -230,13 +251,13 @@ func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
 // forever. Without this, re-presenting the same certificate would take the
 // reservation a second time.
 func TestReplayedCertificateCannotReReserve(t *testing.T) {
-	accepted, _ := NewAcceptedBlock(testCBlock, testParent)
-	l := NewLedger()
 	e := sampleExecution()
+	accepted, incl := acceptedConsuming(t, testCBlock, testParent, e.ExecID)
+	l := NewLedger()
 	if _, err := l.Reserve(verified(t, e)); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
-	if _, err := l.Settle(e.ExecID, accepted); err != nil {
+	if _, err := l.Settle(e.ExecID, accepted, incl); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	if _, err := l.Reserve(verified(t, e)); !errors.Is(err, ErrTerminalExists) {
@@ -264,14 +285,14 @@ func TestDoubleReserveRefused(t *testing.T) {
 func TestSettleChecksTheAcceptedBlocksParent(t *testing.T) {
 	wrongParent := testParent
 	wrongParent[0] ^= 1
-	accepted, _ := NewAcceptedBlock(testCBlock, wrongParent)
+	e := sampleExecution()
+	accepted, incl := acceptedConsuming(t, testCBlock, wrongParent, e.ExecID)
 
 	l := NewLedger()
-	e := sampleExecution()
 	if _, err := l.Reserve(verified(t, e)); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
-	if _, err := l.Settle(e.ExecID, accepted); !errors.Is(err, ErrWrongSuccessor) {
+	if _, err := l.Settle(e.ExecID, accepted, incl); !errors.Is(err, ErrWrongSuccessor) {
 		t.Fatalf("settling against the wrong C parent must be refused, got %v", err)
 	}
 	if r, _, _ := l.Counts(); r != 1 {
@@ -282,18 +303,19 @@ func TestSettleChecksTheAcceptedBlocksParent(t *testing.T) {
 // TestStorageDomainsAreDistinct pins that the three states are physically separate
 // key spaces, not one key with a status field.
 func TestStorageDomainsAreDistinct(t *testing.T) {
-	accepted, _ := NewAcceptedBlock(testCBlock, testParent)
 	e := sampleExecution()
+	accepted, incl := acceptedConsuming(t, testCBlock, testParent, e.ExecID)
+	qEmpty, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
 	r, _ := l.Reserve(verified(t, e))
-	tr, err := l.Settle(e.ExecID, accepted)
+	tr, err := l.Settle(e.ExecID, accepted, incl)
 	if err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	l2 := NewLedger()
 	r2, _ := l2.Reserve(verified(t, e))
-	rel, err := l2.Release(e.ExecID, accepted)
+	rel, err := l2.Release(e.ExecID, qEmpty, nonIncl)
 	if err != nil {
 		t.Fatalf("release: %v", err)
 	}

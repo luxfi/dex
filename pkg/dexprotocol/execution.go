@@ -328,32 +328,103 @@ func (v verifiedExecution) Execution() Execution { return v.exec }
 func (v verifiedExecution) Commitment() ids.ID   { return v.commitment }
 func (verifiedExecution) verified()              {}
 
-// AcceptedBlock is proof that a specific C block was ACCEPTED by C consensus. Settle
-// and Release both require one, so neither can be driven by a wall clock or by an
-// unverified block id.
-type AcceptedBlock interface {
-	CBlock() ids.ID
-	CParent() ids.ID
-	isAcceptedBlock()
+// AcceptedBlock is a C block that C consensus has ACCEPTED, together with the
+// ExecRoot of the executions that block consumed.
+//
+// CPARENT MEANS ACCEPTED C BLOCK. PERIOD. A reservation may only ever be taken
+// against an accepted parent, which is what removes the abandoned-parent case
+// entirely: acceptance is the finality boundary, so an accepted P is guaranteed
+// exactly one accepted child, and that child permanently decides every execution
+// reserved against P. Allowing a merely proposed parent would force two questions —
+// "did P itself win?" and "which child of P won?" — plus conflict, height and
+// ancestry proofs. One question is better than two.
+//
+// There is NO public constructor. The fields are unexported and the only producer
+// is VerifyAcceptedBlock, so an unverified C parent cannot reach Reserve, Settle or
+// Release. The `verified` sentinel closes the remaining hole that unexported fields
+// alone leave open: a zero AcceptedBlock{} is constructible outside this package,
+// so every consumer requires the sentinel rather than merely non-zero ids.
+type AcceptedBlock struct {
+	verified bool
+	id       ids.ID
+	parentID ids.ID
+	height   uint64
+	execRoot [32]byte
 }
 
-type acceptedBlock struct {
-	cBlock  ids.ID
-	cParent ids.ID
+func (a AcceptedBlock) ID() ids.ID         { return a.id }
+func (a AcceptedBlock) ParentID() ids.ID   { return a.parentID }
+func (a AcceptedBlock) Height() uint64     { return a.height }
+func (a AcceptedBlock) ExecRoot() [32]byte { return a.execRoot }
+
+// AcceptedBlockEncodedLen is the canonical width of an acceptance statement:
+// id(32) | parent(32) | height(8) | execRoot(32). Fixed width, so injective.
+const AcceptedBlockEncodedLen = 32 + 32 + 8 + 32
+
+const acceptedDomain = "lux.dex.accepted-block.v1"
+
+var acceptedDomainTag = sha256.Sum256([]byte(acceptedDomain))
+
+var (
+	ErrAcceptedWidth      = errors.New("dexprotocol: encoded acceptance has the wrong width")
+	ErrAcceptedScope      = errors.New("dexprotocol: acceptance is missing the block or parent id")
+	ErrAcceptedUnverified = errors.New("dexprotocol: this C parent was never verified; only VerifyAcceptedBlock may produce one")
+)
+
+// EncodeAcceptedBlock is the canonical encoding D validators attest over. Exported
+// so the C side can produce the statement it signs.
+func EncodeAcceptedBlock(id, parentID ids.ID, height uint64, execRoot [32]byte) []byte {
+	b := make([]byte, AcceptedBlockEncodedLen)
+	o := 0
+	o += copy(b[o:], id[:])
+	o += copy(b[o:], parentID[:])
+	binary.BigEndian.PutUint64(b[o:], height)
+	o += 8
+	copy(b[o:], execRoot[:])
+	return b
 }
 
-func (a acceptedBlock) CBlock() ids.ID  { return a.cBlock }
-func (a acceptedBlock) CParent() ids.ID { return a.cParent }
-func (acceptedBlock) isAcceptedBlock()  {}
+// AcceptanceCommitment is what a certificate over an acceptance signs.
+func AcceptanceCommitment(msg []byte) ids.ID {
+	h := sha256.New()
+	h.Write(acceptedDomainTag[:])
+	h.Write(msg)
+	var id ids.ID
+	copy(id[:], h.Sum(nil))
+	return id
+}
 
-// NewAcceptedBlock is the ONLY producer of an AcceptedBlock. It is exported
-// because C acceptance is established by the C consensus engine, which lives
-// outside this package.
-func NewAcceptedBlock(cBlock, cParent ids.ID) (AcceptedBlock, error) {
-	if cBlock == ids.Empty || cParent == ids.Empty {
-		return nil, errors.New("dexprotocol: an accepted block must name both the block and its parent")
+// VerifyAcceptedBlock is the ONLY producer of an AcceptedBlock. It authenticates a
+// C acceptance statement against a certificate.
+//
+// NEVER USE LOCAL C STATE AS THE PROOF. Even with C co-located, a check like
+// `localC.LastAccepted() != execution.CParent` is wrong inside D consensus:
+// different D validators observe C advancement at different instants, so the answer
+// is not a function of the block being executed. The local C VM is DELIVERY; the
+// authenticated statement is the consensus input. This is the same rule already
+// proven in the other direction for C reading D.
+func VerifyAcceptedBlock(msg []byte, cert []byte, v CertificateVerifier) (AcceptedBlock, error) {
+	if v == nil {
+		return AcceptedBlock{}, ErrNoVerifier
 	}
-	return acceptedBlock{cBlock: cBlock, cParent: cParent}, nil
+	if len(msg) != AcceptedBlockEncodedLen {
+		return AcceptedBlock{}, fmt.Errorf("%w: got %d, want %d", ErrAcceptedWidth, len(msg), AcceptedBlockEncodedLen)
+	}
+	var a AcceptedBlock
+	o := 0
+	o += copy(a.id[:], msg[o:o+32])
+	o += copy(a.parentID[:], msg[o:o+32])
+	a.height = binary.BigEndian.Uint64(msg[o:])
+	o += 8
+	copy(a.execRoot[:], msg[o:o+32])
+	if a.id == ids.Empty || a.parentID == ids.Empty {
+		return AcceptedBlock{}, ErrAcceptedScope
+	}
+	if err := v.VerifyCertificate(AcceptanceCommitment(msg), cert); err != nil {
+		return AcceptedBlock{}, fmt.Errorf("%w: %s", ErrBadCertificate, err)
+	}
+	a.verified = true
+	return a, nil
 }
 
 // CertificateVerifier checks a D-validator certificate over an execution

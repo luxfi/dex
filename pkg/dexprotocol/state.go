@@ -106,35 +106,73 @@ var (
 	ErrNotReserved    = errors.New("dexprotocol: no reserved execution under that id")
 	ErrAlreadyOpen    = errors.New("dexprotocol: an execution is already reserved under that id")
 	ErrTerminalExists = errors.New("dexprotocol: a terminal execution already exists under that id")
+	ErrWrongProof     = errors.New("dexprotocol: the proof does not match the transition being attempted")
 )
 
-// Settle turns a reserved execution into a Trade, because the accepted successor
-// used it. AcceptedBlock cannot be forged by a caller, so a settle can never be
-// driven by a bare block id or a clock.
+// THE ENTIRE PROOF SYSTEM, THREE RULES:
 //
-// The successor check is against the EXECUTION's C parent, not anything the caller
-// asserts. Many candidate children may reference parent P and all may carry this
-// same certified execution while they are evaluated — nothing happens on D until
-// consensus selects P -> B. Then the answer is objective: the execution is in B or
-// it is not.
-func Settle(r ReservedExecution, accepted AcceptedBlock) (Trade, error) {
-	if accepted.CParent() != r.exec.CParent {
-		return Trade{}, fmt.Errorf("%w: accepted block's parent %s, execution scoped to %s",
-			ErrWrongSuccessor, accepted.CParent(), r.exec.CParent)
+//	Accepted(P)                                permits Reserve(E) with E.CParent == P
+//	Accepted(Q), Q.Parent==P, E ∈ Q.ExecRoot   permits Settle(E) → Trade
+//	Accepted(Q), Q.Parent==P, E ∉ Q.ExecRoot   permits Release(E)
+//
+// No clocks, no timeouts, no abandoned-parent case, and no race between a reclaim
+// and a late settlement. Because P is accepted, exactly one child Q of P is
+// eventually accepted, and Q's ExecRoot answers the question permanently — in one
+// direction or the other, with equal force.
+//
+// EVERY VALID RESERVATION IS RESOLVABLE, even when it is useless. If C accepts P, D
+// sees Accepted(P), C quickly accepts Q, and only THEN D reserves E against P, that
+// reservation can never be settled — but anyone can deliver Accepted(Q) with a
+// non-inclusion proof and release it. D may optimise by refusing a reservation when
+// it already knows Q, but correctness must not depend on winning that race.
+
+// Settle turns a reserved execution into a Trade, on proof that the accepted child
+// of its parent CONSUMED it.
+func Settle(r ReservedExecution, q AcceptedBlock, proof ExecProof) (Trade, error) {
+	if err := checkSuccessor(r, q); err != nil {
+		return Trade{}, err
 	}
-	return Trade{exec: r.exec, cBlock: accepted.CBlock()}, nil
+	if !proof.Included {
+		return Trade{}, fmt.Errorf("%w: a settle needs an INCLUSION proof", ErrWrongProof)
+	}
+	if err := VerifyExecProof(q.ExecRoot(), r.exec.ExecID, proof); err != nil {
+		return Trade{}, err
+	}
+	return Trade{exec: r.exec, cBlock: q.ID()}, nil
 }
 
-// Release returns the reservation to the book because the accepted successor did
-// not use the execution. Same proof requirement, same successor check. There is
-// deliberately no timeout-driven variant: the absence of that entry point is the
-// enforcement.
-func Release(r ReservedExecution, accepted AcceptedBlock) (Released, error) {
-	if accepted.CParent() != r.exec.CParent {
-		return Released{}, fmt.Errorf("%w: accepted block's parent %s, execution scoped to %s",
-			ErrWrongSuccessor, accepted.CParent(), r.exec.CParent)
+// Release returns the reservation to the book, on proof that the accepted child of
+// its parent did NOT consume it.
+//
+// Non-inclusion is not a fallback here — it is the other half of the protocol, and
+// it carries a real proof against the same committed root, verified by the same
+// code path as inclusion (see smt.go).
+func Release(r ReservedExecution, q AcceptedBlock, proof ExecProof) (Released, error) {
+	if err := checkSuccessor(r, q); err != nil {
+		return Released{}, err
 	}
-	return Released{exec: r.exec, cBlock: accepted.CBlock()}, nil
+	if proof.Included {
+		return Released{}, fmt.Errorf("%w: a release needs a NON-INCLUSION proof", ErrWrongProof)
+	}
+	if err := VerifyExecProof(q.ExecRoot(), r.exec.ExecID, proof); err != nil {
+		return Released{}, err
+	}
+	return Released{exec: r.exec, cBlock: q.ID()}, nil
+}
+
+// checkSuccessor enforces that q is the accepted CHILD of the execution's accepted
+// parent. Both halves matter: q must be verified (so a zero AcceptedBlock cannot be
+// passed), and its parent must be exactly the opportunity the execution was scoped
+// to.
+func checkSuccessor(r ReservedExecution, q AcceptedBlock) error {
+	if !q.verified {
+		return ErrAcceptedUnverified
+	}
+	if q.ParentID() != r.exec.CParent {
+		return fmt.Errorf("%w: accepted block's parent %s, execution scoped to %s",
+			ErrWrongSuccessor, q.ParentID(), r.exec.CParent)
+	}
+	return nil
 }
 
 // ReservationKey is the D custody key: CChain + CParent + ExecID. It is scoped to
@@ -192,12 +230,12 @@ func (l *Ledger) Reserve(v VerifiedExecution) (ReservedExecution, error) {
 // Settle MOVES the execution from the reserved domain to the traded domain. The
 // delete is what makes the illegal follow-on unrepresentable rather than merely
 // refused: afterwards there is no reserved execution to hand to anything.
-func (l *Ledger) Settle(id ids.ID, accepted AcceptedBlock) (Trade, error) {
+func (l *Ledger) Settle(id ids.ID, q AcceptedBlock, proof ExecProof) (Trade, error) {
 	r, ok := l.reserved[id]
 	if !ok {
 		return Trade{}, fmt.Errorf("%w: %s", ErrNotReserved, id)
 	}
-	t, err := Settle(r, accepted)
+	t, err := Settle(r, q, proof)
 	if err != nil {
 		return Trade{}, err
 	}
@@ -207,12 +245,12 @@ func (l *Ledger) Settle(id ids.ID, accepted AcceptedBlock) (Trade, error) {
 }
 
 // Release MOVES the execution from the reserved domain to the released domain.
-func (l *Ledger) Release(id ids.ID, accepted AcceptedBlock) (Released, error) {
+func (l *Ledger) Release(id ids.ID, q AcceptedBlock, proof ExecProof) (Released, error) {
 	r, ok := l.reserved[id]
 	if !ok {
 		return Released{}, fmt.Errorf("%w: %s", ErrNotReserved, id)
 	}
-	rel, err := Release(r, accepted)
+	rel, err := Release(r, q, proof)
 	if err != nil {
 		return Released{}, err
 	}

@@ -239,12 +239,11 @@ func TestSeam_BootstrapGateIsRequired(t *testing.T) {
 	}
 }
 
-// TestSeam_FlagDay_OldAndNewCannotDisagree is the wire-change safety proof. The intent
-// object and the TxImport body both changed width, which is a hard fork — so the
-// question that matters is not "can a mixed fleet keep working" (it cannot, that is what
-// a flag day means) but "can a mixed fleet DISAGREE about a block". It cannot, and the
-// reason is that the two generations are mutually UNPARSEABLE rather than mutually
-// executable:
+// TestSeam_OldAndNewCannotDisagree is the wire-change safety proof. The intent
+// object and the TxImport body both changed width, so the question that matters is not
+// "can a mixed fleet keep working" (it cannot) but "can a mixed fleet DISAGREE about a
+// block". It cannot, and the reason is that the two generations are mutually UNPARSEABLE
+// rather than mutually executable:
 //
 //   - An old node's bodySize(TxImport) is 32. Handed a new 150-byte frame, parseTxFrame
 //     refuses it outright ("carries unexpected trailing bytes"), decodeTxList fails, and
@@ -255,7 +254,7 @@ func TestSeam_BootstrapGateIsRequired(t *testing.T) {
 //
 // This test asserts the mechanism directly: a frame of the wrong width for its type is
 // refused at parse, in both directions, and a block containing one cannot be decoded.
-func TestSeam_FlagDay_OldAndNewCannotDisagree(t *testing.T) {
+func TestSeam_OldAndNewCannotDisagree(t *testing.T) {
 	intentID := ids.ID{0xF1, 0xA6}
 	owner := common.HexToAddress("0x00112233445566778899aabbccddeeff00112233")
 	op := seamOp{Market: [32]byte{0x01}, Side: seamSideSell, LimitPrice: 2 * dex.PriceMultiplier, Size: 10}
@@ -282,7 +281,7 @@ func TestSeam_FlagDay_OldAndNewCannotDisagree(t *testing.T) {
 	// parseTxFrame with bodySize(TxImport) == 32, and its rule for an unauthenticated
 	// type is EXACT-WIDTH. Feed that rule the new frame's tail.
 	if len(newTx.Body) == 32 {
-		t.Fatal("the import body did not actually change width; there is no flag day to reason about")
+		t.Fatal("the import body did not actually change width; there is no wire change to reason about")
 	}
 
 	// A block containing a frame of the wrong width does not decode at all — the
@@ -349,7 +348,7 @@ func TestSeamIntentWire_GoldenMatchesPrecompile(t *testing.T) {
 // trait C never writes, enumerate nothing, and every swap would sit unmatched forever
 // with no error logged on either side — indistinguishable from "nobody is trading".
 func TestSeamPendingTrait_MatchesPrecompileGolden(t *testing.T) {
-	// sha256("lux.dex.native.intent.pending.v2") — the .v2 domain is the flag-day
+	// sha256("lux.dex.native.intent.pending.v2") — the .v2 domain is the wire-generation
 	// switch that makes the op-less and op-carrying generations mutually invisible.
 	const golden = "5f10f9ad8c53b78043df24cb69f8a5acb745351107470cb7e19f44748fe8bd5b"
 	if len(SeamPendingTrait) != 32 {
