@@ -78,7 +78,11 @@ func outcomeFromApply(tx *Tx, res applyResult) txOutcome {
 		} else {
 			o.status = zapwire.StatusRejected
 		}
-	case TxSubmit:
+	case TxSubmit, TxIntentSubmit:
+		// One outcome shape for both authorizations: a seam order and a signed order
+		// crossed the same book through the same matcher, so they report the same
+		// fills. The seam's outcome is bound to the REAL tx (its id and its type), not
+		// to the frame derived from the escrow.
 		o.fills = toWireFills(res.Fills, res.TakerSide)
 		o.status = zapwire.StatusPlaced
 	case TxEnsureMarket:

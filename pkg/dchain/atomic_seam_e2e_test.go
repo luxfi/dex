@@ -11,6 +11,7 @@ import (
 	"github.com/luxfi/crypto"
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/database/prefixdb"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
@@ -99,14 +100,26 @@ func (h *seamHarness) addr(t *testing.T, name string) common.Address {
 	return common.BytesToAddress(acctAddrBytes(a))
 }
 
-// writeCToDIntent reproduces the precompile Phase-A host flush: it writes a C->D
-// atomic intent object (rail=railSwap, owner, asset, amount, spent=0) into shared
-// memory keyed by intentID, under the D chain's partition — exactly what
-// cSM.Apply(map[dChainID]{Put}) does after SubmitSwapIntent stages it. The native VM's
-// TxImport then consumes it via dSM.Get(cChainID, intentID).
+// testOp is the default CLOB operation a harness intent carries — a BUY of [size] base
+// at a limit of 2.0 on the PriceInt grid. Real intents carry the taker's own; the
+// mechanics tests only need one that is valid.
+func testOp(market [32]byte, side uint8, size uint64) seamOp {
+	return seamOp{Market: market, Side: side, LimitPrice: 2 * dex.PriceMultiplier, Size: size}
+}
+
+// writeCToDIntent reproduces the precompile Phase-A host flush: it writes a C->D swap
+// INTENT object — the 69-byte value head (rail=railSwap, owner, asset, amount, spent=0)
+// plus the 49-byte operation the taker authorized — into shared memory keyed by
+// intentID under the D chain's partition, exactly what cSM.Apply(map[dChainID]{Put})
+// does after SubmitSwapIntent stages it.
 func (h *seamHarness) writeCToDIntent(t *testing.T, intentID ids.ID, owner common.Address, asset [32]byte, amount uint64) {
 	t.Helper()
-	obj := encodeSeamObject(railSwap, owner, asset, amount, 0)
+	h.writeCToDIntentOp(t, intentID, owner, asset, amount, testOp([32]byte{0xAA}, seamSideBuy, amount))
+}
+
+func (h *seamHarness) writeCToDIntentOp(t *testing.T, intentID ids.ID, owner common.Address, asset [32]byte, amount uint64, op seamOp) {
+	t.Helper()
+	obj := encodeSeamIntentObject(owner, asset, amount, op)
 	// Tag the object with BOTH the per-owner trait (the precompile's existing index) AND
 	// the fixed SeamPendingTrait — modeling the corrected C-side flush (native_staging.go
 	// collectRange must add SeamPendingTrait so the D-side proposer drive can enumerate the
@@ -154,7 +167,6 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 	quote := assetID32(0x90) // the asset the taker LOCKS on C (tokenIn) / pays with
 
 	maker := acctFor(t, "seam-maker")
-	taker := acctFor(t, "seam-taker")
 	takerAddr := h.addr(t, "seam-taker")
 
 	// ---- Setup: open the custody market + seed a resting maker SELL ----
@@ -174,13 +186,18 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 	// C->D object owner=taker, asset=quote, amount=200, keyed by DeriveIntentID.
 	const lockedQuote = 200
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, lockedQuote, pool, 0)
-	h.writeCToDIntent(t, intentID, takerAddr, quote, lockedQuote)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, lockedQuote,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
+	// The intent runs in its OWN ledger account, isolated from anything the taker holds
+	// natively on D, so everything left in it at the end is this intent's answer.
+	seamAcct := seamAccount(intentID)
 
-	// ---- NATIVE D: import the intent (fund the taker's D account) ----
-	h.vm.mempool.Add(importTx(t, intentID))
+	// ---- NATIVE D: import the intent (fund the intent's account) ----
+	h.vm.autoDriveSeam = false // hand-drive each leg so the test can inspect them one at a time
+	h.vm.mempool.Add(h.importTx(t, intentID))
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, quote); got != lockedQuote {
-		t.Fatalf("taker quote available after import = %d, want %d", got, lockedQuote)
+	if got := h.avail(t, seamAcct, quote); got != lockedQuote {
+		t.Fatalf("seam account quote available after import = %d, want %d", got, lockedQuote)
 	}
 	// The escrow recorded the full 20-byte owner + the locked principal.
 	rec, ok, err := getSeamIntent(h.vm.db, intentID)
@@ -196,16 +213,17 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 		t.Fatal("C->D intent object must be consumed (removed) after import accept")
 	}
 
-	// ---- NATIVE D: the taker crosses the maker under D consensus ----
-	// A signed limit BUY 100 base @ 2 locks 200 quote and fills against the maker.
-	h.vm.mempool.Add(taker.signed(t, TxSubmit, encSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
+	// ---- NATIVE D: the SEAM crosses the maker under D consensus ----
+	// The order is the taker's own recorded operation — a limit BUY 100 base @ 2 — run
+	// under the intent's authority, not a signature. It locks 200 quote and fills.
+	h.vm.mempool.Add(submitTxFor(t, intentID))
 	h.buildAccept(t)
-	// Post-fill ledger: taker spent 200 quote, received 100 base; maker received 200 quote.
-	if got := h.avail(t, taker.account, quote); got != 0 {
-		t.Fatalf("taker quote available after fill = %d, want 0 (all spent)", got)
+	// Post-fill ledger: 200 quote spent, 100 base received; maker received 200 quote.
+	if got := h.avail(t, seamAcct, quote); got != 0 {
+		t.Fatalf("seam account quote after fill = %d, want 0 (all spent)", got)
 	}
-	if got := h.avail(t, taker.account, base); got != 100 {
-		t.Fatalf("taker base available after fill = %d, want 100 (proceeds)", got)
+	if got := h.avail(t, seamAcct, base); got != 100 {
+		t.Fatalf("seam account base after fill = %d, want 100 (proceeds)", got)
 	}
 	if got := h.avail(t, maker.account, quote); got != 200 {
 		t.Fatalf("maker quote available after fill = %d, want 200", got)
@@ -219,8 +237,8 @@ func TestSeam_TwoPhase_FullFill(t *testing.T) {
 	outputID := deriveSeamOutputID(exportTx.ID(), 0) // the key Phase B will claim
 	h.vm.mempool.Add(exportTx)
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, base); got != 0 {
-		t.Fatalf("taker base available after export = %d, want 0 (exported)", got)
+	if got := h.avail(t, seamAcct, base); got != 0 {
+		t.Fatalf("seam account base after export = %d, want 0 (exported)", got)
 	}
 
 	// ---- PHASE B (C side, modeled 0x9999 ImportSettlement) ----
@@ -281,25 +299,27 @@ func TestSeam_Import_ReplayNoDoubleCredit(t *testing.T) {
 	pool := [32]byte{0x11, 0x22, 0x33}
 	quote := assetID32(0x90)
 	takerAddr := h.addr(t, "replay-taker")
-	taker := acctFor(t, "replay-taker")
 
 	h.vm.mempool.Add(openMarketTx(t, pool, assetID32(0xB0), quote))
 	h.buildAccept(t)
 
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, 200, pool, 0)
 	h.writeCToDIntent(t, intentID, takerAddr, quote, 200)
+	seamAcct := seamAccount(intentID)
 
-	h.vm.mempool.Add(importTx(t, intentID))
+	h.vm.autoDriveSeam = false // hand-drive: only the injected import lands
+	imp := h.importTx(t, intentID)
+	h.vm.mempool.Add(imp)
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, quote); got != 200 {
+	if got := h.avail(t, seamAcct, quote); got != 200 {
 		t.Fatalf("after first import quote = %d, want 200", got)
 	}
 
 	// Re-submit the SAME import. seen: returns the prior outcome (idempotent); the
 	// escrow already exists and the C->D object is consumed — no second credit.
-	h.vm.mempool.Add(importTx(t, intentID))
+	h.vm.mempool.Add(imp)
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, quote); got != 200 {
+	if got := h.avail(t, seamAcct, quote); got != 200 {
 		t.Fatalf("after replay import quote = %d, want 200 (no double credit)", got)
 	}
 }
@@ -314,19 +334,22 @@ func TestSeam_OverExportRefund_Rejected(t *testing.T) {
 	base := assetID32(0xB0)
 	quote := assetID32(0x90)
 	takerAddr := h.addr(t, "cap-taker")
-	taker := acctFor(t, "cap-taker")
 
 	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
 	h.buildAccept(t)
 
-	// Import 200 quote; the taker does NOT trade, so all 200 stays available and the
-	// intent's remaining principal is 200.
+	// Import 200 quote and run the order against an EMPTY book: nothing crosses, so all
+	// 200 stays available and the intent's remaining principal is 200.
 	const locked = 200
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntent(t, intentID, takerAddr, quote, locked)
-	h.vm.mempool.Add(importTx(t, intentID))
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
+	seamAcct := seamAccount(intentID)
+	h.vm.autoDriveSeam = false
+	h.vm.mempool.Add(h.importTx(t, intentID))
+	h.vm.mempool.Add(submitTxFor(t, intentID))
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, quote); got != locked {
+	if got := h.avail(t, seamAcct, quote); got != locked {
 		t.Fatalf("imported quote = %d, want %d", got, locked)
 	}
 
@@ -338,7 +361,7 @@ func TestSeam_OverExportRefund_Rejected(t *testing.T) {
 	if st := outcomeStatus(blk, over.ID()); st != zapwire.StatusRejected {
 		t.Fatalf("over-export status = %d, want StatusRejected (%d)", st, zapwire.StatusRejected)
 	}
-	if got := h.avail(t, taker.account, quote); got != locked {
+	if got := h.avail(t, seamAcct, quote); got != locked {
 		t.Fatalf("quote after rejected over-export = %d, want %d (untouched)", got, locked)
 	}
 	// No D->C object was produced for the rejected export.
@@ -352,7 +375,7 @@ func TestSeam_OverExportRefund_Rejected(t *testing.T) {
 	okID := deriveSeamOutputID(ok.ID(), 0)
 	h.vm.mempool.Add(ok)
 	h.buildAccept(t)
-	if got := h.avail(t, taker.account, quote); got != 0 {
+	if got := h.avail(t, seamAcct, quote); got != 0 {
 		t.Fatalf("quote after at-cap refund = %d, want 0", got)
 	}
 	vals, _ := h.cSM.Get(h.dChainID, [][]byte{okID[:]})
@@ -423,11 +446,28 @@ func assetID32(b byte) [32]byte {
 	return a
 }
 
-func importTx(t *testing.T, intentID ids.ID) *Tx {
+// importTx builds the TxImport for an intent the way the production drive does: it
+// READS the object out of shared memory and carries its bytes in the transaction, so
+// execution never has to look at shared memory again.
+func (h *seamHarness) importTx(t *testing.T, intentID ids.ID) *Tx {
 	t.Helper()
-	tx, err := NewTx(TxImport, EncodeSeamImportBody(intentID))
+	object, ok, err := readSeamObject(h.vm.seamSharedMemory(), h.cChainID, intentID)
+	if err != nil || !ok {
+		t.Fatalf("read C->D object for %s: ok=%v err=%v", intentID, ok, err)
+	}
+	tx, err := NewTx(TxImport, EncodeSeamImportBody(intentID, object))
 	if err != nil {
 		t.Fatalf("NewTx import: %v", err)
+	}
+	return tx
+}
+
+// submitTxFor builds the seam's taker-order tx for an imported intent.
+func submitTxFor(t *testing.T, intentID ids.ID) *Tx {
+	t.Helper()
+	tx, err := NewTx(TxIntentSubmit, EncodeSeamSubmitBody(intentID))
+	if err != nil {
+		t.Fatalf("NewTx seam submit: %v", err)
 	}
 	return tx
 }
