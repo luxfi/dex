@@ -93,12 +93,26 @@ func (r Released) ExecID() ids.ID       { return r.exec.ExecID }
 func (r Released) CBlock() ids.ID       { return r.cBlock }
 func (r Released) Key() string          { return domainReleased + r.exec.ExecID.String() }
 
-// Reserve admits a verified execution into the reserved domain. It is the ONLY
-// entry point into the lifecycle and requires a VerifiedExecution — which cannot be
-// constructed outside this package — so a reservation can never be taken against an
-// execution nobody authenticated.
-func Reserve(v VerifiedExecution) ReservedExecution {
-	return ReservedExecution{exec: v.Execution()}
+// Reserve admits a verified execution into the reserved domain, AGAINST AN ACCEPTED
+// C PARENT. This is rule 1 of the proof system:
+//
+//	Accepted(P)  permits Reserve(E) with E.CParent == P
+//
+// Both arguments are unforgeable: VerifiedExecution cannot be constructed outside
+// this package, and AcceptedBlock only comes from VerifyAcceptedBlock. So a
+// reservation can be taken neither against an execution nobody authenticated nor
+// against a C parent nobody proved accepted — which is what makes the
+// abandoned-parent case not merely handled but nonexistent.
+func Reserve(parent AcceptedBlock, v VerifiedExecution) (ReservedExecution, error) {
+	if !parent.verified {
+		return ReservedExecution{}, ErrAcceptedUnverified
+	}
+	e := v.Execution()
+	if e.CParent != parent.ID() {
+		return ReservedExecution{}, fmt.Errorf("%w: execution scoped to %s, reserving against accepted %s",
+			ErrWrongParent, e.CParent, parent.ID())
+	}
+	return ReservedExecution{exec: e}, nil
 }
 
 var (
@@ -107,6 +121,7 @@ var (
 	ErrAlreadyOpen    = errors.New("dexprotocol: an execution is already reserved under that id")
 	ErrTerminalExists = errors.New("dexprotocol: a terminal execution already exists under that id")
 	ErrWrongProof     = errors.New("dexprotocol: the proof does not match the transition being attempted")
+	ErrWrongParent    = errors.New("dexprotocol: the execution is not scoped to this accepted C parent")
 )
 
 // THE ENTIRE PROOF SYSTEM, THREE RULES:
@@ -214,7 +229,7 @@ func (l *Ledger) terminalExists(id ids.ID) bool {
 // Reserve admits a verified execution. Refuses an id that is already reserved or
 // already terminal — the latter is what stops a replayed certificate from
 // re-reserving liquidity that was already settled or released.
-func (l *Ledger) Reserve(v VerifiedExecution) (ReservedExecution, error) {
+func (l *Ledger) Reserve(parent AcceptedBlock, v VerifiedExecution) (ReservedExecution, error) {
 	id := v.Execution().ExecID
 	if l.terminalExists(id) {
 		return ReservedExecution{}, fmt.Errorf("%w: %s", ErrTerminalExists, id)
@@ -222,7 +237,10 @@ func (l *Ledger) Reserve(v VerifiedExecution) (ReservedExecution, error) {
 	if _, ok := l.reserved[id]; ok {
 		return ReservedExecution{}, fmt.Errorf("%w: %s", ErrAlreadyOpen, id)
 	}
-	r := Reserve(v)
+	r, err := Reserve(parent, v)
+	if err != nil {
+		return ReservedExecution{}, err
+	}
 	l.reserved[id] = r
 	return r, nil
 }
