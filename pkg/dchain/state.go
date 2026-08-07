@@ -88,6 +88,7 @@ const (
 	metaHeight       = prefixMeta + "height"
 	metaRoot         = prefixMeta + "root"
 	metaHeadBlock    = prefixMeta + "headBlock" // canonical bytes of the accepted head block
+	metaGenesis      = prefixMeta + "genesis"   // canonical bytes of the height-0 block
 )
 
 // seenKey builds seen:<txID:32>. A tx id committed here has been applied by an
@@ -752,12 +753,13 @@ func writeHeight(db database.KeyValueWriter, height uint64) error {
 	return db.Put([]byte(metaHeight), b[:])
 }
 
+// readRoot returns the accepted head's execution root. It is written with the head
+// pointer in one batch, so a head with no root behind it is corruption — and
+// substituting a zero root would silently rebase the chain, which is the same class
+// of defect as reconstructing genesis from the binary. It errors instead.
 func readRoot(db database.KeyValueReader) ([32]byte, error) {
 	var r [32]byte
 	v, err := db.Get([]byte(metaRoot))
-	if err == database.ErrNotFound {
-		return r, nil // genesis parent root is zero
-	}
 	if err != nil {
 		return r, err
 	}
@@ -787,6 +789,19 @@ func readHeadBlock(db database.KeyValueReader) ([]byte, error) {
 // root) so the head pointer and the block it names always commit together.
 func writeHeadBlock(db database.KeyValueWriter, blockBytes []byte) error {
 	return db.Put([]byte(metaHeadBlock), blockBytes)
+}
+
+// readGenesis returns the canonical bytes of the chain's height-0 block, or
+// database.ErrNotFound when this database holds no chain yet. It is the node's
+// record of WHICH chain it is on: written once, in the same batch that commits
+// the height-0 head, and never rewritten. See genesis.go.
+func readGenesis(db database.KeyValueReader) ([]byte, error) {
+	return db.Get([]byte(metaGenesis))
+}
+
+// writeGenesis records the chain's height-0 block image at birth.
+func writeGenesis(db database.KeyValueWriter, blockBytes []byte) error {
+	return db.Put([]byte(metaGenesis), blockBytes)
 }
 
 // =========================================================================
