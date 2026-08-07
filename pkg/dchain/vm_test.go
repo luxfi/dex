@@ -509,44 +509,6 @@ func TestVMRestartGetBlockHead(t *testing.T) {
 	}
 }
 
-// TestVMRestartLegacyGenesisDB proves loadHead recovers a DB written before head
-// blocks were persisted (no metaHeadBlock) when the head is genesis: it
-// reconstructs the deterministic genesis block and serves it over GetBlock. A
-// non-genesis legacy head (no recoverable bytes) must error loudly instead of
-// silently resetting the chain.
-func TestVMRestartLegacyGenesisDB(t *testing.T) {
-	ctx := context.Background()
-	db := memdb.New()
-
-	// Simulate a legacy genesis DB: write the head META (lastAccepted/height/root)
-	// for genesis but NOT the head-block bytes, exactly as the pre-persistence code
-	// left a fresh chain.
-	gen, root := (&VM{}).genesisBlock()
-	batch := db.NewBatch()
-	if err := writeLastAccepted(batch, gen.id); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeHeight(batch, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeRoot(batch, root); err != nil {
-		t.Fatal(err)
-	}
-	if err := batch.Write(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Initialize over that legacy DB: loadHead's genesis recovery must rebuild the
-	// head block so GetBlock(genesis) works.
-	vm2, _ := newTestVM(t, db)
-	if vm2.lastAcceptedID != gen.id {
-		t.Fatalf("legacy-DB head = %s, want genesis %s", vm2.lastAcceptedID, gen.id)
-	}
-	if _, err := vm2.GetBlock(ctx, gen.id); err != nil {
-		t.Fatalf("GetBlock(genesis) on legacy DB: %v", err)
-	}
-}
-
 // TestVMAcceptViaGetBlock reproduces the production consensus stall: the luxd
 // plugin transport (vm/rpc) resolves Block.Accept by ID via VM.GetBlock — unlike
 // Verify, which carries the full block bytes — and then calls Accept on whatever

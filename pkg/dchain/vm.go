@@ -58,7 +58,7 @@ type VM struct {
 	// (single-chain unit tests with no seam) — the seam then refuses (no mint).
 	runtime *runtime.Runtime
 	// cChainID is the C-Chain id resolved from the runtime: the partition a C->D
-	// intent object is read under (import) and a D->C settlement object is written
+	// order object is read under (import) and a D->C settlement object is written
 	// under (export). ids.Empty when no runtime / no C-Chain — the seam stays closed.
 	cChainID ids.ID
 
@@ -119,7 +119,7 @@ type VM struct {
 
 	// autoDriveSeam enables the PROPOSER-SIDE DRIVE (drive.go): when set, BuildBlock
 	// autonomously enumerates the committed cross-chain atomic state and emits the
-	// TxImport / TxExport txs that import C->D intents and export D->C settlements —
+	// TxImport / TxExport txs that import C->D orders and export D->C settlements —
 	// the keeper-less native settlement seam. It is set true at Initialize exactly when
 	// the cross-chain seam is wired (a runtime with shared memory + a resolved C-Chain
 	// id); a single-chain runtime (no seam) leaves it false, and the seam unit tests
@@ -183,20 +183,46 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	vm.processingBlocks = map[ids.ID]*Block{}
 	vm.heightIndex = map[uint64]ids.ID{}
 
-	// Load the head, or bootstrap genesis.
-	if _, err := readLastAccepted(vm.db); err == database.ErrNotFound {
-		if err := vm.bootstrapGenesis(); err != nil {
+	// Resolve height 0 before anything else touches the chain. The genesis comes
+	// from the chain-creation document the node supplies (init.Genesis) and must
+	// match this node's own record of it; a disagreement refuses to start rather
+	// than fork silently. See genesis.go.
+	stored, err := readGenesis(vm.db)
+	if err != nil && err != database.ErrNotFound {
+		return fmt.Errorf("dchain: read stored genesis: %w", err)
+	}
+	_, err = readLastAccepted(vm.db)
+	if err != nil && err != database.ErrNotFound {
+		return fmt.Errorf("dchain: read last accepted: %w", err)
+	}
+	born := err == nil // this database already holds a chain
+
+	if born && len(stored) == 0 {
+		// Born under a build that kept no genesis record. Recoverable at height 0
+		// from the chain's own head block, and nowhere else.
+		if stored, err = vm.recoverGenesis(); err != nil {
 			return err
 		}
-	} else if err != nil {
-		return fmt.Errorf("dchain: read last accepted: %w", err)
-	} else {
+	}
+
+	gen, err := vm.genesis(init.Genesis, stored)
+	if err != nil {
+		return err
+	}
+
+	if born {
 		if err := vm.loadHead(); err != nil {
 			return err
+		}
+		if vm.lastAcceptedHeight == 0 && vm.lastAcceptedID != gen.id {
+			return fmt.Errorf("dchain: refusing to start: the head at height 0 is %s but this chain's genesis is %s",
+				vm.lastAcceptedID, describeGenesis(gen))
 		}
 		if err := vm.rebuildAllBooks(); err != nil {
 			return err
 		}
+	} else if err := vm.bootstrapGenesis(gen); err != nil {
+		return err
 	}
 
 	vm.preferred = vm.lastAcceptedID
@@ -225,7 +251,11 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	}
 
 	vm.initialized = true
+	// genesis is logged on every start so which chain a node is on is answerable
+	// from its logs alone. Two nodes that cannot agree here agree about nothing.
 	vm.log.Info("dchain VM initialized",
+		"genesis", gen.id,
+		"createdFrom", fmt.Sprintf("%x", genesisOrigin(init.Genesis)),
 		"height", vm.lastAcceptedHeight,
 		"lastAccepted", vm.lastAcceptedID,
 		"markets", len(vm.books),
@@ -234,31 +264,23 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	return nil
 }
 
-// genesisBlock deterministically reconstructs the genesis block (height 0, empty,
-// zero parent root). It is a pure function of the VM binding — every validator and
-// every restart computes the identical id — so it is the single source of the
-// genesis block for both bootstrapGenesis (fresh DB) and loadHead's legacy-DB
-// recovery (a DB written before head blocks were persisted).
-func (vm *VM) genesisBlock() (*Block, [Size]byte) {
-	var parentRoot [Size]byte  // zero
-	var emptyLedger [Size]byte // genesis has no custody ledger yet
-	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, emptyLedger, 0)
-	return newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil), root
-}
-
-// bootstrapGenesis writes the genesis block (height 0, empty, zero parent root)
-// and sets it as the accepted head. Must be called under vm.mu on a fresh DB.
-func (vm *VM) bootstrapGenesis() error {
-	gen, root := vm.genesisBlock()
-
+// bootstrapGenesis commits gen as the chain's height-0 head and, in the same
+// batch, records it as the chain's genesis — the node's permanent answer to "which
+// chain am I on". Every later start reads that record back and asserts against it,
+// so this is the one and only moment the answer is decided. Must be called under
+// vm.mu on a database that holds no chain.
+func (vm *VM) bootstrapGenesis(gen *Block) error {
 	batch := vm.db.NewBatch()
+	if err := writeGenesis(batch, gen.bytes); err != nil {
+		return err
+	}
 	if err := writeLastAccepted(batch, gen.id); err != nil {
 		return err
 	}
 	if err := writeHeight(batch, 0); err != nil {
 		return err
 	}
-	if err := writeRoot(batch, root); err != nil {
+	if err := writeRoot(batch, gen.execRoot); err != nil {
 		return err
 	}
 	if err := writeHeadBlock(batch, gen.bytes); err != nil {
@@ -271,7 +293,7 @@ func (vm *VM) bootstrapGenesis() error {
 	gen.status = statusAccepted
 	vm.lastAcceptedID = gen.id
 	vm.lastAcceptedHeight = 0
-	vm.lastRoot = root
+	vm.lastRoot = gen.execRoot
 	vm.acceptedBlocks[gen.id] = gen
 	vm.heightIndex[0] = gen.id
 	return nil
@@ -310,30 +332,16 @@ func (vm *VM) loadHead() error {
 	return nil
 }
 
-// loadHeadBlock reconstructs the accepted head block named by (id, height). It
-// reads the persisted head-block bytes and parses them, asserting the reconstructed
-// id matches the head pointer. For a DB written before head blocks were persisted
-// (legacy), the bytes are absent: a height-0 head is recovered from the
-// deterministic genesis block (verified to match the stored id); a height>0 head
-// with no persisted block is unrecoverable corruption and errors loudly rather
-// than silently resetting the chain. Must be called under vm.mu.
+// loadHeadBlock reconstructs the accepted head block named by (id, height) from
+// its persisted bytes, asserting the reconstructed id and height match the head
+// pointer. A head pointer with no block behind it is unrecoverable corruption and
+// errors loudly rather than silently resetting the chain — reconstructing height 0
+// from the binary instead is exactly the silent fork this package refuses to
+// commit. Must be called under vm.mu.
 func (vm *VM) loadHeadBlock(id ids.ID, height uint64) (*Block, error) {
 	raw, err := readHeadBlock(vm.db)
-	if err == database.ErrNotFound {
-		// Legacy DB (head block never persisted). Only genesis is reconstructible
-		// without the bytes.
-		if height != 0 {
-			return nil, fmt.Errorf("dchain: head block missing at height %d (corrupt or pre-persistence state); cannot recover", height)
-		}
-		gen, _ := vm.genesisBlock()
-		if gen.id != id {
-			return nil, fmt.Errorf("dchain: genesis id mismatch on legacy DB: stored %s computed %s", id, gen.id)
-		}
-		gen.status = statusAccepted
-		return gen, nil
-	}
 	if err != nil {
-		return nil, fmt.Errorf("dchain: read head block: %w", err)
+		return nil, fmt.Errorf("dchain: read head block at height %d: %w", height, err)
 	}
 
 	head, err := parseBlock(vm, raw)
@@ -452,11 +460,11 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 
 	// PROPOSER-SIDE DRIVE (drive.go): before draining the mempool, enumerate the committed
 	// cross-chain atomic state and autonomously generate the seam txs — TxImport for every
-	// un-imported C->D intent, TxExport for every open intent whose owner now holds realized
+	// un-imported C->D order, TxExport for every open order whose owner now holds realized
 	// proceeds. Both are pure, deterministic functions of committed state (shared memory +
 	// the seamintent: escrow + the ledger), so every validator re-derives the identical
 	// effects in execute and a divergent proposer is rejected on the tx root. This is the
-	// keeper-less native settlement seam — the VM imports C->D intents and exports D->C
+	// keeper-less native settlement seam — the VM imports C->D orders and exports D->C
 	// settlements during normal block production. A no-op when the seam is unwired.
 	imports, err := vm.driveSeamImports(maxSeamDrivePerBlock)
 	if err != nil {
@@ -477,7 +485,7 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	// Assemble [imports || exports || mempool]. Imports come FIRST so a same-block taker
 	// order draws from the just-imported funds; exports come before the mempool so they
 	// settle committed proceeds before any new mempool order can touch the same account.
-	// The seam txs and the mempool txs are disjoint by construction (an intent is imported,
+	// The seam txs and the mempool txs are disjoint by construction (an order is imported,
 	// then traded, then exported across distinct blocks).
 	txs := make([]*Tx, 0, len(imports)+len(orders)+len(exports)+len(mtxs))
 	txs = append(txs, imports...)
@@ -672,7 +680,7 @@ func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	// The seam drive (drive.go) can have work even with an empty mempool — a pending
-	// C->D intent to import, or an open intent with realized proceeds to export. Those
+	// C->D order to import, or an open order with realized proceeds to export. Those
 	// appear at the source chain's block cadence (seconds), so they are polled on a
 	// slower, separate tick to keep the hot mempool path cheap.
 	seamTicker := time.NewTicker(time.Second)
