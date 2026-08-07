@@ -4,6 +4,7 @@
 package dchain
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -176,6 +177,15 @@ func (b *Block) Verify(ctx context.Context) error {
 		return fmt.Errorf("dchain: block height %d != expected %d", b.height, b.vm.lastAcceptedHeight+1)
 	}
 
+	// THE SHIP RULE, proven on the BLOCK. Execution binds the object bytes the
+	// transaction carried, which is what makes it replayable; that those bytes are the
+	// real recorded object is proven here, once, against shared memory. A forged object
+	// costs the producer a BLOCK instead of forking a state root — and the producer
+	// verifies its own block before proposing it, so a forgery never leaves the node.
+	if err := b.verifySeamImports(); err != nil {
+		return err
+	}
+
 	overlay := versiondb.New(b.vm.db)
 	result, err := b.execute(ctx, overlay)
 	if err != nil {
@@ -209,6 +219,21 @@ func (b *Block) Accept(ctx context.Context) error {
 		if err != nil {
 			overlay.Abort()
 			return err
+		}
+		// AND CHECK THE ROOT HERE TOO. This branch is the BOOTSTRAP path — a node
+		// replaying accepted history calls Accept without Verify — and it used to
+		// commit whatever it derived while persisting the block's CLAIMED root. A node
+		// that derived something different therefore wrote a ledger that disagreed with
+		// its own meta:root and only discovered it one block later, on the next Verify,
+		// with the divergence already committed. Checking here turns "sync silently
+		// onto a different chain" into "stop at the block you could not reproduce",
+		// which is the only safe answer and the thing that makes a bootstrap proof
+		// meaningful: reaching the tip now means having re-derived every root on the
+		// way to it.
+		if res.root != b.execRoot {
+			overlay.Abort()
+			return fmt.Errorf("dchain: execution root mismatch at accept (height %d): claimed %x derived %x",
+				b.height, b.execRoot[:8], res.root[:8])
 		}
 		b.overlay = overlay
 		b.outcomes = res.outcomes
@@ -444,9 +469,15 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			// CONSUME a C->D atomic intent object and fund the taker's native D
 			// account (atomic.go). Authority is the consumed object, not a signature
 			// (TxImport.requiresAuth() is false), so the auth gate above skipped it.
-			var intentID ids.ID
-			copy(intentID[:], tx.Body) // the body is exactly the 32-byte intent id
-			credited, ok, ierr := b.vm.executeImport(overlay, ar, intentID)
+			// The object's BYTES ride in the body, so this binds them and never reads
+			// shared memory: execution is a pure function of the block and replays
+			// byte-identically forever. Block.verifySeamImports proves those bytes are
+			// the real recorded object.
+			intentID, object, derr := decodeSeamImportBody(tx.Body)
+			if derr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam import decode: %w", i, derr)
+			}
+			credited, ok, ierr := b.vm.executeImport(overlay, ar, intentID, object)
 			if ierr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d seam import: %w", i, ierr)
 			}
@@ -498,8 +529,85 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 		}
 
+		// ---- The seam's taker order ----
+		// TxIntentSubmit carries the intent id ALONE. The taker's operation was
+		// declared once — in the C->D object, recorded into the escrow by this block's
+		// own TxImport — so the zapwire Submit frame is DERIVED from that escrow here,
+		// by the one function that defines what an intent means (seamSubmitBody). From
+		// this point the tx is an ordinary submit: it flows through the IDENTICAL
+		// custody gate, matcher, and settlement path a signed dex_submit takes, with
+		// nothing duplicated for the seam.
+		//
+		// orderTx is the DERIVED frame; tx stays the real transaction, so the outcome,
+		// the seen: key, and the tx root all remain bound to what the block actually
+		// contains.
+		orderTx := tx
+		var seamIntentID ids.ID
+		if tx.Type == TxIntentSubmit {
+			copy(seamIntentID[:], tx.Body)
+			rec, exists, gerr := getSeamIntent(overlay, seamIntentID)
+			if gerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam submit: %w", i, gerr)
+			}
+			// `open` is the ONLY state an order may run from: it means this block's
+			// import credited the intent's account and no order has run yet. A missing
+			// escrow (the import rejected, or this names an intent that was never
+			// imported) and an already-`submitted` one (a replay) both reject here,
+			// deterministically, moving nothing.
+			if !exists || rec.Status != seamIntentOpen {
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+			// THE MARKET IS NAMED BY THE OTHER CHAIN, so it must never be able to
+			// abort a block. C cannot see D's market registry; a taker can name a
+			// market D has never created, or one whose (base, quote) assets were never
+			// bound. Both must be DETERMINISTIC PER-TX REJECTS:
+			//
+			//   - an unknown market would reach bookForPool and return an error, which
+			//     aborts the whole block. That is a halt any C caller could trigger.
+			//   - a market with unbound assets falls through to the no-custody path,
+			//     where an order crosses while reserving nothing — fills with no ledger
+			//     backing behind them.
+			//
+			// Rejecting here costs the taker nothing: the escrow still advances to
+			// `submitted` below, so the export drive returns their whole principal.
+			if _, marketExists, merr := readMarketSymbol(overlay, rec.Op.Market); merr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam submit market: %w", i, merr)
+			} else if !marketExists {
+				if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
+					return execResult{}, perr
+				}
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+			if _, _, bound, aerr := readMarketAssets(overlay, rec.Op.Market); aerr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam submit assets: %w", i, aerr)
+			} else if !bound {
+				if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
+					return execResult{}, perr
+				}
+				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
+				continue
+			}
+
+			orderTx = &Tx{Type: TxSubmit, Body: seamSubmitBody(seamIntentID, rec)}
+
+			// The order is DISPATCHED here, so the escrow advances here — before the
+			// custody gate, not after a successful cross. A submit that the custody
+			// gate refuses (an operation the imported principal cannot fund, a
+			// zero-notional order) has still had its one chance, and its answer is
+			// "nothing filled". Advancing only on success would leave that escrow
+			// `open` forever: the drive never re-emits a submit for an
+			// already-imported intent, so nothing would ever export it, the principal
+			// would sit on D, and C's deadline reclaim would refund the taker a second
+			// time. One transition, one place, every path.
+			if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
+				return execResult{}, perr
+			}
+		}
+
 		// ---- Market-scoped txs (begin with poolId) ----
-		poolID, ok := tx.poolID()
+		poolID, ok := orderTx.poolID()
 		if !ok {
 			return execResult{}, fmt.Errorf("dchain: tx %d missing poolId", i)
 		}
@@ -564,7 +672,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		if aerr != nil {
 			return execResult{}, aerr
 		}
-		locked, lockedOK, lerr := b.lockOrderSpend(overlay, tx, uint32(i), poolID, base, quote, assetsBound)
+		locked, lockedOK, lerr := b.lockOrderSpend(overlay, orderTx, uint32(i), poolID, base, quote, assetsBound)
 		if lerr != nil && !errors.Is(lerr, ErrDustPriceOrZeroLock) {
 			// A real lock fault (decode / db) aborts the block; only the named
 			// zero-notional reject below is a deterministic per-tx outcome.
@@ -586,14 +694,14 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 		}
 
-		res, err := applyTx(ob, tx, b.height, b.timestamp, uint32(i))
+		res, err := applyTx(ob, orderTx, b.height, b.timestamp, uint32(i))
 		if err != nil {
 			return execResult{}, err
 		}
 
 		// ---- SETTLE: move value for this tx's effects inside the ledger ----
 		if assetsBound {
-			if serr := b.settleOrderEffects(overlay, poolID, tx, uint32(i), res, base, quote, locked); serr != nil {
+			if serr := b.settleOrderEffects(overlay, poolID, orderTx, uint32(i), res, base, quote, locked); serr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d settle: %w", i, serr)
 			}
 		}
@@ -1083,4 +1191,69 @@ func poolSymbol(poolID [32]byte) string {
 		out[i*2+1] = hexdigits[c&0x0f]
 	}
 	return string(out)
+}
+
+// verifySeamImports authenticates every cross-chain object this block's imports
+// CARRIED, against the object shared memory actually holds. It is the block-level half
+// of the reproducibility fix: execution binds tx-carried bytes (pure, replayable
+// forever), and the proof that those bytes are real lives here, where a mismatch
+// rejects the BLOCK rather than diverging a state root.
+//
+// This is the primary network's own import discipline — object in the transaction,
+// shared memory consulted at Verify, consumption applied at Accept — and it is the same
+// shape evm/plugin/evm/dex_atomic_verify.go gives the C side.
+//
+// THE BOOTSTRAP GATE IS REQUIRED, NOT AN OPTIMIZATION. A node replaying history has not
+// necessarily applied the exporting chain's block yet: C and D bootstrap independently,
+// so below the frontier the C->D object may legitimately be absent — not yet exported,
+// or already consumed by this very block's own accepted Remove. Blocks below the
+// frontier were already validated by the network under its finality rule; that
+// acceptance is their authority. Above the frontier the object must be there, and must
+// match byte for byte.
+//
+// KNOWN, INHERENT LIVENESS PROPERTY (shared with every shared-memory import model,
+// coreth's ImportTx included): a validator caught up on D but LAGGING on C will not yet
+// see the C-side flush and will reject an otherwise-valid D block. It does not halt —
+// the block is rejected, not fatal, and re-verification succeeds once C catches up. The
+// drive only ever emits an import for an object it just read out of shared memory, so
+// in practice the producer has already observed it.
+func (b *Block) verifySeamImports() error {
+	if !b.vm.normalOp || b.vm.cChainID == ids.Empty {
+		return nil
+	}
+	sm := b.vm.seamSharedMemory()
+	if sm == nil {
+		// No cross-chain capability wired: an import could not have credited anything
+		// (executeImport rejects without a C chain id), so there is nothing to prove.
+		return nil
+	}
+	for _, tx := range b.txs {
+		if tx.Type != TxImport {
+			continue
+		}
+		intentID, object, err := decodeSeamImportBody(tx.Body)
+		if err != nil {
+			return fmt.Errorf("dchain: block %s: %w", b.id, err)
+		}
+		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{intentID[:]})
+		if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
+			return fmt.Errorf("dchain: seam import unbacked in block %s (height %d): object %s is not in shared memory: %w",
+				b.id, b.height, intentID, gerr)
+		}
+		if !bytes.Equal(vals[0], object) {
+			return fmt.Errorf("dchain: seam import forged in block %s (height %d): object %s declared %x but shared memory holds %x",
+				b.id, b.height, intentID, object[:8], vals[0][:min(8, len(vals[0]))])
+		}
+	}
+	return nil
+}
+
+// markSeamSubmitted advances an intent escrow to seamIntentSubmitted — "this intent's
+// order has had its one chance". Every terminal path of the submit leg goes through it,
+// including the rejects, because an escrow left `open` is never re-driven and never
+// exported: its principal would sit on D while C's deadline reclaim refunds the taker
+// the same principal.
+func (b *Block) markSeamSubmitted(db database.KeyValueWriter, intentID ids.ID, rec seamIntentRecord) error {
+	rec.Status = seamIntentSubmitted
+	return putSeamIntent(db, intentID, rec)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/database/prefixdb"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
@@ -36,23 +37,26 @@ func findTx(blk *Block, typ TxType) (*Tx, bool) {
 	return nil, false
 }
 
-// TestDrive_AutonomousImportCrossExport is the headline proof of the closed gap: with NO
-// manual TxImport/TxExport, the VM's OWN BuildBlock (a) imports a Phase-A C->D intent and
-// funds the taker, the taker's signed order (b) crosses a resting maker, and the VM's OWN
-// BuildBlock (c) exports the realized proceeds as a D->C object the modeled 0x9999 Phase B
-// consumes exactly once — conservation holds and the intent escrow is closed.
-func TestDrive_AutonomousImportCrossExport(t *testing.T) {
+// TestDrive_IntentBecomesATrade is the headline proof that the seam is reachable at
+// all. With NO manual transaction of any kind, one Phase-A C->D intent object in shared
+// memory becomes: a funded D account, a REAL ORDER placed through the seam, a cross
+// against a resting maker, and a D->C settlement object carrying the proceeds — every
+// leg produced by the VM's own BuildBlock.
+//
+// The gap this closes: the C->D object used to carry VALUE ONLY, so executeImport
+// credited the taker and stopped. Nothing placed an order, nothing crossed, no proceeds
+// existed, the export drive (which fired only on realized output) never fired, Phase B
+// had no object, and the settle reverted. Carrying the OPERATION in the object — and
+// having the drive construct the taker's order from it — is the whole difference
+// between this test and a chain that has never emitted a single 0x9999 event.
+func TestDrive_IntentBecomesATrade(t *testing.T) {
 	h := newSeamHarness(t)
-	if !h.vm.autoDriveSeam {
-		t.Fatal("seam is wired, so the proposer drive must be enabled by default")
-	}
+	defer h.vm.Shutdown(context.Background())
 
-	pool := [32]byte{0xDE, 0xAD, 0xBE, 0xEF, 0x42}
-	base := assetID32(0xB0)  // the asset the taker BUYS / the maker SELLS / the export proceeds
-	quote := assetID32(0x90) // the asset the taker LOCKS on C (tokenIn) / the import funds
-
+	pool := [32]byte{0x0D, 0x0D, 0x0D}
+	base := assetID32(0xBB)
+	quote := assetID32(0xCC)
 	maker := acctFor(t, "drive-maker")
-	taker := acctFor(t, "drive-taker")
 	takerAddr := h.addr(t, "drive-taker")
 
 	// ---- Setup: open the custody market + rest a maker SELL 100 base @ 2 ----
@@ -62,118 +66,249 @@ func TestDrive_AutonomousImportCrossExport(t *testing.T) {
 	h.vm.mempool.Add(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
 	h.buildAccept(t)
 
-	// ---- PHASE A (C side, modeled): lock 200 quote -> a tagged C->D intent object ----
+	// ---- PHASE A (C side, modeled): lock 200 quote and write the intent object. The
+	// operation is the taker's: BUY 100 base on this market, no worse than 2.0. ----
 	const lockedQuote = 200
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, lockedQuote, pool, 0)
-	h.writeCToDIntent(t, intentID, takerAddr, quote, lockedQuote)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, lockedQuote,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
 
-	// ---- (b) AUTONOMOUS IMPORT: BuildBlock with an EMPTY mempool drives the import ----
+	acct := seamAccount(intentID)
+	if got := h.avail(t, acct, quote); got != 0 {
+		t.Fatalf("pre-import seam account quote = %d, want 0", got)
+	}
 	if h.vm.mempool.Len() != 0 {
-		t.Fatalf("mempool must be empty so the import is purely drive-generated, have %d", h.vm.mempool.Len())
+		t.Fatalf("mempool must be empty so every leg is drive-generated, have %d", h.vm.mempool.Len())
 	}
-	if got := h.avail(t, taker.account, quote); got != 0 {
-		t.Fatalf("pre-import taker quote = %d, want 0", got)
-	}
-	importBlk := h.buildAccept(t)
-	importTx, ok := findTx(importBlk, TxImport)
+
+	// ---- ONE BLOCK: the drive imports the object AND submits the taker's order ----
+	blk := h.buildAccept(t)
+	imp, ok := findTx(blk, TxImport)
 	if !ok {
-		t.Fatal("the VM's OWN BuildBlock must produce a TxImport for the pending intent (none found)")
+		t.Fatal("BuildBlock must produce a TxImport for the pending intent (none found)")
 	}
-	if body := EncodeSeamImportBody(intentID); string(importTx.Body) != string(body) {
-		t.Fatal("drive-generated TxImport names the wrong intent id")
+	gotID, gotObj, derr := decodeSeamImportBody(imp.Body)
+	if derr != nil || gotID != intentID {
+		t.Fatalf("drive-generated TxImport names the wrong intent: id=%s err=%v", gotID, derr)
 	}
-	if got := h.avail(t, taker.account, quote); got != lockedQuote {
-		t.Fatalf("autonomous import: taker quote = %d, want %d", got, lockedQuote)
+	// THE OBJECT RIDES IN THE TRANSACTION. This is what makes execution replayable:
+	// a node re-executing this block later reads these bytes, not shared memory.
+	if len(gotObj) != seamIntentObjectSize {
+		t.Fatalf("TxImport carries a %d-byte object, want %d", len(gotObj), seamIntentObjectSize)
 	}
-	// The C->D object was consumed (removed) at Accept by the drive's import.
-	if vals, _ := h.dSM.Get(h.cChainID, [][]byte{intentID[:]}); len(vals) == 1 && len(vals[0]) != 0 {
-		t.Fatal("C->D intent object must be consumed after autonomous import")
+	if _, ok := findTx(blk, TxIntentSubmit); !ok {
+		t.Fatal("THE GAP: BuildBlock imported the value but never constructed the taker's order. " +
+			"Nothing crosses, so no proceeds exist, so no D->C object is ever produced and the " +
+			"0x9999 settle reverts — the seam is unreachable by construction.")
 	}
-	// The escrow now records the intent (so it is import-replay-guarded and export-bindable).
+
+	// The cross happened in that same block: 100 base in, 200 quote out.
+	if got := h.avail(t, acct, base); got != 100 {
+		t.Fatalf("post-cross seam account base = %d, want 100 (the swap's proceeds)", got)
+	}
+	if got := h.avail(t, acct, quote); got != 0 {
+		t.Fatalf("post-cross seam account quote = %d, want 0 (all 200 spent at limit 2.0)", got)
+	}
+	// The maker was paid exactly what the taker spent.
+	if got := h.avail(t, maker.account, quote); got != 200 {
+		t.Fatalf("maker quote = %d, want 200 — the taker's spend must equal the maker's credit", got)
+	}
+	// The escrow records that the order has RUN. That fact, not the shape of the
+	// balances, is what the export drive gates on.
 	rec, exists, err := getSeamIntent(h.vm.db, intentID)
-	if err != nil || !exists || rec.Owner != takerAddr || rec.Remaining != lockedQuote {
-		t.Fatalf("seam escrow after autonomous import: exists=%v err=%v rec=%+v", exists, err, rec)
+	if err != nil || !exists || rec.Status != seamIntentSubmitted {
+		t.Fatalf("escrow after submit: exists=%v status=%d err=%v", exists, rec.Status, err)
+	}
+	if rec.Owner != takerAddr || rec.Remaining != lockedQuote || rec.Op.Size != 100 {
+		t.Fatalf("escrow lost the intent's identity or operation: %+v", rec)
+	}
+	// The C->D object was consumed at Accept.
+	if vals, _ := h.dSM.Get(h.cChainID, [][]byte{intentID[:]}); len(vals) == 1 && len(vals[0]) != 0 {
+		t.Fatal("C->D intent object must be consumed after import")
 	}
 
-	// ---- The taker submits a SIGNED crossing order (the normal mempool flow) ----
-	// The drive funds and settles; the taker still authors their own trade.
-	h.vm.mempool.Add(taker.signed(t, TxSubmit, encSubmit(pool, sideBuy, false, 2.0, 100, taker.user)))
-	crossBlk := h.buildAccept(t)
-	// The cross is realized IN this block; at this block's BUILD the committed state had no
-	// output yet, so the drive correctly emitted NO export here (no-export-before-trade).
-	if _, drove := findTx(crossBlk, TxExport); drove {
-		t.Fatal("export must not be driven in the same block the cross is realized (no committed output at build)")
-	}
-	if got := h.avail(t, taker.account, base); got != 100 {
-		t.Fatalf("post-cross taker base = %d, want 100 (proceeds)", got)
-	}
-	if got := h.avail(t, taker.account, quote); got != 0 {
-		t.Fatalf("post-cross taker quote = %d, want 0 (all spent)", got)
-	}
-
-	// ---- (c) AUTONOMOUS EXPORT: BuildBlock with an EMPTY mempool drives the export ----
+	// ---- AUTONOMOUS EXPORT: the next BuildBlock settles the proceeds back to C ----
 	if h.vm.mempool.Len() != 0 {
 		t.Fatalf("mempool must be empty so the export is purely drive-generated, have %d", h.vm.mempool.Len())
 	}
 	exportBlk := h.buildAccept(t)
-	exportTx, ok := findTx(exportBlk, TxExport)
+	exp, ok := findTx(exportBlk, TxExport)
 	if !ok {
-		t.Fatal("the VM's OWN BuildBlock must produce a TxExport for the realized proceeds (none found)")
+		t.Fatal("BuildBlock must produce a TxExport for the settled intent (none found)")
 	}
-	// Decode the drive's export and assert it settles the proceeds (base, 100) with the
-	// matched-input spent witness (200), exactly what a correct keeper would build.
-	gotIntent, gotAsset, gotAmount, gotSpent, derr := decodeSeamExportBody(exportTx.Body)
-	if derr != nil || gotIntent != intentID || gotAsset != base || gotAmount != 100 || gotSpent != 200 {
-		t.Fatalf("drive export body = {intent %x asset %x amount %d spent %d}, want {%x %x 100 200}",
-			gotIntent[:6], gotAsset[:4], gotAmount, gotSpent, intentID[:6], base[:4])
+	eID, eAsset, eAmount, eSpent, eerr := decodeSeamExportBody(exp.Body)
+	if eerr != nil || eID != intentID || eAsset != base || eAmount != 100 {
+		t.Fatalf("drive export: id=%s asset=%x amount=%d err=%v", eID, eAsset[:4], eAmount, eerr)
 	}
-	if got := h.avail(t, taker.account, base); got != 0 {
-		t.Fatalf("post-export taker base = %d, want 0 (exported)", got)
-	}
-	// The intent escrow is CLOSED (one-shot) once the account is drained.
-	if rec, _, _ := getSeamIntent(h.vm.db, intentID); rec.Status != seamIntentReclaimed {
-		t.Fatalf("escrow status after autonomous export = %d, want reclaimed (%d)", rec.Status, seamIntentReclaimed)
+	// The spent witness the taker-authenticated MEV floor reads on C. It is EXACT
+	// because the seam account is this intent's alone: nothing else could have moved
+	// either number.
+	if eSpent != lockedQuote {
+		t.Fatalf("spent witness = %d, want %d — C's price floor reads out/spent and would "+
+			"compute the wrong realized price", eSpent, lockedQuote)
 	}
 
-	// ---- PHASE B (C side, modeled 0x9999 ImportSettlement): consume the D->C object ----
-	outputID := deriveSeamOutputID(exportTx.ID(), 0)
+	// ---- The D->C object 0x9999 ImportSettlement consumes now EXISTS on C ----
+	outputID := deriveSeamOutputID(exp.ID(), 0)
 	vals, gerr := h.cSM.Get(h.dChainID, [][]byte{outputID[:]})
 	if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
-		t.Fatalf("the VM-produced D->C settlement object is not where 0x9999 reads it (err=%v)", gerr)
+		t.Fatalf("no D->C settlement object in C's partition: err=%v", gerr)
 	}
-	recRail, recOwner, recAsset, recAmount, recSpent, decOK := decodeSeamObject(vals[0])
-	if !decOK || recRail != railSwap || recOwner != takerAddr || recAsset != base || recAmount != 100 || recSpent != 200 {
-		t.Fatalf("D->C object binds = {rail %d owner %s asset %x amount %d spent %d}, want {0 %s %x 100 200}",
-			recRail, recOwner.Hex(), recAsset[:4], recAmount, recSpent, takerAddr.Hex(), base[:4])
+	rail, owner, asset, amount, spent, ok := decodeSeamObject(vals[0])
+	if !ok || rail != railSwap || owner != takerAddr || asset != base || amount != 100 || spent != lockedQuote {
+		t.Fatalf("D->C object: rail=%d owner=%s asset=%x amount=%d spent=%d", rail, owner.Hex(), asset[:4], amount, spent)
 	}
-	// Consume once; replay must find it gone (0x9999 reverts ErrNativeNoSettlement).
-	if err := h.cSM.Apply(map[ids.ID]*atomic.Requests{h.dChainID: {RemoveRequests: [][]byte{outputID[:]}}}); err != nil {
-		t.Fatalf("0x9999 Phase-B consume: %v", err)
-	}
-	if vals2, _ := h.cSM.Get(h.dChainID, [][]byte{outputID[:]}); len(vals2) == 1 && len(vals2[0]) != 0 {
-		t.Fatal("D->C object must be consumable exactly once")
+	// A SETTLEMENT object is a VALUE object: 69 bytes, no operation. Only the C->D leg
+	// instructs.
+	if len(vals[0]) != seamObjectSize {
+		t.Fatalf("D->C settlement object is %d bytes, want the canonical %d — C's "+
+			"ImportSettlement decodes exactly that width", len(vals[0]), seamObjectSize)
 	}
 
-	// CONSERVATION across the seam: 200 quote entered D (C->D import), 100 base left D
-	// (D->C export); inside D the maker provided 100 base and now holds 200 quote.
-	if got := h.avail(t, maker.account, quote); got != 200 {
-		t.Fatalf("maker quote (taker's conserved input) = %d, want 200", got)
+	// ---- CONSERVATION: the account is empty and the escrow is closed. ----
+	if got := h.avail(t, acct, base); got != 0 {
+		t.Fatalf("post-export seam account base = %d, want 0 (all exported)", got)
 	}
-	if got := h.avail(t, maker.account, base); got != 0 {
-		t.Fatalf("maker base after selling all = %d, want 0", got)
+	rec, _, _ = getSeamIntent(h.vm.db, intentID)
+	if rec.Status != seamIntentReclaimed {
+		t.Fatalf("escrow status = %d, want reclaimed — a drained intent must not be re-exported", rec.Status)
 	}
-	t.Logf("PASS: VM's OWN BuildBlock imported intent %x and exported D->C object %x (no manual injection)",
-		intentID[:6], outputID[:6])
+	// Nothing more to drive.
+	if h.vm.hasSeamWork() {
+		t.Fatal("hasSeamWork still reports work after the intent fully settled")
+	}
 }
 
-// TestDrive_NoExportBeforeImportOrTrade proves the two gates that keep the export drive from
-// ever running ahead of the swap: (1) an intent that was never imported has no escrow, so
-// driveSeamExports never enumerates it; (2) an imported-but-not-yet-traded intent holds only
-// its input (no realized output), so the drive emits NO export and BuildBlock with an empty
-// mempool reports nothing to do — the imported principal is never refunded out from under a
-// pending swap.
-func TestDrive_NoExportBeforeImportOrTrade(t *testing.T) {
+// TestDrive_ZeroFillStillSettles is the mint this design closes. An order that fills
+// NOTHING leaves only its input asset in the account — which the old export gate ("does
+// the account hold some other asset?") could never satisfy. The principal sat on D
+// forever while C's deadline reclaim refunded the taker the same principal: paid twice.
+//
+// Gating on the RECORDED fact that the order ran makes the zero-fill case settle like
+// any other: the whole principal goes back to C as a refund leg, and C's reclaim then
+// finds nothing left to refund.
+func TestDrive_ZeroFillStillSettles(t *testing.T) {
 	h := newSeamHarness(t)
+	defer h.vm.Shutdown(context.Background())
+
+	pool := [32]byte{0x0E, 0x0E, 0x0E}
+	base := assetID32(0xBB)
+	quote := assetID32(0xCC)
+	takerAddr := h.addr(t, "zerofill-taker")
+
+	// Market exists and has assets bound, but the book is EMPTY: nothing to cross.
+	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
+	h.buildAccept(t)
+
+	const locked = 200
+	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
+
+	blk := h.buildAccept(t)
+	if _, ok := findTx(blk, TxIntentSubmit); !ok {
+		t.Fatal("the drive must still place the order against an empty book")
+	}
+	acct := seamAccount(intentID)
+	if got := h.avail(t, acct, quote); got != locked {
+		t.Fatalf("nothing crossed, so the whole principal must be available: got %d want %d", got, locked)
+	}
+	rec, _, _ := getSeamIntent(h.vm.db, intentID)
+	if rec.Status != seamIntentSubmitted {
+		t.Fatalf("a zero-fill order still RAN: status = %d, want submitted", rec.Status)
+	}
+
+	// The export drive settles the untouched principal back to C.
+	exportBlk := h.buildAccept(t)
+	exp, ok := findTx(exportBlk, TxExport)
+	if !ok {
+		t.Fatal("MINT: a zero-fill intent produced no export. Its principal is stranded on D " +
+			"while C's deadline reclaim refunds the taker the same principal — paid twice.")
+	}
+	eID, eAsset, eAmount, eSpent, _ := decodeSeamExportBody(exp.Body)
+	if eID != intentID || eAsset != quote || eAmount != locked || eSpent != 0 {
+		t.Fatalf("refund leg: id=%s asset=%x amount=%d spent=%d", eID, eAsset[:4], eAmount, eSpent)
+	}
+	if got := h.avail(t, acct, quote); got != 0 {
+		t.Fatalf("post-refund seam account quote = %d, want 0", got)
+	}
+	rec, _, _ = getSeamIntent(h.vm.db, intentID)
+	if rec.Status != seamIntentReclaimed {
+		t.Fatalf("escrow status = %d, want reclaimed", rec.Status)
+	}
+}
+
+// TestDrive_SeamCannotSweepTheTakersOwnBalance is the conservation hole that opens the
+// moment the seam works, if the import credits the taker's ORDINARY account.
+//
+// The export drive settles an account's balances back to C. Sharing the account with
+// the taker's native D activity makes it impossible to tell this intent's proceeds from
+// balance the taker deposited themselves — so ALL of it would be exported, and C would
+// credit the full amount out of the shared seam reserve while only the swap's share was
+// ever backed by this seam. That is a raid on other takers' pooled input.
+//
+// One account per intent removes the question instead of bounding it.
+func TestDrive_SeamCannotSweepTheTakersOwnBalance(t *testing.T) {
+	h := newSeamHarness(t)
+	defer h.vm.Shutdown(context.Background())
+
+	pool := [32]byte{0x0F, 0x0F, 0x0F}
+	base := assetID32(0xBB)
+	quote := assetID32(0xCC)
+	taker := acctFor(t, "sweep-taker")
+	takerAddr := h.addr(t, "sweep-taker")
+	maker := acctFor(t, "sweep-maker")
+
+	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
+	h.vm.mempool.Add(depositTx(t, "sweep-maker", base, 100))
+	// The taker's OWN native D balance, nothing to do with any cross-chain swap.
+	h.vm.mempool.Add(depositTx(t, "sweep-taker", base, 5_000))
+	h.buildAccept(t)
+	h.vm.mempool.Add(maker.signed(t, TxPlace, encPlace(pool, sideSell, 2.0, 100, maker.user)))
+	h.buildAccept(t)
+
+	const locked = 200
+	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
+
+	h.buildAccept(t)              // import + submit + cross
+	exportBlk := h.buildAccept(t) // export
+
+	// Every export leg must be bounded by what the intent itself brought in.
+	var exported uint64
+	for _, tx := range exportBlk.txs {
+		if tx.Type != TxExport {
+			continue
+		}
+		_, asset, amount, _, _ := decodeSeamExportBody(tx.Body)
+		if asset == base {
+			exported += amount
+		}
+	}
+	if exported != 100 {
+		t.Fatalf("the seam exported %d base, but this intent only ever bought 100. The taker's own "+
+			"5000 native balance was swept to C, and C credits it out of the shared seam reserve — "+
+			"draining other takers' pooled input.", exported)
+	}
+	// The taker's native balance is untouched.
+	if got := h.avail(t, taker.account, base); got != 5_000 {
+		t.Fatalf("taker native base = %d, want 5000 untouched", got)
+	}
+}
+
+// TestDrive_NoExportBeforeTheOrderRuns proves the two gates that keep the export drive
+// from ever running ahead of the swap: (1) an intent that was never imported has no
+// escrow, so driveSeamExports never enumerates it; (2) an escrow whose order has not
+// RUN — status `open`, reachable when an import is injected without its submit — is not
+// exportable, so the imported principal is never refunded out from under a pending swap.
+//
+// The gate is the recorded status, not the shape of the account's balances. That is
+// what lets a zero-fill order settle (TestDrive_ZeroFillStillSettles) while a
+// not-yet-run order still cannot.
+func TestDrive_NoExportBeforeTheOrderRuns(t *testing.T) {
+	h := newSeamHarness(t)
+	defer h.vm.Shutdown(context.Background())
 	pool := [32]byte{0x07, 0x07, 0x07}
 	base := assetID32(0xB0)
 	quote := assetID32(0x90)
@@ -182,28 +317,32 @@ func TestDrive_NoExportBeforeImportOrTrade(t *testing.T) {
 	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
 	h.buildAccept(t)
 
-	// (1) Intent staged but NOT imported (no escrow). The export drive must produce nothing.
+	// (1) Intent staged but NOT imported (no escrow). The export drive produces nothing.
 	const locked = 200
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntent(t, intentID, takerAddr, quote, locked)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked,
+		seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100})
 	if exports, err := h.vm.driveSeamExports(); err != nil || len(exports) != 0 {
 		t.Fatalf("no-export-before-import: driveSeamExports = %d txs err=%v, want 0", len(exports), err)
 	}
 
-	// Autonomously import it (drive emits the TxImport), funding the taker — but the taker
-	// does NOT trade.
+	// (2) Import the object BY HAND, with no submit leg. The escrow is `open`: the value
+	// is on D but the taker's order has not run, so nothing may be settled back yet.
+	h.vm.autoDriveSeam = false // suppress the drive so only the injected import lands
+	h.vm.mempool.Add(h.importTx(t, intentID))
 	h.buildAccept(t)
-	if got := h.avail(t, idOf(t, "noexp-taker"), quote); got != locked {
-		t.Fatalf("after autonomous import, taker quote = %d, want %d", got, locked)
-	}
+	h.vm.autoDriveSeam = true
 
-	// (2) Imported, not traded: only the input is held, no realized output. No export, and an
-	// empty-mempool BuildBlock has nothing to do (the input is NOT refunded prematurely).
-	if exports, err := h.vm.driveSeamExports(); err != nil || len(exports) != 0 {
-		t.Fatalf("no-export-before-trade: driveSeamExports = %d txs err=%v, want 0", len(exports), err)
+	acct := seamAccount(intentID)
+	if got := h.avail(t, acct, quote); got != locked {
+		t.Fatalf("after import, seam account quote = %d, want %d", got, locked)
 	}
-	if _, err := h.vm.BuildBlock(context.Background()); err != ErrEmptyMempool {
-		t.Fatalf("BuildBlock with an imported-but-untraded intent = %v, want ErrEmptyMempool (no premature refund)", err)
+	rec, exists, _ := getSeamIntent(h.vm.db, intentID)
+	if !exists || rec.Status != seamIntentOpen {
+		t.Fatalf("escrow status = %d (exists=%v), want open", rec.Status, exists)
+	}
+	if exports, err := h.vm.driveSeamExports(); err != nil || len(exports) != 0 {
+		t.Fatalf("no-export-before-the-order-runs: driveSeamExports = %d txs err=%v, want 0", len(exports), err)
 	}
 }
 
@@ -217,37 +356,35 @@ func TestDrive_ReplayImportedOnce(t *testing.T) {
 	base := assetID32(0xB0)
 	quote := assetID32(0x90)
 	takerAddr := h.addr(t, "replay-drive-taker")
-	takerAcct := idOf(t, "replay-drive-taker")
 
 	h.vm.mempool.Add(openMarketTx(t, pool, base, quote))
 	h.buildAccept(t)
 
 	const locked = 200
 	intentID := DeriveIntentID(h.netID, h.cChainID, h.dChainID, takerAddr, quote, locked, pool, 0)
-	h.writeCToDIntent(t, intentID, takerAddr, quote, locked)
+	op := seamOp{Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: 100}
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked, op)
+	acct := seamAccount(intentID)
 
-	// First autonomous import.
+	// First autonomous import (the book is empty, so the submit leg fills nothing and the
+	// whole principal stays available — which is what makes a double credit visible).
 	h.buildAccept(t)
-	if got := h.avail(t, takerAcct, quote); got != locked {
+	if got := h.avail(t, acct, quote); got != locked {
 		t.Fatalf("after first autonomous import, quote = %d, want %d", got, locked)
 	}
 
-	// Re-flush the SAME C->D object (object was consumed; simulate a source retry/reorg that
+	// Re-flush the SAME C->D object (it was consumed; simulate a source retry/reorg that
 	// re-stages it) and drive again. The escrow already exists, so the import drive filters
 	// it out: no re-import, no double credit.
-	h.writeCToDIntent(t, intentID, takerAddr, quote, locked)
+	h.writeCToDIntentOp(t, intentID, takerAddr, quote, locked, op)
 	imports, err := h.vm.driveSeamImports()
 	if err != nil {
 		t.Fatalf("driveSeamImports: %v", err)
 	}
 	if len(imports) != 0 {
-		t.Fatalf("re-flushed already-imported intent must NOT be re-imported, got %d TxImport", len(imports))
+		t.Fatalf("re-flushed already-imported intent must NOT be re-imported, got %d txs", len(imports))
 	}
-	// And an empty-mempool build has nothing to do (no re-import, no export — taker untraded).
-	if _, err := h.vm.BuildBlock(context.Background()); err != ErrEmptyMempool {
-		t.Fatalf("BuildBlock after replay = %v, want ErrEmptyMempool", err)
-	}
-	if got := h.avail(t, takerAcct, quote); got != locked {
+	if got := h.avail(t, acct, quote); got != locked {
 		t.Fatalf("after replay, quote = %d, want %d (no double credit)", got, locked)
 	}
 }
@@ -304,7 +441,9 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 	for i := 0; i < n; i++ {
 		amount := uint64(100 + i)
 		intentID := DeriveIntentID(96369, cChainID, dChainID, owner, quote, amount, pool, uint64(i*7919))
-		obj := encodeSeamObject(railSwap, owner, quote, amount, 0)
+		obj := encodeSeamIntentObject(owner, quote, amount, seamOp{
+			Market: pool, Side: seamSideBuy, LimitPrice: 2 * dex.PriceMultiplier, Size: amount,
+		})
 		if err := cSM.Apply(map[ids.ID]*atomic.Requests{
 			dChainID: {PutRequests: []*atomic.Element{{
 				Key:    intentID[:],
@@ -314,7 +453,7 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("flush intent %d: %v", i, err)
 		}
-		want = append(want, EncodeSeamImportBody(intentID))
+		want = append(want, EncodeSeamImportBody(intentID, obj))
 	}
 
 	b1, err := vm1.BuildBlock(ctx)
@@ -328,8 +467,10 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 	txs1 := b1.(*Block).txs
 	txs2 := b2.(*Block).txs
 
-	if len(txs1) != n || len(txs2) != n {
-		t.Fatalf("import tx counts = (%d, %d), want (%d, %d)", len(txs1), len(txs2), n, n)
+	// Each intent contributes a PAIR: the import that funds it and the submit that runs
+	// its order.
+	if len(txs1) != 2*n || len(txs2) != 2*n {
+		t.Fatalf("seam tx counts = (%d, %d), want (%d, %d)", len(txs1), len(txs2), 2*n, 2*n)
 	}
 	// Two proposers => byte-identical import sequence.
 	for i := range txs1 {
@@ -337,13 +478,29 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 			t.Fatalf("proposers diverged at tx %d: %x vs %x", i, txs1[i].Bytes(), txs2[i].Bytes())
 		}
 	}
-	// And that sequence is ascending intentID order (the deterministic total order).
+	// And that sequence is (import, submit) pairs in ascending intentID order — the
+	// deterministic total order, with each intent's order placed immediately after the
+	// value that funds it so there is never a block boundary between them.
+	var prev string
 	for i := 0; i < n; i++ {
-		if txs1[i].Type != TxImport {
-			t.Fatalf("tx %d type = %s, want import", i, txs1[i].Type)
+		imp, sub := txs1[2*i], txs1[2*i+1]
+		if imp.Type != TxImport || sub.Type != TxIntentSubmit {
+			t.Fatalf("pair %d types = (%s, %s), want (seam_import, seam_submit)", i, imp.Type, sub.Type)
 		}
-		if i > 0 && string(txs1[i-1].Body) >= string(txs1[i].Body) {
-			t.Fatalf("imports not in ascending intentID order at %d: %x then %x", i, txs1[i-1].Body, txs1[i].Body)
+		gotID, gotObj, err := decodeSeamImportBody(imp.Body)
+		if err != nil {
+			t.Fatalf("pair %d import body: %v", i, err)
 		}
+		if string(sub.Body) != string(gotID[:]) {
+			t.Fatalf("pair %d: the submit names a different intent than the import beside it", i)
+		}
+		if string(imp.Body) != string(EncodeSeamImportBody(gotID, gotObj)) {
+			t.Fatalf("pair %d import body is not canonical", i)
+		}
+		if i > 0 && prev >= string(gotID[:]) {
+			t.Fatalf("intents not in ascending id order at %d", i)
+		}
+		prev = string(gotID[:])
 	}
+	_ = want
 }

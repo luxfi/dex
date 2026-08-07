@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/luxfi/database"
+	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/vm/chains/atomic"
 )
@@ -54,14 +55,34 @@ import (
 // one shared constant the writer tags and the reader queries. It is a domain-separated
 // 32-byte tag so it can never collide with a 20-byte owner trait.
 //
-// COMPANION (coordinated cutover): the C-side flush MUST add this trait to the swap
-// intent's Element.Traits — precompile/dex native_staging.go collectRange, where the
-// PutRequests for the C->D object are built (today Traits=[owner] only). That is the ONE
-// line that makes a production 0x9999 intent discoverable here; it is pinned to THIS
-// constant (the same wire-golden discipline that pins encodeSeamObject). The native VM
-// e2e models that corrected flush (writeCToDIntent tags the object with SeamPendingTrait).
+// THE .v2 DOMAIN IS THE FLAG-DAY SWITCH, and it is why an old node and a new node can
+// never disagree about a block. A v1 intent object carried VALUE ONLY (69 bytes); a v2
+// intent carries value + the CLOB OPERATION (118 bytes). A node that cannot read the
+// operation must never import the value — it would have to invent the taker's
+// market/side/limit. Rotating the domain makes the two generations mutually INVISIBLE
+// rather than mutually confusing, and the tx wire makes them mutually UNPARSEABLE:
+//
+//   - An OLD node enumerates the v1 trait, finds no v2 object, and emits no seam tx at
+//     all. It keeps validating every non-seam block normally. Inert, never divergent.
+//   - An OLD node handed a NEW node's seam block cannot execute it: the TxImport body
+//     is now 150 bytes and its bodySize(TxImport) says 32, so parseTxFrame refuses the
+//     frame (ErrTxMalformedAuth, "unexpected trailing bytes"), decodeTxList fails, and
+//     ParseBlock fails. The block is rejected as UNPARSEABLE — the old node never
+//     computes a state root for it, so it cannot compute a DIFFERENT one. It stalls.
+//   - A NEW node enumerates the v2 trait, so a stale op-less v1 object from a
+//     not-yet-upgraded C node is never imported. Fail closed; the taker's principal is
+//     reclaimable on C at the intent deadline.
+//
+// So the changeover costs seam LIVENESS while the fleet is mixed, and can never cost
+// SAFETY. It has no retroactive effect either: this seam has never produced a
+// transaction on any network (0 events on 0x9999 since genesis on every chain), so
+// there is no historical block anywhere containing a TxImport, and a new node
+// re-syncing history parses all of it unchanged. The operational rule that follows is
+// the whole flag day: upgrade every D validator BEFORE the first C-side v2 intent is
+// minted. Until then the drive emits nothing, because there is nothing tagged v2 to
+// find.
 var SeamPendingTrait = func() []byte {
-	d := sha256.Sum256([]byte("lux.dex.native.intent.pending.v1"))
+	d := sha256.Sum256([]byte("lux.dex.native.intent.pending.v2"))
 	return d[:]
 }()
 
@@ -72,16 +93,38 @@ var SeamPendingTrait = func() []byte {
 // cross-chain swap count a single block realistically faces.
 const maxSeamDrivePerBlock = 256
 
-// driveSeamImports enumerates the committed C->D swap-intent objects in shared memory and
-// returns a deterministic, intentID-sorted list of TxImport txs for those NOT YET imported
-// (no committed seamintent: escrow). It is the autonomous replacement for a keeper's
-// "watch IntentSubmitted -> inject ImportTx" loop, run inside BuildBlock.
+// driveSeamImports enumerates the committed C->D swap-intent objects in shared memory
+// and returns a deterministic, intentID-sorted list of the txs that execute them: for
+// each not-yet-imported intent, a TxImport CARRYING the object's bytes immediately
+// followed by the TxIntentSubmit that places the taker's order. It is the autonomous
+// replacement for a keeper's "watch IntentSubmitted -> inject ImportTx -> place order"
+// loop, run inside BuildBlock.
 //
-// Pure function of committed state: the pending set comes from shared memory (the C chain
-// accepted the staging block) and the already-imported filter comes from the committed
-// escrow index. The double-guard against re-import — the committed-escrow filter here AND
-// executeImport's own replay-reject — means a re-enumerated intent (object still present
-// because its consuming Remove has not yet been accepted) is imported at most once.
+// THE SUBMIT IS THE MISSING LEG. Before it, this function emitted the import alone: the
+// value landed on D and nothing was ever done with it. No order was placed, so nothing
+// crossed, so the export drive (which fires only on a settled intent) never fired, so
+// Phase B had no object and the settle reverted. Emitting the submit alongside the
+// import is what makes the seam reachable at all.
+//
+// BOTH LEGS IN ONE BLOCK, so there is no window in which value sits on D with no order
+// against it. A block is one atomic unit: if the import rejects (replay, malformed
+// object, unexecutable operation) the escrow is never written and the submit that
+// follows it rejects too, having nothing to bind — the pair is all-or-nothing without
+// needing to be one transaction. Keeping them as two transactions is what lets the
+// submit flow through the IDENTICAL custody -> match -> settle path a signed dex_submit
+// takes, instead of duplicating that machinery inside the import.
+//
+// Pure function of committed state: the pending set comes from shared memory (the C
+// chain accepted the staging block) and the already-imported filter comes from the
+// committed escrow index. The double-guard against re-import — the committed-escrow
+// filter here AND executeImport's own replay-reject — means a re-enumerated intent
+// (object still present because its consuming Remove has not yet been accepted) is
+// imported at most once.
+//
+// Reading shared memory HERE is sound where reading it inside execute() was not: this
+// runs only on the proposer, and everything it produces is committed in the block's own
+// bytes (hashed into txRoot) for every validator to re-execute without touching shared
+// memory again.
 func (vm *VM) driveSeamImports() ([]*Tx, error) {
 	if !vm.autoDriveSeam {
 		return nil, nil
@@ -115,51 +158,89 @@ func (vm *VM) driveSeamImports() ([]*Tx, error) {
 	}
 
 	// DETERMINISM: total order by intentID, independent of shared-memory iteration order,
-	// so every proposer on the same committed partition emits the same import sequence.
+	// so every proposer on the same committed partition emits the same sequence.
 	sort.Slice(pending, func(i, j int) bool {
 		return bytes.Compare(pending[i][:], pending[j][:]) < 0
 	})
 
-	out := make([]*Tx, 0, len(pending))
+	out := make([]*Tx, 0, 2*len(pending))
 	for _, intentID := range pending {
-		tx, err := NewTx(TxImport, EncodeSeamImportBody(intentID))
-		if err != nil {
-			return nil, fmt.Errorf("dchain: build TxImport: %w", err)
+		object, ok, oerr := readSeamObject(sm, vm.cChainID, intentID)
+		if oerr != nil {
+			return nil, oerr
 		}
-		out = append(out, tx)
+		if !ok {
+			// Enumerated but unreadable, or not a canonical intent object (an op-less
+			// v1 object, a truncated record). Emit nothing rather than a leg that can
+			// only reject: the enumeration is a pure function of still-pending state,
+			// so a genuinely pending intent is simply picked up in a later block.
+			continue
+		}
+		imp, terr := NewTx(TxImport, EncodeSeamImportBody(intentID, object))
+		if terr != nil {
+			return nil, fmt.Errorf("dchain: build TxImport: %w", terr)
+		}
+		sub, terr := NewTx(TxIntentSubmit, EncodeSeamSubmitBody(intentID))
+		if terr != nil {
+			return nil, fmt.Errorf("dchain: build TxIntentSubmit: %w", terr)
+		}
+		out = append(out, imp, sub)
+		if len(out) >= maxSeamDrivePerBlock {
+			return out, nil
+		}
 	}
 	return out, nil
 }
 
-// driveSeamExports enumerates the OPEN intent escrows whose owner holds realized OUTPUT in
-// committed state and returns deterministic TxExport txs that settle the realized proceeds
-// (and any leftover input refund) back to C as D->C objects the 0x9999 ImportSettlement
-// consumes. It is the autonomous replacement for a keeper's "watch the D fill -> inject the
-// settlement export" loop, run inside BuildBlock AFTER the matcher has produced proceeds in
-// a prior accepted block.
+// readSeamObject reads the C->D object recorded at [intentID] and returns it only if it
+// is a canonical swap intent (118 bytes, railSwap, an executable operation). Everything
+// the drive then puts on the wire is bytes it has already validated, so a leg it emits
+// is one executeImport can bind.
+func readSeamObject(sm atomic.SharedMemory, cChainID, intentID ids.ID) ([]byte, bool, error) {
+	vals, err := sm.Get(cChainID, [][]byte{intentID[:]})
+	if err != nil {
+		return nil, false, fmt.Errorf("dchain: seam object read: %w", err)
+	}
+	if len(vals) != 1 || len(vals[0]) == 0 {
+		return nil, false, nil // not present (not flushed / already consumed)
+	}
+	object := vals[0]
+	_, _, amount, op, ok := decodeSeamIntentObject(object)
+	if !ok || amount == 0 || !op.valid() {
+		return nil, false, nil
+	}
+	return object, true, nil
+}
+
+// driveSeamExports enumerates the SETTLED intent escrows — those whose order has RUN —
+// and returns deterministic TxExport txs that send everything the intent's own account
+// holds back to C as D->C objects the 0x9999 ImportSettlement consumes: the realized
+// proceeds, and the input the order did not spend.
 //
-// THE OUTPUT GATE (why this never refunds a still-pending swap, and satisfies
-// no-export-before-import): an intent is exported ONLY when its owner's cross-chain account
-// holds a realized OUTPUT — a non-AssetIn balance > 0. Right after an import the account
-// holds only the imported AssetIn (no output) so nothing is exported; only once a signed
-// taker order has CROSSED (producing a different asset) does the swap's proceeds become
-// exportable. An intent that was never imported has no escrow, is never enumerated, and is
-// never exported.
+// THE GATE IS THE RECORDED FACT, NOT A GUESS. This used to export only when the account
+// held a non-AssetIn balance — an inference that "some other asset appeared, so the
+// swap must have traded". The inference is wrong in both directions, and one of those
+// directions mints:
 //
-// ATTRIBUTION + CONSERVATION: the export's recipient/owner is the escrow's RECORDED 20-byte
+//   - An order that filled NOTHING leaves only AssetIn, so it never satisfied the
+//     heuristic and was never exported. The principal sat on D forever while C's
+//     deadline reclaim refunded the same principal to the taker: paid twice.
+//   - Any unrelated balance in the account satisfied the heuristic, exporting value
+//     that was never this intent's.
+//
+// Both disappear together. seamIntentSubmitted is written by the submit leg itself, so
+// "the order has run" is a fact recorded in committed state; and the account is the
+// intent's OWN (seamAccount), so everything in it belongs to this intent by
+// construction. Nothing to infer, nothing to mis-attribute.
+//
+// ATTRIBUTION + CONSERVATION: the export's recipient is the escrow's RECORDED 20-byte
 // owner (executeExport binds it), so value can only return to the rightful taker; the
 // debit draws the REALIZED ledger balance (executeExport refuses an over-debit) and a
 // same-asset refund is capped by the intent's remaining principal — so C can never be
-// credited more than D matched. The drive emits the refund leg BEFORE the proceeds leg so
-// the per-taker cap is applied against the open escrow, and execute then CLOSES the escrow
-// once the account is fully drained (closeSeamIntentIfDrained), making each swap one-shot.
-//
-// SCOPE: the realistic cross-chain swap is an IOC taker (TxSubmit) against a single market,
-// which resolves in one block to one output asset (+ optional leftover). The drive settles
-// exactly that. A cross-chain account that mixes direct (non-imported) D activity, or a
-// multi-hop swap with several output assets, is outside this first-cut drive and noted as a
-// boundary (the spent witness is attributed to the single output; extra outputs remain the
-// owner's D balance rather than being mis-bound to this intent's recorded MEV floor).
+// credited more than D matched. The drive emits the refund leg BEFORE the proceeds legs
+// so the per-taker cap is applied against the still-open escrow, and execute CLOSES the
+// escrow once the account is fully drained (closeSeamIntentIfDrained), making each swap
+// one-shot.
 func (vm *VM) driveSeamExports() ([]*Tx, error) {
 	if !vm.autoDriveSeam {
 		return nil, nil
@@ -169,24 +250,20 @@ func (vm *VM) driveSeamExports() ([]*Tx, error) {
 		return nil, nil // seam not wired: an export cannot be written (no D->C object)
 	}
 
-	escrows, err := listOpenSeamIntents(vm.db, maxSeamDrivePerBlock)
+	escrows, err := listSeamIntents(vm.db, seamIntentSubmitted, maxSeamDrivePerBlock)
 	if err != nil {
 		return nil, fmt.Errorf("dchain: seam export enumerate: %w", err)
 	}
 
 	out := make([]*Tx, 0, len(escrows))
 	for _, e := range escrows {
-		acct := crossChainAccount(e.Owner)
+		acct := seamAccount(e.IntentID)
 
 		// The realized OUTPUT (non-AssetIn balances) and the leftover INPUT (AssetIn),
-		// both read from committed state. No output => the swap has not produced proceeds
-		// yet => do not export (no premature refund; no-export-before-trade).
+		// both read from committed state.
 		outputs, oerr := listAccountOutputs(vm.db, acct, e.AssetIn)
 		if oerr != nil {
 			return nil, oerr
-		}
-		if len(outputs) == 0 {
-			continue
 		}
 		leftoverIn, lerr := getAvailable(vm.db, acct, e.AssetIn)
 		if lerr != nil {
@@ -194,16 +271,16 @@ func (vm *VM) driveSeamExports() ([]*Tx, error) {
 		}
 
 		// The spent witness the precompile's taker-authenticated MEV floor reads: the
-		// AssetIn actually CONSUMED to produce the output = original locked principal minus
-		// the leftover input. Computed from committed state, so it is stable regardless of
-		// the in-block leg order.
+		// AssetIn actually CONSUMED to produce the output = the locked principal minus
+		// what is left. EXACT, because the account is this intent's alone — nothing
+		// else could have moved either number.
 		spent := uint64(0)
 		if e.Remaining > leftoverIn {
 			spent = e.Remaining - leftoverIn
 		}
 
-		// REFUND leg FIRST (same-asset, per-taker-capped, decrements Remaining) so it runs
-		// against the still-open escrow.
+		// REFUND leg FIRST (same-asset, per-taker-capped, decrements Remaining) so it
+		// runs against the still-open escrow.
 		if leftoverIn > 0 {
 			refund := leftoverIn
 			if refund > e.Remaining {
@@ -218,17 +295,17 @@ func (vm *VM) driveSeamExports() ([]*Tx, error) {
 			}
 		}
 
-		// PROCEEDS legs (sorted by asset id via the committed key order); the draining one
-		// triggers the escrow close in execute.
+		// PROCEEDS legs (sorted by asset id via the committed key order); the draining
+		// one triggers the escrow close in execute.
 		for _, o := range outputs {
 			tx, terr := NewTx(TxExport, EncodeSeamExportBody(e.IntentID, o.asset, o.amount, spent))
 			if terr != nil {
 				return nil, fmt.Errorf("dchain: build TxExport proceeds: %w", terr)
 			}
 			out = append(out, tx)
-			if len(out) >= maxSeamDrivePerBlock {
-				return out, nil
-			}
+		}
+		if len(out) >= maxSeamDrivePerBlock {
+			return out, nil
 		}
 	}
 	return out, nil
@@ -260,36 +337,30 @@ func (vm *VM) hasSeamWork() bool {
 			}
 		}
 	}
-	// Any open escrow with realized output?
-	escrows, eerr := listOpenSeamIntents(vm.db, maxSeamDrivePerBlock)
+	// Any settled escrow still holding value to send back?
+	escrows, eerr := listSeamIntents(vm.db, seamIntentSubmitted, 1)
 	if eerr != nil {
 		return false
 	}
-	for _, e := range escrows {
-		outputs, oerr := listAccountOutputs(vm.db, crossChainAccount(e.Owner), e.AssetIn)
-		if oerr == nil && len(outputs) > 0 {
-			return true
-		}
-	}
-	return false
+	return len(escrows) > 0
 }
 
-// closeSeamIntentIfDrained marks an OPEN intent escrow seamIntentReclaimed once its owner's
-// cross-chain account has been FULLY drained (no remaining ledger balance), so a settled
-// intent is not re-enumerated by a later export drive and the owner can import a fresh
-// intent. Called from execute after a successful TxExport; order-independent (it fires on
-// whichever export — proceeds or refund — empties the account), so it correctly closes a
-// full-fill (one proceeds leg) and a partial-fill (proceeds + refund) alike. A still-funded
-// account (more output not yet exported in this block) is left open for a subsequent leg.
+// closeSeamIntentIfDrained marks a SUBMITTED intent escrow seamIntentReclaimed once its
+// own account has been FULLY drained (no remaining ledger balance), so a settled intent is
+// not re-enumerated by a later export drive. Called from execute after a successful
+// TxExport; order-independent (it fires on whichever export — proceeds or refund — empties
+// the account), so it correctly closes a full fill (one proceeds leg), a partial fill
+// (proceeds + refund), and a zero fill (refund only) alike. A still-funded account (more
+// output not yet exported in this block) is left open for a subsequent leg.
 func (vm *VM) closeSeamIntentIfDrained(db database.Database, intentID ids.ID) error {
 	rec, exists, err := getSeamIntent(db, intentID)
 	if err != nil {
 		return err
 	}
-	if !exists || rec.Status != seamIntentOpen {
+	if !exists || rec.Status != seamIntentSubmitted {
 		return nil
 	}
-	drained, err := accountFullyDrained(db, crossChainAccount(rec.Owner))
+	drained, err := accountFullyDrained(db, seamAccount(intentID))
 	if err != nil {
 		return err
 	}
@@ -344,16 +415,16 @@ func enumerateSeamPending(sm atomic.SharedMemory, peerChainID ids.ID, max int) (
 // unit the export drive iterates.
 type seamIntentEntry struct {
 	IntentID  ids.ID
-	Owner     [20]byte
+	Owner     common.Address
 	AssetIn   [32]byte
 	Remaining uint64
 }
 
-// listOpenSeamIntents streams the seamintent: index and returns every OPEN escrow, in
+// listSeamIntents streams the seamintent: index and returns every escrow in [status], in
 // intentID order (the prefix iterator already yields keys — hence intent ids — in ascending
-// order, so the result is the total sort the drive needs without an extra sort). Settled
-// (reclaimed) escrows are skipped. Bounded by [max].
-func listOpenSeamIntents(db database.Iteratee, max int) ([]seamIntentEntry, error) {
+// order, so the result is the total sort the drive needs without an extra sort). Bounded by
+// [max].
+func listSeamIntents(db database.Iteratee, status uint8, max int) ([]seamIntentEntry, error) {
 	it := db.NewIteratorWithPrefix([]byte(prefixSeamIntent))
 	defer it.Release()
 	out := make([]seamIntentEntry, 0, 16)
@@ -362,18 +433,18 @@ func listOpenSeamIntents(db database.Iteratee, max int) ([]seamIntentEntry, erro
 		if len(key) != len(prefixSeamIntent)+32 {
 			continue
 		}
-		v := it.Value()
-		if len(v) != 20+32+8+1 {
-			return nil, fmt.Errorf("dchain: corrupt seam intent len=%d", len(v))
+		rec, derr := decodeSeamIntent(it.Value())
+		if derr != nil {
+			return nil, derr
 		}
-		if v[60] != seamIntentOpen {
-			continue // settled: not exportable
+		if rec.Status != status {
+			continue
 		}
 		var e seamIntentEntry
 		copy(e.IntentID[:], key[len(prefixSeamIntent):])
-		copy(e.Owner[:], v[0:20])
-		copy(e.AssetIn[:], v[20:52])
-		e.Remaining = binary.BigEndian.Uint64(v[52:60])
+		e.Owner = rec.Owner
+		e.AssetIn = rec.AssetIn
+		e.Remaining = rec.Remaining
 		out = append(out, e)
 	}
 	return out, it.Error()

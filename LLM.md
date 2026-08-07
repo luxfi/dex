@@ -2151,3 +2151,79 @@ api.RegisterRoutes(mux)
 ### Test Coverage
 
 43 tests in `trading_test.go` + 29 tests in `crosschain_test.go` (72 total) covering all endpoints, calldata encoding/decoding, constant-product math, config validation, venue selection, and cross-chain routing.
+
+---
+
+## The C↔D seam: how a cross-chain swap becomes a trade
+
+The shared-memory object between the C-Chain (0x9999 precompile) and this
+D-Chain has **two canonical widths, and width is the discriminator**:
+
+| Width | What it is | Who writes it | Decoder |
+|-------|-----------|---------------|---------|
+| 69 B | a **value** object — `rail｜owner｜asset｜amount｜spent` | D→C settlements, C→D LP commits | `decodeSeamObject` |
+| 118 B | a C→D **swap intent** — value + `market｜side｜limitPrice｜size` | 0x9999 `SubmitSwapIntent` | `decodeSeamIntentObject` |
+
+A value says what moves; only an intent says what to *do* with it. Before the
+operation segment existed, `executeImport` credited the taker and stopped —
+nothing placed an order, so nothing crossed, so nothing was ever exported back to
+C. Anything that is neither width is refused, never reinterpreted.
+
+Cross-repo pins (the two repos cannot import each other):
+`precompile/dex/native_seam_parity_test.go` and
+`dex/pkg/dchain/seam_reproducible_test.go` hold the **same golden hex** for the
+118-byte object, and both pin `SeamPendingTrait` =
+`sha256("lux.dex.native.intent.pending.v2")`.
+
+### The three legs
+
+```
+BuildBlock enumerates shared memory by SeamPendingTrait
+  ├─ TxImport(intentID, object[118])   consume + credit seamAccount(intentID)
+  ├─ TxIntentSubmit(intentID)          derive the zapwire Submit from the escrow,
+  │                                    run the SAME custody→match→settle path a
+  │                                    signed dex_submit takes
+  └─ (next block) TxExport × n         proceeds + leftover back to C
+```
+
+`TxIntentSubmit` is the **object-authorized sibling of `TxSubmit`**, exactly as
+`TxImport` is of `TxDeposit`. It cannot be a plain `TxSubmit`: that type's
+`requiresAuth()` is true and weakening it would let any unsigned submit move any
+account's funds.
+
+### Two rules that are easy to get wrong
+
+1. **Never `sm.Get` inside `execute()`.** The object's bytes ride in the
+   `TxImport` body; `Block.verifySeamImports` (gated on `vm.normalOp`)
+   authenticates them against shared memory at Verify. Reading shared memory
+   during execution makes the block unreplayable — the consuming Remove lands at
+   Accept, so the next node to sync finds the object gone and dies on
+   `execution root mismatch`.
+2. **The seam runs in `seamAccount(intentID)`, never the taker's own account.**
+   The export drive settles an account's whole balance back to C; sharing the
+   account with the taker's native D balance means exporting value the seam never
+   backed, which C credits out of the shared seam reserve — a raid on other
+   takers' pooled input.
+
+`seamIntentRecord.Status` (`open → submitted → reclaimed`) is the state machine.
+The export drive gates on `submitted`, a **recorded fact**, not on "does the
+account hold some other asset?" — that inference could never export a zero-fill
+swap, which stranded the principal on D while C's deadline reclaim paid the taker
+a second time.
+
+### Flag day
+
+The intent object (69→118) and the `TxImport` body (32→150) both changed width.
+An old node's `bodySize(TxImport)` is 32, so a new seam block fails
+`parseTxFrame` → `decodeTxList` → `ParseBlock`: it is rejected as **unparseable**,
+so an old node never computes a state root for it and cannot compute a different
+one. Mixed fleets stall; they cannot fork. No historical block anywhere contains
+a `TxImport`, so there is no retroactive effect.
+**Upgrade every D validator before the first v2 intent is minted on C.**
+
+### D-Chain HTTP surface
+
+`CreateHandlers` mounts `/v1/bc/D/dex/<method>` (`ingest.go`, dex ≥ v1.14.5).
+A node image built against an older dex serves **404 on every `/v1/bc/D/*`
+path** while the chain itself is perfectly healthy — check `DEX_REF` in
+`luxfi/node`'s Dockerfile before concluding the D-Chain is down.

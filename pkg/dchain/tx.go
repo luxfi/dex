@@ -69,6 +69,32 @@ const (
 	// object-authorized (the D->C object it produces is owned by the intent's recorded
 	// owner, so it can only settle value back to the rightful taker), so no signature.
 	TxExport
+	// TxIntentSubmit CROSSES THE BOOK for an imported cross-chain intent. Body =
+	// intentID[32]. It is the OBJECT-AUTHORIZED sibling of TxSubmit, exactly as
+	// TxImport is the object-authorized sibling of TxDeposit and TxExport of
+	// TxWithdraw — this chain has two ways an operation is authorized, a signature
+	// over the tx or a cross-chain object the taker already authorized on C, and the
+	// tx TYPE is where that distinction lives.
+	//
+	// It cannot be a plain TxSubmit. TxSubmit.requiresAuth() is true, so a signature-
+	// free one is refused at parse (parseTxFrame), at the RPC edge, and again in
+	// authorizeTx; the only ways to emit one from the seam would be to weaken that
+	// gate — which would let ANY unsigned submit move ANY account's funds — or to
+	// forge a signature nobody holds. So the seam gets its own type and keeps
+	// TxSubmit's gate exactly as strong as it was.
+	//
+	// It carries the intent id ALONE. The operation was declared once, in the C->D
+	// object, and recorded in the escrow at import; execute derives the zapwire Submit
+	// frame from that escrow (seamSubmitBody) and runs it through the IDENTICAL
+	// custody -> match -> settle path a signed dex_submit takes. Restating market/side/
+	// limit/size on this wire would create a second copy of the taker's operation for
+	// the two to be cross-checked against each other, which is exactly the restatement
+	// the C-side seam removed.
+	//
+	// Injecting one is harmless: the escrow must exist and be `open`, which only this
+	// block's own TxImport can make true, and the order it runs is the taker's OWN
+	// recorded operation. A replay finds the escrow already `submitted` and rejects.
+	TxIntentSubmit
 )
 
 // requiresAuth reports whether a tx type moves USER funds and therefore must
@@ -104,17 +130,23 @@ func (t TxType) String() string {
 		return "seam_import"
 	case TxExport:
 		return "seam_export"
+	case TxIntentSubmit:
+		return "seam_submit"
 	default:
 		return "unknown"
 	}
 }
 
-// seamImportBodySize is the TxImport body width: intentID[32].
+// seamImportBodySize is the TxImport body width: intentID[32] | object[118]. The
+// object's own bytes ride in the transaction so execution is a pure function of the
+// block and replays byte-identically forever (see EncodeSeamImportBody).
 // seamExportBodySize is the TxExport body width: intentID[32] | asset[32] |
 // amount[8] | spent[8].
+// seamSubmitBodySize is the TxIntentSubmit body width: intentID[32].
 const (
-	seamImportBodySize = 32
+	seamImportBodySize = 32 + seamIntentObjectSize
 	seamExportBodySize = 32 + 32 + 8 + 8
+	seamSubmitBodySize = 32
 )
 
 // Errors returned by the tx layer.
@@ -272,6 +304,8 @@ func bodySize(t TxType) (int, bool) {
 		return seamImportBodySize, true
 	case TxExport:
 		return seamExportBodySize, true
+	case TxIntentSubmit:
+		return seamSubmitBodySize, true
 	default:
 		return 0, false
 	}
@@ -385,4 +419,12 @@ func decodeTxList(b []byte) ([]*Tx, error) {
 		txs = append(txs, tx)
 	}
 	return txs, nil
+}
+
+// EncodeSeamSubmitBody builds a TxIntentSubmit body: intentID[32] — the imported
+// intent whose recorded operation this tx runs. Exported for the keeper / SDK / tests.
+func EncodeSeamSubmitBody(intentID ids.ID) []byte {
+	b := make([]byte, seamSubmitBodySize)
+	copy(b, intentID[:])
+	return b
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/luxfi/rpc"
 	"github.com/luxfi/runtime"
 	"github.com/luxfi/version"
+	luxvm "github.com/luxfi/vm"
 )
 
 // vm.go is the standalone D-Chain DEX VM: an implementation of
@@ -60,6 +61,12 @@ type VM struct {
 	// intent object is read under (import) and a D->C settlement object is written
 	// under (export). ids.Empty when no runtime / no C-Chain — the seam stays closed.
 	cChainID ids.ID
+
+	// normalOp is true once the engine has taken this VM to Ready — past the bootstrap
+	// frontier, validating rather than replaying. It gates the BLOCK-LEVEL cross-chain
+	// authentication only (verifySeamImports); nothing in the state transition reads
+	// it, so it can never affect a state root.
+	normalOp bool
 
 	// depositAuthority is the ONLY account allowed to authorize a TxDeposit — the
 	// trusted bridge/proxy that custodies the backing C-side value. A deposit MINTS
@@ -233,7 +240,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 // genesis block for both bootstrapGenesis (fresh DB) and loadHead's legacy-DB
 // recovery (a DB written before head blocks were persisted).
 func (vm *VM) genesisBlock() (*Block, [Size]byte) {
-	var parentRoot [Size]byte // zero
+	var parentRoot [Size]byte  // zero
 	var emptyLedger [Size]byte // genesis has no custody ledger yet
 	root, _, _, _ := ExecutionRoot(parentRoot, nil, nil, nil, emptyLedger, 0)
 	return newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil), root
@@ -593,11 +600,20 @@ func (vm *VM) GetBlockIDAtHeight(ctx context.Context, height uint64) (ids.ID, er
 	return ids.Empty, database.ErrNotFound
 }
 
-// SetState transitions the VM lifecycle state (bootstrapping/normal-op/etc).
-// The d-chain has no state-specific behavior beyond logging — it is ready to
-// build/verify as soon as Initialize completes.
+// SetState transitions the VM lifecycle state (bootstrapping/normal-op/etc). The
+// d-chain's own execution has no state-specific behavior — it is ready to build/verify
+// as soon as Initialize completes — but the BLOCK-LEVEL cross-chain authentication
+// does: below the bootstrap frontier a C->D object may legitimately be absent from
+// shared memory (C and D bootstrap independently, and this node's own accepted Remove
+// may already have consumed it), and those blocks carry the network's acceptance as
+// their authority. So the one thing tracked here is whether we have reached normal
+// operation — exactly the gate verifySeamImports needs.
 func (vm *VM) SetState(ctx context.Context, state uint32) error {
-	vm.log.Debug("dchain SetState", "state", state)
+	vm.mu.Lock()
+	vm.normalOp = state == uint32(luxvm.Ready)
+	normalOp := vm.normalOp
+	vm.mu.Unlock()
+	vm.log.Debug("dchain SetState", "state", state, "normalOp", normalOp)
 	return nil
 }
 
