@@ -36,13 +36,16 @@ const testAuthorized = 1000
 
 func sampleExecution() Execution {
 	return Execution{
-		ExecID:   ids.ID{0xE1},
-		OrderID:  ids.ID{0x01},
-		Price:    10_000,
-		Quantity: 250,
-		Fee:      7,
-		CParent:  testParent,
-		DBlock:   ids.ID{0xDB},
+		ExecID:        ids.ID{0xE1},
+		OrderID:       ids.ID{0x01},
+		MarketID:      testMarket,
+		MarketVersion: 1,
+		Quantity:      250,
+		Input:         AssetAmount{Asset: testUSDC, Amount: amount(100)},
+		Output:        AssetAmount{Asset: testLUX, Amount: amount(497)},
+		Fee:           AssetAmount{Asset: testLUX, Amount: amount(7)},
+		CParent:       testParent,
+		DBlock:        ids.ID{0xDB},
 	}
 }
 
@@ -137,13 +140,19 @@ func TestCommitmentIsInjectiveOverEveryField(t *testing.T) {
 	base := sampleExecution()
 	baseC := base.Commitment()
 	for name, mutate := range map[string]func(*Execution){
-		"ExecID":   func(e *Execution) { e.ExecID[31] ^= 1 },
-		"OrderID":  func(e *Execution) { e.OrderID[31] ^= 1 },
-		"Price":    func(e *Execution) { e.Price ^= 1 },
-		"Quantity": func(e *Execution) { e.Quantity ^= 1 },
-		"Fee":      func(e *Execution) { e.Fee ^= 1 },
-		"CParent":  func(e *Execution) { e.CParent[31] ^= 1 },
-		"DBlock":   func(e *Execution) { e.DBlock[31] ^= 1 },
+		"ExecID":        func(e *Execution) { e.ExecID[31] ^= 1 },
+		"OrderID":       func(e *Execution) { e.OrderID[31] ^= 1 },
+		"MarketID":      func(e *Execution) { e.MarketID[31] ^= 1 },
+		"MarketVersion": func(e *Execution) { e.MarketVersion ^= 1 },
+		"Quantity":      func(e *Execution) { e.Quantity ^= 1 },
+		"InputAsset":    func(e *Execution) { e.Input.Asset[31] ^= 1 },
+		"InputAmount":   func(e *Execution) { e.Input.Amount[31] ^= 1 },
+		"OutputAsset":   func(e *Execution) { e.Output.Asset[31] ^= 1 },
+		"OutputAmount":  func(e *Execution) { e.Output.Amount[31] ^= 1 },
+		"FeeAsset":      func(e *Execution) { e.Fee.Asset[31] ^= 1 },
+		"FeeAmount":     func(e *Execution) { e.Fee.Amount[31] ^= 1 },
+		"CParent":       func(e *Execution) { e.CParent[31] ^= 1 },
+		"DBlock":        func(e *Execution) { e.DBlock[31] ^= 1 },
 	} {
 		e := base
 		mutate(&e)
@@ -160,11 +169,16 @@ func TestEncodingIsInjective(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	seen := make(map[string]Execution, 4096)
 	for i := 0; i < 4096; i++ {
-		e := Execution{Price: rng.Uint64(), Quantity: rng.Uint64(), Fee: rng.Uint64()}
+		e := Execution{MarketVersion: rng.Uint64(), Quantity: rng.Uint64()}
 		rng.Read(e.ExecID[:])
 		rng.Read(e.OrderID[:])
+		rng.Read(e.MarketID[:])
 		rng.Read(e.CParent[:])
 		rng.Read(e.DBlock[:])
+		for _, a := range [...]*AssetAmount{&e.Input, &e.Output, &e.Fee} {
+			rng.Read(a.Asset[:])
+			rng.Read(a.Amount[:])
+		}
 		key := string(e.Encode())
 		if prev, ok := seen[key]; ok && prev != e {
 			t.Fatalf("two distinct executions encoded identically:\n%+v\n%+v", prev, e)
