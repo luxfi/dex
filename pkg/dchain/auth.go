@@ -273,7 +273,7 @@ func (b *Block) authorizeTx(db authReader, tx *Tx) (rejected bool, err error) {
 	}
 
 	// Monotonic per-account nonce. Checked (and, on a match, CONSUMED) before the
-	// cancel-ownership decision so that an AUTHENTICATED intent advances the
+	// cancel-ownership decision so that an AUTHENTICATED order advances the
 	// account's sequence even if its specific action is refused below — the same
 	// nonce semantics as a reverted-but-included Ethereum tx, and what keeps a
 	// signer's nonce stream total-ordered regardless of per-action outcome. A
@@ -301,7 +301,7 @@ func (b *Block) authorizeTx(db authReader, tx *Tx) (rejected bool, err error) {
 			return false, oerr
 		}
 		if ok && owner != account {
-			// Authenticated but not the owner: consume the nonce (the intent was
+			// Authenticated but not the owner: consume the nonce (the order was
 			// authentic) and refuse the action — no unlock, no state move.
 			if err := setNonce(db, account, expected+1); err != nil {
 				return false, err

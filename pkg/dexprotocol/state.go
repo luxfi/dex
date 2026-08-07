@@ -21,12 +21,12 @@ import (
 //
 // WHY NOT A STATUS FIELD. A status enum makes every illegal transition WRITABLE and
 // pushes correctness onto whoever remembers to check it. This seam has already paid
-// for that: in the shipping code the intent record is written back only inside the
+// for that: in the shipping code the order record is written back only inside the
 // same-asset refund branch, so the ordinary outcome of a swap — proceeds in the
 // opposite asset — leaves the record Open carrying its whole principal, and the
 // deadline reclaim later refunds money already spent, out of other traders' pooled
 // reserve. Reproduced on a clean tree: 200 of OUTPUT credited AND 300 of INPUT
-// principal reclaimed against one intent.
+// principal reclaimed against one order.
 //
 // That defect is a field somebody forgot to set on one code path. It cannot exist
 // here, because there is no field to forget: a settled execution is a DIFFERENT

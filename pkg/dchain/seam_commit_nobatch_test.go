@@ -19,7 +19,7 @@ import (
 // client, and that client REFUSES a batch (a batch cannot cross a process boundary).
 // The previous code passed one unconditionally and had no batch-less path, so the
 // first block carrying any cross-chain seam op failed at Accept — which is fatal.
-// The chain would have stopped on the very first intent it imported.
+// The chain would have stopped on the very first order it imported.
 //
 // This test is deliberately about the CALL SHAPE rather than the outcome, because
 // the outcome it guards against is "the chain is dead" and there is no cheaper
@@ -75,7 +75,7 @@ func TestCommitSeamAtomicNeverPassesABatch(t *testing.T) {
 
 	ar := newAtomicRequests()
 	req := ar.forChain(ids.ID{0xCC})
-	req.RemoveRequests = append(req.RemoveRequests, []byte("an-imported-intent-id-32-bytes.."))
+	req.RemoveRequests = append(req.RemoveRequests, []byte("an-imported-order-id-32-bytes..."))
 
 	overlay := &recordingOverlay{}
 	if err := vm.commitSeamAtomic(overlay, ar); err != nil {
@@ -113,7 +113,7 @@ func TestCommitSeamAtomicCommitsStateBeforeApplying(t *testing.T) {
 
 	ar := newAtomicRequests()
 	req := ar.forChain(ids.ID{0xCC})
-	req.RemoveRequests = append(req.RemoveRequests, []byte("an-imported-intent-id-32-bytes.."))
+	req.RemoveRequests = append(req.RemoveRequests, []byte("an-imported-order-id-32-bytes..."))
 
 	// A failing state commit must abort BEFORE shared memory is touched: if the state
 	// did not land, the consumption it records did not land either, so mutating shared
