@@ -115,7 +115,7 @@ for i in {1..30}; do
         "id":1,
         "method":"info.isBootstrapped",
         "params": {"chain":"X"}
-    }' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/info 2>/dev/null | grep -q "true"; then
+    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/info 2>/dev/null | grep -q "true"; then
         echo -e "${GREEN}✅ Node is bootstrapped and ready!${NC}"
         break
     fi
@@ -134,7 +134,7 @@ if curl -s -X POST --data '{
     "jsonrpc":"2.0",
     "id":1,
     "method":"info.getNetworkID"
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/info | grep -q "$NETWORK_ID"; then
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/info | grep -q "$NETWORK_ID"; then
     echo -e "${GREEN}✅ Working${NC}"
 else
     echo -e "${RED}❌ Failed${NC}"
@@ -142,7 +142,7 @@ fi
 
 # Test health endpoint
 echo -n "2. Health endpoint: "
-if curl -s http://127.0.0.1:9650/ext/health | grep -q "healthy"; then
+if curl -s http://127.0.0.1:9650/v1/health | grep -q "healthy"; then
     echo -e "${GREEN}✅ Healthy${NC}"
 else
     echo -e "${RED}❌ Not healthy${NC}"
@@ -158,7 +158,7 @@ if curl -s -X POST --data '{
         "address":"X-lux18jma8ppw3nhx5r4ap8clazz0dps7rv5u6wdp",
         "assetID":"LUX"
     }
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/bc/X 2>/dev/null | grep -q "balance"; then
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/X 2>/dev/null | grep -q "balance"; then
     echo -e "${GREEN}✅ Working${NC}"
 else
     echo -e "${RED}❌ Failed${NC}"
@@ -171,7 +171,7 @@ if curl -s -X POST --data '{
     "method":"eth_chainId",
     "params":[],
     "id":1
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/bc/C/rpc 2>/dev/null | grep -q "result"; then
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/C/rpc 2>/dev/null | grep -q "result"; then
     echo -e "${GREEN}✅ Working${NC}"
 else
     echo -e "${RED}❌ Failed${NC}"
@@ -184,7 +184,7 @@ BLOCK_HEIGHT=$(curl -s -X POST --data '{
     "method":"eth_blockNumber",
     "params":[],
     "id":1
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/bc/C/rpc 2>/dev/null | grep -o '"result":"[^"]*"' | sed 's/"result":"//;s/"//')
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/C/rpc 2>/dev/null | grep -o '"result":"[^"]*"' | sed 's/"result":"//;s/"//')
 
 if [ ! -z "$BLOCK_HEIGHT" ]; then
     echo -e "${GREEN}✅ Current block: $BLOCK_HEIGHT${NC}"
@@ -197,14 +197,14 @@ echo "================================"
 echo -e "${GREEN}✅ Local Lux Network is running!${NC}"
 echo ""
 echo "RPC Endpoints:"
-echo "  Info API: http://localhost:9650/ext/info"
-echo "  Health: http://localhost:9650/ext/health"
-echo "  X-Chain: http://localhost:9650/ext/bc/X"
-echo "  C-Chain: http://localhost:9650/ext/bc/C/rpc"
-echo "  P-Chain: http://localhost:9650/ext/bc/P"
+echo "  Info API: http://localhost:9650/v1/info"
+echo "  Health: http://localhost:9650/v1/health"
+echo "  X-Chain: http://localhost:9650/v1/bc/X"
+echo "  C-Chain: http://localhost:9650/v1/bc/C/rpc"
+echo "  P-Chain: http://localhost:9650/v1/bc/P"
 echo ""
 echo "WebSocket:"
-echo "  C-Chain WS: ws://localhost:9650/ext/bc/C/ws"
+echo "  C-Chain WS: ws://localhost:9650/v1/bc/C/ws"
 echo ""
 echo "Node PID: $NODE_PID"
 echo "To stop: kill $NODE_PID"
@@ -220,7 +220,7 @@ while true; do
         "method":"eth_blockNumber",
         "params":[],
         "id":1
-    }' -H 'content-type:application/json;' http://127.0.0.1:9650/ext/bc/C/rpc 2>/dev/null | grep -o '"result":"[^"]*"' | sed 's/"result":"//;s/"//')
+    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/C/rpc 2>/dev/null | grep -o '"result":"[^"]*"' | sed 's/"result":"//;s/"//')
     
     if [ ! -z "$BLOCK" ]; then
         BLOCK_DEC=$((16#${BLOCK#0x}))

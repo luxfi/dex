@@ -19,7 +19,7 @@ import (
 //
 //	ZAP socket  (this file) : RegisterDEX on rpc.Listen — the HFT native path,
 //	                          binary wire, co-located on the pod. CANONICAL.
-//	HTTP router (ingest.go) : the same dexMethods over the node's /ext/bc route.
+//	HTTP router (ingest.go) : the same dexMethods over the node's /v1/bc route.
 //	                          COMPAT (web / exchange-api / debug).
 //
 // WHY BOTH, AND WHY THIS IS NOT DUPLICATION: transport is orthogonal to consensus.

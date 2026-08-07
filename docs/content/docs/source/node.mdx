@@ -264,7 +264,7 @@ go test -bench=. ./vms/exchangevm/...
 ### Admin API
 ```bash
 # Node health
-curl -X POST http://localhost:9650/ext/admin \
+curl -X POST http://localhost:9650/v1/admin \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"admin.getNodeID","params":{},"id":1}'
 ```
@@ -272,7 +272,7 @@ curl -X POST http://localhost:9650/ext/admin \
 ### Platform API
 ```bash
 # Get validators
-curl -X POST http://localhost:9650/ext/bc/P \
+curl -X POST http://localhost:9650/v1/bc/P \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"platform.getCurrentValidators","params":{},"id":1}'
 ```
@@ -280,7 +280,7 @@ curl -X POST http://localhost:9650/ext/bc/P \
 ### Exchange API
 ```bash
 # Get balance
-curl -X POST http://localhost:9650/ext/bc/X \
+curl -X POST http://localhost:9650/v1/bc/X \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"avm.getBalance","params":{"address":"X-lux1...","assetID":"LUX"},"id":1}'
 ```

@@ -57,7 +57,7 @@ const dexBalanceMethod = "dex_balance"
 
 // httpChainPrefix is the chain route prefix the optional -http surface mounts
 // under. It mirrors the EXACT external path luxd gives the in-process plugin
-// (/ext/bc/<chainID-or-alias>), using the canonical "D" alias the exchange-api
+// (/v1/bc/<chainID-or-alias>), using the canonical "D" alias the exchange-api
 // and maker dial (DEX_DCHAIN_URL / DEX_HTTP_URL = http://<host>/v1/dex). So a
 // standalone single-operator venue is a byte-identical drop-in for the in-luxd
 // D-Chain read+write surface — no luxd required to serve the markets pipeline.
