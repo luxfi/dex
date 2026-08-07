@@ -73,7 +73,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 )
 
@@ -154,23 +153,11 @@ func (o OrdStatus) String() string {
 	}
 }
 
-// Order is what C asks D to execute. It carries what the TRADER authorized —
-// nothing D computed. The trader signs bounds; D matches within them; C re-checks
-// them.
-//
-// CParent scopes the order to one C opportunity: the parent block whose successor
-// may use the resulting execution. Reservation scope is the parent OPPORTUNITY,
-// never a candidate block, because many candidate children may reference the same
-// parent and D must never permanently spend against a merely proposed one.
-type Order struct {
-	OrderID  ids.ID
-	Market   ids.ID
-	Side     Side
-	Quantity uint64
-	Limit    uint64
-	Owner    common.Address
-	CParent  ids.ID
-}
+// Order lives in order.go. It is the trader's signed authorization and carries NO
+// C parent: an order is portable across its validity window, and the same unmatched
+// order may be matched again after an execution against it is released. CParent
+// belongs to Execution, below, because the reservation — not the authorization — is
+// what is scoped to one C opportunity.
 
 // Execution is the object D certifies — a FIX ExecutionReport reduced to the
 // fields that cross the seam.
