@@ -169,22 +169,40 @@ func (o OrdStatus) String() string {
 // There is no reservation field: the reservation is keyed by
 // (CChainID, CParent, ExecID) — see ReservationKey — so there is no separate value
 // that could disagree with the key it is supposed to name.
+// D RESOLVES, C VERIFIES. The execution carries the EXACT token amounts that will
+// move, converted once by D using the market version named here. C checks those
+// amounts against the order's bounds and moves them; it never recomputes lots from
+// whatever the market metadata happens to say now. Recomputing would reintroduce the
+// replay problem at a smaller scale: an execution certified under one lot size would
+// settle differently after a market update, so the same block would replay to a
+// different result.
+//
+// MarketVersion is therefore load-bearing, not documentation. It pins which metadata
+// produced Quantity -> Input/Output, and the commitment covers it.
+//
+// There is no Price field. Price is Output/Input and would be a second statement of
+// the same fact inside a signed struct — two things that can disagree. FIX LastPx(31)
+// is derived at the edge where the ExecutionReport is built.
 type Execution struct {
-	ExecID   ids.ID
-	OrderID  ids.ID
-	Price    uint64 // the guaranteed price; surfaces externally as FIX LastPx(31)
-	Quantity uint64 // the reserved quantity; surfaces externally as FIX LastQty(32)
-	Fee      uint64
-	CParent  ids.ID // the C opportunity this execution may be traded under
-	DBlock   ids.ID // the D block that produced the match
+	ExecID        ids.ID
+	OrderID       ids.ID
+	MarketID      ids.ID
+	MarketVersion uint64
+	Quantity      uint64      // lots — the book's unit; FIX LastQty(32)
+	Input         AssetAmount // exact token base units leaving the swapper
+	Output        AssetAmount // exact token base units reaching the recipient
+	Fee           AssetAmount
+	CParent       ids.ID // the C opportunity this execution may be traded under
+	DBlock        ids.ID // the D block that produced the match
 }
 
 // ExecutionEncodedLen is the canonical encoding's exact width. Every field is fixed
 // width, so concatenation is INJECTIVE by construction — no length prefixes, no
 // separators. That is what lets the commitment rest on SHA-256 alone rather than on
 // the hash plus an argument about parsing.
-const ExecutionEncodedLen = 32 + 32 + // ExecID, OrderID
-	8 + 8 + 8 + // Price, Quantity, Fee
+const ExecutionEncodedLen = 32 + 32 + 32 + // ExecID, OrderID, MarketID
+	8 + 8 + // MarketVersion, Quantity
+	AssetAmountEncodedLen*3 + // Input, Output, Fee
 	32 + 32 // CParent, DBlock
 
 // execDomain domain-separates the execution commitment. It is hashed once into a
@@ -211,12 +229,15 @@ func (e *Execution) Encode() []byte {
 	o := 0
 	o += copy(b[o:], e.ExecID[:])
 	o += copy(b[o:], e.OrderID[:])
-	binary.BigEndian.PutUint64(b[o:], e.Price)
+	o += copy(b[o:], e.MarketID[:])
+	binary.BigEndian.PutUint64(b[o:], e.MarketVersion)
 	o += 8
 	binary.BigEndian.PutUint64(b[o:], e.Quantity)
 	o += 8
-	binary.BigEndian.PutUint64(b[o:], e.Fee)
-	o += 8
+	for _, a := range [...]AssetAmount{e.Input, e.Output, e.Fee} {
+		o += copy(b[o:], a.Asset[:])
+		o += copy(b[o:], a.Amount[:])
+	}
 	o += copy(b[o:], e.CParent[:])
 	o += copy(b[o:], e.DBlock[:])
 	if o != ExecutionEncodedLen {
@@ -237,12 +258,15 @@ func DecodeExecution(b []byte) (Execution, error) {
 	o := 0
 	o += copy(e.ExecID[:], b[o:o+32])
 	o += copy(e.OrderID[:], b[o:o+32])
-	e.Price = binary.BigEndian.Uint64(b[o:])
+	o += copy(e.MarketID[:], b[o:o+32])
+	e.MarketVersion = binary.BigEndian.Uint64(b[o:])
 	o += 8
 	e.Quantity = binary.BigEndian.Uint64(b[o:])
 	o += 8
-	e.Fee = binary.BigEndian.Uint64(b[o:])
-	o += 8
+	for _, a := range [...]*AssetAmount{&e.Input, &e.Output, &e.Fee} {
+		o += copy(a.Asset[:], b[o:o+32])
+		o += copy(a.Amount[:], b[o:o+32])
+	}
 	o += copy(e.CParent[:], b[o:o+32])
 	copy(e.DBlock[:], b[o:o+32])
 	return e, nil
@@ -276,8 +300,23 @@ func (e *Execution) Validate() error {
 	if e.OrderID == ids.Empty {
 		return fmt.Errorf("%w: OrderID", ErrExecScope)
 	}
+	if e.MarketID == ids.Empty {
+		return fmt.Errorf("%w: MarketID", ErrExecScope)
+	}
+	// MarketVersion 0 would leave the lot conversion unattributed, which is the one
+	// thing that makes the amounts reproducible.
+	if e.MarketVersion == 0 {
+		return fmt.Errorf("%w: MarketVersion", ErrExecScope)
+	}
 	if e.Quantity == 0 {
 		return ErrExecQty
+	}
+	// An execution moving nothing in or out is not a trade, whatever the lots say.
+	if e.Input.IsZero() || e.Output.IsZero() {
+		return ErrExecAmount
+	}
+	if e.Input.Asset == ids.Empty || e.Output.Asset == ids.Empty || e.Fee.Asset == ids.Empty {
+		return fmt.Errorf("%w: settlement asset", ErrExecScope)
 	}
 	return nil
 }
