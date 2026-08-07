@@ -100,11 +100,20 @@ func TestReservedValueCannotLeaveD(t *testing.T) {
 		t.Fatalf("got %v, want ErrNoBalance — reserved value must not leave", err)
 	}
 	// Exactly the available amount is fine.
-	cl, err := c.Export(alice, testUSDC, n(20), cChain, ids.ID{0x01})
+	p, err := c.Export(alice, testUSDC, n(20), cChain, ids.ID{0x01})
 	if err != nil {
 		t.Fatalf("exporting available balance refused: %v", err)
 	}
-	if cl.Big().Cmp(n(20)) != 0 || cl.Beneficiary != alice || cl.Source != dChain || cl.Dest != cChain {
+	if p.Amount().Cmp(n(20)) != 0 || p.Owner() != alice || p.Asset() != testUSDC {
+		t.Fatalf("malformed pending export: %+v", p)
+	}
+	// A pending export must not hand out anything writable — that is what keeps
+	// reclaim safe. Only Deliver produces the object.
+	d, err := c.Deliver(p.ClaimID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cl := d.Claim(); cl.Beneficiary != alice || cl.Source != dChain || cl.Dest != cChain {
 		t.Fatalf("malformed claim: %+v", cl)
 	}
 	if got := held(t, c, alice, testUSDC); got.Cmp(n(80)) != 0 {
@@ -203,8 +212,15 @@ func TestRoundTripConserves(t *testing.T) {
 		}
 	}
 
-	// Take some out.
+	// Take some out. Export earmarks; only Deliver commits it to the rail, so only
+	// then does it leave D's side of the equation.
 	if _, err := c.Export(alice, testUSDC, n(250), cChain, ids.ID{0xE1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Conserved(testUSDC, imported, exported); err != nil {
+		t.Fatalf("a pending export read as a shortfall: %v", err)
+	}
+	if _, err := c.Deliver(ids.ID{0xE1}); err != nil {
 		t.Fatal(err)
 	}
 	exported.Add(exported, n(250))
@@ -249,9 +265,17 @@ func TestCustodyConservesUnderRandomOperations(t *testing.T) {
 				t.Fatalf("step %d unreserve: %v", step, err)
 			}
 		case 3:
-			_, err := c.Export(actor, testUSDC, amt, cChain, seqID(0xE0))
+			id := seqID(0xE0)
+			_, err := c.Export(actor, testUSDC, amt, cChain, id)
 			if err == nil {
-				exported.Add(exported, amt)
+				// Commit roughly half of them, leaving the rest pending, so the
+				// run exercises both columns of the rail equation.
+				if rng.Intn(2) == 0 {
+					if _, derr := c.Deliver(id); derr != nil {
+						t.Fatalf("step %d deliver: %v", step, derr)
+					}
+					exported.Add(exported, amt)
+				}
 			} else if !errors.Is(err, ErrNoBalance) {
 				t.Fatalf("step %d export: %v", step, err)
 			}
