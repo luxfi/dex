@@ -109,7 +109,7 @@ func (c *Claim) Validate() error {
 	return nil
 }
 
-func (c *Claim) Big() *big.Int { return new(big.Int).SetBytes(c.Amount[:]) }
+func (c Claim) Big() *big.Int { return new(big.Int).SetBytes(c.Amount[:]) }
 
 // balance is one owner's holding of one asset on D.
 //
@@ -129,13 +129,21 @@ type Custody struct {
 	chainID  ids.ID
 	balances map[common.Address]map[ids.ID]*balance
 	consumed map[ids.ID]struct{}
+	// Export domains — see export.go. A claim id lives in exactly one of them,
+	// which is what makes reclaimable and writable mutually exclusive.
+	pending   map[ids.ID]PendingExport
+	delivered map[ids.ID]Deliverable
+	reclaimed map[ids.ID]Reclaimed
 }
 
 func NewCustody(chainID ids.ID) *Custody {
 	return &Custody{
-		chainID:  chainID,
-		balances: make(map[common.Address]map[ids.ID]*balance),
-		consumed: make(map[ids.ID]struct{}),
+		chainID:   chainID,
+		balances:  make(map[common.Address]map[ids.ID]*balance),
+		consumed:  make(map[ids.ID]struct{}),
+		pending:   make(map[ids.ID]PendingExport),
+		delivered: make(map[ids.ID]Deliverable),
+		reclaimed: make(map[ids.ID]Reclaimed),
 	}
 }
 
@@ -177,30 +185,6 @@ func (c *Custody) Import(cl Claim) error {
 	b := c.at(cl.Beneficiary, cl.Asset)
 	b.available.Add(b.available, cl.Big())
 	return nil
-}
-
-// Export removes value from D and produces the transfer object C will consume. It
-// draws ONLY on available balance: reserved value is committed to open orders and
-// cannot leave, which is the second half of "spendable on exactly one chain".
-func (c *Custody) Export(owner common.Address, asset ids.ID, amount *big.Int, dest, claimID ids.ID) (Claim, error) {
-	if amount.Sign() <= 0 {
-		return Claim{}, ErrClaimAmount
-	}
-	b := c.at(owner, asset)
-	if b.available.Cmp(amount) < 0 {
-		return Claim{}, fmt.Errorf("%w: have %s available, exporting %s", ErrNoBalance, b.available, amount)
-	}
-	b.available.Sub(b.available, amount)
-	cl := Claim{ClaimID: claimID, Source: c.chainID, Dest: dest, Beneficiary: owner, Asset: asset}
-	var buf [32]byte
-	amount.FillBytes(buf[:])
-	cl.Amount = buf
-	if err := cl.Validate(); err != nil {
-		// Put it back rather than leaving value in neither place.
-		b.available.Add(b.available, amount)
-		return Claim{}, err
-	}
-	return cl, nil
 }
 
 // Reserve moves value from available to reserved when an order is placed. Nothing
@@ -288,15 +272,24 @@ func (c *Custody) Owned(asset ids.ID) *big.Int {
 	return total
 }
 
-// Conserved asserts the rail's invariant for one asset: what D owns equals what
-// crossed in, minus what crossed out. Callers pass the boundary totals they observed
-// so the check is against the RAIL, not against an internal number that would agree
-// with itself by construction.
-func (c *Custody) Conserved(asset ids.ID, imported, exported *big.Int) error {
-	want := new(big.Int).Sub(imported, exported)
-	if got := c.Owned(asset); got.Cmp(want) != 0 {
-		return fmt.Errorf("dexprotocol: D owns %s of %s, rail says %s in - %s out = %s",
-			got, asset, imported, exported, want)
+// Conserved asserts the rail's invariant for one asset:
+//
+//	imported - delivered  ==  Owned + Earmarked
+//
+// `delivered` is what was COMMITTED for delivery, not what was merely earmarked: a
+// pending export has left the owner's available balance but is still D's and still
+// reclaimable, so it counts on D's side of the equation. Leaving it out would make
+// every open export look like a shortfall.
+//
+// The caller supplies the boundary totals it observed, so the check is against the
+// RAIL rather than against an internal number that would agree with itself by
+// construction.
+func (c *Custody) Conserved(asset ids.ID, imported, delivered *big.Int) error {
+	want := new(big.Int).Sub(imported, delivered)
+	got := new(big.Int).Add(c.Owned(asset), c.Earmarked(asset))
+	if got.Cmp(want) != 0 {
+		return fmt.Errorf("dexprotocol: D holds %s of %s (owned %s + earmarked %s), rail says %s in - %s delivered = %s",
+			got, asset, c.Owned(asset), c.Earmarked(asset), imported, delivered, want)
 	}
 	return nil
 }
