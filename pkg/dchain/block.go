@@ -548,80 +548,24 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		}
 
 		// ---- The seam's taker order ----
-		// TxIntentSubmit carries the intent id ALONE. The taker's operation was
-		// declared once — in the C->D object, recorded into the escrow by this block's
-		// own TxImport — so the zapwire Submit frame is DERIVED from that escrow here,
-		// by the one function that defines what an intent means (seamSubmitBody). From
-		// this point the tx is an ordinary submit: it flows through the IDENTICAL
-		// custody gate, matcher, and settlement path a signed dex_submit takes, with
-		// nothing duplicated for the seam.
+		// TxIntentSubmit carries the intent id ALONE; resolveSeamOrder turns it into
+		// the taker's actual order frame. From there the tx is an ordinary submit: it
+		// flows through the IDENTICAL custody gate, matcher and settlement path a
+		// signed dex_submit takes, with nothing duplicated for the seam.
 		//
 		// orderTx is the DERIVED frame; tx stays the real transaction, so the outcome,
-		// the seen: key, and the tx root all remain bound to what the block actually
-		// contains.
+		// the seen: key and the tx root all remain bound to what the block contains.
 		orderTx := tx
-		var seamIntentID ids.ID
 		if tx.Type == TxIntentSubmit {
-			copy(seamIntentID[:], tx.Body)
-			rec, exists, gerr := getSeamIntent(overlay, seamIntentID)
-			if gerr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam submit: %w", i, gerr)
+			derived, rejected, serr := b.resolveSeamOrder(overlay, tx)
+			if serr != nil {
+				return execResult{}, fmt.Errorf("dchain: tx %d seam submit: %w", i, serr)
 			}
-			// `open` is the ONLY state an order may run from: it means this block's
-			// import credited the intent's account and no order has run yet. A missing
-			// escrow (the import rejected, or this names an intent that was never
-			// imported) and an already-`submitted` one (a replay) both reject here,
-			// deterministically, moving nothing.
-			if !exists || rec.Status != seamIntentOpen {
+			if rejected {
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
-			// THE MARKET IS NAMED BY THE OTHER CHAIN, so it must never be able to
-			// abort a block. C cannot see D's market registry; a taker can name a
-			// market D has never created, or one whose (base, quote) assets were never
-			// bound. Both must be DETERMINISTIC PER-TX REJECTS:
-			//
-			//   - an unknown market would reach bookForPool and return an error, which
-			//     aborts the whole block. That is a halt any C caller could trigger.
-			//   - a market with unbound assets falls through to the no-custody path,
-			//     where an order crosses while reserving nothing — fills with no ledger
-			//     backing behind them.
-			//
-			// Rejecting here costs the taker nothing: the escrow still advances to
-			// `submitted` below, so the export drive returns their whole principal.
-			if _, marketExists, merr := readMarketSymbol(overlay, rec.Op.Market); merr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam submit market: %w", i, merr)
-			} else if !marketExists {
-				if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
-					return execResult{}, perr
-				}
-				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
-				continue
-			}
-			if _, _, bound, aerr := readMarketAssets(overlay, rec.Op.Market); aerr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam submit assets: %w", i, aerr)
-			} else if !bound {
-				if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
-					return execResult{}, perr
-				}
-				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
-				continue
-			}
-
-			orderTx = &Tx{Type: TxSubmit, Body: seamSubmitBody(seamIntentID, rec)}
-
-			// The order is DISPATCHED here, so the escrow advances here — before the
-			// custody gate, not after a successful cross. A submit that the custody
-			// gate refuses (an operation the imported principal cannot fund, a
-			// zero-notional order) has still had its one chance, and its answer is
-			// "nothing filled". Advancing only on success would leave that escrow
-			// `open` forever: the drive never re-emits a submit for an
-			// already-imported intent, so nothing would ever export it, the principal
-			// would sit on D, and C's deadline reclaim would refund the taker a second
-			// time. One transition, one place, every path.
-			if perr := b.markSeamSubmitted(overlay, seamIntentID, rec); perr != nil {
-				return execResult{}, perr
-			}
+			orderTx = derived
 		}
 
 		// ---- Market-scoped txs (begin with poolId) ----
@@ -1274,4 +1218,58 @@ func (b *Block) verifySeamImports() error {
 func (b *Block) markSeamSubmitted(db database.KeyValueWriter, intentID ids.ID, rec seamIntentRecord) error {
 	rec.Status = seamIntentSubmitted
 	return putSeamIntent(db, intentID, rec)
+}
+
+// resolveSeamOrder turns a TxIntentSubmit into the order frame it stands for, and
+// advances the intent's escrow past the point of no return.
+//
+// THE OPERATION IS DERIVED, NOT CARRIED. The taker declared it once, in the C->D
+// object, and this block's own TxImport recorded it into the escrow. seamSubmitBody is
+// the one definition of what that intent means as an order; restating it on the wire
+// would create a second copy for the two to be reconciled against each other.
+//
+// THE MARKET IS NAMED BY THE OTHER CHAIN, so it must never be able to abort a block. C
+// cannot see D's market registry, and a taker can name a market D has never created, or
+// one whose (base, quote) assets were never bound. Left alone, the first reaches
+// bookForPool and errors — aborting the whole block, a halt any C caller could trigger —
+// and the second falls through to the no-custody path, where an order crosses while
+// reserving nothing. Both are deterministic per-tx rejects here.
+//
+// THE ESCROW ADVANCES ON EVERY PATH, including the rejects, because "the order ran" is
+// what the export drive gates on. An escrow left `open` is never re-driven and never
+// exported: its principal would sit on D while C's deadline reclaim refunds the taker
+// the same principal. A rejected order costs the taker nothing — the export drive
+// returns their whole principal — but a stranded one costs the pool.
+func (b *Block) resolveSeamOrder(db *versiondb.Database, tx *Tx) (orderTx *Tx, rejected bool, err error) {
+	var intentID ids.ID
+	copy(intentID[:], tx.Body)
+
+	rec, exists, gerr := getSeamIntent(db, intentID)
+	if gerr != nil {
+		return nil, false, gerr
+	}
+	// `open` is the ONLY state an order may run from: this block's import credited the
+	// intent's account and no order has run yet. A missing escrow (the import rejected,
+	// or this names an intent that was never imported) and an already-`submitted` one
+	// (a replay) both reject, moving nothing — and neither has an escrow to advance.
+	if !exists || rec.Status != seamIntentOpen {
+		return nil, true, nil
+	}
+
+	// From here the intent's one chance is spent, whatever the answer.
+	if perr := b.markSeamSubmitted(db, intentID, rec); perr != nil {
+		return nil, false, perr
+	}
+
+	if _, marketExists, merr := readMarketSymbol(db, rec.Op.Market); merr != nil {
+		return nil, false, merr
+	} else if !marketExists {
+		return nil, true, nil
+	}
+	if _, _, bound, aerr := readMarketAssets(db, rec.Op.Market); aerr != nil {
+		return nil, false, aerr
+	} else if !bound {
+		return nil, true, nil
+	}
+	return &Tx{Type: TxSubmit, Body: seamSubmitBody(intentID, rec)}, false, nil
 }
