@@ -2221,9 +2221,42 @@ one. Mixed fleets stall; they cannot fork. No historical block anywhere contains
 a `TxImport`, so there is no retroactive effect.
 **Upgrade every D validator before the first v2 intent is minted on C.**
 
-### D-Chain HTTP surface
+### D-Chain HTTP surface — and how to read a 404
 
-`CreateHandlers` mounts `/v1/bc/D/dex/<method>` (`ingest.go`, dex ≥ v1.14.5).
-A node image built against an older dex serves **404 on every `/v1/bc/D/*`
-path** while the chain itself is perfectly healthy — check `DEX_REF` in
-`luxfi/node`'s Dockerfile before concluding the D-Chain is down.
+`CreateHandlers` mounts `/v1/bc/D/dex/<method>` (`ingest.go`). The method names
+were **`clob_*` up to dex v1.5.x** and `dex_*` after (commit `28970d8`). So on a
+fleet running an older plugin:
+
+```
+/v1/bc/D/dex/dex_get_markets   -> 404   (new names, not deployed)
+/v1/bc/D/dex/clob_get_markets  -> 200   (old names, live)
+```
+
+**A 404 on `dex_*` means "old method names", not "no surface" and not "dead
+chain".** Probe `clob_*` before concluding anything, and check what the deployed
+plugin actually vendors rather than trusting `DEX_REF` in `luxfi/node`'s
+Dockerfile — the running image can predate the pin:
+
+```
+kubectl exec <pod> -c luxd -- sh -c \
+  "grep -a -oE 'luxfi/dex.v[0-9]+[.][0-9]+[.][0-9]+' /data/plugins/mDVT5EW..."
+```
+
+A D-Chain on **dex < v1.14** has no `atomic.go` and no `drive.go` at all: it
+cannot import a C->D intent or export a D->C fill under any configuration. That
+is a structurally absent seam, not a misconfiguration.
+
+### Getting liquidity onto D
+
+A seam order is IOC — it never rests — so a cross-chain swap can only trade
+against a **signed maker** order. Funding one needs either:
+
+- `TxDeposit`, which requires `depositAuthority` in the D chain-config
+  (`/data/configs/chains/D/config.json`, schema in `zapingest.go`). It is a
+  **consensus parameter**: every validator must carry the byte-identical value
+  or they fork on deposit authorization. Empty (the default) rejects every
+  deposit, fail-closed.
+- or a C->D atomic import — which funds a per-intent `seamAccount` that no
+  signature can authorize, so it cannot place a resting order.
+
+So a devnet trade proof needs the deposit authority configured first.
