@@ -458,11 +458,11 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	// effects in execute and a divergent proposer is rejected on the tx root. This is the
 	// keeper-less native settlement seam — the VM imports C->D intents and exports D->C
 	// settlements during normal block production. A no-op when the seam is unwired.
-	imports, err := vm.driveSeamImports()
+	imports, err := vm.driveSeamImports(maxSeamDrivePerBlock)
 	if err != nil {
 		return nil, fmt.Errorf("dchain: drive imports: %w", err)
 	}
-	exports, err := vm.driveSeamExports()
+	exports, err := vm.driveSeamExports(maxSeamDrivePerBlock)
 	if err != nil {
 		return nil, fmt.Errorf("dchain: drive exports: %w", err)
 	}
