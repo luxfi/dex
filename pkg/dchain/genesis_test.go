@@ -452,6 +452,43 @@ func TestGenesisRefusesRecordlessChainAboveHeight0(t *testing.T) {
 	}
 }
 
+// TestGenesisRefusesDisownedHead covers recovery's own failure mode: a head block
+// the head pointer does not name proves nothing about the chain, and blessing it as
+// the genesis would invent the answer rather than read it.
+func TestGenesisRefusesDisownedHead(t *testing.T) {
+	db := memdb.New()
+	gen := (&VM{}).canonicalGenesis(nil)
+	other := (&VM{}).canonicalGenesis([]byte("a different chain"))
+
+	batch := db.NewBatch()
+	for _, w := range []func() error{
+		func() error { return writeLastAccepted(batch, other.id) }, // pointer says one thing
+		func() error { return writeHeight(batch, 0) },
+		func() error { return writeRoot(batch, gen.execRoot) },
+		func() error { return writeHeadBlock(batch, gen.bytes) }, // the block says another
+	} {
+		if err := w(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := batch.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (&VM{}).Initialize(context.Background(), block.Init{
+		DB:       db,
+		Log:      log.NewNoOpLogger(),
+		ToEngine: make(chan block.Message, 16),
+		Config:   authConfig(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "head pointer") {
+		t.Fatalf("got %v, want a refusal naming the disowned head", err)
+	}
+	if _, rerr := readGenesis(db); rerr == nil {
+		t.Fatal("a genesis was recorded from a block the chain does not point at")
+	}
+}
+
 // TestGenesisRefusesUnreadableRecord covers a corrupt genesis record. Anything the
 // VM cannot read as a height-0 block leaves it unable to say which chain it is on,
 // which is a refusal, not a warning.

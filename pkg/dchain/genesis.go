@@ -89,6 +89,18 @@ func (vm *VM) recoverGenesis() ([]byte, error) {
 				"%s and partition permanently",
 			head.height, describeGenesis(vm.canonicalGenesis(nil)))
 	}
+	// The head block only speaks for the chain if the chain points at it. Blessing
+	// bytes the head pointer disowns would record a genesis out of thin air, which
+	// is the thing being fixed.
+	id, err := readLastAccepted(vm.db)
+	if err != nil {
+		return nil, fmt.Errorf("dchain: read head pointer: %w", err)
+	}
+	if head.id != id {
+		return nil, fmt.Errorf(
+			"dchain: refusing to start: the head pointer names %s but the stored head block is %s, "+
+				"so no block on disk can be trusted as this chain's genesis", id, head.id)
+	}
 	if err := writeGenesis(vm.db, raw); err != nil {
 		return nil, fmt.Errorf("dchain: record recovered genesis: %w", err)
 	}
