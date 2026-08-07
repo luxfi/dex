@@ -63,12 +63,6 @@ type Client struct {
 	conn    *grpc.ClientConn
 	address string
 
-	// FIX support
-	fixEnabled bool
-	senderID   string
-	targetID   string
-	seqNum     atomic.Int32
-
 	// Performance metrics
 	ordersSent   atomic.Int64
 	tradesRecv   atomic.Int64
@@ -95,26 +89,7 @@ func NewClient(address string) (*Client, error) {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
-	client := &Client{
-		conn:     conn,
-		address:  address,
-		senderID: "GO_CLIENT",
-		targetID: "EXCHANGE",
-	}
-
-	client.seqNum.Store(1)
-
-	return client, nil
-}
-
-// EnableFIX enables FIX protocol mode
-func (c *Client) EnableFIX(senderID, targetID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.fixEnabled = true
-	c.senderID = senderID
-	c.targetID = targetID
+	return &Client{conn: conn, address: address}, nil
 }
 
 // SendOrder sends a new order
@@ -132,17 +107,6 @@ func (c *Client) SendOrder(symbol string, price, quantity float64, side Side) (*
 		Side:      side,
 		Type:      Limit,
 		Timestamp: time.Now(),
-	}
-
-	if c.fixEnabled {
-		// Send as FIX message
-		fixMsg := c.buildFIXNewOrder(order)
-		if err := c.sendFIXMessage(fixMsg); err != nil {
-			return nil, err
-		}
-	} else {
-		// Send via gRPC
-		// Implementation would call the actual gRPC service
 	}
 
 	c.ordersSent.Add(1)
@@ -223,42 +187,6 @@ func (c *Client) Close() error {
 }
 
 // Private methods
-
-func (c *Client) buildFIXNewOrder(order *Order) string {
-	// Build FIX message
-	seqNum := c.seqNum.Add(1)
-
-	side := "1" // Buy
-	if order.Side == Sell {
-		side = "2"
-	}
-
-	msg := fmt.Sprintf("8=FIX.4.4\x0135=D\x0149=%s\x0156=%s\x0134=%d\x0152=%s\x01"+
-		"11=%s\x0155=%s\x0154=%s\x0138=%.2f\x0140=2\x0144=%.2f\x0159=0\x0160=%s\x01",
-		c.senderID, c.targetID, seqNum,
-		time.Now().Format("20060102-15:04:05.000"),
-		order.ID, order.Symbol, side, order.Quantity, order.Price,
-		time.Now().Format("20060102-15:04:05.000"))
-
-	// Add checksum
-	checksum := c.calculateChecksum(msg)
-	msg += fmt.Sprintf("10=%03d\x01", checksum)
-
-	return msg
-}
-
-func (c *Client) calculateChecksum(msg string) int {
-	sum := 0
-	for _, b := range []byte(msg) {
-		sum += int(b)
-	}
-	return sum % 256
-}
-
-func (c *Client) sendFIXMessage(msg string) error {
-	// Implementation would send via TCP
-	return nil
-}
 
 func (c *Client) processBatch(orders []*Order) error {
 	// Batch processing implementation

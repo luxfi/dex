@@ -156,12 +156,12 @@ type GatewayOrder struct {
 	DecayEndTime   int64    `json:"decayEndTime,omitempty"`
 
 	// Fill tracking
-	FilledAmount *big.Int    `json:"filledAmount"`
-	Fills        []OrderFill `json:"fills"`
+	FilledAmount *big.Int `json:"filledAmount"`
+	Fills        []Fill   `json:"fills"`
 }
 
-// OrderFill records a single partial or full fill event.
-type OrderFill struct {
+// Fill is one quantity that traded against this order.
+type Fill struct {
 	Amount    *big.Int  `json:"amount"`
 	Price     *big.Int  `json:"price,omitempty"`
 	TxHash    string    `json:"txHash,omitempty"`

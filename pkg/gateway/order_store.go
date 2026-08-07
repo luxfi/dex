@@ -45,7 +45,7 @@ func (s *OrderStore) Create(req *CreateOrderRequest) *GatewayOrder {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		FilledAmount: big.NewInt(0),
-		Fills:        make([]OrderFill, 0),
+		Fills:        make([]Fill, 0),
 	}
 
 	switch req.Type {
@@ -149,7 +149,7 @@ func (s *OrderStore) RecordFill(orderID string, amount *big.Int, price *big.Int,
 	now := time.Now().UTC()
 
 	order.FilledAmount.Add(order.FilledAmount, amount)
-	order.Fills = append(order.Fills, OrderFill{
+	order.Fills = append(order.Fills, Fill{
 		Amount:    new(big.Int).Set(amount),
 		Price:     price,
 		TxHash:    txHash,
