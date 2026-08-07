@@ -125,7 +125,7 @@ func TestSettleRequiresInclusionReleaseRequiresNonInclusion(t *testing.T) {
 	_, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
-	if _, err := l.Reserve(verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Settle(e.ExecID, consumed, nonIncl); !errors.Is(err, ErrWrongProof) {
@@ -148,7 +148,7 @@ func TestUnverifiedParentCannotSettleOrRelease(t *testing.T) {
 	_, incl := acceptedConsuming(t, testCBlock, testParent, e.ExecID)
 
 	l := NewLedger()
-	if _, err := l.Reserve(verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	var forged AcceptedBlock // the zero value an outside package can build
@@ -199,7 +199,7 @@ func TestUselessButResolvableReservation(t *testing.T) {
 	q, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
-	if _, err := l.Reserve(verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Release(e.ExecID, q, nonIncl); err != nil {
@@ -245,4 +245,48 @@ func TestLeafAndNodeDomainsAreSeparated(t *testing.T) {
 	if emptyHash[0] == hashLeaf(z) {
 		t.Fatal("the empty leaf must be distinct from any populated leaf")
 	}
+}
+
+// TestRule1_ReserveRequiresTheAcceptedParent pins rule 1 of the proof system:
+//
+//	Accepted(P)  permits Reserve(E) with E.CParent == P
+//
+// Both halves are enforced. Without the first, a reservation could be taken
+// against a merely proposed block, which is the abandoned-parent case the
+// accepted-only rule exists to make nonexistent. Without the second, a reservation
+// could be taken against the wrong opportunity entirely.
+func TestRule1_ReserveRequiresTheAcceptedParent(t *testing.T) {
+	e := sampleExecution() // scoped to testParent
+
+	t.Run("unverified parent is refused", func(t *testing.T) {
+		l := NewLedger()
+		var proposed AcceptedBlock // the zero value an outside package can build
+		if _, err := l.Reserve(proposed, verified(t, e)); !errors.Is(err, ErrAcceptedUnverified) {
+			t.Fatalf("reserving against an unverified parent must be refused, got %v", err)
+		}
+		if r, _, _ := l.Counts(); r != 0 {
+			t.Fatal("a refused reserve must not enter the ledger")
+		}
+	})
+
+	t.Run("wrong accepted parent is refused", func(t *testing.T) {
+		other := testParent
+		other[0] ^= 1
+		msg := EncodeAcceptedBlock(other, ids.ID{0x0B}, 1, NewExecSet().Root())
+		wrong, err := VerifyAcceptedBlock(msg, []byte("cert"), okVerifier{})
+		if err != nil {
+			t.Fatalf("VerifyAcceptedBlock: %v", err)
+		}
+		l := NewLedger()
+		if _, err := l.Reserve(wrong, verified(t, e)); !errors.Is(err, ErrWrongParent) {
+			t.Fatalf("reserving against the wrong accepted parent must be refused, got %v", err)
+		}
+	})
+
+	t.Run("the accepted parent it is scoped to succeeds", func(t *testing.T) {
+		l := NewLedger()
+		if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+			t.Fatalf("reserving against the correct accepted parent must succeed: %v", err)
+		}
+	})
 }
