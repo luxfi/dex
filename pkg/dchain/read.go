@@ -47,7 +47,7 @@ import (
 
 // read method names. They live in the dex_ namespace beside the write methods
 // but are pure reads. The dex_ prefix means the node mounts them under the same
-// /ext/bc/<D>/dex/ route group as the writes (one chain surface).
+// /v1/bc/<D>/dex/ route group as the writes (one chain surface).
 const (
 	MethodGetTrades  = "dex_get_trades"
 	MethodGetOrders  = "dex_get_orders"
@@ -71,7 +71,7 @@ type readMethod struct {
 }
 
 // readMethods is the authoritative read method->handler table. A method added
-// here is mounted under /ext/bc/<D>/dex/<method> automatically (httpHandlers).
+// here is mounted under /v1/bc/<D>/dex/<method> automatically (httpHandlers).
 func (vm *VM) readMethods() []readMethod {
 	return []readMethod{
 		{MethodGetTrades, vm.handleGetTrades},

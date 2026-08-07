@@ -25,7 +25,7 @@ import (
 // read_test.go proves the D-Chain READ surface (read.go / dex_get_*):
 //
 //  1. The read endpoints are reachable over the EXACT in-luxd HTTP transport
-//     (CreateHandlers, mounted at /ext/bc/<D>/dex/<method>) — the same routes a
+//     (CreateHandlers, mounted at /v1/bc/<D>/dex/<method>) — the same routes a
 //     deployed validator exposes.
 //  2. After a crossing order is matched into a committed block (via the write
 //     path + the auto-sealer playing consensus), dex_get_trades returns the
