@@ -29,6 +29,11 @@ type rejectVerifier struct{}
 
 func (rejectVerifier) VerifyCertificate(ids.ID, []byte) error { return errors.New("nope") }
 
+// testAuthorized is the order quantity the sample execution is drawn against —
+// comfortably larger than one execution, so tests exercise the lifecycle rather
+// than the over-reservation guard.
+const testAuthorized = 1000
+
 func sampleExecution() Execution {
 	return Execution{
 		ExecID:   ids.ID{0xE1},
@@ -221,7 +226,7 @@ func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
 	t.Run("settled is terminal", func(t *testing.T) {
 		l := NewLedger()
 		e := sampleExecution()
-		if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+		if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 			t.Fatalf("reserve: %v", err)
 		}
 		if _, err := l.Settle(e.ExecID, accepted, incl); err != nil {
@@ -244,7 +249,7 @@ func TestSettleAndReleaseAreMutuallyExclusiveAndTerminal(t *testing.T) {
 	t.Run("released is terminal", func(t *testing.T) {
 		l := NewLedger()
 		e := sampleExecution()
-		if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+		if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 			t.Fatalf("reserve: %v", err)
 		}
 		if _, err := l.Release(e.ExecID, qEmpty, nonIncl); err != nil {
@@ -266,16 +271,16 @@ func TestReplayedCertificateCannotReReserve(t *testing.T) {
 	e := sampleExecution()
 	accepted, incl := acceptedConsuming(t, testCBlock, testParent, e.ExecID)
 	l := NewLedger()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Settle(e.ExecID, accepted, incl); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); !errors.Is(err, ErrTerminalExists) {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); !errors.Is(err, ErrTerminalExists) {
 		t.Fatalf("re-reserving a terminal ExecID must be refused, got %v", err)
 	}
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); !errors.Is(err, ErrTerminalExists) {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); !errors.Is(err, ErrTerminalExists) {
 		t.Fatalf("still refused on a second attempt, got %v", err)
 	}
 }
@@ -283,10 +288,10 @@ func TestReplayedCertificateCannotReReserve(t *testing.T) {
 func TestDoubleReserveRefused(t *testing.T) {
 	l := NewLedger()
 	e := sampleExecution()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); !errors.Is(err, ErrAlreadyOpen) {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); !errors.Is(err, ErrAlreadyOpen) {
 		t.Fatalf("double reserve must be refused, got %v", err)
 	}
 }
@@ -301,7 +306,7 @@ func TestSettleChecksTheAcceptedBlocksParent(t *testing.T) {
 	accepted, incl := acceptedConsuming(t, testCBlock, wrongParent, e.ExecID)
 
 	l := NewLedger()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Settle(e.ExecID, accepted, incl); !errors.Is(err, ErrWrongSuccessor) {
@@ -320,13 +325,13 @@ func TestStorageDomainsAreDistinct(t *testing.T) {
 	qEmpty, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
-	r, _ := l.Reserve(acceptedParent(t), verified(t, e))
+	r, _ := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized)
 	tr, err := l.Settle(e.ExecID, accepted, incl)
 	if err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	l2 := NewLedger()
-	r2, _ := l2.Reserve(acceptedParent(t), verified(t, e))
+	r2, _ := l2.Reserve(acceptedParent(t), verified(t, e), testAuthorized)
 	rel, err := l2.Release(e.ExecID, qEmpty, nonIncl)
 	if err != nil {
 		t.Fatalf("release: %v", err)

@@ -125,7 +125,7 @@ func TestSettleRequiresInclusionReleaseRequiresNonInclusion(t *testing.T) {
 	_, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Settle(e.ExecID, consumed, nonIncl); !errors.Is(err, ErrWrongProof) {
@@ -148,7 +148,7 @@ func TestUnverifiedParentCannotSettleOrRelease(t *testing.T) {
 	_, incl := acceptedConsuming(t, testCBlock, testParent, e.ExecID)
 
 	l := NewLedger()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	var forged AcceptedBlock // the zero value an outside package can build
@@ -199,7 +199,7 @@ func TestUselessButResolvableReservation(t *testing.T) {
 	q, nonIncl := acceptedConsuming(t, testCBlock, testParent)
 
 	l := NewLedger()
-	if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+	if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	if _, err := l.Release(e.ExecID, q, nonIncl); err != nil {
@@ -261,7 +261,7 @@ func TestRule1_ReserveRequiresTheAcceptedParent(t *testing.T) {
 	t.Run("unverified parent is refused", func(t *testing.T) {
 		l := NewLedger()
 		var proposed AcceptedBlock // the zero value an outside package can build
-		if _, err := l.Reserve(proposed, verified(t, e)); !errors.Is(err, ErrAcceptedUnverified) {
+		if _, err := l.Reserve(proposed, verified(t, e), testAuthorized); !errors.Is(err, ErrAcceptedUnverified) {
 			t.Fatalf("reserving against an unverified parent must be refused, got %v", err)
 		}
 		if r, _, _ := l.Counts(); r != 0 {
@@ -278,14 +278,14 @@ func TestRule1_ReserveRequiresTheAcceptedParent(t *testing.T) {
 			t.Fatalf("VerifyAcceptedBlock: %v", err)
 		}
 		l := NewLedger()
-		if _, err := l.Reserve(wrong, verified(t, e)); !errors.Is(err, ErrWrongParent) {
+		if _, err := l.Reserve(wrong, verified(t, e), testAuthorized); !errors.Is(err, ErrWrongParent) {
 			t.Fatalf("reserving against the wrong accepted parent must be refused, got %v", err)
 		}
 	})
 
 	t.Run("the accepted parent it is scoped to succeeds", func(t *testing.T) {
 		l := NewLedger()
-		if _, err := l.Reserve(acceptedParent(t), verified(t, e)); err != nil {
+		if _, err := l.Reserve(acceptedParent(t), verified(t, e), testAuthorized); err != nil {
 			t.Fatalf("reserving against the correct accepted parent must succeed: %v", err)
 		}
 	})
