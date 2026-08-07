@@ -871,23 +871,57 @@ func tradeLeafDigest(t dex.DEXTrade, i uint32) [Size]byte {
 	return hash.ComputeKeccak256Array(img, idx[:])
 }
 
-// ComposeRoot returns the d-chain execution root from the parent root, the four
-// sub-roots, and the height — the SAME fixed-shape un-tagged keccak256
-// composition xvmroot.Compose uses (this is NOT a Merkle node):
+// The two root constructions are domain separated. Height 0 is not a block with an
+// absent parent — it is a different object, built from the chain's creation record
+// rather than from an ancestor — and hashing both shapes under one untagged
+// composition is what let the creation record ride in a slot that means "parent"
+// everywhere else. Under a tag the slots cannot be read across: no preimage of one
+// construction is a preimage of the other, whatever the operands.
+const (
+	genesisRootTag = "dex/genesis-root/v1"
+	blockRootTag   = "dex/block-root/v1"
+)
+
+// GenesisRoot returns the execution root of a chain's height-0 block: its creation
+// record's digest and the state that record starts the chain in.
+//
+//	genesis_root = keccak256(
+//	    "dex/genesis-root/v1" ‖ genesisDigest ‖ bookRoot ‖ tradeRoot ‖ txRoot ‖ ledgerRoot )
+//
+// digest is GenesisDigest(init.Genesis) — the creation record, opaque. The state
+// terms are the height-0 state, which is empty on every chain; they are hashed
+// anyway so the genesis commits to the ENCODING of an empty book, an empty trade
+// list, no transactions and an empty custody ledger. A build that changes any of
+// those encodings derives a different genesis, which is true, and which the golden
+// vector then reports rather than a fleet discovering it.
+//
+// No height term: a genesis root is only ever height 0.
+//
+// Every later root chains this one (ComposeRoot's parent term), so a different
+// creation record yields a different genesis root and therefore a different root at
+// every descendant height. That is structural, not a property of an unused field.
+func GenesisRoot(digest, book, trade, txr, ledger [Size]byte) [Size]byte {
+	return hash.ComputeKeccak256Array([]byte(genesisRootTag), digest[:], book[:], trade[:], txr[:], ledger[:])
+}
+
+// ComposeRoot returns the d-chain execution root for a block above height 0, from
+// the parent root, the four sub-roots, and the height:
 //
 //	dex_execution_root = keccak256(
-//	    parent ‖ bookRoot ‖ tradeRoot ‖ txRoot ‖ ledgerRoot ‖ height_u64_le )
+//	    "dex/block-root/v1" ‖ parent ‖ bookRoot ‖ tradeRoot ‖ txRoot ‖ ledgerRoot ‖ height_u64_le )
 //
 // The ledgerRoot term BINDS THE CUSTODY BALANCES (balance:/locked:/orderasset:)
 // into consensus. Without it, two validators could agree on the book/trade/tx
 // roots while holding DIFFERENT money — a settle divergence would be invisible to
 // consensus and finalize, and withdrawals would then realize inconsistently. A
 // settlement VM MUST commit the money it moves. Chaining the parent root makes the
-// root a commitment to the whole accepted history, not just the current snapshot.
+// root a commitment to the whole accepted history, not just the current snapshot —
+// and, through the genesis root at the base of that chain, to the creation record
+// the chain was born from.
 func ComposeRoot(parent, book, trade, txr, ledger [Size]byte, height uint64) [Size]byte {
 	var h [8]byte
 	binary.LittleEndian.PutUint64(h[:], height)
-	return hash.ComputeKeccak256Array(parent[:], book[:], trade[:], txr[:], ledger[:], h[:])
+	return hash.ComputeKeccak256Array([]byte(blockRootTag), parent[:], book[:], trade[:], txr[:], ledger[:], h[:])
 }
 
 // ledgerRoot is the RFC-6962 tagged Merkle root over the custody ledger: every

@@ -255,7 +255,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	// from its logs alone. Two nodes that cannot agree here agree about nothing.
 	vm.log.Info("dchain VM initialized",
 		"genesis", gen.id,
-		"createdFrom", fmt.Sprintf("%x", genesisOrigin(init.Genesis)),
+		"createdFrom", fmt.Sprintf("%x", GenesisDigest(init.Genesis)),
 		"height", vm.lastAcceptedHeight,
 		"lastAccepted", vm.lastAcceptedID,
 		"markets", len(vm.books),

@@ -39,29 +39,38 @@ import (
 // A node that cannot agree with its own chain about height 0 has nothing useful to
 // do; starting anyway is exactly what makes the split silent.
 
-// genesisOrigin binds the chain-creation document into the height-0 block.
+// genesisTag domain-separates the digest of a chain-creation document from every
+// other keccak preimage in the VM.
+const genesisTag = "dex/genesis/v1"
+
+// GenesisDigest is a chain's identity: the digest of the document it was created
+// from.
 //
-// The document is opaque here. Committing to its digest — rather than parsing it —
-// keeps its schema out of consensus entirely, so the D-Chain's fee table, market
-// list and chain id are bound to the chain without the VM knowing what any of them
-// mean. The digest occupies genesis's parent-root slot, which is otherwise unused
-// (nothing precedes genesis): the chain begins from this configuration. Every later
-// execution root descends from it, so two chains created from different documents
-// cannot agree on a root at any height. With no document the slot stays zero.
-func genesisOrigin(document []byte) (origin [Size]byte) {
-	if len(document) == 0 {
-		return origin
-	}
-	return hash.ComputeKeccak256Array(document)
+//	genesis_digest = keccak256( "dex/genesis/v1" ‖ init.Genesis )
+//
+// The document is opaque — hashed exactly as delivered, never parsed, normalized or
+// re-encoded. That keeps its schema out of consensus entirely (the D-Chain's fee
+// table, market list and chain id bind to the chain without the VM knowing what any
+// of them mean) and it is also the only safe treatment of the real documents: the
+// live records differ in whether they end with a newline, and carry the em dash as
+// the six ASCII characters — rather than as UTF-8. A JSON round trip changes
+// the bytes, and with them the chain.
+//
+// Defined for every input including none, so a running chain always has a digest.
+// "This chain has no creation document" is a policy question, answered once in
+// genesis(); it is not a hole in the identity function.
+func GenesisDigest(document []byte) [Size]byte {
+	return hash.ComputeKeccak256Array([]byte(genesisTag), document)
 }
 
-// canonicalGenesis builds the height-0 block for a chain created from document:
-// no parent, height 0, timestamp 0, no transactions, and the execution root over
-// empty state rooted at the document's origin. Pure — every validator and every
-// restart computes the same bytes from the same document.
+// canonicalGenesis builds the height-0 block for a chain created from document: no
+// parent, height 0, timestamp 0, no transactions, and the genesis root over the
+// document's digest and the empty height-0 state. Pure — every validator and every
+// restart computes the same bytes from the same document, and nothing else it
+// reads, was compiled with, or has on disk can move the answer.
 func (vm *VM) canonicalGenesis(document []byte) *Block {
 	var emptyLedger [Size]byte // genesis has no custody ledger yet
-	root, _, _, _ := ExecutionRoot(genesisOrigin(document), nil, nil, nil, emptyLedger, 0)
+	root := GenesisRoot(GenesisDigest(document), bookRoot(nil), tradeRoot(nil), txRoot(nil), emptyLedger)
 	return newBlock(vm, genesisParent, 0, time.Unix(0, 0).UTC(), root, nil)
 }
 
@@ -134,7 +143,7 @@ func (vm *VM) genesis(document, stored []byte) (*Block, error) {
 func genesisDisagreement(vm *VM, document []byte, expected, stored *Block) error {
 	origin := "no chain-creation document was supplied, so this is the binary's default"
 	if len(document) > 0 {
-		origin = fmt.Sprintf("%d-byte chain-creation document, digest %x", len(document), genesisOrigin(document))
+		origin = fmt.Sprintf("%d-byte chain-creation document, digest %x", len(document), GenesisDigest(document))
 	}
 	return fmt.Errorf(
 		"dchain: refusing to start: this node disagrees with its own chain about height 0.\n"+

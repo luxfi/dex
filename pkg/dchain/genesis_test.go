@@ -5,13 +5,17 @@ package dchain
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/sha3"
+
 	"github.com/luxfi/consensus/engine/chain/block"
 	"github.com/luxfi/database/memdb"
+	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
 )
@@ -38,12 +42,20 @@ const (
 	genesisImageHex = "0000000000000000000000000000000000000000000000000000000000000000" + // parent
 		"0000000000000000" + // height
 		"0000000000000000" + // timestamp
-		"92ae9d5c5dca023b00d94750403b9cd9cd450c84eb46a9908c80de7a1c3cf698" + // execRoot
+		"c89155991ee17db4900c4dc4e5d1619322a118f2da26093f0abdf70d9c41ce32" + // execRoot
 		"00000000" // tx count
 
 	// genesisID is ids.Checksum256(genesisImage) — the block id every validator on
 	// a document-less D-Chain must report for height 0.
-	genesisID = "mpxP6xF3ahpjdwP6YgjtagSWQCZSR6pziEqDoDv573k2V3WJA"
+	genesisID = "MnugNZNLVFx5R4ANwjwRBRZAjS5AsDcmVP4o6Kjozq4yud9mk"
+
+	// The empty height-0 sub-roots. bookRoot, tradeRoot and txRoot over nothing are
+	// all the RFC-6962 empty-tree digest; the custody ledger at height 0 is the zero
+	// value, not a Merkle root, because no ledger has been committed yet. Pinned
+	// because GenesisRoot hashes them: a change to any empty-root convention moves
+	// every chain's genesis and must be seen here.
+	emptyLeafRootHex   = "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+	emptyLedgerRootHex = "0000000000000000000000000000000000000000000000000000000000000000"
 
 	// genesisIDPreLedger is the height-0 id every dex build from v1.4.2 through
 	// v1.13.0 produced, before the custody ledger entered the root composition. A
@@ -184,22 +196,51 @@ func TestGenesisGolden(t *testing.T) {
 	}
 }
 
-// fleet is a live D-Chain: the bytes its CreateChainTx recorded, their digest, and
-// the height-0 block those bytes produce under this binary.
+// fleet is a live D-Chain: the bytes its CreateChainTx recorded, a sha256 that
+// pins those bytes to the record they were read from, and everything this binary
+// derives from them.
 type fleet struct {
 	name    string
 	doc     string
-	digest  string
-	genesis string
+	sha256  string // of doc — pins the transcription above against the on-chain record
+	digest  string // GenesisDigest(doc)
+	root    string // GenesisRoot over that digest and the empty height-0 state
+	genesis string // the height-0 block id
 }
 
-// fleets pins every live D-Chain creation document and the genesis each one yields.
-// A change to any document, or to how a document reaches height 0, moves a real
-// chain — so it must be seen here first.
+// fleets pins every live D-Chain creation document and everything it yields. A
+// change to any document, or to how a document reaches height 0, moves a real chain
+// — so it must be seen here first.
+//
+// sha256 is the second, independent pin. The documents above are Go string literals
+// and a transcription error in one is invisible by inspection: the em dash is six
+// ASCII characters, the trailing newline is present on two of the three fleets and
+// absent on the third, and devnet's on-chain document is the same LENGTH as the
+// luxfi/genesis module file it is not. These sha256 values were taken from the
+// bytes recovered from each fleet's P-Chain CreateChainTx, so they hold the
+// literals to the record rather than to each other.
 var fleets = []fleet{
-	{"lux-mainnet", mainnetDocument, "77c9bcee54ebf7e7848ca15c79abf9166557301b6847cbea17cf24da49559ce4", "w2iF9fBMeo67qux1ZKwGSK7bYLApPBcLTi9TqaVDyJFkj1Uzo"},
-	{"lux-testnet", testnetDocument, "f79028985fa19654ee5c7f3dad9320321ce16702ba998bdb37081129dd11d292", "9LFXAU4RPXz3TWdoUergnwfrH5QbqhS9necFDzGvHKx7fmohZ"},
-	{"lux-devnet", devnetDocument, "e24a3c8d4a06446a416698c48fc6129f9ed4a02146fffd78294c08421f8dc2e2", "2vEdPNLxNWn85q2RX4EhZFAEJuLcAAJE9yAJR9K7jic1sVNTVw"},
+	{
+		"lux-mainnet", mainnetDocument,
+		"1125e26dce313be61133850378bd7126f3c294ff1931cd566191b296fa6d0db7",
+		"d72bf3252e0dce1ecdba57526166080fbd01117620c61f29a0742cbf26cd5d2c",
+		"b775b7f55a2f47e01bf19bc703b83f75d701d5c5b62c6d717a78c8cbdd3dfd4d",
+		"2VmbYVHZVcPEomXcGsCgW85GAxU5rumpJxKVqspc1V5DV9M377",
+	},
+	{
+		"lux-testnet", testnetDocument,
+		"fb132e9312340ccc23530bf72ba3c9c65bf07c72c3a77d08780f55d86e1ed29e",
+		"56a4c54daed5e2b7d40bcdc50d4c0f9a1cf1e0cc636ae9fef42ac55db2bc6275",
+		"dcd3b6aa31049db62806232012fc32e9702110773ef5126089afcea27f6c6108",
+		"25MZFfejPREcBvFtxboW5zeHdE1PNHRXQhG7wY1CC9UpkNLqPC",
+	},
+	{
+		"lux-devnet", devnetDocument,
+		"8915307876b00a0476ded52dfd527bc3710bb114a9675a565eaeafa3ad492360",
+		"c6c7d2b55fa4f02784d991419cb4c19e1fd6c00219f749dae8697bc34b903964",
+		"183be5f4e9833f4717e288d959d3f335aa456933cd09ba5b2bad8aec6d5b3877",
+		"2jLRn4gcjemSZ4Tc6asg3dEi97cLdhn99rxWSXfLJw1wuDWnR7",
+	},
 }
 
 // TestGenesisBindsCreationDocument pins each fleet's genesis and proves the creation
@@ -217,7 +258,7 @@ func TestGenesisBindsCreationDocument(t *testing.T) {
 		// of the document is distinguishable from a change in the derivation. It is
 		// also the only honest identity check: devnet's document and the luxfi/genesis
 		// module's are both 375 bytes and are not the same bytes.
-		if got := genesisOrigin(doc); hex.EncodeToString(got[:]) != f.digest {
+		if got := GenesisDigest(doc); hex.EncodeToString(got[:]) != f.digest {
 			t.Errorf("%s: creation document digest = %x, want %s", f.name, got, f.digest)
 			continue
 		}
@@ -243,6 +284,126 @@ func TestGenesisBindsCreationDocument(t *testing.T) {
 	if vm.canonicalGenesis([]byte(mainnetDocument)).id ==
 		vm.canonicalGenesis([]byte(strings.TrimRight(mainnetDocument, "\n"))).id {
 		t.Fatal("trimming the trailing newline left the genesis unchanged")
+	}
+}
+
+// specGenesisRoot recomputes a height-0 execution root straight from the written
+// construction:
+//
+//	GenesisDigest = keccak256( "dex/genesis/v1"      ‖ document )
+//	GenesisRoot   = keccak256( "dex/genesis-root/v1" ‖ digest ‖ book ‖ trade ‖ tx ‖ ledger )
+//
+// It shares no code with the VM — a different keccak implementation, the empty
+// sub-roots read from pinned hex rather than computed, and the concatenation
+// spelled out. So it compares the VM's derivation against the SPECIFICATION rather
+// than against yesterday's output of the same functions. A hash-equals-hash vector
+// moves the moment someone updates it to match; this one does not, because the
+// spec side has to be edited to say something different before it will agree.
+func specGenesisRoot(t *testing.T, document []byte) [Size]byte {
+	t.Helper()
+	leaf, err := hex.DecodeString(emptyLeafRootHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := hex.DecodeString(emptyLedgerRootHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	k := sha3.NewLegacyKeccak256()
+	k.Write([]byte("dex/genesis/v1"))
+	k.Write(document)
+	digest := k.Sum(nil)
+
+	k = sha3.NewLegacyKeccak256()
+	k.Write([]byte("dex/genesis-root/v1"))
+	k.Write(digest)
+	k.Write(leaf)   // book
+	k.Write(leaf)   // trade
+	k.Write(leaf)   // tx
+	k.Write(ledger) // custody
+	var root [Size]byte
+	copy(root[:], k.Sum(nil))
+	return root
+}
+
+// TestGenesisMatchesSpecification is the vector that would have caught v1.14.0.
+//
+// The defect then was that ComposeRoot gained a ledger operand and every height-0
+// block silently moved with it, because genesis was built by calling the block
+// composition with the creation document jammed into the parent slot. Genesis no
+// longer touches that composition: it has its own tag, its own operands and no
+// height term, so nothing done to the block root can reach it. This test holds that
+// separation by recomputing the genesis root from the construction itself.
+func TestGenesisMatchesSpecification(t *testing.T) {
+	vm := &VM{}
+	for _, f := range append([]fleet{{name: "document-less"}}, fleets...) {
+		doc := []byte(f.doc)
+		if f.doc == "" {
+			doc = nil
+		}
+		want := specGenesisRoot(t, doc)
+		if got := vm.canonicalGenesis(doc).execRoot; got != want {
+			t.Errorf("%s: genesis root = %x, specification says %x", f.name, got, want)
+		}
+	}
+
+	// The two constructions must not collide on identical operands, or the tags are
+	// decorative and a block root could be presented as a genesis root.
+	var d, b, tr, x, l [Size]byte
+	d[0] = 1
+	if GenesisRoot(d, b, tr, x, l) == ComposeRoot(d, b, tr, x, l, 0) {
+		t.Fatal("genesis and block roots collide on the same operands; the domain tags do nothing")
+	}
+}
+
+// TestGenesisDependsOnNothingButTheDocument is the other half of the gate: the same
+// creation bytes must derive the same genesis regardless of what the binary was
+// compiled with or what the process is doing.
+//
+// Every input other than the document is varied here — the VM value, its config,
+// its database, its loaded books, its clock — and the derived bytes must not move.
+// The pinned images then mean something: they are what ANY build deriving genesis
+// this way produces, not what this one happens to produce today.
+func TestGenesisDependsOnNothingButTheDocument(t *testing.T) {
+	for _, f := range fleets {
+		doc := []byte(f.doc)
+
+		// A bare VM, and one carrying as much unrelated runtime state as can be
+		// attached without executing anything.
+		loaded := &VM{
+			db:                 memdb.New(),
+			books:              map[[32]byte]*dex.OrderBook{{1}: dex.NewOrderBook("ZOO-USD")},
+			depositAuthority:   userKey{9, 9, 9},
+			lastAcceptedHeight: 4321,
+			lastRoot:           [Size]byte{7},
+		}
+		bare := (&VM{}).canonicalGenesis(doc)
+		rich := loaded.canonicalGenesis(doc)
+
+		if hex.EncodeToString(bare.bytes) != hex.EncodeToString(rich.bytes) {
+			t.Fatalf("%s: genesis moved with runtime state\n bare %x\n rich %x", f.name, bare.bytes, rich.bytes)
+		}
+		if bare.id.String() != f.genesis {
+			t.Errorf("%s: genesis = %s, want %s", f.name, bare.id, f.genesis)
+		}
+		if hex.EncodeToString(bare.execRoot[:]) != f.root {
+			t.Errorf("%s: genesis root = %x, want %s", f.name, bare.execRoot, f.root)
+		}
+	}
+}
+
+// TestFleetDocumentsAreTheOnChainBytes holds the Go literals above to the records
+// they were transcribed from. Without it a corrected-looking edit — normalising the
+// em dash, adding the missing newline to devnet — passes every other test in this
+// file, because they all derive from the literal.
+func TestFleetDocumentsAreTheOnChainBytes(t *testing.T) {
+	for _, f := range fleets {
+		sum := sha256.Sum256([]byte(f.doc))
+		if hex.EncodeToString(sum[:]) != f.sha256 {
+			t.Errorf("%s: document is %d bytes sha256 %x, want %s — this literal is no longer the chain's record",
+				f.name, len(f.doc), sum, f.sha256)
+		}
 	}
 }
 
