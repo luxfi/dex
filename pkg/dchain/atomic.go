@@ -500,12 +500,37 @@ func (vm *VM) executeExport(db database.KeyValueReaderWriterDeleter, ar *atomicR
 	return outputID, true, nil
 }
 
-// commitSeamAtomic commits the block's accumulated cross-chain operations atomically
-// with the state overlay — the single accept-time commit point (the platformvm /
-// proxy commitAtomic pattern). With no shared memory or no atomic ops it falls back to
-// the plain overlay commit. The overlay's CommitBatch is handed to sm.Apply so the
-// shared-memory removes/puts and the chain state land in one atomic write; the overlay
-// mem is then cleared (Abort) since its contents are already persisted via the batch.
+// commitSeamAtomic commits the block's accumulated cross-chain operations at the
+// single accept-time commit point. With no shared memory or no atomic ops it falls
+// back to the plain overlay commit.
+//
+// NO BATCH. This used to hand the overlay's CommitBatch to sm.Apply so state and
+// shared memory landed in one write — the in-process platformvm acceptor pattern.
+// That pattern is unavailable to this VM: the D-Chain is an out-of-process plugin,
+// its SharedMemory is the ZAP client, and a database.Batch cannot cross a process
+// boundary. atomiczap.Apply refuses one outright (ErrBatchUnsupported), and there was
+// NO batch-less path here — so every block carrying a seam op failed at Accept, which
+// is fatal. The D-Chain would have halted on the first cross-chain intent it ever
+// imported.
+//
+// COMMIT FIRST, THEN APPLY. Without a shared batch, exactly-once is unreachable; the
+// choice is at-most-once (commit first — a crash in the window between the two writes
+// SKIPS an op) or at-least-once (apply first — a crash REPLAYS one). Replay is not
+// survivable: chains/atomic's SetValue returns a duplicate-put error for a key already
+// present, which is a fatal Accept, and a Put replayed after the peer consumed the
+// object RE-CREATES it. A skip is survivable on both legs, because neither side's
+// replay protection depends on the shared-memory op:
+//
+//   - a skipped Remove of an imported C->D intent: the object lingers, but executeImport's
+//     replay guard is the durable `seamintent:` escrow row in COMMITTED STATE, written
+//     above. A re-import is refused. Inert garbage.
+//   - a skipped Put of a D->C export: the taker's proceeds do not reach C. C's intent
+//     carries a finite deadline by construction, so the taker's locked principal is
+//     reclaimable there; the D-side escrow is already drained, so nothing is minted.
+//     Bounded, and loud.
+//
+// An Apply that ERRORS stays fatal on purpose: a node that cannot mutate shared memory
+// must stop rather than run on with a divergent view of it.
 func (vm *VM) commitSeamAtomic(overlay versionDB, ar *atomicRequests) error {
 	if ar.empty() {
 		return overlay.Commit()
@@ -518,16 +543,12 @@ func (vm *VM) commitSeamAtomic(overlay versionDB, ar *atomicRequests) error {
 		// cross-chain rather than dropping the block.
 		return overlay.Commit()
 	}
-	batch, err := overlay.CommitBatch()
-	if err != nil {
-		overlay.Abort()
-		return err
+	if err := overlay.Commit(); err != nil {
+		return fmt.Errorf("dchain: seam state commit: %w", err)
 	}
-	if err := sm.Apply(ar.reqs, batch); err != nil {
-		overlay.Abort()
+	if err := sm.Apply(ar.reqs); err != nil {
 		return fmt.Errorf("dchain: seam atomic apply: %w", err)
 	}
-	overlay.Abort()
 	return nil
 }
 
