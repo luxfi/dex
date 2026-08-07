@@ -82,7 +82,7 @@ func (s *session) sendCancelReject(clOrdID, origClOrdID, reason string) {
 // sendOrderReject emits an ExecutionReport(Rejected) (35=8, 150=8, 39=8) for an
 // order the gateway or venue refused.
 func (s *session) sendOrderReject(clOrdID, symbol, reason string) {
-	s.sendExecReport(execReport{
+	s.sendExecution(execution{
 		clOrdID:   clOrdID,
 		symbol:    symbol,
 		execType:  ExecTypeRejected,
@@ -91,9 +91,10 @@ func (s *session) sendOrderReject(clOrdID, symbol, reason string) {
 	})
 }
 
-// execReport is the data for one ExecutionReport (35=8). Zero-valued numeric
+// execution is one concrete result — what filled, at what price, and where that
+// leaves the order — rendered as an ExecutionReport (35=8). Zero-valued numeric
 // fields are still emitted where FIX expects them (e.g. LeavesQty on an ack).
-type execReport struct {
+type execution struct {
 	clOrdID   string
 	orderID   string
 	symbol    string
@@ -109,11 +110,11 @@ type execReport struct {
 	text      string
 }
 
-// sendExecReport renders and sends an ExecutionReport. It always carries an
+// sendExecution renders and sends an ExecutionReport. It always carries an
 // ExecID (a fresh per-report id), the OrderID/ClOrdID linkage, ExecType (150),
 // OrdStatus (39), and the quantity/price fields. This is the spec-correct shape a
 // FIX client decodes to learn an ack, a fill, a cancel, or a reject.
-func (s *session) sendExecReport(r execReport) {
+func (s *session) sendExecution(r execution) {
 	m := NewMessage(MsgTypeExecutionReport)
 	if r.orderID != "" {
 		m.Set(TagOrderID, r.orderID)

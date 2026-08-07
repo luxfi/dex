@@ -216,11 +216,12 @@ func TestAcceptorNewOrderFills(t *testing.T) {
 		Set(TagOrdType, OrdTypeLimit).
 		Set(TagPrice, "101"))
 
-	// Two fills => two ExecutionReports; the last is a full Fill (12 of 12).
+	// Two fills => two ExecutionReports. Both are Trades — that is what happened —
+	// and OrdStatus alone moves Partial -> Filled as the order completes (12 of 12).
 	r1 := c.recv(t)
-	assertExec(t, r1, ExecTypePartialFill, OrdStatusPartialFill, "10", "100")
+	assertExec(t, r1, ExecTypeTrade, OrdStatusPartial, "10", "100")
 	r2 := c.recv(t)
-	assertExec(t, r2, ExecTypeFill, OrdStatusFilled, "2", "101")
+	assertExec(t, r2, ExecTypeTrade, OrdStatusFilled, "2", "101")
 
 	// And the venue saw exactly one marketable submit for the right market/side.
 	v.mu.Lock()
@@ -237,6 +238,113 @@ func TestAcceptorNewOrderFills(t *testing.T) {
 	}
 	if sc.user != "CLIENT" {
 		t.Fatalf("submit user = %q, want CLIENT (session identity)", sc.user)
+	}
+}
+
+// TestLogonNamesFIXLatest proves the Logon reply names the application layer, as
+// FIXT.1.1 requires: DefaultApplVerID = FIX.5.0SP2 plus the ApplExtID that makes
+// it FIX Latest. Without these a client cannot know which dialect it is reading.
+func TestLogonNamesFIXLatest(t *testing.T) {
+	a := startAcceptor(t, &fakeVenue{})
+	c := dialClient(t, a.Addr(), "CLIENT", "LXDEX")
+	defer c.close()
+
+	c.send(t, NewMessage(MsgTypeLogon).SetInt(TagEncryptMethod, 0).SetInt(TagHeartBtInt, 1))
+	reply := c.recv(t)
+	if v, _ := reply.Get(TagDefaultApplVerID); v != ApplVerID {
+		t.Errorf("DefaultApplVerID(1137)=%q want %q (FIX.5.0SP2)", v, ApplVerID)
+	}
+	if v, _ := reply.Get(TagApplExtID); v != ApplExtID {
+		t.Errorf("ApplExtID(1156)=%q want %q", v, ApplExtID)
+	}
+}
+
+// TestExecTypeAndOrdStatusStayDistinct is the FIX Latest semantics guard. FIX 4.x
+// let ExecType mirror OrdStatus (1=PartialFill, 2=Fill), so the two fields said
+// the same thing and a client could read either. FIX Latest retired that pair:
+// ExecType is the EVENT (F, a trade happened) and OrdStatus is the resulting
+// STATE. This pins them separately — a partial fill and the fill that completes
+// the order are indistinguishable by ExecType and MUST differ by OrdStatus.
+func TestExecTypeAndOrdStatusStayDistinct(t *testing.T) {
+	v := &fakeVenue{fills: []zapwire.Fill{
+		{Price: 100 * zapwire.PriceScale, Size: 4, TakerSide: zapwire.SideBuy},
+		{Price: 100 * zapwire.PriceScale, Size: 6, TakerSide: zapwire.SideBuy},
+	}}
+	a := startAcceptor(t, v)
+	c := dialClient(t, a.Addr(), "CLIENT", "LXDEX")
+	defer c.close()
+	c.logon(t)
+
+	c.send(t, NewMessage(MsgTypeNewOrderSingle).
+		Set(TagClOrdID, "ORDD").Set(TagSymbol, "LUX/LUSD").
+		Set(TagSide, SideBuy).Set(TagOrderQty, "10").
+		Set(TagOrdType, OrdTypeLimit).Set(TagPrice, "100"))
+
+	partial, full := c.recv(t), c.recv(t)
+
+	// The EVENT is the same for both: a trade.
+	for i, m := range []*Message{partial, full} {
+		et, _ := m.Get(TagExecType)
+		if et != ExecTypeTrade {
+			t.Errorf("report %d ExecType=%q want %q (Trade)", i, et, ExecTypeTrade)
+		}
+		// The retired FIX 4.x fill codes must never reach the wire.
+		if et == "1" || et == "2" {
+			t.Errorf("report %d carries retired FIX 4.x ExecType %q", i, et)
+		}
+	}
+
+	// The STATE is what differs, and only OrdStatus carries it.
+	if st, _ := partial.Get(TagOrdStatus); st != OrdStatusPartial {
+		t.Errorf("first OrdStatus=%q want %q (Partially filled)", st, OrdStatusPartial)
+	}
+	if st, _ := full.Get(TagOrdStatus); st != OrdStatusFilled {
+		t.Errorf("second OrdStatus=%q want %q (Filled)", st, OrdStatusFilled)
+	}
+
+	// LeavesQty must agree with OrdStatus, not contradict it.
+	if lv, _ := partial.Get(TagLeavesQty); lv != "6" {
+		t.Errorf("first LeavesQty=%q want 6", lv)
+	}
+	if lv, _ := full.Get(TagLeavesQty); lv != "0" {
+		t.Errorf("final LeavesQty=%q want 0", lv)
+	}
+}
+
+// TestPartialIOCEndsTerminal proves an IOC that fills only part of the order
+// still reaches a terminal state. The fills leave OrdStatus at Partially filled,
+// which means "working" — but the sweep dropped the remainder, so the order is
+// over. Without the closing Canceled a client waits forever for an end.
+func TestPartialIOCEndsTerminal(t *testing.T) {
+	v := &fakeVenue{fills: []zapwire.Fill{
+		{Price: 100 * zapwire.PriceScale, Size: 3, TakerSide: zapwire.SideBuy},
+	}}
+	a := startAcceptor(t, v)
+	c := dialClient(t, a.Addr(), "CLIENT", "LXDEX")
+	defer c.close()
+	c.logon(t)
+
+	c.send(t, NewMessage(MsgTypeNewOrderSingle).
+		Set(TagClOrdID, "ORDP").Set(TagSymbol, "LUX/LUSD").
+		Set(TagSide, SideBuy).Set(TagOrderQty, "10").
+		Set(TagOrdType, OrdTypeLimit).Set(TagPrice, "100"))
+
+	fill := c.recv(t)
+	assertExec(t, fill, ExecTypeTrade, OrdStatusPartial, "3", "100")
+
+	done := c.recv(t)
+	if et, _ := done.Get(TagExecType); et != ExecTypeCanceled {
+		t.Fatalf("terminal ExecType=%q want %q", et, ExecTypeCanceled)
+	}
+	if st, _ := done.Get(TagOrdStatus); st != OrdStatusCanceled {
+		t.Fatalf("terminal OrdStatus=%q want %q", st, OrdStatusCanceled)
+	}
+	// The 3 that did fill stay filled; only the untraded remainder is dropped.
+	if cum, _ := done.Get(TagCumQty); cum != "3" {
+		t.Errorf("terminal CumQty=%q want 3", cum)
+	}
+	if lv, _ := done.Get(TagLeavesQty); lv != "0" {
+		t.Errorf("terminal LeavesQty=%q want 0", lv)
 	}
 }
 

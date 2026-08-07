@@ -95,10 +95,10 @@ type MultisigTransaction struct {
 	ExpiresAt   time.Time
 
 	// Status
-	Status          TxStatus
-	ExecutionResult string
-	GasUsed         uint64
-	TxHash          string
+	Status  TxStatus
+	Result  string
+	GasUsed uint64
+	TxHash  string
 }
 
 // TxType represents the type of transaction
@@ -537,12 +537,12 @@ func (mm *MultisigManager) executeTransaction(tx *MultisigTransaction) error {
 
 	if err != nil {
 		tx.Status = TxStatusRejected
-		tx.ExecutionResult = err.Error()
+		tx.Result = err.Error()
 		wallet.RejectedTxs[tx.ID] = tx
 	} else {
 		tx.Status = TxStatusExecuted
 		tx.ExecutedAt = time.Now()
-		tx.ExecutionResult = "Success"
+		tx.Result = "Success"
 		wallet.ExecutedTxs[tx.ID] = tx
 
 		// Update metrics

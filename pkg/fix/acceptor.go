@@ -20,7 +20,7 @@ import (
 	"github.com/luxfi/log"
 )
 
-// acceptor.go is the FIX 4.4 acceptor: the TCP server side of the FIX trading
+// acceptor.go is the FIX Latest acceptor: the TCP server side of the FIX trading
 // path. It owns FIX SESSION semantics (Logon/Heartbeat/TestRequest/Logout,
 // monotonic sequence numbers) and translates an application NewOrderSingle into a
 // Venue call against THE matcher — it does not match. One Acceptor serves many
@@ -49,7 +49,7 @@ type Config struct {
 	Logger log.Logger
 }
 
-// Acceptor is a FIX 4.4 acceptor listening on a TCP port. Start serving with
+// Acceptor is a FIX Latest acceptor listening on a TCP port. Start serving with
 // Serve(ctx); Addr() reports the bound address (useful with ":0").
 type Acceptor struct {
 	cfg      Config
@@ -215,7 +215,7 @@ func (s *session) serve(ctx context.Context) {
 // FIX framing — you cannot split on SOH alone because a body value could in
 // principle contain data; BodyLength is authoritative for where the body ends.
 func (s *session) readMessage() (*Message, error) {
-	// 8=FIX.4.4<SOH>
+	// 8=FIXT.1.1<SOH>
 	begin, err := s.readField()
 	if err != nil {
 		return nil, err
@@ -351,9 +351,13 @@ func (s *session) handleLogon(msg *Message) bool {
 	if hbInt <= 0 {
 		hbInt = int(s.heartBt / time.Second)
 	}
+	// FIXT.1.1 requires the Logon to name the session's application version;
+	// ApplExtID pins the Extension Pack that makes it FIX Latest.
 	resp := NewMessage(MsgTypeLogon).
 		SetInt(TagEncryptMethod, 0).
-		SetInt(TagHeartBtInt, hbInt)
+		SetInt(TagHeartBtInt, hbInt).
+		Set(TagDefaultApplVerID, ApplVerID).
+		Set(TagApplExtID, ApplExtID)
 	s.send(resp)
 	s.log.Debug("fix logon", "sender", s.targetID, "target", s.senderID, "hbInt", hbInt)
 	return false
@@ -371,10 +375,10 @@ func (s *session) handleTestRequest(msg *Message) {
 
 // handleNewOrderSingle translates a NewOrderSingle (35=D) into a Venue submit and
 // emits ExecutionReport(s): an ack (ExecType=New) if nothing crossed and the
-// order is fully open, then one report per fill (PartialFill/Fill), or a single
-// Rejected report on a venue error. The order is submitted as a MARKETABLE order
-// bounded by its limit price (IOC) — the faithful DEX taker primitive that
-// crosses the resting book and returns fills, identical to the 0x9010 Swap path.
+// order is fully open, then one Trade per fill, or a single Rejected report on a
+// venue error. The order is submitted as a MARKETABLE order bounded by its limit
+// price (IOC) — the faithful DEX taker primitive that crosses the resting book
+// and returns fills, identical to the 0x9010 Swap path.
 func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 	clOrdID, _ := msg.Get(TagClOrdID)
 	symbol, ok := msg.Get(TagSymbol)
@@ -451,12 +455,12 @@ func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 		// zero fills; report it as Rejected? No — it is a valid order that simply
 		// found no liquidity. Emit New then a Canceled (IOC expiry of the unfilled
 		// remainder) so the client sees a terminal state without a phantom fill.
-		s.sendExecReport(execReport{
+		s.sendExecution(execution{
 			clOrdID: clOrdID, orderID: orderID, symbol: symbol, side: sideStr,
 			execType: ExecTypeNew, ordStatus: OrdStatusNew,
 			orderQty: qty, lastQty: 0, lastPx: 0, leavesQty: qty, cumQty: 0, avgPx: 0,
 		})
-		s.sendExecReport(execReport{
+		s.sendExecution(execution{
 			clOrdID: clOrdID, orderID: orderID, symbol: symbol, side: sideStr,
 			execType: ExecTypeCanceled, ordStatus: OrdStatusCanceled,
 			orderQty: qty, lastQty: 0, lastPx: 0, leavesQty: 0, cumQty: 0, avgPx: 0,
@@ -465,38 +469,40 @@ func (s *session) handleNewOrderSingle(ctx context.Context, msg *Message) {
 		return
 	}
 
-	// One ExecutionReport per fill. The last fill's report carries the terminal
-	// status: Filled if fully filled, otherwise PartialFill (IOC remainder dropped,
-	// which we still render as the final partial — leavesQty already reflects the
-	// dropped remainder as 0 on a marketable IOC submit once the sweep is done).
+	// One ExecutionReport per fill. Every one is ExecTypeTrade — a trade is what
+	// happened — and OrdStatus alone carries how far the order got: Partial while
+	// quantity remains, Filled on the fill that finishes it.
 	runningCum := 0.0
 	runningNotional := 0.0
-	for i, f := range fills {
+	for _, f := range fills {
 		runningCum += fillSz(f)
 		runningNotional += fillPx(f) * fillSz(f)
-		avg := runningNotional / runningCum
-		last := i == len(fills)-1
-		execType := ExecTypePartialFill
-		ordStatus := OrdStatusPartialFill
 		thisLeaves := qty - runningCum
 		if thisLeaves < 0 {
 			thisLeaves = 0
 		}
-		if last {
-			// On a marketable IOC submit the sweep is terminal: any remainder is
-			// dropped, so the order is done. Fully filled => Filled; else the
-			// remainder was IOC-cancelled but we mark the final fill Filled iff
-			// cumQty==orderQty, otherwise PartialFill with leaves shown as dropped.
-			if thisLeaves == 0 {
-				execType = ExecTypeFill
-				ordStatus = OrdStatusFilled
-			}
+		ordStatus := OrdStatusPartial
+		if thisLeaves == 0 {
+			ordStatus = OrdStatusFilled
 		}
-		s.sendExecReport(execReport{
+		s.sendExecution(execution{
 			clOrdID: clOrdID, orderID: orderID, symbol: symbol, side: sideStr,
-			execType: execType, ordStatus: ordStatus,
+			execType: ExecTypeTrade, ordStatus: ordStatus,
 			orderQty: qty, lastQty: fillSz(f), lastPx: fillPx(f),
-			leavesQty: thisLeaves, cumQty: runningCum, avgPx: avg,
+			leavesQty: thisLeaves, cumQty: runningCum, avgPx: runningNotional / runningCum,
+		})
+	}
+
+	// The sweep is terminal: a marketable IOC drops whatever did not cross. If
+	// quantity remains the order is over but its last report said Partial, which
+	// leaves a client waiting for an end that never comes — close it explicitly.
+	if leaves > 0 {
+		s.sendExecution(execution{
+			clOrdID: clOrdID, orderID: orderID, symbol: symbol, side: sideStr,
+			execType: ExecTypeCanceled, ordStatus: OrdStatusCanceled,
+			orderQty: qty, leavesQty: 0, cumQty: cumQty,
+			avgPx: notional / cumQty,
+			text:  "IOC: remainder not filled",
 		})
 	}
 }
@@ -529,7 +535,7 @@ func (s *session) handleOrderCancelRequest(ctx context.Context, msg *Message) {
 		s.sendCancelReject(clOrdID, origClOrdID, fmt.Sprintf("venue cancel: %v", err))
 		return
 	}
-	s.sendExecReport(execReport{
+	s.sendExecution(execution{
 		clOrdID: clOrdID, orderID: orderIDStr, symbol: symbol,
 		execType: ExecTypeCanceled, ordStatus: OrdStatusCanceled,
 	})

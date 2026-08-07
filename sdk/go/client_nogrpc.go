@@ -82,9 +82,6 @@ func NewClient(address string) (*Client, error) {
 	return nil, ErrGRPCNotBuilt
 }
 
-// EnableFIX is a no-op stub.
-func (c *Client) EnableFIX(senderID, targetID string) {}
-
 // SendOrder returns ErrGRPCNotBuilt.
 func (c *Client) SendOrder(symbol string, price, quantity float64, side Side) (*Order, error) {
 	return nil, ErrGRPCNotBuilt

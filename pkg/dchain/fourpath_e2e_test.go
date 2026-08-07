@@ -308,11 +308,13 @@ func fixCross(t *testing.T, addr, user, symbol string, limit, size float64) []za
 		}
 		execType, _ := m.Get(fix.TagExecType)
 		switch execType {
-		case fix.ExecTypePartialFill, fix.ExecTypeFill:
+		case fix.ExecTypeTrade:
 			lastQty, _ := m.GetFloat(fix.TagLastQty)
 			lastPx, _ := m.GetFloat(fix.TagLastPx)
 			fills = append(fills, zapwire.Fill{Price: wirePriceUnits(lastPx), Size: wireSizeUnits(lastQty), TakerSide: zapwire.SideBuy})
-			if execType == fix.ExecTypeFill {
+			// FIX Latest reports every fill as ExecType=Trade, so the event no
+			// longer says whether the order is done — OrdStatus does.
+			if st, _ := m.Get(fix.TagOrdStatus); st == fix.OrdStatusFilled {
 				return fills
 			}
 		case fix.ExecTypeNew:

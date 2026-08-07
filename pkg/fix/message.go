@@ -1,9 +1,17 @@
 // Copyright (C) 2019-2025, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-// Package fix is a focused, dependency-free FIX 4.4 codec and session acceptor —
-// the SERVER side of the FIX trading path, the protocol front-end the SDK's
-// EnableFIX() client (sdk/go/client.go) talks to.
+// Package fix is a focused, dependency-free FIX Latest codec and session
+// acceptor — the SERVER side of the FIX trading path.
+//
+// VERSION. The session layer is FIXT.1.1 (tag 8) and the application layer is
+// FIX Latest — FIX.5.0SP2 plus Extension Pack 307, named on the Logon by
+// DefaultApplVerID (1137) and ApplExtID (1156). FIX 5.0 split the two layers
+// precisely so the application dialect can advance without touching the session,
+// and FIX Trading Community recommends FIX Latest application messages over the
+// FIX4 (8=FIX.4.4) profile this gateway used to speak. No client depended on the
+// old BeginString, so the wire moved with the semantics rather than straddling
+// both.
 //
 // It is ONE of four protocol front-ends onto the SAME matcher: the D-Chain DEX
 // (pkg/dchain) served over the FROZEN dex_* ZAP surface (pkg/zapwire). ZAP
@@ -25,10 +33,8 @@
 //     CheckSum field) mod 256, rendered as a zero-padded 3-digit string. It is
 //     always the LAST field.
 //
-// This is the canonical FIX 4.4 framing. The SDK's EnableFIX() builder was a
-// non-wire-correct stub (it omitted BodyLength and its sendFIXMessage was a
-// no-op); this codec is the single correct definition of the format both sides
-// use — emit spec-correct, parse spec-correct, integrity-checked.
+// Framing is identical across FIX versions, and this codec is the ONE definition
+// of it in the tree — emit spec-correct, parse spec-correct, integrity-checked.
 package fix
 
 import (
@@ -41,13 +47,18 @@ import (
 // SOH is the FIX field delimiter (Start Of Header, ASCII 0x01).
 const SOH = '\x01'
 
-// BeginString is the FIX 4.4 protocol identifier carried in tag 8.
-const BeginString = "FIX.4.4"
+// The version this gateway speaks. FIXT.1.1 is the session layer (tag 8); the
+// application layer is named by ApplVerID + ApplExtID, together FIX Latest.
+const (
+	BeginString = "FIXT.1.1" // tag 8: session layer
+	ApplVerID   = "9"        // tags 1128/1137: FIX.5.0SP2, the FIX Latest base
+	ApplExtID   = "307"      // tag 1156: Extension Pack — SP2 + EP307 is FIX Latest
+)
 
 // FIX tag numbers used by this gateway. Only the tags the order path needs are
 // named; the codec carries arbitrary tags generically.
 const (
-	TagBeginString   = 8   // protocol version, e.g. "FIX.4.4"
+	TagBeginString   = 8   // session layer, e.g. "FIXT.1.1"
 	TagBodyLength    = 9   // body length (integrity)
 	TagMsgType       = 35  // message type, e.g. "D" NewOrderSingle
 	TagSenderCompID  = 49  // sender identity
@@ -77,6 +88,9 @@ const (
 	TagTestReqID     = 112 // test request id (heartbeat challenge)
 	TagEncryptMethod = 98  // logon: encryption method (0=none)
 	TagHeartBtInt    = 108 // logon: heartbeat interval (seconds)
+
+	TagDefaultApplVerID = 1137 // logon: application version for the whole session
+	TagApplExtID        = 1156 // logon: application Extension Pack number
 )
 
 // MsgType values (tag 35).
@@ -104,21 +118,26 @@ const (
 	OrdTypeLimit  = "2"
 )
 
-// ExecType / OrdStatus values (tags 150 / 39). FIX 4.4 uses the same alphabet for
-// the common subset this gateway emits: 0=New, 1=PartialFill, 2=Fill, 4=Canceled,
-// 8=Rejected.
+// ExecType (150) says WHAT JUST HAPPENED. A fill is ExecTypeTrade — FIX Latest
+// retired the FIX 4.x pair 1=PartialFill / 2=Fill, which duplicated order state
+// into an event field. The resulting state belongs to OrdStatus alone, so read
+// the two together: ExecTypeTrade + OrdStatusPartial is a fill that left the
+// order working; ExecTypeTrade + OrdStatusFilled is the fill that completed it.
 const (
-	ExecTypeNew         = "0"
-	ExecTypePartialFill = "1"
-	ExecTypeFill        = "2"
-	ExecTypeCanceled    = "4"
-	ExecTypeRejected    = "8"
+	ExecTypeNew      = "0"
+	ExecTypeTrade    = "F"
+	ExecTypeCanceled = "4"
+	ExecTypeRejected = "8"
+)
 
-	OrdStatusNew         = "0"
-	OrdStatusPartialFill = "1"
-	OrdStatusFilled      = "2"
-	OrdStatusCanceled    = "4"
-	OrdStatusRejected    = "8"
+// OrdStatus (39) says WHERE THE ORDER STANDS after that event. These five are
+// the whole lifecycle this gateway can report.
+const (
+	OrdStatusNew      = "0"
+	OrdStatusPartial  = "1"
+	OrdStatusFilled   = "2"
+	OrdStatusCanceled = "4"
+	OrdStatusRejected = "8"
 )
 
 // ErrMalformed is returned when bytes are not a parseable FIX frame.
@@ -221,10 +240,10 @@ func (m *Message) MsgType() string {
 	return v
 }
 
-// Serialize renders the message to canonical FIX 4.4 wire bytes with computed
+// Serialize renders the message to canonical FIX wire bytes with computed
 // BodyLength (tag 9) and CheckSum (tag 10). Layout:
 //
-//	8=FIX.4.4 <SOH> 9=<bodyLen> <SOH> <body...> 10=<checksum> <SOH>
+//	8=FIXT.1.1 <SOH> 9=<bodyLen> <SOH> <body...> 10=<checksum> <SOH>
 //
 // where <body...> is 35=<type> followed by every Set field IN ORDER, and
 // bodyLen counts the bytes of <body...> exactly (from the first byte after the

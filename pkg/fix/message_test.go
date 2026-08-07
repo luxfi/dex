@@ -29,8 +29,8 @@ func TestSerializeComputesBodyLengthAndChecksum(t *testing.T) {
 	raw := m.Serialize()
 	s := string(raw)
 
-	if !strings.HasPrefix(s, "8=FIX.4.4"+string(SOH)+"9=") {
-		t.Fatalf("frame must start 8=FIX.4.4<SOH>9=, got %q", s)
+	if !strings.HasPrefix(s, "8=FIXT.1.1"+string(SOH)+"9=") {
+		t.Fatalf("frame must start 8=FIXT.1.1<SOH>9=, got %q", s)
 	}
 	if s[len(s)-1] != SOH {
 		t.Fatalf("frame must end with SOH")
@@ -45,7 +45,7 @@ func TestSerializeComputesBodyLengthAndChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BodyLength not numeric: %q", fields[1])
 	}
-	head := "8=FIX.4.4" + string(SOH) + "9=" + blStr + string(SOH)
+	head := "8=FIXT.1.1" + string(SOH) + "9=" + blStr + string(SOH)
 	csField := fields[len(fields)-1] + string(SOH) // "10=xxx" + SOH
 	body := s[len(head) : len(s)-len(csField)]
 	if len(body) != declaredBL {
@@ -153,10 +153,11 @@ func TestParseRejectsBadBodyLength(t *testing.T) {
 func TestParseRejectsMalformed(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":           {},
-		"no trailing SOH": soh("8=FIX.4.4|9=5|35=0|10=000"),
-		"bad field":       soh("8=FIX.4.4|9=5|garbage|10=000|"),
+		"no trailing SOH": soh("8=FIXT.1.1|9=5|35=0|10=000"),
+		"bad field":       soh("8=FIXT.1.1|9=5|garbage|10=000|"),
 		"not begin 8":     soh("35=0|9=5|10=000|"),
 		"wrong version":   soh("8=FIX.4.2|9=5|35=0|10=000|"),
+		"retired FIX 4.4": soh("8=FIX.4.4|9=5|35=0|10=000|"),
 	}
 	for name, raw := range cases {
 		if _, err := Parse(raw); err == nil {
@@ -173,8 +174,8 @@ func TestSetIgnoresFramingTags(t *testing.T) {
 		Set(TagBodyLength, "999").
 		Set(TagCheckSum, "111")
 	raw := string(m.Serialize())
-	if !strings.HasPrefix(raw, "8=FIX.4.4"+string(SOH)) {
-		t.Fatalf("BeginString must stay FIX.4.4, got %q", raw)
+	if !strings.HasPrefix(raw, "8=FIXT.1.1"+string(SOH)) {
+		t.Fatalf("BeginString must stay FIXT.1.1, got %q", raw)
 	}
 	if strings.Contains(raw, "9=999") || strings.Contains(raw, "10=111") {
 		t.Fatalf("framing tags must not be settable from body: %q", raw)
