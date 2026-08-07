@@ -565,7 +565,8 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 	if _, ok := findTx(seamBlk, TxImport); !ok {
 		t.Fatal("the proposer's block carries no import")
 	}
-	if _, ok := findTx(seamBlk, TxIntentSubmit); !ok {
+	orderBlk := step()
+	if _, ok := findTx(orderBlk, TxIntentSubmit); !ok {
 		t.Fatal("the proposer's block carries no taker order")
 	}
 	if proposer.lastRoot != follower.lastRoot {

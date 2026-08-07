@@ -462,6 +462,11 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dchain: drive imports: %w", err)
 	}
+	orders, err := vm.driveSeamOrders(maxSeamDrivePerBlock)
+	if err != nil {
+		return nil, fmt.Errorf("dchain: drive orders: %w", err)
+	}
+
 	exports, err := vm.driveSeamExports(maxSeamDrivePerBlock)
 	if err != nil {
 		return nil, fmt.Errorf("dchain: drive exports: %w", err)
@@ -474,8 +479,9 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	// settle committed proceeds before any new mempool order can touch the same account.
 	// The seam txs and the mempool txs are disjoint by construction (an intent is imported,
 	// then traded, then exported across distinct blocks).
-	txs := make([]*Tx, 0, len(imports)+len(exports)+len(mtxs))
+	txs := make([]*Tx, 0, len(imports)+len(orders)+len(exports)+len(mtxs))
 	txs = append(txs, imports...)
+	txs = append(txs, orders...)
 	txs = append(txs, exports...)
 	txs = append(txs, mtxs...)
 	if len(txs) == 0 {

@@ -93,38 +93,28 @@ var SeamPendingTrait = func() []byte {
 // cross-chain swap count a single block realistically faces.
 const maxSeamDrivePerBlock = 256
 
-// driveSeamImports enumerates the committed C->D swap-intent objects in shared memory
-// and returns a deterministic, intentID-sorted list of the txs that execute them: for
-// each not-yet-imported intent, a TxImport CARRYING the object's bytes immediately
-// followed by the TxIntentSubmit that places the taker's order. It is the autonomous
-// replacement for a keeper's "watch IntentSubmitted -> inject ImportTx -> place order"
-// loop, run inside BuildBlock.
+// THE DRIVE IS ONE RULE: for each intent, emit whatever leg its COMMITTED STATUS says
+// comes next. Nothing else. Three legs, three states, each independently retryable:
 //
-// THE SUBMIT IS THE MISSING LEG. Before it, this function emitted the import alone: the
-// value landed on D and nothing was ever done with it. No order was placed, so nothing
-// crossed, so the export drive (which fires only on a settled intent) never fired, so
-// Phase B had no object and the settle reverted. Emitting the submit alongside the
-// import is what makes the seam reachable at all.
+//	no escrow + a pending object -> TxImport        (fund the intent's account)
+//	escrow `open`                -> TxIntentSubmit  (run the taker's order)
+//	escrow `submitted`           -> TxExport        (settle everything back to C)
 //
-// BOTH LEGS IN ONE BLOCK, so there is no window in which value sits on D with no order
-// against it. A block is one atomic unit: if the import rejects (replay, malformed
-// object, unexecutable operation) the escrow is never written and the submit that
-// follows it rejects too, having nothing to bind — the pair is all-or-nothing without
-// needing to be one transaction. Keeping them as two transactions is what lets the
-// submit flow through the IDENTICAL custody -> match -> settle path a signed dex_submit
-// takes, instead of duplicating that machinery inside the import.
+// AN EARLIER DRAFT EMITTED THE IMPORT AND THE SUBMIT AS A PAIR IN ONE BLOCK, to close
+// the window where value sits on D with no order against it. That was one block faster
+// and one hole deeper: a proposer that included the import and OMITTED the submit
+// produced a perfectly valid block whose escrow was stuck `open` forever. The import
+// drive skips already-imported intents, so no later block would ever emit that submit;
+// the export drive gates on `submitted`, so nothing would ever settle it. The taker's
+// value would sit in a keyless seam account while C's deadline reclaim refunded them —
+// C's books balance, but the D-side entry is stranded permanently, and any proposer
+// could do it to any swap for free.
 //
-// Pure function of committed state: the pending set comes from shared memory (the C
-// chain accepted the staging block) and the already-imported filter comes from the
-// committed escrow index. The double-guard against re-import — the committed-escrow
-// filter here AND executeImport's own replay-reject — means a re-enumerated intent
-// (object still present because its consuming Remove has not yet been accepted) is
-// imported at most once.
-//
-// Reading shared memory HERE is sound where reading it inside execute() was not: this
-// runs only on the proposer, and everything it produces is committed in the block's own
-// bytes (hashed into txRoot) for every validator to re-execute without touching shared
-// memory again.
+// Driving off the status closes it by construction: an `open` escrow is unfinished work
+// the NEXT proposer picks up, exactly as a not-yet-imported intent is. Self-healing
+// beats one block of latency, and it is the simpler rule — the optimization was a
+// second rule braided into the first.
+
 func (vm *VM) driveSeamImports(limit int) ([]*Tx, error) {
 	if !vm.autoDriveSeam {
 		return nil, nil
@@ -163,7 +153,7 @@ func (vm *VM) driveSeamImports(limit int) ([]*Tx, error) {
 		return bytes.Compare(pending[i][:], pending[j][:]) < 0
 	})
 
-	out := make([]*Tx, 0, 2*len(pending))
+	out := make([]*Tx, 0, len(pending))
 	for _, intentID := range pending {
 		object, ok, oerr := readSeamObject(sm, vm.cChainID, intentID)
 		if oerr != nil {
@@ -180,14 +170,36 @@ func (vm *VM) driveSeamImports(limit int) ([]*Tx, error) {
 		if terr != nil {
 			return nil, fmt.Errorf("dchain: build TxImport: %w", terr)
 		}
-		sub, terr := NewTx(TxIntentSubmit, EncodeSeamSubmitBody(intentID))
-		if terr != nil {
-			return nil, fmt.Errorf("dchain: build TxIntentSubmit: %w", terr)
-		}
-		out = append(out, imp, sub)
+		out = append(out, imp)
 		if len(out) >= limit {
 			return out, nil
 		}
+	}
+	return out, nil
+}
+
+// driveSeamOrders enumerates the escrows whose value has landed but whose order has not
+// yet run — status `open` — and returns their TxIntentSubmit legs in intentID order.
+//
+// This is the leg that turns money into a trade, and it is a SEPARATE enumeration from
+// the import for one reason: whatever the previous block did or failed to do, an `open`
+// escrow is unfinished work that the next proposer picks up. No block can strand an
+// intent by leaving it out.
+func (vm *VM) driveSeamOrders(limit int) ([]*Tx, error) {
+	if !vm.autoDriveSeam {
+		return nil, nil
+	}
+	escrows, err := listSeamIntents(vm.db, seamIntentOpen, limit)
+	if err != nil {
+		return nil, fmt.Errorf("dchain: seam order enumerate: %w", err)
+	}
+	out := make([]*Tx, 0, len(escrows))
+	for _, e := range escrows {
+		tx, terr := NewTx(TxIntentSubmit, EncodeSeamSubmitBody(e.IntentID))
+		if terr != nil {
+			return nil, fmt.Errorf("dchain: build TxIntentSubmit: %w", terr)
+		}
+		out = append(out, tx)
 	}
 	return out, nil
 }
@@ -328,6 +340,9 @@ func (vm *VM) hasSeamWork() bool {
 	}
 	// Bounded to ONE leg: the question is "is there work", not "how much".
 	if imports, err := vm.driveSeamImports(1); err == nil && len(imports) > 0 {
+		return true
+	}
+	if orders, err := vm.driveSeamOrders(1); err == nil && len(orders) > 0 {
 		return true
 	}
 	exports, err := vm.driveSeamExports(1)
