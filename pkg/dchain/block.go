@@ -1139,11 +1139,6 @@ func (b *Block) verifyImports() error {
 		return nil
 	}
 	sm := b.vm.sharedMemory()
-	if sm == nil {
-		// No cross-chain capability wired: an import could not have credited anything
-		// (executeImport rejects without a C chain id), so there is nothing to prove.
-		return nil
-	}
 	for _, tx := range b.txs {
 		if tx.Type != TxImport {
 			continue
@@ -1151,6 +1146,19 @@ func (b *Block) verifyImports() error {
 		claimID, object, err := decodeImportBody(tx.Body)
 		if err != nil {
 			return fmt.Errorf("dchain: block %s: %w", b.id, err)
+		}
+		// NO HANDLE, NO PROOF, NO BLOCK. This used to return nil here for the whole
+		// block, on the reasoning that execution rejects an import without a C chain id.
+		// It rejects without a C chain ID, and the plugin server supplies one
+		// unconditionally — so the reasoning named a condition that is never the one
+		// that holds, and the authenticator waved through precisely the imports it could
+		// not authenticate. A node with no shared memory cannot tell a recorded object
+		// from a fabricated one; the only honest answer is to refuse the block. Blocks
+		// carrying no import are unaffected, because the check is per-import: an absent
+		// rail is not an error, crossing on one is.
+		if sm == nil {
+			return fmt.Errorf("dchain: import unprovable in block %s (height %d): claim %s carried with no shared memory wired",
+				b.id, b.height, claimID)
 		}
 		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{claimID[:]})
 		if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
