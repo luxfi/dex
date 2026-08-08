@@ -43,7 +43,7 @@ type testAcct struct {
 // the account's key. It does NOT advance the nonce (callers choose the nonce, so
 // the security tests can forge replays/gaps explicitly).
 func (a *testAcct) authFor(typ TxType, nonce uint64, body []byte) *TxAuth {
-	digest := txAuthDigest(typ, a.scheme, nonce, body)
+	digest := txAuthDigest(testNetworkID, testChainID, typ, a.scheme, nonce, body)
 	switch a.scheme {
 	case dex.AuthMLDSA65:
 		sig, err := a.mlpriv.Sign(rand.Reader, digest[:], stdcrypto.Hash(0))

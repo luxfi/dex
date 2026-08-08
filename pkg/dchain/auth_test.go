@@ -86,7 +86,7 @@ func runAuthSuite(t *testing.T, mk mkAcct) {
 		unsigned := &Tx{Type: TxPlace, Body: rawPlace(a.user, zapwire.SideSell, 5.0, 10.0)}
 
 		// (1) The stateless gate refuses it.
-		if _, err := verifyTxSignature(unsigned); !errors.Is(err, ErrTxUnsigned) {
+		if _, err := vm.verifyTxSignature(unsigned); !errors.Is(err, ErrTxUnsigned) {
 			t.Fatalf("verifyTxSignature(unsigned) = %v, want ErrTxUnsigned", err)
 		}
 		// (2) The wire layer refuses to even decode an unsigned money frame: a
@@ -264,6 +264,7 @@ func TestAuth_AdminTxNeedsNoSignature(t *testing.T) {
 // TestAuth_EnvelopeRoundTrip proves the wire envelope encodes/decodes canonically
 // for both schemes and that a tx survives Bytes/ParseTx with its id intact.
 func TestAuth_EnvelopeRoundTrip(t *testing.T) {
+	vm, _ := newTestVM(t, memdb.New())
 	for _, mk := range []mkAcct{acctFor, pqAcctFor} {
 		a := mk(t, "rt")
 		body := zapwire.EncodeWithdraw(a.user, assetLUX, 7, ref32(3))
@@ -279,7 +280,7 @@ func TestAuth_EnvelopeRoundTrip(t *testing.T) {
 			t.Fatalf("auth envelope not preserved across round-trip")
 		}
 		// The recovered account must equal the asserted body account.
-		got, err := verifyTxSignature(back)
+		got, err := vm.verifyTxSignature(back)
 		if err != nil {
 			t.Fatalf("verifyTxSignature after round-trip: %v", err)
 		}
@@ -353,4 +354,53 @@ func ref32(seed byte) [32]byte {
 		r[0] = 1
 	}
 	return r
+}
+
+// TestAuth_SignatureIsBoundToItsChain proves a signed frame spends on exactly one
+// D-Chain.
+//
+// Account16 folds a key to an account with no network in the fold, so one key is the
+// same account on every D-Chain there is, and the native asset is all-zero on all of
+// them. Nothing in a tx body names a chain either. So a digest over (type, nonce, body)
+// alone describes a transaction that exists everywhere at once: an export signed on a
+// devnet is a valid export of the SAME account's mainnet balance to the SAME C address,
+// and anyone who saw the frame can submit it there. The signer authorized one
+// withdrawal and paid for as many chains as exist.
+//
+// The scope is in the preimage, so the frame verifies where its signer meant and is
+// bytes anywhere else.
+func TestAuth_SignatureIsBoundToItsChain(t *testing.T) {
+	here, _ := newTestVM(t, memdb.New())
+	a := acctFor(t, "scope-owner")
+	body := zapwire.EncodeWithdraw(a.user, assetLUX, 500, ref32(9))
+	tx := a.signed(t, TxWithdraw, body)
+
+	if _, err := here.verifyTxSignature(tx); err != nil {
+		t.Fatalf("the frame must verify on the chain it was signed for: %v", err)
+	}
+
+	// The SAME frame, offered to a sibling D-Chain: another network, and another chain
+	// on this network. Both must refuse it.
+	for _, elsewhere := range []struct {
+		name string
+		vm   *VM
+	}{
+		{"another network", &VM{networkID: testNetworkID + 1, chainID: testChainID}},
+		{"another chain on this network", &VM{networkID: testNetworkID, chainID: repeatID(0xEE)}},
+	} {
+		if _, err := elsewhere.vm.verifyTxSignature(tx); err == nil {
+			t.Errorf("%s accepted a frame signed for a different chain: one signature drains "+
+				"the same account everywhere it exists", elsewhere.name)
+		}
+	}
+
+	// And the digest itself moves with the scope, so the binding is in the commitment
+	// rather than in a check something could skip.
+	mine := txAuthDigest(testNetworkID, testChainID, TxWithdraw, a.scheme, 0, body)
+	if mine == txAuthDigest(testNetworkID+1, testChainID, TxWithdraw, a.scheme, 0, body) {
+		t.Error("the digest ignores the network")
+	}
+	if mine == txAuthDigest(testNetworkID, repeatID(0xEE), TxWithdraw, a.scheme, 0, body) {
+		t.Error("the digest ignores the chain")
+	}
 }

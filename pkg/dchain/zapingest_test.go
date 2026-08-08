@@ -42,6 +42,7 @@ func startZAPIngestVM(t *testing.T) (*VM, string, func()) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
@@ -120,6 +121,7 @@ func TestZAPIngestSharesOneCoreWithHTTP(t *testing.T) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
@@ -209,6 +211,7 @@ func TestNoZAPIngestWhenUnset(t *testing.T) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 8)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
@@ -230,6 +233,7 @@ func TestZAPIngestStopsOnShutdown(t *testing.T) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 8)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),

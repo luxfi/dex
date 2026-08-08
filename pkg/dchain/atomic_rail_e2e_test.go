@@ -53,8 +53,8 @@ func newRailHarness(t *testing.T) *railHarness {
 	baseDB := memdb.New()
 	m := atomic.NewMemory(prefixdb.New([]byte{0}, baseDB))
 
-	dChainID := ids.GenerateTestID()
-	cChainID := ids.GenerateTestID()
+	dChainID := testChainID
+	cChainID := testCChainID
 	dSM := m.NewSharedMemory(dChainID)
 	cSM := m.NewSharedMemory(cChainID)
 
@@ -64,7 +64,7 @@ func newRailHarness(t *testing.T) *railHarness {
 		Runtime: &runtime.Runtime{
 			ChainID:      dChainID,
 			CChainID:     cChainID,
-			NetworkID:    96369,
+			NetworkID:    testNetworkID,
 			Log:          logger,
 			SharedMemory: dSM,
 		},
@@ -100,9 +100,9 @@ func newUnwiredVM(t *testing.T) *VM {
 	if err := vm.Initialize(context.Background(), block.Init{
 		Genesis: []byte(testDocument),
 		Runtime: &runtime.Runtime{
-			ChainID:   ids.GenerateTestID(),
-			CChainID:  ids.GenerateTestID(),
-			NetworkID: 96369,
+			ChainID:   testChainID,
+			CChainID:  testCChainID,
+			NetworkID: testNetworkID,
 			Log:       logger,
 			// SharedMemory deliberately absent.
 		},

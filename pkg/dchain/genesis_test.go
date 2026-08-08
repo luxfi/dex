@@ -416,6 +416,7 @@ func TestGenesisHonoursSuppliedDocument(t *testing.T) {
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -448,6 +449,7 @@ func TestGenesisSurvivesWipe(t *testing.T) {
 		t.Helper()
 		vm := &VM{}
 		if err := vm.Initialize(context.Background(), block.Init{
+			Runtime:  testRuntime(),
 			DB:       db,
 			Log:      log.NewNoOpLogger(),
 			ToEngine: make(chan block.Message, 16),
@@ -476,6 +478,7 @@ func TestGenesisRefusesDisagreement(t *testing.T) {
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -489,6 +492,7 @@ func TestGenesisRefusesDisagreement(t *testing.T) {
 	other := append([]byte{}, born...)
 	other[len(other)-2] = '8'
 	err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -627,6 +631,7 @@ func TestGenesisRecoversHeight0ChainThenRefuses(t *testing.T) {
 	}
 
 	err = (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -677,6 +682,7 @@ func TestGenesisRecoversAndContinues(t *testing.T) {
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -720,6 +726,7 @@ func TestGenesisRefusesRecordlessChainAboveHeight0(t *testing.T) {
 	}
 
 	err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -754,6 +761,7 @@ func TestGenesisRefusesDisownedHead(t *testing.T) {
 	}
 
 	err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -776,6 +784,7 @@ func TestGenesisRefusesUnreadableRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -798,6 +807,7 @@ func TestGenesisRefusesUnreadableRecord(t *testing.T) {
 // boundary, not a chain that has none.
 func TestGenesisRefusesToFoundWithoutDocument(t *testing.T) {
 	err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       memdb.New(),
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
@@ -817,6 +827,7 @@ func TestGenesisRefusesToFoundWithoutDocument(t *testing.T) {
 	// The same empty database WITH a document founds normally: the refusal is
 	// about the missing document, not about founding.
 	if err := (&VM{}).Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		DB:       memdb.New(),
 		Log:      log.NewNoOpLogger(),
 		ToEngine: make(chan block.Message, 16),
