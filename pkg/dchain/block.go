@@ -1132,13 +1132,12 @@ func poolSymbol(poolID [32]byte) string {
 // coreth's ImportTx included): a validator caught up on D but LAGGING on C will not yet
 // see the C-side flush and will reject an otherwise-valid D block. It does not halt —
 // the block is rejected, not fatal, and re-verification succeeds once C catches up. The
-// drive only ever emits an import for an object it just read out of shared memory, so
-// in practice the producer has already observed it.
+// proposer screens the same predicate at build (proveClaim in BuildBlock), so it never
+// proposes an import it could not itself prove.
 func (b *Block) verifyImports() error {
 	if !b.vm.normalOp || b.vm.cChainID == ids.Empty {
 		return nil
 	}
-	sm := b.vm.sharedMemory()
 	for _, tx := range b.txs {
 		if tx.Type != TxImport {
 			continue
@@ -1147,28 +1146,65 @@ func (b *Block) verifyImports() error {
 		if err != nil {
 			return fmt.Errorf("dchain: block %s: %w", b.id, err)
 		}
-		// NO HANDLE, NO PROOF, NO BLOCK. This used to return nil here for the whole
-		// block, on the reasoning that execution rejects an import without a C chain id.
-		// It rejects without a C chain ID, and the plugin server supplies one
-		// unconditionally — so the reasoning named a condition that is never the one
-		// that holds, and the authenticator waved through precisely the imports it could
-		// not authenticate. A node with no shared memory cannot tell a recorded object
-		// from a fabricated one; the only honest answer is to refuse the block. Blocks
-		// carrying no import are unaffected, because the check is per-import: an absent
-		// rail is not an error, crossing on one is.
-		if sm == nil {
-			return fmt.Errorf("dchain: import unprovable in block %s (height %d): claim %s carried with no shared memory wired",
-				b.id, b.height, claimID)
+		if perr := b.vm.proveClaim(claimID, object); perr != nil {
+			return fmt.Errorf("dchain: block %s (height %d): %w", b.id, b.height, perr)
 		}
-		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{claimID[:]})
-		if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
-			return fmt.Errorf("dchain: import unbacked in block %s (height %d): claim %s is not in shared memory: %w",
-				b.id, b.height, claimID, gerr)
-		}
-		if !bytes.Equal(vals[0], object) {
-			return fmt.Errorf("dchain: import forged in block %s (height %d): claim %s declared %x but shared memory holds %x",
-				b.id, b.height, claimID, object[:8], vals[0][:min(8, len(vals[0]))])
-		}
+	}
+	return nil
+}
+
+// proveClaim answers one question about one carried import: MAY THIS BLOCK CONTAIN IT?
+//
+// It is the single authenticator, and it has two callers with two different jobs. The
+// VALIDATOR (verifyImports) turns a failure into a rejected block — that is the safety
+// property, and it must reject, because the proposer's execution root already contains
+// the credit. The PROPOSER (BuildBlock) turns a failure into "not this block, try again
+// later" — that is the liveness property, and it is why an unprovable import costs a
+// retry instead of the chain.
+//
+// AN IMPORT THAT CREDITS NOTHING NEEDS NO PROOF. This is the whole reason the consumed
+// set is consulted first, and getting it wrong halted the chain. Delivery is
+// permissionless by design — "a relayer that refuses to deliver cannot strand anyone,
+// any other participant can" — so two relayers delivering the same claim, or one
+// retrying after a timeout, is the EXPECTED steady state, not an attack. The second
+// delivery is well-formed and carries the real recorded bytes; the object is simply gone
+// from shared memory, because this chain's own accepted Remove took it. Reading that as
+// "unbacked" rejected the block, Reject requeued every tx in it, and the next block
+// drained the same delivery and failed the same way, forever: a duplicate delivery was a
+// permanent halt. The consumed-set row is committed state, so this is deterministic and
+// replays identically; and because executeImport's replay guard runs BEFORE it decodes
+// or credits anything, a consumed claim cannot pay out no matter what bytes ride with
+// it. Nothing to prove, nothing to lose — the delivery gets an ordinary per-tx reject
+// and the chain moves on.
+//
+// Everything below that is the ship rule, unchanged: without shared memory there is no
+// proof to take, an object absent from it is unbacked, and an object that differs from
+// the carried bytes is forged.
+func (vm *VM) proveClaim(claimID ids.ID, object []byte) error {
+	done, cerr := claimConsumed(vm.db, claimID)
+	if cerr != nil {
+		return fmt.Errorf("dchain: import consumed-set read for claim %s: %w", claimID, cerr)
+	}
+	if done {
+		return nil
+	}
+	sm := vm.sharedMemory()
+	// NO HANDLE, NO PROOF. This used to wave the whole block through, on the reasoning
+	// that execution rejects an import without a C chain id. It rejects without a C
+	// chain ID, and the plugin server supplies one unconditionally — so the reasoning
+	// named a condition that is never the one that holds, and the authenticator passed
+	// precisely the imports it could not authenticate. A node with no shared memory
+	// cannot tell a recorded object from a fabricated one.
+	if sm == nil {
+		return fmt.Errorf("import unprovable: claim %s carried with no shared memory wired", claimID)
+	}
+	vals, gerr := sm.Get(vm.cChainID, [][]byte{claimID[:]})
+	if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
+		return fmt.Errorf("import unbacked: claim %s is not in shared memory: %w", claimID, gerr)
+	}
+	if !bytes.Equal(vals[0], object) {
+		return fmt.Errorf("import forged: claim %s declared %x but shared memory holds %x",
+			claimID, object[:8], vals[0][:min(8, len(vals[0]))])
 	}
 	return nil
 }
