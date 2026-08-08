@@ -2246,6 +2246,29 @@ A D-Chain on **dex < v1.14** has no `atomic.go` and no `drive.go` at all: it
 cannot import a C->D intent or export a D->C fill under any configuration. That
 is a structurally absent seam, not a misconfiguration.
 
+### D-Chain genesis changed between dex v1.5.x and v1.14.x
+
+**A fleet carrying a v1.5 D-Chain store cannot be joined by a v1.14 node.** The two
+lineages derive different genesis blocks, so they disagree at height 0 and no
+amount of syncing fixes it:
+
+```
+dex v1.5.15  genesis  MuetnVSbs1UnPUDTH5q4kgbKcfRx97Djmz...  root f8e013a4...
+dex v1.14.x  genesis  mpxP6xF3ahpjdwP6YgjtagSWQCZSR6pziE...  root 92ae9d5c...
+```
+
+Nodes that keep their old store carry the v1.5 genesis and keep working; a node
+whose store is wiped (or any newly added validator) adopts the v1.14 genesis and
+is stranded at height 0 forever, `isBootstrapped:false`, with no error that names
+the cause.
+
+So the v1.5 -> v1.14 bump is a **D-Chain re-genesis**, not an upgrade. Roll it as
+one: wipe `/data/chainData/network-<id>/<D-chain-id>` on every validator as part
+of the rollout, one node at a time. Do it while D is at height 0 and there is
+nothing to lose. Verify afterwards that all validators report the *same*
+`lastAccepted` — a matching height is not enough, since every node reports
+height 0 either way.
+
 ### Getting liquidity onto D
 
 A seam order is IOC — it never rests — so a cross-chain swap can only trade
