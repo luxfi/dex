@@ -75,6 +75,16 @@ func newRailHarness(t *testing.T) *railHarness {
 	}); err != nil {
 		t.Fatalf("Initialize rail vm: %v", err)
 	}
+	// NORMAL OPERATION, OR THE AUTHENTICATOR NEVER RUNS. verifyImports gates on
+	// normalOp, no test ever set it, and so every rail test in this package proved its
+	// property with the block-level check returning at its first line. The bootstrap
+	// gate is real (below the frontier a C->D object may legitimately be absent), but a
+	// suite that only ever exercises the bootstrap side is not testing the rail — it is
+	// testing the gate. The chain-halt on a duplicate delivery had been sitting under
+	// this one line.
+	if err := vm.SetState(context.Background(), uint32(luxvm.Ready)); err != nil {
+		t.Fatalf("SetState: %v", err)
+	}
 	return &railHarness{vm: vm, dSM: dSM, cSM: cSM, cChainID: cChainID, dChainID: dChainID}
 }
 

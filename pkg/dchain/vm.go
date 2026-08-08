@@ -449,6 +449,7 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	defer vm.mu.Unlock()
 
 	txs := vm.mempool.Drain(0)
+	txs = vm.screenImports(txs)
 	if len(txs) == 0 {
 		return nil, ErrEmptyMempool
 	}
@@ -475,6 +476,38 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	vm.processingBlocks[blk.id] = blk
 	vm.log.Debug("dchain built block", "height", height, "txs", len(txs), "fills", len(res.fills))
 	return blk, nil
+}
+
+// screenImports drops from a drained batch every import the proposer cannot prove, and
+// puts it back in the mempool. It is the liveness half of proveClaim.
+//
+// A validator MUST reject a block carrying an import it cannot prove — the proposer's
+// execution root already contains the credit, so there is no lesser answer. That makes
+// proposing one self-harm: Reject requeues the whole block, the next build drains the
+// same delivery, and the chain stops at that height for as long as the delivery sits in
+// the mempool. Screening here is what turns "unprovable" from a halt into a retry.
+//
+// PUT BACK, DO NOT DROP. Unprovable is not the same as invalid: a claim C has recorded
+// but not yet flushed to this node is unprovable now and provable in a moment, and that
+// lag is the rail's known liveness property. The delivery keeps its place in the mempool
+// and is screened again next build; the ordinary mempool lifetime reclaims one that
+// never becomes provable.
+func (vm *VM) screenImports(txs []*Tx) []*Tx {
+	kept := txs[:0]
+	var held []*Tx
+	for _, tx := range txs {
+		if tx.Type == TxImport {
+			if claimID, object, err := decodeImportBody(tx.Body); err != nil || vm.proveClaim(claimID, object) != nil {
+				held = append(held, tx)
+				continue
+			}
+		}
+		kept = append(kept, tx)
+	}
+	if len(held) > 0 {
+		vm.mempool.Requeue(held)
+	}
+	return kept
 }
 
 // blockTimestamp returns a deterministic, monotone block timestamp: the max of
