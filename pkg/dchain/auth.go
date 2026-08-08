@@ -13,6 +13,7 @@ import (
 	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/geth/common"
+	"github.com/luxfi/ids"
 )
 
 // auth.go is the D-Chain AUTHORIZATION boundary: the single place that turns a
@@ -62,8 +63,10 @@ var (
 // signature from ever being valid as any other lux-stack signature, and bind the
 // account-id derivation to its own namespace.
 const (
-	// txAuthDomain tags the tx-authorization digest.
-	txAuthDomain = "lux.dchain.tx.auth.v1"
+	// txAuthDomain tags the tx-authorization digest. v2 added the (network, chain)
+	// scope to the preimage; v1 signatures described a transaction valid on every
+	// D-Chain at once.
+	txAuthDomain = "lux.dchain.tx.auth.v2"
 	// accountDomain tags the address→16-byte-account fold so a secp256k1 and an
 	// ML-DSA identity for the "same" 20-byte address map to DISTINCT accounts
 	// (the scheme byte is mixed in), and so the account id is not interchangeable
@@ -123,7 +126,7 @@ func decodeTxAuth(b []byte) (*TxAuth, error) {
 
 // txAuthDigest is the 32-byte commitment the signature covers:
 //
-//	keccak256( txAuthDomain ‖ scheme[1] ‖ type[1] ‖ nonce[8] ‖ body )
+//	keccak256( txAuthDomain ‖ network[4] ‖ chain[32] ‖ scheme[1] ‖ type[1] ‖ nonce[8] ‖ body )
 //
 // Binding the TYPE stops a signed place being replayed as a submit; binding the
 // NONCE makes each signature single-use under the monotonic gate; binding the
@@ -131,11 +134,25 @@ func decodeTxAuth(b []byte) (*TxAuth, error) {
 // export ref[32] and the cancel order id — so a signed withdraw can only export
 // to the address the user authorized, and a signed cancel can only target the
 // order id the user named.
-func txAuthDigest(typ TxType, scheme dex.AuthScheme, nonce uint64, body []byte) [32]byte {
+//
+// BINDING THE SCOPE IS WHAT MAKES A SIGNATURE SPEND ONCE, ON ONE CHAIN. Account16
+// folds a key to an account with no network in the fold, so one key is the same
+// account on every D-Chain there is, and the native asset is all-zero on all of them.
+// Without the scope the digest describes a transaction that exists everywhere: an
+// export signed on a devnet is a valid export of the same account's mainnet balance to
+// the same C address, and anyone who saw the frame can submit it there. Nothing about
+// the body distinguishes the two, because nothing in the body names a chain. The
+// network and the chain go in the preimage, so a frame verifies on exactly the chain
+// its signer meant and is bytes on every other.
+func txAuthDigest(networkID uint32, chainID ids.ID, typ TxType, scheme dex.AuthScheme, nonce uint64, body []byte) [32]byte {
+	var net [4]byte
+	binary.BigEndian.PutUint32(net[:], networkID)
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], nonce)
 	return hash.ComputeKeccak256Array(
 		[]byte(txAuthDomain),
+		net[:],
+		chainID[:],
 		[]byte{byte(scheme)},
 		[]byte{byte(typ)},
 		n[:],
@@ -206,10 +223,11 @@ func txWireUser(typ TxType, body []byte) (userKey, bool) {
 // the account the body asserts. It returns the authenticated account so the
 // stateful gate (nonce, cancel ownership) can key on it.
 //
-// Pure function of the tx bytes: no state read, so handler.go can run it to
-// reject a forged frame before it ever enters the mempool, and block.execute
-// runs the identical check authoritatively at consensus time.
-func verifyTxSignature(tx *Tx) (userKey, error) {
+// Pure function of the tx bytes AND this chain's scope: no state read, so handler.go
+// can run it to reject a forged frame before it ever enters the mempool, and
+// block.execute runs the identical check authoritatively at consensus time. The scope
+// is fixed at Initialize and never changes, so this stays as replayable as it was.
+func (vm *VM) verifyTxSignature(tx *Tx) (userKey, error) {
 	var zero userKey
 	if !tx.Type.requiresAuth() {
 		return zero, nil // market admin (ensure/open) moves no user funds
@@ -217,7 +235,7 @@ func verifyTxSignature(tx *Tx) (userKey, error) {
 	if tx.Auth == nil {
 		return zero, fmt.Errorf("%w: %s", ErrTxUnsigned, tx.Type)
 	}
-	digest := txAuthDigest(tx.Type, tx.Auth.Scheme, tx.Auth.Nonce, tx.Body)
+	digest := txAuthDigest(vm.networkID, vm.chainID, tx.Type, tx.Auth.Scheme, tx.Auth.Nonce, tx.Body)
 	addr, err := dex.RecoverAuthAddress(tx.Auth.Scheme, digest, tx.Auth.Sig, tx.Auth.PubKey)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrTxBadSignature, err)
@@ -259,7 +277,7 @@ func (b *Block) authorizeTx(db authReader, tx *Tx) (rejected bool, err error) {
 	if !tx.Type.requiresAuth() {
 		return false, nil
 	}
-	account, verr := verifyTxSignature(tx)
+	account, verr := b.vm.verifyTxSignature(tx)
 	if verr != nil {
 		return true, nil // forged / unsigned / wrong-signer: fail closed, no mutation
 	}

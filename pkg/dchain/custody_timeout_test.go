@@ -42,6 +42,7 @@ func newTimeoutVM(t *testing.T) *VM {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       memdb.New(),
 		Log:      log.NewNoOpLogger(),

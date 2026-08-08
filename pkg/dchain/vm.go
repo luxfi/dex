@@ -65,6 +65,11 @@ type VM struct {
 	// rail then refuses (no mint).
 	chainID  ids.ID
 	cChainID ids.ID
+	// networkID is the network this chain belongs to. With chainID it is the SCOPE a
+	// signature is valid on (auth.go txAuthDigest): a key is the same account on every
+	// D-Chain by construction, so without a scope in the digest one signed frame spends
+	// on all of them.
+	networkID uint32
 
 	// normalOp is true once the engine has taken this VM to Ready — past the bootstrap
 	// frontier, validating rather than replaying. It gates the BLOCK-LEVEL cross-chain
@@ -165,6 +170,7 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	if init.Runtime != nil {
 		vm.chainID = init.Runtime.ChainID
 		vm.cChainID = init.Runtime.CChainID
+		vm.networkID = init.Runtime.NetworkID
 	}
 	vm.mempool = newMempool(init.ToEngine)
 	vm.outcomes = newOutcomeRegistry()

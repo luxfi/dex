@@ -638,7 +638,8 @@ func TestRestartDoesNotBrickBoot(t *testing.T) {
 	toEngine := make(chan block.Message, 16)
 	vm2 := &VM{}
 	if err := vm2.Initialize(ctx, block.Init{
-		Genesis:  []byte(testDocument),DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine, Config: authConfig(t)}); err != nil {
+		Runtime: testRuntime(),
+		Genesis: []byte(testDocument), DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine, Config: authConfig(t)}); err != nil {
 		t.Fatalf("Initialize over (hand-)corrupted custody state err = %v, want nil (boot must NOT brick — the invariant lives at creation + consensus-time, not boot)", err)
 	}
 	defer vm2.Shutdown(ctx)

@@ -14,6 +14,7 @@ import (
 	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/dex/pkg/zapwire"
 	"github.com/luxfi/log"
+	"github.com/luxfi/runtime"
 )
 
 // vm_test.go drives the real dchain.VM through its block.ChainVM lifecycle —
@@ -27,6 +28,30 @@ import (
 // the chain has none — so every test that founds a chain supplies this.
 const testDocument = `{"name":"D-Chain","message":"test"}`
 
+// The SCOPE every test chain runs under. A signature binds (network, chain), so a
+// signer and the chain it signs for have to agree on them or nothing verifies — which
+// is the entire point of binding them. Fixed, shared, and the same for every harness in
+// the package, so a tx built by one helper is valid on any test VM and a tx built for a
+// DIFFERENT scope is valid on none.
+const testNetworkID uint32 = 96369
+
+var (
+	testChainID  = repeatID(0xDC)
+	testCChainID = repeatID(0xCC)
+)
+
+// testRuntime is the chain-scoped wiring every test VM gets. Shared memory is absent
+// (the rail harness supplies its own); what matters here is that the ids are the same
+// ones the test signer signs under.
+func testRuntime() *runtime.Runtime {
+	return &runtime.Runtime{
+		ChainID:   testChainID,
+		CChainID:  testCChainID,
+		NetworkID: testNetworkID,
+		Log:       log.NewNoOpLogger(),
+	}
+}
+
 // newTestVM builds a VM over db with a buffered toEngine channel and Initializes
 // it. The buffered channel mirrors the engine's receive side so the mempool's
 // non-blocking PendingTxs signal never blocks the test.
@@ -36,6 +61,7 @@ func newTestVM(t *testing.T, db database.Database) (*VM, chan block.Message) {
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
 		Genesis:  []byte(testDocument),
+		Runtime:  testRuntime(),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,

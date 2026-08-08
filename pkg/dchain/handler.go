@@ -90,7 +90,7 @@ func (vm *VM) submitTx(ctx context.Context, t TxType, payload []byte) (txOutcome
 	// block.execute, so a tx that bypasses this RPC path is still caught at
 	// consensus. The nonce is intentionally NOT checked here (it is stateful and
 	// racy against in-flight blocks); only the consensus gate consumes nonces.
-	signer, verr := verifyTxSignature(tx)
+	signer, verr := vm.verifyTxSignature(tx)
 	if verr != nil {
 		return txOutcome{}, verr
 	}

@@ -86,6 +86,7 @@ func bootVenue(t *testing.T, dir string) *venue {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 256)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Runtime:  testRuntime(),
 		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
