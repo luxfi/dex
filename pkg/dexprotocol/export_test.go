@@ -22,7 +22,7 @@ import (
 
 func fund(t *testing.T, c *Custody, amt int64) {
 	t.Helper()
-	if err := c.Import(claim(1, alice, testUSDC, amt)); err != nil {
+	if err := c.Import(attested(t, claim(1, alice, testUSDC, amt))); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -126,11 +126,11 @@ func TestRedeliveryIsTheOrdinaryRepairAndIsIdentical(t *testing.T) {
 
 	// And the receiving side treats the duplicates as the replay they are.
 	dest := NewCustody(cChain)
-	if err := dest.Import(first.Claim()); err != nil {
+	if err := dest.Import(attested(t, first.Claim())); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := dest.Import(first.Claim()); !errors.Is(err, ErrClaimConsumed) {
+		if err := dest.Import(attested(t, first.Claim())); !errors.Is(err, ErrClaimConsumed) {
 			t.Fatalf("duplicate arrival %d: got %v, want ErrClaimConsumed", i, err)
 		}
 	}
@@ -245,7 +245,7 @@ func TestExportLifecycleUnderRandomAttack(t *testing.T) {
 	// Seed with plenty of balance.
 	for i := 0; i < 10; i++ {
 		cl := claim(byte(i), alice, testUSDC, 1000)
-		if err := c.Import(cl); err != nil {
+		if err := c.Import(attested(t, cl)); err != nil {
 			t.Fatal(err)
 		}
 		imported.Add(imported, n(1000))

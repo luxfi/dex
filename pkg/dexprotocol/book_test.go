@@ -292,7 +292,7 @@ func TestBookAndCustodyStayInDifferentUnits(t *testing.T) {
 	const lotSize = 1_000 // token base units per lot, a market property
 	const lots = 7
 
-	if err := c.Import(claim(1, alice, testUSDC, lots*lotSize)); err != nil {
+	if err := c.Import(attested(t, claim(1, alice, testUSDC, lots*lotSize))); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Place(id, lots); err != nil {

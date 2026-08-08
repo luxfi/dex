@@ -123,6 +123,7 @@ var (
 	ErrOrderSide      = errors.New("dexprotocol: Order Side is not a valid side")
 	ErrAmountNegative = errors.New("dexprotocol: amount is negative")
 	ErrAmountOverflow = errors.New("dexprotocol: amount does not fit in 256 bits")
+	ErrNoNonces       = errors.New("dexprotocol: order verification requires the consumed-nonce set")
 	ErrNonceUsed      = errors.New("dexprotocol: this nonce has already been consumed")
 	ErrNoSignature    = errors.New("dexprotocol: order verification requires a signature verifier")
 	ErrBadSignature   = errors.New("dexprotocol: order signature did not recover the swapper")
@@ -406,7 +407,14 @@ func VerifyOrder(witness []byte, ctx OrderContext) (VerifiedOrder, error) {
 	if o.Deadline < ctx.BlockTime {
 		return nil, fmt.Errorf("%w: deadline %d, building at %d", ErrOrderExpired, o.Deadline, ctx.BlockTime)
 	}
-	if ctx.Nonces != nil && ctx.Nonces.Used(o.Swapper, o.Nonce) {
+	// FAIL CLOSED, like ctx.Signer two checks above. A nil Nonces used to mean "skip
+	// replay protection", so a caller that forgot to wire it got no enforcement and
+	// no error — the quietest way to lose a safety property is to make its absence
+	// look like a configuration choice.
+	if ctx.Nonces == nil {
+		return nil, ErrNoNonces
+	}
+	if ctx.Nonces.Used(o.Swapper, o.Nonce) {
 		return nil, fmt.Errorf("%w: %s nonce %d", ErrNonceUsed, o.Swapper, o.Nonce)
 	}
 	commitment := o.Commitment(ctx.Binding)

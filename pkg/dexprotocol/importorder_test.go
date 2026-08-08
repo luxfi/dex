@@ -37,7 +37,7 @@ func TestImportAndOrderPlacesBoth(t *testing.T) {
 	c, b := NewCustody(dChain), NewBook()
 	o := arrivingOrder(100)
 
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), aliceContext(), 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), aliceContext(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestExpiredOrderStillLandsTheMoney(t *testing.T) {
 	ctx := aliceContext()
 	ctx.BlockTime = 900 // D imports well past the deadline
 
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), ctx, 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), ctx, 10)
 	if err != nil {
 		t.Fatalf("an expired order must not fail the import: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestEveryOrderRejectionStillLandsTheMoney(t *testing.T) {
 				ctx.Signer = recoverAs{addr: bob}
 			}
 
-			res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), ctx, 10)
+			res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), ctx, 10)
 			if err != nil {
 				t.Fatalf("order rejection became a transaction failure: %v", err)
 			}
@@ -152,7 +152,7 @@ func TestEveryOrderRejectionStillLandsTheMoney(t *testing.T) {
 func TestInadmissibleClaimIsARealFailure(t *testing.T) {
 	c, b := NewCustody(dChain), NewBook()
 	o := arrivingOrder(100)
-	cl := claim(1, alice, testUSDC, 100)
+	cl := attested(t, claim(1, alice, testUSDC, 100))
 
 	if _, err := ImportAndOrder(c, b, cl, orderWitness(o), aliceContext(), 10); err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestRejectedOrderDoesNotBurnTheNonce(t *testing.T) {
 	ctx := aliceContext()
 	ctx.BlockTime = 900
 
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), ctx, 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), ctx, 10)
 	if err != nil || res.Outcome != Rejected {
 		t.Fatalf("setup: %+v %v", res, err)
 	}
@@ -203,7 +203,7 @@ func TestPlacedOrderConsumesTheNonce(t *testing.T) {
 	o := arrivingOrder(100)
 	ctx := aliceContext()
 
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), ctx, 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), ctx, 10)
 	if err != nil || res.Outcome != Placed {
 		t.Fatalf("setup: %+v %v", res, err)
 	}
@@ -218,7 +218,7 @@ func TestArrivingTraderRoundTrip(t *testing.T) {
 	c, b := NewCustody(dChain), NewBook()
 	o := arrivingOrder(100)
 
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), aliceContext(), 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), aliceContext(), 10)
 	if err != nil || res.Outcome != Placed {
 		t.Fatalf("setup: %+v %v", res, err)
 	}
@@ -231,7 +231,7 @@ func TestArrivingTraderRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Value moves between owners for the traded part.
-	if err := c.Import(claim(2, bob, testLUX, 4)); err != nil {
+	if err := c.Import(attested(t, claim(2, bob, testLUX, 4))); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Reserve(bob, testLUX, n(4)); err != nil {
@@ -286,7 +286,7 @@ func TestArrivingTraderRoundTrip(t *testing.T) {
 func TestCancelRefundsOnlyWhatItRetired(t *testing.T) {
 	c, b := NewCustody(dChain), NewBook()
 	o := arrivingOrder(100)
-	res, err := ImportAndOrder(c, b, claim(1, alice, testUSDC, 100), orderWitness(o), aliceContext(), 10)
+	res, err := ImportAndOrder(c, b, attested(t, claim(1, alice, testUSDC, 100)), orderWitness(o), aliceContext(), 10)
 	if err != nil || res.Outcome != Placed {
 		t.Fatalf("setup: %+v %v", res, err)
 	}
