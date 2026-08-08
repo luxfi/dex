@@ -473,6 +473,7 @@ func TestSeam_TwoNodesAgreeOnASeamBlock(t *testing.T) {
 		m := atomic.NewMemory(prefixdb.New([]byte{memPrefix}, baseDB))
 		vm := &VM{}
 		if err := vm.Initialize(ctx, block.Init{
+			Genesis:  []byte(testDocument),
 			Runtime: &runtime.Runtime{
 				ChainID:      dChainID,
 				CChainID:     cChainID,

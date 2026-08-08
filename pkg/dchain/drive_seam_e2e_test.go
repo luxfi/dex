@@ -419,6 +419,7 @@ func TestDrive_DeterministicOrdering(t *testing.T) {
 	newVM := func(statePrefix byte) *VM {
 		vm := &VM{}
 		if err := vm.Initialize(ctx, block.Init{
+			Genesis:  []byte(testDocument),
 			Runtime: &runtime.Runtime{
 				ChainID:      dChainID,
 				CChainID:     cChainID,

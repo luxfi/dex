@@ -80,6 +80,7 @@ func newSeamHarness(t *testing.T) *seamHarness {
 
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
+		Genesis:  []byte(testDocument),
 		Runtime:  rt,
 		DB:       prefixdb.New([]byte{1}, baseDB),
 		Log:      logger,

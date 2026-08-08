@@ -785,3 +785,44 @@ func TestGenesisRefusesUnreadableRecord(t *testing.T) {
 		t.Fatalf("corrupt genesis record: got %v, want a refusal naming it unreadable", err)
 	}
 }
+
+// TestGenesisRefusesToFoundWithoutDocument closes the last way the binary could
+// still decide a chain's identity.
+//
+// An empty database and an empty document is the one combination the three-way
+// check cannot judge: nothing was delivered, nothing is stored, so there is no
+// disagreement to detect and the node founds a chain from its own code — exactly
+// the defect this file exists to remove, arrived at by the absence of its inputs
+// rather than by their conflict. A D-Chain's document is recorded in its P-Chain
+// CreateChainTx, so an empty one is a delivery failure across the plugin
+// boundary, not a chain that has none.
+func TestGenesisRefusesToFoundWithoutDocument(t *testing.T) {
+	err := (&VM{}).Initialize(context.Background(), block.Init{
+		DB:       memdb.New(),
+		Log:      log.NewNoOpLogger(),
+		ToEngine: make(chan block.Message, 16),
+		Config:   authConfig(t),
+	})
+	if err == nil {
+		t.Fatal("a chain was founded from no creation document; its genesis came from the binary")
+	}
+	// The refusal has to name the genesis it declined to use, or an operator
+	// cannot tell this apart from the chain simply failing to start.
+	for _, want := range []string{"refusing to found", genesisID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal does not mention %q:\n%s", want, err)
+		}
+	}
+
+	// The same empty database WITH a document founds normally: the refusal is
+	// about the missing document, not about founding.
+	if err := (&VM{}).Initialize(context.Background(), block.Init{
+		DB:       memdb.New(),
+		Log:      log.NewNoOpLogger(),
+		ToEngine: make(chan block.Message, 16),
+		Genesis:  []byte(mainnetDocument),
+		Config:   authConfig(t),
+	}); err != nil {
+		t.Fatalf("a chain with a creation document was refused: %v", err)
+	}
+}

@@ -22,6 +22,11 @@ import (
 // (a fresh VM over the SAME durable DB) to prove the chainstate survives and the
 // books rebuild from the order:* rows. This is the step-3 acceptance proof.
 
+// testDocument is a chain-creation record for tests. A D-Chain cannot be founded
+// without one — an absent document means the node failed to deliver it, not that
+// the chain has none — so every test that founds a chain supplies this.
+const testDocument = `{"name":"D-Chain","message":"test"}`
+
 // newTestVM builds a VM over db with a buffered toEngine channel and Initializes
 // it. The buffered channel mirrors the engine's receive side so the mempool's
 // non-blocking PendingTxs signal never blocks the test.
@@ -30,6 +35,7 @@ func newTestVM(t *testing.T, db database.Database) (*VM, chan block.Message) {
 	toEngine := make(chan block.Message, 16)
 	vm := &VM{}
 	if err := vm.Initialize(context.Background(), block.Init{
+		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,

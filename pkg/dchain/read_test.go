@@ -63,6 +63,7 @@ func startReadServer(t *testing.T) (*VM, string, func()) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Genesis:  []byte(testDocument),
 		DB: db, Log: log.NewNoOpLogger(), ToEngine: toEngine, Config: authConfig(t),
 	}); err != nil {
 		t.Fatalf("Initialize: %v", err)
@@ -387,6 +388,7 @@ func TestRead_CrossValidatorIdenticalTrades(t *testing.T) {
 	followerDB := memdb.New()
 	follower := &VM{}
 	if err := follower.Initialize(context.Background(), block.Init{
+		Genesis:  []byte(testDocument),
 		DB: followerDB, Log: log.NewNoOpLogger(), ToEngine: make(chan block.Message, 64), Config: authConfig(t),
 	}); err != nil {
 		t.Fatalf("follower Initialize: %v", err)
