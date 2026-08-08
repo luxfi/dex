@@ -179,6 +179,13 @@ func txWireUser(typ TxType, body []byte) (userKey, bool) {
 		// account named in the body (signer == beneficiary).
 		copy(u[:], body[0:zapwire.UserSize])
 		return u, true
+	case TxExport:
+		// An export debits the caller's OWN balance and names a C address to credit,
+		// so the signer MUST be the account the body asserts — otherwise anyone could
+		// drain any account to an address of their choosing. Same binding as withdraw,
+		// same offset: owner leads the body.
+		copy(u[:], body[0:zapwire.UserSize])
+		return u, true
 	case TxDeposit:
 		// A deposit MINTS balance for the body's beneficiary, so it is NOT authorized
 		// by the beneficiary — it is authorized by the trusted deposit AUTHORITY (the

@@ -57,9 +57,13 @@ type VM struct {
 	// seam (atomic.go) imports from / exports to. nil when no runtime was wired
 	// (single-chain unit tests with no seam) — the seam then refuses (no mint).
 	runtime *runtime.Runtime
-	// cChainID is the C-Chain id resolved from the runtime: the partition a C->D
-	// order object is read under (import) and a D->C settlement object is written
-	// under (export). ids.Empty when no runtime / no C-Chain — the seam stays closed.
+	// chainID is THIS chain's id, and cChainID the C-Chain's, both resolved from the
+	// runtime. They are the partition a C->D claim is read under (import) and the
+	// partition a D->C claim is written under (export), and they are the corridor the
+	// claim id binds (DeriveClaimID), so an object minted for one direction can never
+	// be replayed as the other. ids.Empty when no runtime / no C-Chain — the funding
+	// rail then refuses (no mint).
+	chainID  ids.ID
 	cChainID ids.ID
 
 	// normalOp is true once the engine has taken this VM to Ready — past the bootstrap
@@ -117,15 +121,6 @@ type VM struct {
 	zapIngest       rpc.Server
 	zapIngestCancel context.CancelFunc
 
-	// autoDriveSeam enables the PROPOSER-SIDE DRIVE (drive.go): when set, BuildBlock
-	// autonomously enumerates the committed cross-chain atomic state and emits the
-	// TxImport / TxExport txs that import C->D orders and export D->C settlements —
-	// the keeper-less native settlement seam. It is set true at Initialize exactly when
-	// the cross-chain seam is wired (a runtime with shared memory + a resolved C-Chain
-	// id); a single-chain runtime (no seam) leaves it false, and the seam unit tests
-	// (atomic_seam_e2e_test) clear it to exercise executeImport/executeExport in
-	// isolation via manual mempool injection. Guarded by vm.mu.
-	autoDriveSeam bool
 
 	initialized bool
 }
@@ -168,14 +163,9 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 	// single-chain unit test, where the seam refuses rather than mint.
 	vm.runtime = init.Runtime
 	if init.Runtime != nil {
+		vm.chainID = init.Runtime.ChainID
 		vm.cChainID = init.Runtime.CChainID
 	}
-	// Drive the native settlement seam autonomously exactly when it is wired: a runtime
-	// with cross-chain shared memory AND a resolved C-Chain id. With either absent the
-	// seam is closed (executeImport/executeExport refuse — no mint), so the drive has
-	// nothing to do and stays off. This is the keeper-less production default; the seam
-	// mechanics tests clear it to inject TxImport/TxExport by hand.
-	vm.autoDriveSeam = vm.runtime != nil && vm.runtime.GetSharedMemory() != nil && vm.cChainID != ids.Empty
 	vm.mempool = newMempool(init.ToEngine)
 	vm.outcomes = newOutcomeRegistry()
 	vm.books = map[[32]byte]*dex.OrderBook{}
@@ -458,40 +448,7 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
-	// PROPOSER-SIDE DRIVE (drive.go): before draining the mempool, enumerate the committed
-	// cross-chain atomic state and autonomously generate the seam txs — TxImport for every
-	// un-imported C->D order, TxExport for every open order whose owner now holds realized
-	// proceeds. Both are pure, deterministic functions of committed state (shared memory +
-	// the seamintent: escrow + the ledger), so every validator re-derives the identical
-	// effects in execute and a divergent proposer is rejected on the tx root. This is the
-	// keeper-less native settlement seam — the VM imports C->D orders and exports D->C
-	// settlements during normal block production. A no-op when the seam is unwired.
-	imports, err := vm.driveSeamImports(maxSeamDrivePerBlock)
-	if err != nil {
-		return nil, fmt.Errorf("dchain: drive imports: %w", err)
-	}
-	orders, err := vm.driveSeamOrders(maxSeamDrivePerBlock)
-	if err != nil {
-		return nil, fmt.Errorf("dchain: drive orders: %w", err)
-	}
-
-	exports, err := vm.driveSeamExports(maxSeamDrivePerBlock)
-	if err != nil {
-		return nil, fmt.Errorf("dchain: drive exports: %w", err)
-	}
-
-	mtxs := vm.mempool.Drain(0)
-
-	// Assemble [imports || exports || mempool]. Imports come FIRST so a same-block taker
-	// order draws from the just-imported funds; exports come before the mempool so they
-	// settle committed proceeds before any new mempool order can touch the same account.
-	// The seam txs and the mempool txs are disjoint by construction (an order is imported,
-	// then traded, then exported across distinct blocks).
-	txs := make([]*Tx, 0, len(imports)+len(orders)+len(exports)+len(mtxs))
-	txs = append(txs, imports...)
-	txs = append(txs, orders...)
-	txs = append(txs, exports...)
-	txs = append(txs, mtxs...)
+	txs := vm.mempool.Drain(0)
 	if len(txs) == 0 {
 		return nil, ErrEmptyMempool
 	}
@@ -507,10 +464,8 @@ func (vm *VM) BuildBlock(ctx context.Context) (block.Block, error) {
 	overlay.Abort()
 	if err != nil {
 		// A tx that cannot execute (e.g. unknown market) must not wedge the
-		// chain: drop the MEMPOOL batch back so it is retried. The seam txs are
-		// regenerated from committed state on the next build, so they are not
-		// requeued (they are not mempool-owned).
-		vm.mempool.Requeue(mtxs)
+		// chain: drop the batch back so it is retried.
+		vm.mempool.Requeue(txs)
 		return nil, fmt.Errorf("dchain: build execute: %w", err)
 	}
 
@@ -617,11 +572,11 @@ func (vm *VM) GetBlockIDAtHeight(ctx context.Context, height uint64) (ids.ID, er
 // SetState transitions the VM lifecycle state (bootstrapping/normal-op/etc). The
 // d-chain's own execution has no state-specific behavior — it is ready to build/verify
 // as soon as Initialize completes — but the BLOCK-LEVEL cross-chain authentication
-// does: below the bootstrap frontier a C->D object may legitimately be absent from
+// does: below the bootstrap frontier a C->D claim may legitimately be absent from
 // shared memory (C and D bootstrap independently, and this node's own accepted Remove
 // may already have consumed it), and those blocks carry the network's acceptance as
 // their authority. So the one thing tracked here is whether we have reached normal
-// operation — exactly the gate verifySeamImports needs.
+// operation — exactly the gate verifyImports needs.
 func (vm *VM) SetState(ctx context.Context, state uint32) error {
 	vm.mu.Lock()
 	vm.normalOp = state == uint32(luxvm.Ready)
@@ -679,12 +634,6 @@ func (vm *VM) HealthCheck(ctx context.Context) (block.HealthCheckResult, error) 
 func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	// The seam drive (drive.go) can have work even with an empty mempool — a pending
-	// C->D order to import, or an open order with realized proceeds to export. Those
-	// appear at the source chain's block cadence (seconds), so they are polled on a
-	// slower, separate tick to keep the hot mempool path cheap.
-	seamTicker := time.NewTicker(time.Second)
-	defer seamTicker.Stop()
 	for {
 		if vm.mempool != nil && vm.mempool.Len() > 0 {
 			return block.Message{Type: block.PendingTxs}, nil
@@ -693,13 +642,6 @@ func (vm *VM) WaitForEvent(ctx context.Context) (block.Message, error) {
 		case <-ctx.Done():
 			return block.Message{}, ctx.Err()
 		case <-ticker.C:
-		case <-seamTicker.C:
-			vm.mu.Lock()
-			work := vm.hasSeamWork()
-			vm.mu.Unlock()
-			if work {
-				return block.Message{Type: block.PendingTxs}, nil
-			}
 		}
 	}
 }

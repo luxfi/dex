@@ -80,7 +80,7 @@ type Block struct {
 
 	// atomic is the block's accumulated cross-chain shared-memory operations (the
 	// native settlement seam's C->D removes / D->C puts), derived by execute and
-	// applied atomically with the state overlay at Accept (atomic.go commitSeamAtomic).
+	// applied atomically with the state overlay at Accept (atomic.go commitAtomic).
 	// nil/empty for a block with no seam txs. Stashed on the block alongside the
 	// overlay so the same instance a later Accept resolves carries both.
 	atomic *atomicRequests
@@ -182,7 +182,7 @@ func (b *Block) Verify(ctx context.Context) error {
 	// real recorded object is proven here, once, against shared memory. A forged object
 	// costs the producer a BLOCK instead of forking a state root — and the producer
 	// verifies its own block before proposing it, so a forgery never leaves the node.
-	if err := b.verifySeamImports(); err != nil {
+	if err := b.verifyImports(); err != nil {
 		return err
 	}
 
@@ -268,7 +268,7 @@ func (b *Block) Accept(ctx context.Context) error {
 	// overlay commit; with seam txs the shared-memory ops land atomically with the
 	// state so a consumed order / produced settlement can never diverge from the
 	// committed ledger.
-	if err := b.vm.commitSeamAtomic(b.overlay, b.atomic); err != nil {
+	if err := b.vm.commitAtomic(b.overlay, b.atomic); err != nil {
 		return fmt.Errorf("dchain: commit block %s: %w", b.id, err)
 	}
 
@@ -311,26 +311,9 @@ func (b *Block) Reject(ctx context.Context) error {
 	}
 	b.status = statusRejected
 	delete(b.vm.processingBlocks, b.id) // rejected; drop the processing entry
-	// Requeue only what a CLIENT submitted. The seam legs in this block came from the
-	// drive, which regenerates exactly the ones still warranted from committed state on
-	// the next BuildBlock; putting them back would make the next block carry each leg
-	// twice — once from the mempool, once from the drive. (Both copies are refused by
-	// the replay guards, so this is a duplication, not a double spend.)
-	b.vm.mempool.Requeue(clientTxs(b.txs))
+	// Every tx in a rejected block came from the mempool, so every one goes back.
+	b.vm.mempool.Requeue(b.txs)
 	return nil
-}
-
-// clientTxs filters out the proposer-generated seam legs, leaving the txs a client
-// actually submitted.
-func clientTxs(txs []*Tx) []*Tx {
-	out := make([]*Tx, 0, len(txs))
-	for _, tx := range txs {
-		if tx.Type.isSeamDriven() {
-			continue
-		}
-		out = append(out, tx)
-	}
-	return out
 }
 
 // execResult carries what execute derived: the per-market resulting rows, the
@@ -484,24 +467,24 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 
 		case TxImport:
-			// CONSUME a C->D atomic order object and fund the taker's native D
-			// account (atomic.go). Authority is the consumed object, not a signature
-			// (TxImport.requiresAuth() is false), so the auth gate above skipped it.
-			// The object's BYTES ride in the body, so this binds them and never reads
-			// shared memory: execution is a pure function of the block and replays
-			// byte-identically forever. Block.verifySeamImports proves those bytes are
-			// the real recorded object.
-			orderID, object, derr := decodeSeamImportBody(tx.Body)
+			// CONSUME a C->D funding claim and credit its beneficiary (atomic.go).
+			// Authority is the claim itself, not a signature (TxImport.requiresAuth()
+			// is false), so the auth gate above skipped it: a claim can only credit
+			// the account it already names. The claim's BYTES ride in the body, so
+			// this binds them and never reads shared memory — execution is a pure
+			// function of the block and replays byte-identically forever.
+			// Block.verifyImports proves those bytes are the real recorded object.
+			claimID, object, derr := decodeImportBody(tx.Body)
 			if derr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam import decode: %w", i, derr)
+				return execResult{}, fmt.Errorf("dchain: tx %d import decode: %w", i, derr)
 			}
-			credited, ok, ierr := b.vm.executeImport(overlay, ar, orderID, object)
+			credited, ok, ierr := b.vm.executeImport(overlay, ar, claimID, object)
 			if ierr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam import: %w", i, ierr)
+				return execResult{}, fmt.Errorf("dchain: tx %d import: %w", i, ierr)
 			}
 			if !ok {
-				// Deterministic per-tx reject (object not flushed yet / replay / unwired
-				// seam). NOT marked seen, so a not-yet-available order retries later.
+				// Deterministic per-tx reject (claim not flushed yet / replay / unwired
+				// rail). NOT marked seen, so a not-yet-available claim retries later.
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
@@ -513,33 +496,26 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 
 		case TxExport:
-			// DEBIT the taker's settled native D balance and write a D->C settlement
-			// object the precompile's ImportSettlement consumes (atomic.go). The
-			// exporting tx id seeds the deterministic output id; object-authorized.
-			orderID, asset, amount, spent, derr := decodeSeamExportBody(tx.Body)
+			// DEBIT the signer's available balance and write a C-bound claim the
+			// 0x9999 precompile consumes exactly once (atomic.go). The auth gate above
+			// already bound the body's owner to the recovered signer, so this can only
+			// ever spend the signer's own money. The exporting tx id seeds the
+			// deterministic claim id.
+			owner, asset, amount, beneficiary, derr := decodeExportBody(tx.Body)
 			if derr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam export decode: %w", i, derr)
+				return execResult{}, fmt.Errorf("dchain: tx %d export decode: %w", i, derr)
 			}
-			outputID, ok, eerr := b.vm.executeExport(overlay, ar, txID, orderID, asset, amount, spent)
+			claimID, ok, eerr := b.vm.executeExport(overlay, ar, txID, owner, asset, amount, beneficiary)
 			if eerr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam export: %w", i, eerr)
+				return execResult{}, fmt.Errorf("dchain: tx %d export: %w", i, eerr)
 			}
 			if !ok {
 				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
 				continue
 			}
-			// CLOSE the order escrow once this export has fully drained the taker's
-			// cross-chain account (drive.go) — making each cross-chain swap one-shot, so a
-			// settled order is not re-exported by a later block's drive and the owner can
-			// import a fresh order. Order-independent: it fires on whichever leg empties
-			// the account (the lone proceeds leg of a full fill, or the refund leg of a
-			// partial fill). A still-funded account is left open for a subsequent leg.
-			if cerr := b.vm.closeSeamOrderIfDrained(overlay, orderID); cerr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam order close: %w", i, cerr)
-			}
-			// orderID carries a compact handle of the output id for the ack; the keeper
-			// reads the full id from the seamout: record (or recomputes deriveSeamOutputID).
-			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: binary.BigEndian.Uint64(outputID[24:32])}
+			// orderID carries a compact handle of the claim id for the ack; the full id
+			// is recomputable from the export tx via DeriveClaimID.
+			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced, orderID: binary.BigEndian.Uint64(claimID[24:32])}
 			outcomes = append(outcomes, oc)
 			if err := markSeen(overlay, txID, oc); err != nil {
 				return execResult{}, err
@@ -547,29 +523,8 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 		}
 
-		// ---- The seam's taker order ----
-		// TxOrderSubmit carries the order id ALONE; resolveSeamOrder turns it into
-		// the taker's actual order frame. From there the tx is an ordinary submit: it
-		// flows through the IDENTICAL custody gate, matcher and settlement path a
-		// signed dex_submit takes, with nothing duplicated for the seam.
-		//
-		// orderTx is the DERIVED frame; tx stays the real transaction, so the outcome,
-		// the seen: key and the tx root all remain bound to what the block contains.
-		orderTx := tx
-		if tx.Type == TxOrderSubmit {
-			derived, rejected, serr := b.resolveSeamOrder(overlay, tx)
-			if serr != nil {
-				return execResult{}, fmt.Errorf("dchain: tx %d seam submit: %w", i, serr)
-			}
-			if rejected {
-				outcomes = append(outcomes, txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusRejected})
-				continue
-			}
-			orderTx = derived
-		}
-
 		// ---- Market-scoped txs (begin with poolId) ----
-		poolID, ok := orderTx.poolID()
+		poolID, ok := tx.poolID()
 		if !ok {
 			return execResult{}, fmt.Errorf("dchain: tx %d missing poolId", i)
 		}
@@ -634,7 +589,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 		if aerr != nil {
 			return execResult{}, aerr
 		}
-		locked, lockedOK, lerr := b.lockOrderSpend(overlay, orderTx, uint32(i), poolID, base, quote, assetsBound)
+		locked, lockedOK, lerr := b.lockOrderSpend(overlay, tx, uint32(i), poolID, base, quote, assetsBound)
 		if lerr != nil && !errors.Is(lerr, ErrDustPriceOrZeroLock) {
 			// A real lock fault (decode / db) aborts the block; only the named
 			// zero-notional reject below is a deterministic per-tx outcome.
@@ -656,14 +611,14 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 			continue
 		}
 
-		res, err := applyTx(ob, orderTx, b.height, b.timestamp, uint32(i))
+		res, err := applyTx(ob, tx, b.height, b.timestamp, uint32(i))
 		if err != nil {
 			return execResult{}, err
 		}
 
 		// ---- SETTLE: move value for this tx's effects inside the ledger ----
 		if assetsBound {
-			if serr := b.settleOrderEffects(overlay, poolID, orderTx, uint32(i), res, base, quote, locked); serr != nil {
+			if serr := b.settleOrderEffects(overlay, poolID, tx, uint32(i), res, base, quote, locked); serr != nil {
 				return execResult{}, fmt.Errorf("dchain: tx %d settle: %w", i, serr)
 			}
 		}
@@ -1155,8 +1110,8 @@ func poolSymbol(poolID [32]byte) string {
 	return string(out)
 }
 
-// verifySeamImports authenticates every cross-chain object this block's imports
-// CARRIED, against the object shared memory actually holds. It is the block-level half
+// verifyImports authenticates every funding claim this block's imports CARRIED,
+// against the object shared memory actually holds. It is the block-level half
 // of the reproducibility fix: execution binds tx-carried bytes (pure, replayable
 // forever), and the proof that those bytes are real lives here, where a mismatch
 // rejects the BLOCK rather than diverging a state root.
@@ -1179,11 +1134,11 @@ func poolSymbol(poolID [32]byte) string {
 // the block is rejected, not fatal, and re-verification succeeds once C catches up. The
 // drive only ever emits an import for an object it just read out of shared memory, so
 // in practice the producer has already observed it.
-func (b *Block) verifySeamImports() error {
+func (b *Block) verifyImports() error {
 	if !b.vm.normalOp || b.vm.cChainID == ids.Empty {
 		return nil
 	}
-	sm := b.vm.seamSharedMemory()
+	sm := b.vm.sharedMemory()
 	if sm == nil {
 		// No cross-chain capability wired: an import could not have credited anything
 		// (executeImport rejects without a C chain id), so there is nothing to prove.
@@ -1193,83 +1148,20 @@ func (b *Block) verifySeamImports() error {
 		if tx.Type != TxImport {
 			continue
 		}
-		orderID, object, err := decodeSeamImportBody(tx.Body)
+		claimID, object, err := decodeImportBody(tx.Body)
 		if err != nil {
 			return fmt.Errorf("dchain: block %s: %w", b.id, err)
 		}
-		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{orderID[:]})
+		vals, gerr := sm.Get(b.vm.cChainID, [][]byte{claimID[:]})
 		if gerr != nil || len(vals) != 1 || len(vals[0]) == 0 {
-			return fmt.Errorf("dchain: seam import unbacked in block %s (height %d): object %s is not in shared memory: %w",
-				b.id, b.height, orderID, gerr)
+			return fmt.Errorf("dchain: import unbacked in block %s (height %d): claim %s is not in shared memory: %w",
+				b.id, b.height, claimID, gerr)
 		}
 		if !bytes.Equal(vals[0], object) {
-			return fmt.Errorf("dchain: seam import forged in block %s (height %d): object %s declared %x but shared memory holds %x",
-				b.id, b.height, orderID, object[:8], vals[0][:min(8, len(vals[0]))])
+			return fmt.Errorf("dchain: import forged in block %s (height %d): claim %s declared %x but shared memory holds %x",
+				b.id, b.height, claimID, object[:8], vals[0][:min(8, len(vals[0]))])
 		}
 	}
 	return nil
 }
 
-// markSeamSubmitted advances an order escrow to seamOrderSubmitted — "this order's
-// order has had its one chance". Every terminal path of the submit leg goes through it,
-// including the rejects, because an escrow left `open` is never re-driven and never
-// exported: its principal would sit on D while C's deadline reclaim refunds the taker
-// the same principal.
-func (b *Block) markSeamSubmitted(db database.KeyValueWriter, orderID ids.ID, rec seamOrderRecord) error {
-	rec.Status = seamOrderSubmitted
-	return putSeamOrder(db, orderID, rec)
-}
-
-// resolveSeamOrder turns a TxOrderSubmit into the order frame it stands for, and
-// advances the order's escrow past the point of no return.
-//
-// THE OPERATION IS DERIVED, NOT CARRIED. The taker declared it once, in the C->D
-// object, and this block's own TxImport recorded it into the escrow. seamSubmitBody is
-// the one definition of what that order means as an order; restating it on the wire
-// would create a second copy for the two to be reconciled against each other.
-//
-// THE MARKET IS NAMED BY THE OTHER CHAIN, so it must never be able to abort a block. C
-// cannot see D's market registry, and a taker can name a market D has never created, or
-// one whose (base, quote) assets were never bound. Left alone, the first reaches
-// bookForPool and errors — aborting the whole block, a halt any C caller could trigger —
-// and the second falls through to the no-custody path, where an order crosses while
-// reserving nothing. Both are deterministic per-tx rejects here.
-//
-// THE ESCROW ADVANCES ON EVERY PATH, including the rejects, because "the order ran" is
-// what the export drive gates on. An escrow left `open` is never re-driven and never
-// exported: its principal would sit on D while C's deadline reclaim refunds the taker
-// the same principal. A rejected order costs the taker nothing — the export drive
-// returns their whole principal — but a stranded one costs the pool.
-func (b *Block) resolveSeamOrder(db *versiondb.Database, tx *Tx) (orderTx *Tx, rejected bool, err error) {
-	var orderID ids.ID
-	copy(orderID[:], tx.Body)
-
-	rec, exists, gerr := getSeamOrder(db, orderID)
-	if gerr != nil {
-		return nil, false, gerr
-	}
-	// `open` is the ONLY state an order may run from: this block's import credited the
-	// order's account and no order has run yet. A missing escrow (the import rejected,
-	// or this names an order that was never imported) and an already-`submitted` one
-	// (a replay) both reject, moving nothing — and neither has an escrow to advance.
-	if !exists || rec.Status != seamOrderOpen {
-		return nil, true, nil
-	}
-
-	// From here the order's one chance is spent, whatever the answer.
-	if perr := b.markSeamSubmitted(db, orderID, rec); perr != nil {
-		return nil, false, perr
-	}
-
-	if _, marketExists, merr := readMarketSymbol(db, rec.Op.Market); merr != nil {
-		return nil, false, merr
-	} else if !marketExists {
-		return nil, true, nil
-	}
-	if _, _, bound, aerr := readMarketAssets(db, rec.Op.Market); aerr != nil {
-		return nil, false, aerr
-	} else if !bound {
-		return nil, true, nil
-	}
-	return &Tx{Type: TxSubmit, Body: seamSubmitBody(orderID, rec)}, false, nil
-}
