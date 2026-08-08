@@ -286,7 +286,13 @@ func (vm *VM) sharedMemory() atomic.SharedMemory {
 // claim can only credit the account the claim already names, so a relayer that
 // refuses to deliver cannot strand anyone — any other participant can.
 func (vm *VM) executeImport(db database.KeyValueReaderWriterDeleter, ar *atomicRequests, claimID ids.ID, object []byte) (credited uint64, ok bool, err error) {
-	if vm.cChainID == ids.Empty {
+	// BOTH ENDS OR NEITHER. The carried bytes are only ever a CLAIM about a recorded
+	// object; what makes them value is that shared memory holds the same object, proven
+	// on the block. With no shared memory that proof cannot be taken — so the credit
+	// cannot be given, or 60 self-authored bytes are money. A C chain id alone is not
+	// the rail: the plugin server sets one unconditionally, and every live network has
+	// one today with no atomic server behind it.
+	if vm.sharedMemory() == nil || vm.cChainID == ids.Empty {
 		return 0, false, nil // rail not wired: deterministic reject, no mint
 	}
 
@@ -402,9 +408,13 @@ func (vm *VM) commitAtomic(overlay versionDB, ar *atomicRequests) error {
 	}
 	sm := vm.sharedMemory()
 	if sm == nil {
-		// Operations were accumulated but no shared memory is wired — unreachable on
-		// this path (import/export reject when sm is nil). Commit state only.
-		return overlay.Commit()
+		// Operations were accumulated with nothing to apply them to. Both producers
+		// refuse when sm is nil, so reaching here means a new path started accumulating
+		// without that guard — and this branch used to COMMIT THE STATE ANYWAY while
+		// dropping the op, which is the "credit lands, remove never does" shape the
+		// whole file exists to prevent. An unappliable op is the same condition as an
+		// Apply that errors, and gets the same answer: stop.
+		return errors.New("dchain: rail ops accumulated with no shared memory")
 	}
 	if err := overlay.Commit(); err != nil {
 		return fmt.Errorf("dchain: rail state commit: %w", err)

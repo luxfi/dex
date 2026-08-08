@@ -11,11 +11,13 @@ import (
 	"github.com/luxfi/crypto"
 	"github.com/luxfi/database/memdb"
 	"github.com/luxfi/database/prefixdb"
+	"github.com/luxfi/database/versiondb"
 	"github.com/luxfi/dex/pkg/dex"
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/ids"
 	"github.com/luxfi/log"
 	"github.com/luxfi/runtime"
+	luxvm "github.com/luxfi/vm"
 	"github.com/luxfi/vm/chains/atomic"
 )
 
@@ -74,6 +76,112 @@ func newRailHarness(t *testing.T) *railHarness {
 		t.Fatalf("Initialize rail vm: %v", err)
 	}
 	return &railHarness{vm: vm, dSM: dSM, cSM: cSM, cChainID: cChainID, dChainID: dChainID}
+}
+
+// newUnwiredVM builds a VM in the state EVERY LIVE NETWORK IS IN TODAY: the plugin
+// server hands it a CChainID unconditionally, and SharedMemory stays nil because the
+// node wired no atomic server. It is the exact configuration under which the two
+// halves of the rail must still agree that there is no rail.
+func newUnwiredVM(t *testing.T) *VM {
+	t.Helper()
+	logger := log.NewNoOpLogger()
+	baseDB := memdb.New()
+	vm := &VM{}
+	if err := vm.Initialize(context.Background(), block.Init{
+		Genesis: []byte(testDocument),
+		Runtime: &runtime.Runtime{
+			ChainID:   ids.GenerateTestID(),
+			CChainID:  ids.GenerateTestID(),
+			NetworkID: 96369,
+			Log:       logger,
+			// SharedMemory deliberately absent.
+		},
+		DB:       prefixdb.New([]byte{1}, baseDB),
+		Log:      logger,
+		ToEngine: make(chan block.Message, 16),
+		Config:   authConfig(t),
+	}); err != nil {
+		t.Fatalf("Initialize unwired vm: %v", err)
+	}
+	if err := vm.SetState(context.Background(), uint32(luxvm.Ready)); err != nil {
+		t.Fatalf("SetState: %v", err)
+	}
+	return vm
+}
+
+// TestRail_UnwiredRailCreditsNothing pins BOTH halves of the rail to the SAME wiring
+// condition, because a rail with one end missing is not half a rail — it is a mint.
+//
+// The two halves used to disagree. Export refused without shared memory; import refused
+// only without a C chain id, and the plugin server sets a C chain id unconditionally. So
+// on a node with no atomic server — every live network, right now — 60 self-authored
+// bytes named a beneficiary and an amount and became real, spendable balance. The block
+// authenticator that exists to catch exactly that returned nil on the same nil handle,
+// reasoning that import rejects without a C chain ID; it rejects without a C chain id,
+// which was present. Two guards, both keyed to the wrong fact, and the money was free.
+//
+// The property is one sentence: WITHOUT SHARED MEMORY THERE IS NO PROOF, AND WITHOUT
+// PROOF THERE IS NO CREDIT. Execution refuses the credit, and the block that carried the
+// import is rejected rather than accepted unproven — either alone is sufficient, which is
+// the point of having both.
+func TestRail_UnwiredRailCreditsNothing(t *testing.T) {
+	vm := newUnwiredVM(t)
+	if vm.sharedMemory() != nil {
+		t.Fatal("setup: this test is only meaningful with no shared memory wired")
+	}
+	if vm.cChainID == ids.Empty {
+		t.Fatal("setup: the C chain id must be set — an absent one is the condition the old " +
+			"guard keyed on, and the whole finding is that it is present anyway")
+	}
+
+	mallory := addrOf(t, "unwired-mallory")
+	acct := Account16(dex.AuthSecp256k1, mallory)
+	var native [32]byte
+	const minted uint64 = 1_000_000_000_000
+
+	// A claim id nobody ever wrote, and an object Mallory authored herself. There is no
+	// C-side debit anywhere behind these bytes.
+	forgedID := ids.GenerateTestID()
+	forgedObject := encodeClaim(mallory, native, minted)
+
+	overlay := versiondb.New(vm.db)
+	before, err := getAvailable(overlay, acct, native)
+	if err != nil {
+		t.Fatalf("getAvailable: %v", err)
+	}
+
+	credited, ok, err := vm.executeImport(overlay, newAtomicRequests(), forgedID, forgedObject)
+	if err != nil {
+		t.Fatalf("executeImport: %v", err)
+	}
+	after, aerr := getAvailable(overlay, acct, native)
+	if aerr != nil {
+		t.Fatalf("getAvailable: %v", aerr)
+	}
+
+	if ok || credited != 0 {
+		t.Errorf("executeImport accepted a claim it cannot prove: ok=%v credited=%d — with no "+
+			"shared memory there is nothing behind these bytes but the bytes", ok, credited)
+	}
+	if after != before {
+		t.Errorf("balance moved %d -> %d on an unprovable import: %d units minted from nothing",
+			before, after, after-before)
+	}
+
+	// The block-level half, independently. It must reject rather than wave the import
+	// through, and it must say so about THIS claim.
+	blk := &Block{vm: vm, txs: []*Tx{{Type: TxImport, Body: EncodeImportBody(forgedID, forgedObject)}}}
+	if verr := blk.verifyImports(); verr == nil {
+		t.Error("verifyImports accepted a block carrying an import it had no way to authenticate; " +
+			"an unprovable import must cost the block, not become balance")
+	}
+
+	// And a block with no imports is still fine on an unwired node: the rail being absent
+	// is not an error, only crossing on it is.
+	plain := &Block{vm: vm, txs: []*Tx{depositTx(t, "unwired-plain", native, 1)}}
+	if verr := plain.verifyImports(); verr != nil {
+		t.Errorf("verifyImports rejected a block that carries no import at all: %v", verr)
+	}
 }
 
 // addrOf returns a test account's 20-byte C address. Account16 of it is the account
