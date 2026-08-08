@@ -54,8 +54,8 @@ type VM struct {
 	// runtime is the chain-scoped wiring the consensus engine hands the VM at
 	// Initialize (block.Init.Runtime). It is the source of the cross-chain atomic
 	// shared-memory handle (GetSharedMemory) and the C-Chain id the native settlement
-	// seam (atomic.go) imports from / exports to. nil when no runtime was wired
-	// (single-chain unit tests with no seam) — the seam then refuses (no mint).
+	// funding rail (atomic.go) imports from / exports to. nil when no runtime was wired
+	// (single-chain unit tests) — the rail then refuses (no mint).
 	runtime *runtime.Runtime
 	// chainID is THIS chain's id, and cChainID the C-Chain's, both resolved from the
 	// runtime. They are the partition a C->D claim is read under (import) and the
@@ -158,9 +158,9 @@ func (vm *VM) Initialize(ctx context.Context, init block.Init) error {
 
 	vm.db = init.DB
 	vm.toEngine = init.ToEngine
-	// Capture the cross-chain wiring for the native settlement seam (atomic.go). The
+	// Capture the cross-chain wiring for the funding rail (atomic.go). The
 	// runtime carries the shared-memory handle + the C-Chain id; both are absent in a
-	// single-chain unit test, where the seam refuses rather than mint.
+	// single-chain unit test, where the rail refuses rather than mint.
 	vm.runtime = init.Runtime
 	if init.Runtime != nil {
 		vm.chainID = init.Runtime.ChainID
