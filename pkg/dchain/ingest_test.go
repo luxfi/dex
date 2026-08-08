@@ -42,6 +42,7 @@ func startIngestServer(t *testing.T) (*VM, string, func()) {
 	vm := &VM{}
 	toEngine := make(chan block.Message, 64)
 	if err := vm.Initialize(context.Background(), block.Init{
+		Genesis:  []byte(testDocument),
 		DB:       db,
 		Log:      log.NewNoOpLogger(),
 		ToEngine: toEngine,

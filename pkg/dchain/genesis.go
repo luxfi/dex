@@ -124,6 +124,33 @@ func (vm *VM) recoverGenesis() ([]byte, error) {
 func (vm *VM) genesis(document, stored []byte) (*Block, error) {
 	expected := vm.canonicalGenesis(document)
 	if len(stored) == 0 {
+		// This database holds no chain, so this call FOUNDS one. Founding it
+		// from an empty document would take the genesis from the binary — the
+		// single defect this file exists to remove — and it would do so without
+		// an error, because with nothing delivered and nothing stored there is
+		// nothing for the three-way check to disagree about. The check cannot
+		// fire on the absence of its own inputs.
+		//
+		// A D-Chain is created by a P-Chain CreateChainTx, and the node feeds the
+		// VM that transaction's recorded document. So no document arriving is not
+		// a chain that has none; it is a chain whose document did not arrive,
+		// which is a delivery failure across the plugin boundary and not a state
+		// any chain is ever legitimately in. The last time this boundary was
+		// wrong, init.Genesis was ignored outright for the life of the VM and
+		// every symptom appeared somewhere else.
+		//
+		// Refusing costs a node that cannot start. Continuing costs a node that
+		// starts, looks healthy, and is alone on a chain it invented.
+		if len(document) == 0 {
+			return nil, fmt.Errorf(
+				"dchain: refusing to found a chain with no creation document. This database holds no "+
+					"chain and no document was delivered, so the only genesis available is this binary's "+
+					"default %s — which no other node would derive unless it were also started this way. "+
+					"A D-Chain's document is the dchain.json recorded in its P-Chain CreateChainTx and "+
+					"reaches the VM as InitializeRequest.GenesisBytes; an empty one means it did not "+
+					"arrive, not that the chain has none. Check what the node is passing before restarting",
+				describeGenesis(expected))
+		}
 		return expected, nil // chain is born here; Initialize records it
 	}
 
