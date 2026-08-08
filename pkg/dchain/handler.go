@@ -45,6 +45,31 @@ type dexMethod struct {
 // surface. Both transports fold over it: RegisterDEX registers each on a ZAP
 // rpc.Server; the HTTP mux (ingest.go) routes POST .../<method> to the same
 // handler. A method added here is reachable over both transports automatically.
+//
+// THE FUNDING RAIL HAS NO METHOD HERE, IN EITHER DIRECTION, AND THAT IS THE WHOLE
+// REASON IT MOVES NO VALUE TODAY. submitTx is the only caller of mempool.Add and this
+// table is the only caller of submitTx; there is no gossip handler, so a tx that is not
+// in this table cannot exist. TxImport and TxExport are therefore unreachable, which
+// means every C->D deposit would lock on activation: C debits the depositor into
+// custody, stages a claim, and nothing on D can consume it.
+//
+// The thing that used to build these was a proposer-side drive that scanned shared
+// memory and ran ORDERS off the crossing. Removing it is what made the rail carry value
+// and nothing else, so it is not coming back. What replaces it delivers a claim and
+// stops there.
+//
+// AN IMPORT METHOD IS NOT A METHOD, IT IS AN AUTHORIZATION MODEL. TxImport carries no
+// signature on purpose — a claim can only credit the account it already names, so
+// anyone may deliver one and a relayer who refuses cannot strand a depositor. That
+// makes the ingress an unauthenticated, free-to-call, value-moving endpoint, and the
+// only thing standing between it and a chain halt is that the proposer screens what it
+// cannot prove (vm.screenImports) and that an already-consumed claim needs no proof
+// (vm.proveClaim). Both of those are new. Neither had ever run in a test before the
+// authenticator was switched on, and the first thing switching it on revealed was that
+// an ordinary duplicate delivery stopped the chain permanently.
+//
+// So the order is: those hold first, then who may deliver gets decided, then a method
+// goes here. Adding one before that is adding a public halt.
 func (vm *VM) dexMethods() []dexMethod {
 	return []dexMethod{
 		{zapwire.MethodEnsureMarket, vm.handleEnsureMarket},
