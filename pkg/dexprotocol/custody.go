@@ -4,6 +4,7 @@
 package dexprotocol
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -63,6 +64,7 @@ func (l Location) String() string {
 
 var (
 	ErrClaimConsumed = errors.New("dexprotocol: this transfer object was already imported")
+	ErrClaimWidth    = errors.New("dexprotocol: encoded Claim has the wrong width")
 	ErrClaimScope    = errors.New("dexprotocol: transfer object is missing a required field")
 	ErrClaimAmount   = errors.New("dexprotocol: transfer object must move a non-zero amount")
 	ErrClaimChain    = errors.New("dexprotocol: transfer object is addressed to a different chain")
@@ -110,6 +112,65 @@ func (c *Claim) Validate() error {
 }
 
 func (c Claim) Big() *big.Int { return new(big.Int).SetBytes(c.Amount[:]) }
+
+// ClaimEncodedLen is the canonical width — every field fixed, so concatenation is
+// injective and the commitment rests on SHA-256 rather than on a parsing argument.
+const ClaimEncodedLen = 32 + 32 + 32 + 20 + 32 + 32 // id, source, dest, beneficiary, asset, amount
+
+const claimDomain = "lux.dex.claim.v1"
+
+var claimDomainTag = sha256.Sum256([]byte(claimDomain))
+
+// Encode returns the canonical encoding. Total, so a malformed claim still has a
+// well-defined commitment and a verifier can name what it rejected.
+func (c Claim) Encode() []byte {
+	b := make([]byte, ClaimEncodedLen)
+	n := 0
+	n += copy(b[n:], c.ClaimID[:])
+	n += copy(b[n:], c.Source[:])
+	n += copy(b[n:], c.Dest[:])
+	n += copy(b[n:], c.Beneficiary[:])
+	n += copy(b[n:], c.Asset[:])
+	n += copy(b[n:], c.Amount[:])
+	if n != ClaimEncodedLen {
+		panic(fmt.Sprintf("dexprotocol: claim encoder wrote %d bytes, layout says %d", n, ClaimEncodedLen))
+	}
+	return b
+}
+
+// DecodeClaim parses the canonical encoding, requiring the EXACT width. A longer
+// buffer is refused rather than truncated: accepting a suffix would let two distinct
+// wire messages decode to the same claim while carrying different attested bytes.
+func DecodeClaim(b []byte) (Claim, error) {
+	if len(b) != ClaimEncodedLen {
+		return Claim{}, fmt.Errorf("%w: got %d, want %d", ErrClaimWidth, len(b), ClaimEncodedLen)
+	}
+	var c Claim
+	n := 0
+	n += copy(c.ClaimID[:], b[n:n+32])
+	n += copy(c.Source[:], b[n:n+32])
+	n += copy(c.Dest[:], b[n:n+32])
+	n += copy(c.Beneficiary[:], b[n:n+20])
+	n += copy(c.Asset[:], b[n:n+32])
+	copy(c.Amount[:], b[n:n+32])
+	return c, nil
+}
+
+// Commitment is the claim's identity and the thing the source chain attests to:
+//
+//	commitment = SHA-256( SHA-256(domain) || canonical encoding )
+//
+// It covers the CORRIDOR (source and dest) as well as the payment, so an attestation
+// for one direction cannot be replayed as the other, and one for a different pair of
+// chains cannot be replayed here.
+func (c Claim) Commitment() ids.ID {
+	h := sha256.New()
+	h.Write(claimDomainTag[:])
+	h.Write(c.Encode())
+	var id ids.ID
+	copy(id[:], h.Sum(nil))
+	return id
+}
 
 // balance is one owner's holding of one asset on D.
 //
@@ -171,10 +232,8 @@ func (c *Custody) at(owner common.Address, asset ids.ID) *balance {
 // It is idempotent-by-refusal rather than idempotent-by-silence: a second import
 // returns ErrClaimConsumed instead of quietly succeeding, because a caller that
 // imported twice has a bug worth surfacing.
-func (c *Custody) Import(cl Claim) error {
-	if err := cl.Validate(); err != nil {
-		return err
-	}
+func (c *Custody) Import(v VerifiedClaim) error {
+	cl := v.Claim()
 	if cl.Dest != c.chainID {
 		return fmt.Errorf("%w: addressed to %s, this is %s", ErrClaimChain, cl.Dest, c.chainID)
 	}
@@ -185,6 +244,113 @@ func (c *Custody) Import(cl Claim) error {
 	b := c.at(cl.Beneficiary, cl.Asset)
 	b.available.Add(b.available, cl.Big())
 	return nil
+}
+
+// --- Authenticated claims: an unattested transfer must not compile ----------
+//
+// THIS WAS A REAL DEFECT, NOT A HYPOTHETICAL. Import used to take a bare Claim.
+// Every other value-creating path in this package already had the sentinel —
+// VerifiedExecution, VerifiedOrder, AcceptedBlock — and the export side has three
+// storage domains. The import side, the ONLY path that creates value on D, took an
+// exported struct with exported fields. A literal
+//
+//	Claim{Beneficiary: attacker, Asset: usdc, Amount: 1e30, ...}
+//
+// returned nil and credited 1e30. Validate() checks that fields are PRESENT, which
+// is not the same question as whether anyone said them.
+//
+// It survived because permissionless delivery reads as a safety property: "anyone
+// may deliver a claim, because delivering it can only credit the account it already
+// names." That is true only if the claim is genuine. Permissionless delivery plus an
+// unauthenticated object means anyone credits themselves — the argument for the
+// feature quietly assumed the check that was missing.
+
+// ClaimVerifier attests that the SOURCE chain really wrote this transfer object. In
+// production that attestation is the object's presence in the source chain's
+// shared-memory partition — only that chain can write there. It is an interface so
+// this package depends on the ABSTRACTION and never on a socket, a database or a
+// live peer chain.
+type ClaimVerifier interface {
+	VerifyClaim(commitment ids.ID, attestation []byte) error
+}
+
+// ClaimContext is everything claim verification may consult. A VALUE, like every
+// other context here: if a check cannot be made from this struct plus the witness
+// bytes, it does not belong in the consensus path.
+//
+// Dest is the verifier's OWN chain id, never read from the witness. A witness that
+// named its own destination would be asserting the one thing that stops a transfer
+// addressed elsewhere from being credited here.
+type ClaimContext struct {
+	Dest     ids.ID
+	Verifier ClaimVerifier
+}
+
+var (
+	ErrNoClaimVerifier = errors.New("dexprotocol: claim verification requires a verifier")
+	ErrBadClaim        = errors.New("dexprotocol: transfer object attestation did not verify")
+)
+
+// VerifiedClaim is a transfer object whose attestation has been checked. It cannot
+// be constructed outside this package: the interface method is unexported, so no
+// other package can implement it, and the concrete type is unexported, so no other
+// package can build one.
+type VerifiedClaim interface {
+	Claim() Claim
+	Commitment() ids.ID
+	// verifiedClaim is unexported and therefore unimplementable elsewhere. It is
+	// the enforcement; do not export it.
+	verifiedClaim()
+}
+
+type verifiedClaim struct {
+	claim      Claim
+	commitment ids.ID
+}
+
+func (v verifiedClaim) Claim() Claim      { return v.claim }
+func (v verifiedClaim) Commitment() ids.ID { return v.commitment }
+func (verifiedClaim) verifiedClaim()      {}
+
+// VerifyClaim is the ONLY producer of a VerifiedClaim. It checks that the object is
+// well formed, that it is addressed to THIS chain as the verifier knows it, and that
+// its commitment carries a valid attestation from the source chain.
+func VerifyClaim(witness []byte, ctx ClaimContext) (VerifiedClaim, error) {
+	if ctx.Verifier == nil {
+		return nil, ErrNoClaimVerifier
+	}
+	if ctx.Dest == ids.Empty {
+		return nil, fmt.Errorf("%w: context names no destination chain", ErrClaimScope)
+	}
+	cl, err := DecodeClaim(claimBody(witness))
+	if err != nil {
+		return nil, err
+	}
+	if err := cl.Validate(); err != nil {
+		return nil, err
+	}
+	if cl.Dest != ctx.Dest {
+		return nil, fmt.Errorf("%w: addressed to %s, verifying on %s", ErrClaimChain, cl.Dest, ctx.Dest)
+	}
+	commitment := cl.Commitment()
+	if err := ctx.Verifier.VerifyClaim(commitment, claimAttestation(witness)); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrBadClaim, err)
+	}
+	return verifiedClaim{claim: cl, commitment: commitment}, nil
+}
+
+func claimBody(witness []byte) []byte {
+	if len(witness) < ClaimEncodedLen {
+		return witness
+	}
+	return witness[:ClaimEncodedLen]
+}
+
+func claimAttestation(witness []byte) []byte {
+	if len(witness) <= ClaimEncodedLen {
+		return nil
+	}
+	return witness[ClaimEncodedLen:]
 }
 
 // Reserve moves value from available to reserved when an order is placed. Nothing

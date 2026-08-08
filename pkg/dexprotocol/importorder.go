@@ -77,10 +77,13 @@ type Result struct {
 // which deliberately does not live in this package.
 func ImportAndOrder(
 	c *Custody, b *Book,
-	cl Claim, witness []byte, ctx OrderContext, lots uint64,
+	vc VerifiedClaim, witness []byte, ctx OrderContext, lots uint64,
 ) (Result, error) {
-	// The only real failure. Nothing has moved yet.
-	if err := c.Import(cl); err != nil {
+	// The only real failure. Nothing has moved yet. The claim arrives ALREADY
+	// VERIFIED — an unattested transfer cannot reach this function, because
+	// VerifiedClaim is unimplementable outside this package.
+	cl := vc.Claim()
+	if err := c.Import(vc); err != nil {
 		return Result{}, err
 	}
 

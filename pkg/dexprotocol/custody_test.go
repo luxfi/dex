@@ -28,6 +28,29 @@ func claim(id byte, to common.Address, asset ids.ID, amt int64) Claim {
 	return c
 }
 
+
+// okClaims attests anything — the tests exercise the LIFECYCLE, and the refusal
+// path has its own dedicated tests below.
+type okClaims struct{}
+
+func (okClaims) VerifyClaim(ids.ID, []byte) error { return nil }
+
+type rejectClaims struct{}
+
+func (rejectClaims) VerifyClaim(ids.ID, []byte) error { return errors.New("nope") }
+
+// attested runs a claim through the real verifier so tests hold a genuine
+// VerifiedClaim. There is deliberately no shortcut that fabricates one: if a test
+// could mint a VerifiedClaim, so could production code.
+func attested(t *testing.T, cl Claim) VerifiedClaim {
+	t.Helper()
+	v, err := VerifyClaim(append(cl.Encode(), 0xA7, 0x7E), ClaimContext{Dest: cl.Dest, Verifier: okClaims{}})
+	if err != nil {
+		t.Fatalf("attesting a well-formed claim failed: %v", err)
+	}
+	return v
+}
+
 func avail(t *testing.T, c *Custody, who common.Address, asset ids.ID) *big.Int {
 	t.Helper()
 	a, _, ok := c.Balance(who, asset)
@@ -54,14 +77,14 @@ func TestImportIsExactlyOnce(t *testing.T) {
 	c := NewCustody(dChain)
 	cl := claim(1, alice, testUSDC, 100)
 
-	if err := c.Import(cl); err != nil {
+	if err := c.Import(attested(t, cl)); err != nil {
 		t.Fatal(err)
 	}
 	if got := avail(t, c, alice, testUSDC); got.Cmp(n(100)) != 0 {
 		t.Fatalf("credited %s, want 100", got)
 	}
 	for i := 0; i < 3; i++ {
-		if err := c.Import(cl); !errors.Is(err, ErrClaimConsumed) {
+		if err := c.Import(attested(t, cl)); !errors.Is(err, ErrClaimConsumed) {
 			t.Fatalf("replay %d: got %v, want ErrClaimConsumed", i, err)
 		}
 	}
@@ -76,7 +99,7 @@ func TestImportRefusesForeignClaim(t *testing.T) {
 	c := NewCustody(dChain)
 	cl := claim(1, alice, testUSDC, 100)
 	cl.Dest = ids.ID{0xEE}
-	if err := c.Import(cl); !errors.Is(err, ErrClaimChain) {
+	if err := c.Import(attested(t, cl)); !errors.Is(err, ErrClaimChain) {
 		t.Fatalf("got %v, want ErrClaimChain", err)
 	}
 	if got := avail(t, c, alice, testUSDC); got.Sign() != 0 {
@@ -89,7 +112,7 @@ func TestImportRefusesForeignClaim(t *testing.T) {
 // twice — once as a resting order and once as an exit.
 func TestReservedValueCannotLeaveD(t *testing.T) {
 	c := NewCustody(dChain)
-	if err := c.Import(claim(1, alice, testUSDC, 100)); err != nil {
+	if err := c.Import(attested(t, claim(1, alice, testUSDC, 100))); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Reserve(alice, testUSDC, n(80)); err != nil {
@@ -125,10 +148,10 @@ func TestReservedValueCannotLeaveD(t *testing.T) {
 // the whole point of importing first: a million trades cost zero boundary crossings.
 func TestTradeMovesValueWithoutCrossingTheBoundary(t *testing.T) {
 	c := NewCustody(dChain)
-	if err := c.Import(claim(1, alice, testUSDC, 100)); err != nil {
+	if err := c.Import(attested(t, claim(1, alice, testUSDC, 100))); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Import(claim(2, bob, testLUX, 5)); err != nil {
+	if err := c.Import(attested(t, claim(2, bob, testLUX, 5))); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Reserve(alice, testUSDC, n(100)); err != nil {
@@ -173,7 +196,7 @@ func TestRoundTripConserves(t *testing.T) {
 
 	credit := func(id byte, who common.Address, amt int64) {
 		t.Helper()
-		if err := c.Import(claim(id, who, testUSDC, amt)); err != nil {
+		if err := c.Import(attested(t, claim(id, who, testUSDC, amt))); err != nil {
 			t.Fatal(err)
 		}
 		imported.Add(imported, n(amt))
@@ -252,7 +275,7 @@ func TestCustodyConservesUnderRandomOperations(t *testing.T) {
 		case 0:
 			cl := claim(0, actor, testUSDC, amt.Int64())
 			cl.ClaimID = seqID(0xC0)
-			if err := c.Import(cl); err != nil {
+			if err := c.Import(attested(t, cl)); err != nil {
 				t.Fatalf("step %d import: %v", step, err)
 			}
 			imported.Add(imported, amt)
@@ -314,7 +337,7 @@ func TestFailedOrderStillLandsTheMoney(t *testing.T) {
 	ctx.BlockTime = 900 // D is past the deadline
 
 	// Import first, unconditionally.
-	if err := c.Import(cl); err != nil {
+	if err := c.Import(attested(t, cl)); err != nil {
 		t.Fatalf("import must not depend on the order: %v", err)
 	}
 	// Then attempt the order; it legitimately fails.
@@ -355,5 +378,94 @@ func TestLocationNames(t *testing.T) {
 		if got := l.String(); got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
+	}
+}
+
+// --- THE P0 REGRESSION -------------------------------------------------------
+//
+// Import used to take a bare Claim. A struct literal naming an attacker and 1e30
+// returned nil and credited it. These tests pin the fix.
+//
+// The strongest statement is not a test at all: `c.Import(Claim{...})` NO LONGER
+// COMPILES, because Claim does not implement VerifiedClaim and the interface's
+// method is unexported. What is left to test is that the one producer refuses what
+// it should.
+
+// A claim with no attestation cannot be verified, so it can never reach Import.
+func TestUnattestedClaimCannotMint(t *testing.T) {
+	c := NewCustody(dChain)
+	attacker := common.Address{0xBA, 0xD0}
+	var huge [32]byte
+	new(big.Int).Exp(big.NewInt(10), big.NewInt(30), nil).FillBytes(huge[:])
+	forged := Claim{
+		ClaimID: ids.ID{0xF0}, Source: cChain, Dest: dChain,
+		Beneficiary: attacker, Asset: testUSDC, Amount: huge,
+	}
+
+	// No verifier at all.
+	if _, err := VerifyClaim(forged.Encode(), ClaimContext{Dest: dChain}); !errors.Is(err, ErrNoClaimVerifier) {
+		t.Fatalf("got %v, want ErrNoClaimVerifier", err)
+	}
+	// A verifier that refuses.
+	_, err := VerifyClaim(forged.Encode(), ClaimContext{Dest: dChain, Verifier: rejectClaims{}})
+	if !errors.Is(err, ErrBadClaim) {
+		t.Fatalf("got %v, want ErrBadClaim", err)
+	}
+	// Nothing was credited by either attempt.
+	if got := avail(t, c, attacker, testUSDC); got.Sign() != 0 {
+		t.Fatalf("an unverified claim credited %s", got)
+	}
+	if c.Owned(testUSDC).Sign() != 0 {
+		t.Fatalf("D owns %s from nothing", c.Owned(testUSDC))
+	}
+}
+
+// The destination is the VERIFIER's view, never the witness's claim about itself.
+// Otherwise a transfer addressed elsewhere could be credited here by asserting it.
+func TestClaimCannotAssertItsOwnDestination(t *testing.T) {
+	elsewhere := ids.ID{0xEE}
+	cl := claim(1, alice, testUSDC, 100)
+	cl.Dest = elsewhere
+	if _, err := VerifyClaim(cl.Encode(), ClaimContext{Dest: dChain, Verifier: okClaims{}}); !errors.Is(err, ErrClaimChain) {
+		t.Fatalf("got %v, want ErrClaimChain", err)
+	}
+	// And a context with no destination refuses outright rather than matching anything.
+	if _, err := VerifyClaim(cl.Encode(), ClaimContext{Verifier: okClaims{}}); !errors.Is(err, ErrClaimScope) {
+		t.Fatalf("got %v, want ErrClaimScope", err)
+	}
+}
+
+// The commitment covers the corridor, so an attestation for one direction or one
+// pair of chains cannot be replayed as another.
+func TestClaimCommitmentBindsTheCorridor(t *testing.T) {
+	base := claim(1, alice, testUSDC, 100)
+	want := base.Commitment()
+	for name, mutate := range map[string]func(*Claim){
+		"ClaimID":     func(c *Claim) { c.ClaimID[31] ^= 1 },
+		"Source":      func(c *Claim) { c.Source[31] ^= 1 },
+		"Dest":        func(c *Claim) { c.Dest[31] ^= 1 },
+		"Beneficiary": func(c *Claim) { c.Beneficiary[19] ^= 1 },
+		"Asset":       func(c *Claim) { c.Asset[31] ^= 1 },
+		"Amount":      func(c *Claim) { c.Amount[31] ^= 1 },
+		"reversed":    func(c *Claim) { c.Source, c.Dest = c.Dest, c.Source },
+	} {
+		cl := base
+		mutate(&cl)
+		if cl.Commitment() == want {
+			t.Fatalf("%s: commitment unchanged — that field is not attested", name)
+		}
+	}
+}
+
+func TestClaimDecodeRefusesWrongWidth(t *testing.T) {
+	cl := claim(1, alice, testUSDC, 100)
+	for _, b := range [][]byte{cl.Encode()[:ClaimEncodedLen-1], append(cl.Encode(), 0), nil} {
+		if _, err := DecodeClaim(b); !errors.Is(err, ErrClaimWidth) {
+			t.Fatalf("width %d: got %v, want ErrClaimWidth", len(b), err)
+		}
+	}
+	got, err := DecodeClaim(cl.Encode())
+	if err != nil || got != cl {
+		t.Fatalf("round trip: %+v %v", got, err)
 	}
 }
