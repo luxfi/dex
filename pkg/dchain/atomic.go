@@ -45,7 +45,7 @@ import (
 //	beneficiary(20) | asset(32) | amount(8)
 //
 // It is byte-identical with precompile/dex native_wire.go, pinned by the golden
-// vector in atomic_seam_wire_test.go. The two repos cannot import each other, so that
+// vector in atomic_wire_test.go. The two repos cannot import each other, so that
 // vector is the whole cross-repo contract; a one-sided change fails at test time
 // rather than in consensus.
 //

@@ -79,9 +79,9 @@ type Block struct {
 	outcomes []txOutcome
 
 	// atomic is the block's accumulated cross-chain shared-memory operations (the
-	// native settlement seam's C->D removes / D->C puts), derived by execute and
+	// funding rail's C->D removes / D->C puts), derived by execute and
 	// applied atomically with the state overlay at Accept (atomic.go commitAtomic).
-	// nil/empty for a block with no seam txs. Stashed on the block alongside the
+	// nil/empty for a block with no crossings. Stashed on the block alongside the
 	// overlay so the same instance a later Accept resolves carries both.
 	atomic *atomicRequests
 }
@@ -263,9 +263,9 @@ func (b *Block) Accept(ctx context.Context) error {
 		return err
 	}
 
-	// Commit the overlay AND the block's cross-chain seam operations (C->D removes /
-	// D->C puts) in one atomic write (atomic.go). With no seam txs this is the plain
-	// overlay commit; with seam txs the shared-memory ops land atomically with the
+	// Commit the overlay AND the block's cross-chain operations (C->D removes /
+	// D->C puts) in one atomic write (atomic.go). With no crossings this is the plain
+	// overlay commit; with them the shared-memory ops land atomically with the
 	// state so a consumed order / produced settlement can never diverge from the
 	// committed ledger.
 	if err := b.vm.commitAtomic(b.overlay, b.atomic); err != nil {
@@ -324,7 +324,7 @@ type execResult struct {
 	fills    []dex.DEXTrade
 	rows     []dex.DEXOrder  // canonical resting rows across all touched markets
 	outcomes []txOutcome     // one per tx, in block order
-	atomic   *atomicRequests // cross-chain seam removes/puts to apply at Accept
+	atomic   *atomicRequests // cross-chain removes/puts to apply at Accept
 }
 
 // execute runs the block's txs against the overlay, writing order/market/trade
@@ -361,7 +361,7 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 
 	var allFills []dex.DEXTrade
 	var tradeSeq uint64
-	// ar accumulates the block's cross-chain seam operations (C->D removes / D->C
+	// ar accumulates the block's cross-chain operations (C->D removes / D->C
 	// puts); it is applied atomically with this overlay at Accept. Empty for a block
 	// with no TxImport/TxExport.
 	ar := newAtomicRequests()
