@@ -56,69 +56,35 @@ const (
 	// value-checked. Body = zapwire OpenMarket payload (96B): poolId[32] +
 	// baseAsset[32] + quoteAsset[32].
 	TxOpenMarket
-	// TxImport CONSUMES a C->D atomic order object and funds the taker's native D
-	// account with the recorded asset (atomic.go executeImport). Body = orderID[32]:
-	// the shared-memory key the 0x9999 precompile PUT the C->D object under. It is NOT
-	// signature-authorized — its authority is the consumed cross-chain object (the
-	// taker already authenticated + locked on C), exactly as the proxy's ImportTx is
-	// authorized by the UTXO it consumes, not a per-account signature.
+	// TxImport CONSUMES a C->D funding claim and credits its BENEFICIARY (atomic.go
+	// executeImport). Body = claimID[32] | claim[60].
+	//
+	// It is NOT signature-authorized, and that is a property rather than an omission:
+	// a claim names the account it credits, so delivering one can only ever pay the
+	// party it already names. Anyone may deliver it, which is what stops a relayer who
+	// refuses to act from stranding a depositor. Its authority is the consumed object
+	// — the depositor already authenticated and paid on C — exactly as a platformvm
+	// ImportTx is authorized by the UTXO it consumes.
 	TxImport
-	// TxExport DEBITS the taker's settled native D balance and writes a D->C atomic
-	// settlement object the precompile's ImportSettlement consumes (atomic.go
-	// executeExport). Body = orderID[32] | asset[32] | amount[8] | spent[8]. Also
-	// object-authorized (the D->C object it produces is owned by the order's recorded
-	// owner, so it can only settle value back to the rightful taker), so no signature.
+	// TxExport DEBITS the signer's available balance and writes a C-bound funding
+	// claim the 0x9999 precompile consumes exactly once (atomic.go executeExport).
+	// Body = owner[16] | asset[32] | amount[8] | beneficiary[20].
+	//
+	// It is SIGNED, like every other tx that removes value from an account. It draws
+	// on a real account's balance and names where the value lands, so only that
+	// account's own signer may authorize one — txWireUser binds the body's owner to
+	// the recovered signer, exactly as it does for a withdraw.
 	TxExport
-	// TxOrderSubmit CROSSES THE BOOK for an imported cross-chain order. Body =
-	// orderID[32]. It is the OBJECT-AUTHORIZED sibling of TxSubmit, exactly as
-	// TxImport is the object-authorized sibling of TxDeposit and TxExport of
-	// TxWithdraw — this chain has two ways an operation is authorized, a signature
-	// over the tx or a cross-chain object the taker already authorized on C, and the
-	// tx TYPE is where that distinction lives.
-	//
-	// It cannot be a plain TxSubmit. TxSubmit.requiresAuth() is true, so a signature-
-	// free one is refused at parse (parseTxFrame), at the RPC edge, and again in
-	// authorizeTx; the only ways to emit one from the seam would be to weaken that
-	// gate — which would let ANY unsigned submit move ANY account's funds — or to
-	// forge a signature nobody holds. So the seam gets its own type and keeps
-	// TxSubmit's gate exactly as strong as it was.
-	//
-	// It carries the order id ALONE. The operation was declared once, in the C->D
-	// object, and recorded in the escrow at import; execute derives the zapwire Submit
-	// frame from that escrow (seamSubmitBody) and runs it through the IDENTICAL
-	// custody -> match -> settle path a signed dex_submit takes. Restating market/side/
-	// limit/size on this wire would create a second copy of the taker's operation for
-	// the two to be cross-checked against each other, which is exactly the restatement
-	// the C-side seam removed.
-	//
-	// Injecting one is harmless: the escrow must exist and be `open`, which only this
-	// block's own TxImport can make true, and the order it runs is the taker's OWN
-	// recorded operation. A replay finds the escrow already `submitted` and rejects.
-	TxOrderSubmit
 )
 
-// requiresAuth reports whether a tx type moves USER funds and therefore must
-// carry a signature authorizing the asserted account. The order operations and
-// the two custody legs do; market admin (ensure/open) moves no user value and is
-// unauthenticated (it has no asserted account to bind).
+// requiresAuth reports whether a tx type moves USER funds out of an account and
+// therefore must carry a signature authorizing the asserted account. The order
+// operations, the two custody legs and the export do; market admin (ensure/open)
+// moves no user value and is unauthenticated (it has no asserted account to bind);
+// an import moves value INTO the account a claim already names, so it needs none.
 func (t TxType) requiresAuth() bool {
 	switch t {
-	case TxPlace, TxCancel, TxSubmit, TxDeposit, TxWithdraw:
-		return true
-	default:
-		return false
-	}
-}
-
-// isSeamDriven reports whether a tx is produced by the PROPOSER-SIDE DRIVE rather
-// than submitted by a client. Drive txs are a pure function of committed state
-// (drive.go), so the next BuildBlock regenerates exactly the ones that are still
-// warranted. Requeuing them into the mempool on a rejected block therefore cannot
-// help and can only duplicate: the block would carry each leg twice, once from the
-// mempool and once from the drive.
-func (t TxType) isSeamDriven() bool {
-	switch t {
-	case TxImport, TxOrderSubmit, TxExport:
+	case TxPlace, TxCancel, TxSubmit, TxDeposit, TxWithdraw, TxExport:
 		return true
 	default:
 		return false
@@ -142,27 +108,13 @@ func (t TxType) String() string {
 	case TxOpenMarket:
 		return "open_market"
 	case TxImport:
-		return "seam_import"
+		return "import"
 	case TxExport:
-		return "seam_export"
-	case TxOrderSubmit:
-		return "seam_submit"
+		return "export"
 	default:
 		return "unknown"
 	}
 }
-
-// seamImportBodySize is the TxImport body width: orderID[32] | object[118]. The
-// object's own bytes ride in the transaction so execution is a pure function of the
-// block and replays byte-identically forever (see EncodeSeamImportBody).
-// seamExportBodySize is the TxExport body width: orderID[32] | asset[32] |
-// amount[8] | spent[8].
-// seamSubmitBodySize is the TxOrderSubmit body width: orderID[32].
-const (
-	seamImportBodySize = 32 + seamOrderObjectSize
-	seamExportBodySize = 32 + 32 + 8 + 8
-	seamSubmitBodySize = 32
-)
 
 // Errors returned by the tx layer.
 var (
@@ -316,11 +268,9 @@ func bodySize(t TxType) (int, bool) {
 	case TxOpenMarket:
 		return zapwire.OpenMarketReqSize, true
 	case TxImport:
-		return seamImportBodySize, true
+		return importBodySize, true
 	case TxExport:
-		return seamExportBodySize, true
-	case TxOrderSubmit:
-		return seamSubmitBodySize, true
+		return exportBodySize, true
 	default:
 		return 0, false
 	}
@@ -436,10 +386,3 @@ func decodeTxList(b []byte) ([]*Tx, error) {
 	return txs, nil
 }
 
-// EncodeSeamSubmitBody builds a TxOrderSubmit body: orderID[32] — the imported
-// order whose recorded operation this tx runs. Exported for the keeper / SDK / tests.
-func EncodeSeamSubmitBody(orderID ids.ID) []byte {
-	b := make([]byte, seamSubmitBodySize)
-	copy(b, orderID[:])
-	return b
-}
