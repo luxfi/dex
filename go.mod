@@ -1,6 +1,6 @@
 module github.com/luxfi/dex
 
-go 1.26.5
+go 1.26.4
 
 require (
 	github.com/btcsuite/btcd v0.24.2
@@ -84,7 +84,7 @@ require (
 	github.com/grandcat/zeroconf v1.0.0 // indirect
 	github.com/hanzoai/vfs v0.4.3 // indirect
 	github.com/hanzos3/crc64nvme v1.1.2 // indirect
-	github.com/hanzos3/go v1.0.1 // indirect
+	github.com/hanzos3/go v1.0.2 // indirect
 	github.com/hanzos3/md5-simd v1.1.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
@@ -118,7 +118,7 @@ require (
 	github.com/luxfi/validators v1.3.1 // indirect
 	github.com/luxfi/warp v1.24.1 // indirect
 	github.com/luxfi/zap v1.2.6 // indirect
-	github.com/luxfi/zapdb v1.10.4 // indirect
+	github.com/luxfi/zapdb v1.10.6 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
