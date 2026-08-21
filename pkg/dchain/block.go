@@ -560,10 +560,25 @@ func (b *Block) execute(ctx context.Context, overlay *versiondb.Database) (execR
 					return execResult{}, err
 				}
 			}
-			if err := writeMarketAssets(overlay, pid, base, quote); err != nil {
-				return execResult{}, err
+			// A market's (base,quote) binding is decided ONCE. A second open_market
+			// naming DIFFERENT assets is REJECTED, not applied: a resting order
+			// locked under the live binding would then settle against an asset it
+			// never locked — spending a zero locked balance and aborting the block,
+			// which halts the chain. Re-binding the SAME assets is a no-op. Either
+			// way this is a decided per-tx outcome, never a revert.
+			cur0, cur1, bound, rerr := readMarketAssets(overlay, pid)
+			if rerr != nil {
+				return execResult{}, rerr
 			}
-			oc := txOutcome{txID: txID, typ: tx.Type, status: zapwire.StatusPlaced}
+			status := uint8(zapwire.StatusPlaced)
+			if !bound {
+				if err := writeMarketAssets(overlay, pid, base, quote); err != nil {
+					return execResult{}, err
+				}
+			} else if cur0 != base || cur1 != quote {
+				status = zapwire.StatusRejected
+			}
+			oc := txOutcome{txID: txID, typ: tx.Type, status: status}
 			outcomes = append(outcomes, oc)
 			if err := markSeen(overlay, txID, oc); err != nil {
 				return execResult{}, err
@@ -987,19 +1002,17 @@ func (b *Block) decrementMakerReserves(db *versiondb.Database, poolID [32]byte, 
 	// several fills in one cross, though typically one).
 	consumed := map[uint64]uint64{}
 	for _, f := range fills {
-		var makerOrderID, amt uint64
+		var amt uint64
 		if takerSide == sideBuy {
-			makerOrderID = f.SellOrder
 			if f.BaseUnits != nil && f.BaseUnits.IsUint64() {
 				amt = f.BaseUnits.Uint64() // maker reserve is in base
 			}
 		} else {
-			makerOrderID = f.BuyOrder
 			if f.QuoteUnits != nil && f.QuoteUnits.IsUint64() {
 				amt = f.QuoteUnits.Uint64() // maker reserve is in quote
 			}
 		}
-		consumed[makerOrderID] += amt
+		consumed[makerOf(f, takerSide)] += amt
 	}
 	for makerOrderID, amt := range consumed {
 		asset, reserve, ok, err := getOrderLock(db, poolID, makerOrderID)

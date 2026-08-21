@@ -260,11 +260,22 @@ func settleFills(db database.KeyValueReaderWriterDeleter, poolID [32]byte, taker
 //
 // Settlement fails closed if full account identity is unavailable. Falling back
 // to matcher UserID would make compact-handle collisions value-bearing — a critical theft bug.
-func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f dex.Trade, takerSide uint8) (userKey, error) {
-	makerOrderID := f.SellOrder // taker bought -> maker sold
-	if takerSide == sideSell {
-		makerOrderID = f.BuyOrder // taker sold -> maker bought
+// makerOf names the resting maker's order id in a fill, given the taker's side.
+// The taker's own order sits on its own leg; the maker rests on the opposite one.
+// Every settlement reader — makerSettleKey (identity) and decrementMakerReserves
+// (reserve) — resolves the maker through THIS one predicate, so a single
+// taker-side byte can never name two different legs. The predicate matches the
+// one settleFills and decrementMakerReserves apply to the value legs: the taker
+// bought only when its side is sideBuy; every other byte is a sell.
+func makerOf(f dex.Trade, takerSide uint8) uint64 {
+	if takerSide == sideBuy {
+		return f.SellOrder // taker bought -> maker sold
 	}
+	return f.BuyOrder // taker sold -> maker bought
+}
+
+func makerSettleKey(db database.KeyValueReader, poolID [32]byte, f dex.Trade, takerSide uint8) (userKey, error) {
+	makerOrderID := makerOf(f, takerSide)
 	u, ok, err := getOrderUser(db, poolID, makerOrderID)
 	if err != nil {
 		return userKey{}, err
