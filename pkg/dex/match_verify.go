@@ -247,7 +247,21 @@ func orderToFlatTaker(order *Order) DEXOrder {
 	}
 	t.Remaining = t.Quantity
 	if order.Type == Market {
-		t.Price = DEXPrice{Integer: ^uint64(0), Fraction: ^uint64(0)}
+		// A market order crosses every resting level, and WHICH price does that
+		// depends on the side. A market BUY sits on the bid and crosses any ask at
+		// or below it, so the maximal price sweeps the book. A market SELL sits on
+		// the ask and crosses any bid at or above it — the maximal price crosses
+		// NOTHING, because no bid is ever above +inf.
+		//
+		// Given the maximum for both, every market sell matched nothing in the
+		// shadow, compared empty against empty, and was counted VERIFIED. An
+		// operator watching Verified climb with Divergences at zero could not see
+		// that an entire order type was being waved through unchecked.
+		if t.Side == sideToDEX(Sell) {
+			t.Price = DEXPrice{Integer: 0, Fraction: 0}
+		} else {
+			t.Price = DEXPrice{Integer: ^uint64(0), Fraction: ^uint64(0)}
+		}
 	} else {
 		t.Price = priceRowFor(orderPriceUnits(order))
 	}
