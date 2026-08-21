@@ -138,3 +138,43 @@ func TestVerifyOrderForMode_StrictPQAcceptsPQ(t *testing.T) {
 		t.Fatalf("VerifyOrderForMode(StrictPQ, *SignedOrderPQ): %v", err)
 	}
 }
+
+// TestVerifyOrderPQ_BindsAuthorizationScope pins that the strict-PQ path binds
+// the same authorization scope the classical path does: a captured order does
+// not replay onto another chain or network, or after it expires. Mutating any
+// scope field breaks the ML-DSA signature because VerifyOrderPQ folds ChainID,
+// NetworkID and Expiry into the shared SigningHash.
+func TestVerifyOrderPQ_BindsAuthorizationScope(t *testing.T) {
+	priv, pubBytes, order := signingMaterial(t)
+	sender := AddressFromMLDSAPubKey(pubBytes)
+	chain := [32]byte{0x11, 0x22, 0x33}
+
+	signed := SignedOrder{Order: order, Sender: sender, ChainID: chain, NetworkID: 7, Expiry: 1000}
+	hash, err := signed.SigningHash()
+	if err != nil {
+		t.Fatalf("SigningHash: %v", err)
+	}
+	sig, err := priv.Sign(rand.Reader, hash[:], nil)
+	if err != nil {
+		t.Fatalf("mldsa sign: %v", err)
+	}
+	base := SignedOrderPQ{
+		Order: order, Sig: sig, PubKey: pubBytes, Sender: sender,
+		ChainID: chain, NetworkID: 7, Expiry: 1000,
+	}
+	if err := VerifyOrderPQ(&base); err != nil {
+		t.Fatalf("a scoped PQ order must verify under its own scope: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*SignedOrderPQ){
+		"chain":   func(o *SignedOrderPQ) { o.ChainID[0] ^= 0xff },
+		"network": func(o *SignedOrderPQ) { o.NetworkID++ },
+		"expiry":  func(o *SignedOrderPQ) { o.Expiry++ },
+	} {
+		bad := base
+		mutate(&bad)
+		if err := VerifyOrderPQ(&bad); err == nil {
+			t.Fatalf("mutating the %s scope must break the PQ order signature", name)
+		}
+	}
+}

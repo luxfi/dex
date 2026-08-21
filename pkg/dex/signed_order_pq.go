@@ -50,6 +50,14 @@ type SignedOrderPQ struct {
 	// the signature, so a malicious party cannot substitute their
 	// own pubkey on someone else's order.
 	Sender common.Address
+	// ChainID, NetworkID and Expiry are the authorization scope,
+	// mirroring SignedOrder so the shared SigningHash binds the
+	// same chain, network and deadline for a strict-PQ order as for
+	// a classical one — a captured order does not replay onto
+	// another chain or after it expires under either scheme.
+	ChainID   [32]byte
+	NetworkID uint32
+	Expiry    uint64
 }
 
 // HasPQEvidence implements pq.PQEvidencer. A non-nil order with a
@@ -100,7 +108,13 @@ func VerifyOrderPQ(order *SignedOrderPQ) error {
 	// across classical + strict-PQ paths — a client can compute
 	// one digest and sign it with whichever scheme the chain
 	// requires.
-	asClassical := SignedOrder{Order: order.Order, Sender: order.Sender}
+	asClassical := SignedOrder{
+		Order:     order.Order,
+		Sender:    order.Sender,
+		ChainID:   order.ChainID,
+		NetworkID: order.NetworkID,
+		Expiry:    order.Expiry,
+	}
 	hash, err := asClassical.SigningHash()
 	if err != nil {
 		return fmt.Errorf("lx/dex: SigningHash: %w", err)
