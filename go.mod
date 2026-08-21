@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/luxfi/consensus v1.36.2
+	github.com/luxfi/consensus v1.36.3
 	github.com/luxfi/crypto v1.20.2
 	github.com/luxfi/database v1.21.1
 	github.com/luxfi/geth v1.20.1
