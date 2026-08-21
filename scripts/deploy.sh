@@ -3,6 +3,9 @@ set -euo pipefail
 
 # LX Deployment Script
 # Usage: ./deploy.sh [staging|production] [action]
+#
+# Deploys the ghcr.io/luxfi/dex image that .github/workflows/docker.yml publishes.
+# Tag comes from `git describe`, so deploy from a commit whose tag CI has built.
 
 ENVIRONMENT=${1:-staging}
 ACTION=${2:-deploy}
@@ -35,33 +38,11 @@ check_prerequisites() {
     
     command -v kubectl >/dev/null 2>&1 || error "kubectl is not installed"
     command -v helm >/dev/null 2>&1 || error "helm is not installed"
-    command -v docker >/dev/null 2>&1 || error "docker is not installed"
-    
+
     # Check kubectl connection
     kubectl cluster-info >/dev/null 2>&1 || error "kubectl is not configured or cluster is unreachable"
-    
-    log "Prerequisites check passed"
-}
 
-# Build and push Docker images
-build_images() {
-    log "Building Docker images..."
-    
-    # Build dexd image (canonical Dockerfile, CPU)
-    docker build -f Dockerfile -t registry.lux.network/lxdex:${VERSION} .
-    docker build -f Dockerfile -t registry.lux.network/lxdex:${ENVIRONMENT} .
-    
-    # Build UI image
-    docker build -f docker/ui/Dockerfile -t registry.lux.network/lxdex-ui:${VERSION} ./ui
-    docker build -f docker/ui/Dockerfile -t registry.lux.network/lxdex-ui:${ENVIRONMENT} ./ui
-    
-    log "Pushing images to registry..."
-    docker push registry.lux.network/lxdex:${VERSION}
-    docker push registry.lux.network/lxdex:${ENVIRONMENT}
-    docker push registry.lux.network/lxdex-ui:${VERSION}
-    docker push registry.lux.network/lxdex-ui:${ENVIRONMENT}
-    
-    log "Images built and pushed successfully"
+    log "Prerequisites check passed"
 }
 
 # Deploy using kubectl
@@ -211,7 +192,6 @@ main() {
                 fi
             fi
             
-            build_images
             deploy_helm  # or deploy_kubectl
             run_tests
             show_status
