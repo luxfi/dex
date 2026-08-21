@@ -13,21 +13,16 @@ This guide covers deploying LX using Docker, Docker Compose, and Kubernetes.
 
 | Image | Description | Size |
 |-------|-------------|------|
-| `registry.lux.network/lxdex:latest` | Standard image | ~50MB |
-| `registry.lux.network/lxdex:gpu` | CUDA GPU support | ~2GB |
-| `registry.lux.network/lxdex:fpga` | FPGA support | ~100MB |
+| `ghcr.io/luxfi/dex:latest` | Standard image | ~50MB |
 
 ### Pull Images
 
 ```bash
 # Latest stable
-docker pull registry.lux.network/lxdex:latest
+docker pull ghcr.io/luxfi/dex:latest
 
 # Specific version
-docker pull registry.lux.network/lxdex:v1.0.0
-
-# GPU-enabled
-docker pull registry.lux.network/lxdex:v1.0.0-gpu
+docker pull ghcr.io/luxfi/dex:v1.0.0
 ```
 
 ## Dockerfile
@@ -173,7 +168,7 @@ volumes:
 # compose.yml
 services:
   lxdex-node-0:
-    image: registry.lux.network/lxdex:v1.0.0
+    image: ghcr.io/luxfi/dex:v1.0.0
     container_name: lxdex-node-0
     hostname: lxdex-node-0
     ports:
@@ -213,7 +208,7 @@ services:
     restart: always
 
   lxdex-node-1:
-    image: registry.lux.network/lxdex:v1.0.0
+    image: ghcr.io/luxfi/dex:v1.0.0
     container_name: lxdex-node-1
     hostname: lxdex-node-1
     ports:
@@ -237,7 +232,7 @@ services:
     restart: always
 
   lxdex-node-2:
-    image: registry.lux.network/lxdex:v1.0.0
+    image: ghcr.io/luxfi/dex:v1.0.0
     container_name: lxdex-node-2
     hostname: lxdex-node-2
     ports:
@@ -541,7 +536,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: lxdex
-          image: registry.lux.network/lxdex:v1.0.0
+          image: ghcr.io/luxfi/dex:v1.0.0
           imagePullPolicy: Always
           command: ["/usr/local/bin/luxd"]
           args:
@@ -800,7 +795,7 @@ helm upgrade lxdex lux/lxdex \
 replicaCount: 3
 
 image:
-  repository: registry.lux.network/lxdex
+  repository: ghcr.io/luxfi/dex
   tag: v1.0.0
   pullPolicy: Always
 

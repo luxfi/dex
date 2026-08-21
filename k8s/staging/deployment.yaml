@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: lxdex
-        image: registry.lux.network/lxdex:staging
+        image: ghcr.io/luxfi/dex:staging
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

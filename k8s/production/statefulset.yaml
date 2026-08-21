@@ -33,7 +33,7 @@ spec:
             topologyKey: kubernetes.io/hostname
       containers:
       - name: lxdex
-        image: registry.lux.network/lxdex:v1.0.0
+        image: ghcr.io/luxfi/dex:v1.0.0
         imagePullPolicy: Always
         command: ["/bin/luxd"]
         args:

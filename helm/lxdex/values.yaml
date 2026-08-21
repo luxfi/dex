@@ -2,7 +2,7 @@
 replicaCount: 3
 
 image:
-  repository: registry.lux.network/lxdex
+  repository: ghcr.io/luxfi/dex
   pullPolicy: IfNotPresent
   tag: "v1.0.0"
 
