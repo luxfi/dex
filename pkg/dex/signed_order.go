@@ -12,40 +12,83 @@ import (
 	"github.com/luxfi/geth/common"
 )
 
-// SignedOrder is an Order plus an attached secp256k1 signature and the
-// caller-claimed sender address. The signature covers SigningHash(); the
-// expected verification is "ecrecover(SigningHash, Sig) == Sender".
+// SignedOrder is an Order, the auth SCOPE the signature is valid within, and an
+// attached secp256k1 signature over the caller-claimed sender. The signature
+// covers SigningHash(); the expected verification is
+// "ecrecover(SigningHash, Sig) == Sender".
 //
 // Sig is the standard Ethereum (r||s||v) layout where v ∈ {0, 1}.
+//
+// ChainID, NetworkID and Expiry are the authorization scope, and they live on the
+// envelope rather than on the matcher's Order because they say WHERE and UNTIL
+// WHEN a signature is good — not what to match. SigningHash binds them, so a
+// signature made for one chain, one network or before one deadline does not
+// recover its signer on another chain, another network, or after it expires. The
+// D-Chain tx digest (pkg/dchain txAuthDigest) binds the same scope for the same
+// reason: a signature has to name the chain it spends on to spend on only one.
 type SignedOrder struct {
 	Order
-	Sig    [65]byte
-	Sender common.Address
+	Sig       [65]byte
+	Sender    common.Address
+	ChainID   [32]byte
+	NetworkID uint32
+	Expiry    uint64
 }
 
-// SigningHash is a deterministic 32-byte digest of the order fields that the
-// signature covers. The fields are packed in a fixed order with fixed widths
-// so the digest is identical on every host. We deliberately keep the encoding
-// minimal — IDs, symbol, side/type, price (PriceInt), size (uint64 ticks),
-// sender, and the user-provided ClientID — anything beyond that is not part
-// of the auth surface for the GPU-batched ingestion path.
-//
-// The encoding is:
-//
-//	uint64 ID
-//	uint16 len(Symbol) || Symbol
-//	uint8  Side
-//	uint8  Type
-//	int64  PriceInt(Price)            // overflow → returns error
-//	uint64 SizeTicks(Size)            // size * PriceMultiplier (overflow → err)
-//	uint16 len(ClientID) || ClientID
-//	20     Sender
+// orderAuthDomain tags the order-authorization digest. A versioned domain
+// separator keeps an order signature from ever colliding with any other
+// keccak256 preimage in the stack, and makes the next encoding a distinct
+// namespace instead of a silent reinterpretation of these bytes. It mirrors the
+// D-Chain's txAuthDomain ("lux.dchain.tx.auth.v2").
+const orderAuthDomain = "lux.dex.order.auth.v1"
+
 // sizeTickEpsilon is the slack allowed when deciding whether a size lands on a
 // tick. It exists only to absorb the representation error of a decimal quantity
 // in binary floating point — it is far below one tick, so it can never let two
 // distinct ticks collide.
 const sizeTickEpsilon = 1e-6
 
+// SigningHash is a deterministic 32-byte digest of everything a signature over an
+// order authorizes: the auth scope, and EVERY field the matcher reads to reach a
+// decision. A field the digest omits can be rewritten by any relay between the
+// signer and the matcher while the signature still verifies, so the signed
+// subset must BE the whole order the matcher acts on — the price guard, the
+// post-only / reduce-only / STP flags, the stop and bracket legs, the iceberg's
+// visible size, the lifetime, and the account the fill is attributed to.
+//
+// The encoding is a hand-written fixed-width layout so a field cannot silently
+// drop out of the preimage. Integers are big-endian; every string is a uint16
+// length followed by its bytes; every advanced-order float is bound by its exact
+// IEEE-754 bits — identical on every architecture and injective, so two distinct
+// values never share a digest and no float→int conversion (whose out-of-range
+// result differs by CPU arch) enters the preimage. Price and Size keep the
+// settled-grid encoding the off-tick refusal below depends on.
+//
+//	"lux.dex.order.auth.v1"           domain separator
+//	uint32  NetworkID                 } scope: one signature is good on exactly
+//	32      ChainID                   } one network and one chain, and only
+//	uint64  Expiry                    } until one deadline
+//	uint64  ID
+//	uint16  len(Symbol) || Symbol
+//	uint8   Side
+//	uint8   Type
+//	int64   PriceInt(Price)            // overflow → returns error
+//	uint64  SizeTicks(Size)            // off-tick → returns error
+//	uint64  StopPrice   (IEEE-754 bits)
+//	uint64  LimitPrice  (IEEE-754 bits)
+//	uint64  DisplaySize (IEEE-754 bits)
+//	uint64  PegOffset   (IEEE-754 bits)
+//	uint64  TakeProfit  (IEEE-754 bits)
+//	uint64  StopLoss    (IEEE-754 bits)
+//	uint16  len(TimeInForce) || TimeInForce
+//	uint8   PostOnly
+//	uint8   ReduceOnly
+//	uint8   Hidden
+//	uint32  Flags
+//	uint16  len(UserID) || UserID
+//	uint16  len(User) || User
+//	uint16  len(ClientID) || ClientID
+//	20      Sender
 func (o *SignedOrder) SigningHash() ([32]byte, error) {
 	priceInt, err := safePriceToInt(o.Price)
 	if err != nil {
@@ -69,29 +112,45 @@ func (o *SignedOrder) SigningHash() ([32]byte, error) {
 		return [32]byte{}, errors.New("size is not an exact number of ticks; refusing to round inside a signature")
 	}
 
-	buf := make([]byte, 0, 8+2+len(o.Symbol)+1+1+8+8+2+len(o.ClientID)+20)
-	var u8 [8]byte
+	appendStr := func(buf []byte, s string) []byte {
+		buf = binary.BigEndian.AppendUint16(buf, uint16(len(s)))
+		return append(buf, s...)
+	}
+	boolByte := func(b bool) byte {
+		if b {
+			return 1
+		}
+		return 0
+	}
 
-	binary.BigEndian.PutUint64(u8[:], o.ID)
-	buf = append(buf, u8[:]...)
+	buf := make([]byte, 0, 176+len(o.Symbol)+len(o.TimeInForce)+len(o.UserID)+len(o.User)+len(o.ClientID))
 
-	binary.BigEndian.PutUint16(u8[:2], uint16(len(o.Symbol)))
-	buf = append(buf, u8[:2]...)
-	buf = append(buf, o.Symbol...)
+	buf = append(buf, orderAuthDomain...)
 
-	buf = append(buf, byte(o.Side))
-	buf = append(buf, byte(o.Type))
+	buf = binary.BigEndian.AppendUint32(buf, o.NetworkID)
+	buf = append(buf, o.ChainID[:]...)
+	buf = binary.BigEndian.AppendUint64(buf, o.Expiry)
 
-	binary.BigEndian.PutUint64(u8[:], uint64(priceInt))
-	buf = append(buf, u8[:]...)
+	buf = binary.BigEndian.AppendUint64(buf, o.ID)
+	buf = appendStr(buf, o.Symbol)
+	buf = append(buf, byte(o.Side), byte(o.Type))
+	buf = binary.BigEndian.AppendUint64(buf, uint64(priceInt))
+	buf = binary.BigEndian.AppendUint64(buf, sizeTicks)
 
-	binary.BigEndian.PutUint64(u8[:], sizeTicks)
-	buf = append(buf, u8[:]...)
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.StopPrice))
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.LimitPrice))
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.DisplaySize))
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.PegOffset))
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.TakeProfit))
+	buf = binary.BigEndian.AppendUint64(buf, math.Float64bits(o.StopLoss))
 
-	binary.BigEndian.PutUint16(u8[:2], uint16(len(o.ClientID)))
-	buf = append(buf, u8[:2]...)
-	buf = append(buf, o.ClientID...)
+	buf = appendStr(buf, o.TimeInForce)
+	buf = append(buf, boolByte(o.PostOnly), boolByte(o.ReduceOnly), boolByte(o.Hidden))
+	buf = binary.BigEndian.AppendUint32(buf, uint32(o.Flags))
 
+	buf = appendStr(buf, o.UserID)
+	buf = appendStr(buf, o.User)
+	buf = appendStr(buf, o.ClientID)
 	buf = append(buf, o.Sender[:]...)
 
 	var out [32]byte
