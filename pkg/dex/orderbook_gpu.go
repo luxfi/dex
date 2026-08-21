@@ -112,6 +112,28 @@ func gpuMatchOrder(
 	if len(bookIndices) == 0 {
 		return nil, incoming.Quantity, nil
 	}
+	// The C matcher takes the indices and the book pointer but NO book length,
+	// so it cannot bounds-check and neither did this wrapper. MatchOrderCPU
+	// guards the same field (orderbook_match_cpu.go: `if int(idx) >= len(book)`)
+	// because indices genuinely can be out of range — one field, two readers, and
+	// only one of them checked. On a real device that wrote past the end of a Go
+	// slice and answered 420 where the CPU answered 490.
+	//
+	// An empty book is the same hole seen from the other side: &book[0] panics
+	// where the CPU path returns cleanly, so one build is total and the other is
+	// fatal on identical input. Hand both to the oracle rather than reproduce its
+	// guard here — a second copy of a bounds rule is a second chance to get it
+	// wrong.
+	if len(book) == 0 {
+		t, r := MatchOrderCPU(incoming, book, bookIndices, tradeIDBase, timestamp)
+		return t, r, nil
+	}
+	for _, idx := range bookIndices {
+		if uint64(idx) >= uint64(len(book)) {
+			t, r := MatchOrderCPU(incoming, book, bookIndices, tradeIDBase, timestamp)
+			return t, r, nil
+		}
+	}
 
 	tradesOut := make([]DEXTrade, len(bookIndices))
 	var (
