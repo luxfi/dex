@@ -40,6 +40,12 @@ type SignedOrder struct {
 //	uint64 SizeTicks(Size)            // size * PriceMultiplier (overflow → err)
 //	uint16 len(ClientID) || ClientID
 //	20     Sender
+// sizeTickEpsilon is the slack allowed when deciding whether a size lands on a
+// tick. It exists only to absorb the representation error of a decimal quantity
+// in binary floating point — it is far below one tick, so it can never let two
+// distinct ticks collide.
+const sizeTickEpsilon = 1e-6
+
 func (o *SignedOrder) SigningHash() ([32]byte, error) {
 	priceInt, err := safePriceToInt(o.Price)
 	if err != nil {
@@ -48,7 +54,20 @@ func (o *SignedOrder) SigningHash() ([32]byte, error) {
 	if o.Size < 0 || o.Size > MaxSafePrice {
 		return [32]byte{}, errors.New("size out of range for SigningHash")
 	}
-	sizeTicks := uint64(math.Round(o.Size * PriceMultiplier))
+	// The digest must cover the size the matcher ACTS on, not a rounded stand-in
+	// for it. Rounding here made the hash non-injective: two sizes that round to
+	// one tick shared a digest, so a signature taken over one could be presented
+	// with the other and still verify. On a permissionless exchange that is a
+	// signed order whose quantity the holder can change.
+	//
+	// A size off-tick is refused rather than snapped. Snapping decides, silently,
+	// that the signer meant something they did not write — and the whole point of
+	// the signature is that only the signer decides that.
+	scaled := o.Size * PriceMultiplier
+	sizeTicks := uint64(math.Round(scaled))
+	if math.Abs(scaled-float64(sizeTicks)) > sizeTickEpsilon {
+		return [32]byte{}, errors.New("size is not an exact number of ticks; refusing to round inside a signature")
+	}
 
 	buf := make([]byte, 0, 8+2+len(o.Symbol)+1+1+8+8+2+len(o.ClientID)+20)
 	var u8 [8]byte
