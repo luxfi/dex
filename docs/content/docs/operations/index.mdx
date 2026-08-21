@@ -92,7 +92,7 @@ chmod +x luxd
 
 ```bash
 # Pull official image
-docker pull registry.lux.network/lxdex:latest
+docker pull ghcr.io/luxfi/dex:latest
 
 # Run single node
 docker run -d \
@@ -101,7 +101,7 @@ docker run -d \
   -p 8081:8081 \
   -p 9090:9090 \
   -v lxdex-data:/data \
-  registry.lux.network/lxdex:latest
+  ghcr.io/luxfi/dex:latest
 
 # Check health
 curl http://localhost:8080/health
