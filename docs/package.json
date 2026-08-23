@@ -11,6 +11,7 @@
     "postinstall": "hanzo-mdx"
   },
   "dependencies": {
+    "@hanzo/font": "^1.8.2",
     "@hanzo/mdx": "^14.2.0",
     "@hanzo/ui": "^5.3.28",
     "lucide-react": "^0.468.0",
