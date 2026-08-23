@@ -1,19 +1,12 @@
 import "./global.css"
 import { RootProvider } from "@hanzo/ui"
-import { Inter } from "next/font/google"
+import { ZenSans } from "@hanzo/font/sans"
+import { ZenMono } from "@hanzo/font/mono"
 import type { ReactNode } from "react"
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-geist-sans",
-  display: "swap",
-})
+const inter = ZenSans
 
-const interMono = Inter({
-  subsets: ["latin"],
-  variable: "--font-geist-mono",
-  display: "swap",
-})
+const interMono = ZenMono
 
 export const metadata = {
   title: {
