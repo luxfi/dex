@@ -538,35 +538,31 @@ func (f *Flare) CreateBlock(
 
 ### Deterministic Transaction Order
 
-Flare ensures deterministic transaction ordering within finalized blocks:
+Ordering is arrival order, and nothing buys a better place in it.
+
+The mempool is a FIFO: the sequence a transaction is accepted in is the
+sequence the matcher consumes. Order ids are `(height << 32) | txIndex`, a
+function of position alone, so an id cannot be bid for. There is no priority
+fee, no tier, and no field in the comparator naming a sender — the matcher
+reads price, then the id:
 
 ```go
-// OrderTransactions provides deterministic ordering for DEX trades
-func (f *Flare) OrderTransactions(block *Block) []Transaction {
-    txs := block.Transactions
-
-    // Sort by:
-    // 1. Priority fee (highest first)
-    // 2. Nonce (for same sender)
-    // 3. Transaction hash (tiebreaker)
-    sort.Slice(txs, func(i, j int) bool {
-        // Priority fee
-        if txs[i].PriorityFee() != txs[j].PriorityFee() {
-            return txs[i].PriorityFee() > txs[j].PriorityFee()
+// pkg/dex/batch_match.go
+sort.SliceStable(idx, func(a, b int) bool {
+    pa, pb := book[idx[a]].Price, book[idx[b]].Price
+    if pa.Integer != pb.Integer {
+        if takerSide == DEXSideBid {
+            return pa.Integer < pb.Integer // best ask = lowest price first
         }
-
-        // Same sender: by nonce
-        if txs[i].Sender() == txs[j].Sender() {
-            return txs[i].Nonce() < txs[j].Nonce()
-        }
-
-        // Tiebreaker: hash
-        return bytes.Compare(txs[i].Hash(), txs[j].Hash()) < 0
-    })
-
-    return txs
-}
+        return pa.Integer > pb.Integer // best bid = highest price first
+    }
+    // ... fraction, then order id: price-time priority, FIFO within a level
+})
 ```
+
+Resting orders append to the tail and the best order is taken from the head,
+so within a price level the earlier order fills first. A fee-priority mempool
+would change that and is deliberately not what this is.
 
 ### MEV Protection
 
