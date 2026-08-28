@@ -1,7 +1,7 @@
 {
   "name": "@luxfi/dex-sdk",
   "version": "0.1.0",
-  "description": "Clean-room BSD-3-Clause TypeScript client for the Lux DEX. One client surface over the four DEX paths: V4 precompile (LXPool 0x9010), ZAP binary wire, FIX 4.4, and the JSON WebSocket. No GPL/Uniswap-derived code.",
+  "description": "Clean-room BSD-3-Clause TypeScript client for the Lux DEX. One client surface over the four DEX paths: V4 settlement precompile (0x9999), ZAP binary wire, FIXT.1.1/FIX.5.0SP2, and the JSON WebSocket. No GPL/Uniswap-derived code.",
   "license": "BSD-3-Clause",
   "author": "Lux Industries Inc.",
   "type": "module",
