@@ -1,6 +1,6 @@
 /*
  * LX C CLI Trading Client
- * Copyright (c) 2025 Lux Partners Limited
+ * Copyright (c) 2025 Lux Industries Inc
  *
  * Ultra-fast command-line trading client for HFT and embedded systems.
  * Connects to LX WebSocket API for real-time trading.
