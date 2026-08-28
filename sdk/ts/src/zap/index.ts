@@ -3,7 +3,7 @@
 //
 // ZAP path — the binary OrderBook wire (`pkg/zapwire`).
 //
-// ZAP is the low-latency off-chain twin of the on-chain LXPool path: a fixed,
+// ZAP is the low-latency off-chain twin of the on-chain settlement path: a fixed,
 // frozen byte layout the matcher and the d-chain ledger exchange. Frame sizes
 // here mirror the engine's frozen wire test (pkg/zapwire/zapwire_test.go) and
 // MUST NOT drift. RPC method names mirror pkg/zapwire constants.

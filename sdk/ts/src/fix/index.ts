@@ -1,7 +1,12 @@
 // Copyright (C) 2019-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 //
-// FIX 4.4 path — institutional order entry.
+// FIX path — institutional order entry.
+//
+// FIXT.1.1 is the session layer (tag 8) and FIX.5.0SP2 with Extension Pack 307
+// is the application layer, named on the Logon. The retired FIX.4.4 profile is
+// rejected outright: pkg/fix asserts Parse errors on both 8=FIX.4.4 and
+// 8=FIX.4.2, so a session opened with either BeginString cannot connect.
 //
 // Tag numbers and enum values mirror the engine's FIX acceptor
 // (pkg/fix/message.go). This client builds NewOrderSingle (35=D) and
