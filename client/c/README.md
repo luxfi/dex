@@ -261,7 +261,7 @@ The client communicates with LX using WebSocket JSON messages.
 
 ## License
 
-Copyright (c) 2025 Lux Partners Limited
+Copyright (c) 2025 Lux Industries Inc
 
 ## See Also
 

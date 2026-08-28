@@ -264,4 +264,4 @@ With authentication and test order:
 
 ## License
 
-Copyright (c) 2025 Lux Partners Limited. All rights reserved.
+Copyright (c) 2025 Lux Industries Inc. All rights reserved.
