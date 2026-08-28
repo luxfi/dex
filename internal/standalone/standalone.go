@@ -61,7 +61,13 @@ const dexBalanceMethod = "dex_balance"
 // and maker dial (DEX_DCHAIN_URL / DEX_HTTP_URL = http://<host>/v1/dex). So a
 // standalone single-operator venue is a byte-identical drop-in for the in-luxd
 // D-Chain read+write surface — no luxd required to serve the markets pipeline.
-const httpChainPrefix = "/v1/dex"
+// httpChainPrefix is what the venue mounts its chain surface under. The keys
+// httpHandlers returns already carry the chain's own namespace ("/dex/<method>"
+// — the same segment a node serves under /v1/bc/<D>/), so the prefix supplies
+// only the version. Spelling "dex" here too produced /v1/dex/dex/<method>: a
+// path no client written against a node would try, and not the one this flag
+// promises.
+const httpChainPrefix = "/v1"
 
 // Run serves the standalone venue. args is the post-subcommand argv
 // (os.Args[2:] from `dexd run`/`dexd standalone`); it carries -addr and -db.
@@ -70,9 +76,29 @@ func Run(args []string) {
 	addr := fs.String("addr", "127.0.0.1:9099", "ZAP listen address for the venue")
 	dir := fs.String("db", "/tmp/dchain_venue_db", "on-disk zapdb directory (authoritative chainstate)")
 	httpAddr := fs.String("http", "", "HTTP listen address for the chain read+write surface mounted under /v1/dex (e.g. 0.0.0.0:9650); empty = ZAP only")
+	genesisPath := fs.String("genesis", "", "path to this chain's creation document (the dchain.json a P-Chain CreateChainTx records). Required to found a chain: the VM refuses to invent one, because a genesis the binary derived is one no other node would derive.")
 	_ = fs.Parse(args)
 
 	logger := log.Root()
+
+	// The creation document is delivered, never derived. Under luxd it arrives
+	// as InitializeRequest.GenesisBytes; standalone has no P-Chain to read it
+	// from, so it is named on the command line. Without this the venue could
+	// not start at all — Initialize was called with no document and the VM
+	// refused, correctly, every time.
+	//
+	// The bytes are opaque here: what matters is that an operator chose them,
+	// so two nodes told to be the same chain are, and one told nothing is not
+	// quietly founded on whatever this binary happened to be built from.
+	var document []byte
+	if *genesisPath != "" {
+		b, err := os.ReadFile(*genesisPath)
+		if err != nil {
+			logger.Error("reading the creation document", "path", *genesisPath, "err", err)
+			os.Exit(1)
+		}
+		document = b
+	}
 
 	db, err := zapdb.New(*dir, nil, "dchain", nil)
 	if err != nil {
@@ -86,6 +112,7 @@ func Run(args []string) {
 		DB:       db,
 		Log:      logger,
 		ToEngine: toEngine,
+		Genesis:  document,
 	}); err != nil {
 		logger.Error("VM.Initialize", "err", err)
 		_ = db.Close()
