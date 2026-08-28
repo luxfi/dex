@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hanzo/docs": "^16.4.4",
+    "@hanzo/font": "^1.9.2",
     "@hanzo/docs-core": "^16.9.3",
     "@hanzo/docs-ui": "^16.9.3",
     "@hanzo/mdx": "^14.2.5",

@@ -1,11 +1,8 @@
 import "./global.css"
 import { RootProvider } from "@hanzo/docs-ui/provider/next"
-import { Zen } from '@hanzo/font'
+import { Zen } from "@hanzo/font/sans"
+import { ZenMono } from "@hanzo/font/mono"
 import type { ReactNode } from "react"
-
-const sans = Zen
-
-const mono = ZenMono
 
 export const metadata = {
   title: {
@@ -19,7 +16,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${Zen.variable} ${ZenMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-svh bg-background font-sans antialiased">
