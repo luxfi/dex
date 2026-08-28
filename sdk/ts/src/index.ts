@@ -6,11 +6,14 @@
 // One client vocabulary (`DexClient`, `OrderRequest`, `Fill`, ...) over the
 // four DEX paths, each its own subpath export:
 //
-//   ./precompile  V4 on-chain via LXPool precompile 0x9010 (uses MIT
+//   ./precompile  V4 on-chain via the settlement precompile 0x9999 (uses MIT
 //                 @luxfi/exchange ABIs + viem). On-chain settlement.
 //   ./zap         Binary OrderBook wire (pkg/zapwire). Lowest-latency take/place.
-//   ./fix         FIX 4.4 order entry (pkg/fix). Institutional connectivity.
-//   ./ws          JSON WebSocket (pkg/api). Streaming market data + orders.
+//   ./fix         FIXT.1.1 session, FIX.5.0SP2 application (pkg/fix).
+//                 Institutional connectivity.
+//   ./ws          JSON WebSocket (pkg/api). No server runs this today: nothing
+//                 outside pkg/api's own tests constructs the handler, and no
+//                 binary in cmd/ imports the package.
 //
 // No GPL/Uniswap-derived code. Dependencies are MIT (@luxfi/exchange, viem).
 

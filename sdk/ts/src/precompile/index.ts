@@ -3,9 +3,12 @@
 //
 // V4 precompile path — the on-chain DEX surface.
 //
-// The native singleton AMM lives at the LXPool precompile, address 0x9010
-// (LP-9010; see ~/work/lux/precompile/registry/registry.go). Pool keys, the
-// PoolManager ABI, and the DEX swap-router ABI are provided by the MIT-licensed
+// Settlement lives at 0x9999 (LP-9999), which carries the V4 PoolManager ABI so
+// that V4 tooling works against it unchanged. It replaces the LXPool precompile
+// at 0x9010 (LP-9010), which is deprecated — eth_getCode returns empty for it on
+// Lux mainnet, so anything still pointing there encodes calls to an address with
+// no code behind it. Pool keys, the PoolManager ABI, and the DEX swap-router ABI
+// are provided by the MIT-licensed
 // `@luxfi/exchange` package — this client does NOT redefine or copy them. A
 // consumer constructs a viem `WalletClient`/`PublicClient`, imports the ABI +
 // addresses from `@luxfi/exchange/contracts`, and calls through this thin,
@@ -16,9 +19,9 @@
 
 import type { Address, Hex } from '../types.js'
 
-/** Canonical LXPool singleton-AMM precompile address (LP-9010, all chains). */
-export const LXPOOL_PRECOMPILE: Address =
-  '0x0000000000000000000000000000000000009010'
+/** Canonical settlement precompile address (LP-9999, all chains). */
+export const SETTLEMENT_PRECOMPILE: Address =
+  '0x0000000000000000000000000000000000009999'
 
 /**
  * Pool key identifying a V4 pool. Field shape matches the MIT
@@ -56,8 +59,8 @@ export interface PrecompileTransport {
 }
 
 /**
- * On-chain DEX client over the LXPool precompile. Construct with a transport
- * bound to a viem client + the `@luxfi/exchange` ABI at `LXPOOL_PRECOMPILE`.
+ * On-chain DEX client over the settlement precompile. Construct with a transport
+ * bound to a viem client + the `@luxfi/exchange` ABI at `SETTLEMENT_PRECOMPILE`.
  */
 export class PrecompileClient {
   constructor(private readonly transport: PrecompileTransport) {}
