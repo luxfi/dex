@@ -9,7 +9,7 @@ description = "High-frequency trading SDK with unified liquidity aggregation"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Lux Partners", email = "dev@lux.partners" }
+    { name = "Lux Industries Inc", email = "dev@lux.partners" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

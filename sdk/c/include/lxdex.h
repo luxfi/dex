@@ -1,6 +1,6 @@
 /*
  * LX C SDK
- * Copyright (c) 2025 Lux Partners Limited
+ * Copyright (c) 2025 Lux Industries Inc
  *
  * High-performance C client for LX trading.
  */

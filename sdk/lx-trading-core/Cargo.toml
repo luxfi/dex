@@ -2,7 +2,7 @@
 name = "lx-trading-core"
 version = "0.1.0"
 edition = "2021"
-authors = ["Lux Partners <dev@lux.partners>"]
+authors = ["Lux Industries Inc <dev@lux.partners>"]
 description = "High-frequency trading SDK with unified liquidity aggregation"
 license = "MIT"
 repository = "https://github.com/luxfi/dex"
