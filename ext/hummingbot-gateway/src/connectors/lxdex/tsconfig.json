@@ -26,8 +26,8 @@
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": false,
     "moduleResolution": "node",
-    "baseUrl": "./",
     "paths": {
+      "*": ["./*"],
       "@/*": ["./*"]
     },
     "esModuleInterop": true,

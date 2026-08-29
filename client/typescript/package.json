@@ -27,16 +27,16 @@
   "author": "Luxfi",
   "license": "MIT",
   "dependencies": {
-    "@grpc/grpc-js": "^1.12.0",
-    "@grpc/proto-loader": "^0.7.13",
-    "commander": "^12.1.0",
-    "ws": "^8.18.0",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "commander": "^15.0.0",
+    "ws": "^8.21.3",
     "readline": "^1.3.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/ws": "^8.5.13",
-    "typescript": "^5.7.0",
+    "@types/node": "26.4.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "7.0.2",
     "ts-node": "^10.9.2"
   },
   "engines": {

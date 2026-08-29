@@ -6,15 +6,15 @@
 package lx
 
 // CUDA backend for the DEX OrderBook match_order kernel. Linked via
-//   lux-dex-orderbook-cuda pkg-config bundle
-//     -> libdex_orderbook_cuda.a (luxcpp/dex/gpu/cuda/dex_orderbook_host.cu
+//   lux-dex-clob-cuda pkg-config bundle
+//     -> libdex_clob_cuda.a (luxcpp/dex/gpu/cuda/dex_clob_host.cu
 //                          + luxcpp/cuda/kernels/gpu/dex_swap.cu)
 
 /*
-#cgo pkg-config: lux-dex-orderbook-cuda
+#cgo pkg-config: lux-dex-clob-cuda
 
 #include <stdint.h>
-#include "dex_orderbook_host.h"
+#include "dex_clob_host.h"
 */
 import "C"
 
@@ -24,7 +24,7 @@ import (
 	"unsafe"
 )
 
-// gpuMatchOrder is the CUDA implementation called by orderbook_gpu.go.
+// gpuMatchOrder is the CUDA implementation called by clob_gpu.go.
 // Returns errOrderBookGPUUnsupported when no NVIDIA device is present so the
 // dispatcher falls back to MatchOrderCPU.
 func gpuMatchOrder(
@@ -53,7 +53,7 @@ func gpuMatchOrder(
 	pinner.Pin(&tradesWritten)
 	pinner.Pin(&remaining)
 
-	rc := C.dex_orderbook_match_order_host(
+	rc := C.dex_clob_match_order_host(
 		(*C.DEXOrder)(unsafe.Pointer(incoming)),
 		(*C.DEXOrder)(unsafe.Pointer(&book[0])),
 		(*C.uint32_t)(unsafe.Pointer(&bookIndices[0])),
@@ -86,6 +86,6 @@ func gpuMatchOrder(
 	case -2:
 		return nil, 0, errOrderBookGPUUnsupported
 	default:
-		return nil, 0, fmt.Errorf("lx: dex_orderbook_match_order_host rc=%d", int(rc))
+		return nil, 0, fmt.Errorf("lx: dex_clob_match_order_host rc=%d", int(rc))
 	}
 }
