@@ -22,7 +22,7 @@ import (
 
 // ingest_test.go proves the IN-LUXD ingestion seam (ingest.go / CreateHandlers):
 // an order submitted over the VM's HTTP handler — the EXACT handler luxd mounts at
-// /v1/chain/<D>/dex/<method> — lands in the mempool and is matched into a block by
+// /v1/bc/<D>/dex/<method> — lands in the mempool and is matched into a block by
 // the VM's own consensus lifecycle (BuildBlock -> Verify -> Accept), with the fill
 // committed as D-Chain state (a trade:<height><seq> row). The matcher is the
 // chain; there is no external venue and no relay.
@@ -53,7 +53,7 @@ func startIngestServer(t *testing.T) (*VM, string, func()) {
 
 	// Model the node EXACTLY: CreateHandlers returns one handler per method keyed
 	// by its full sub-path ("/dex/<method>"); luxd registers each as an exact route
-	// under /v1/chain/<chainID>. We register each key as an exact route here, so the
+	// under /v1/bc/<chainID>. We register each key as an exact route here, so the
 	// request paths and matching semantics match production (exact path, not a
 	// subtree — node/server/http/router.go uses gorilla Handle, not PathPrefix).
 	handlers, err := vm.CreateHandlers(context.Background())
