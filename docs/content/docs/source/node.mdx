@@ -272,7 +272,7 @@ curl -X POST http://localhost:9650/v1/admin \
 ### Platform API
 ```bash
 # Get validators
-curl -X POST http://localhost:9650/v1/bc/P \
+curl -X POST http://localhost:9650/v1/chain/P \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"platform.getCurrentValidators","params":{},"id":1}'
 ```
@@ -280,7 +280,7 @@ curl -X POST http://localhost:9650/v1/bc/P \
 ### Exchange API
 ```bash
 # Get balance
-curl -X POST http://localhost:9650/v1/bc/X \
+curl -X POST http://localhost:9650/v1/chain/X \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"avm.getBalance","params":{"address":"X-lux1...","assetID":"LUX"},"id":1}'
 ```
