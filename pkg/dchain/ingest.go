@@ -16,7 +16,7 @@ import (
 // the VM runs as a luxd plugin (cmd/dchain via github.com/luxfi/vm/rpc.Serve),
 // luxd asks the VM for HTTP handlers (CreateHandlers); the plugin transport stands
 // up a local http.Server per handler inside the plugin process and the node
-// reverse-proxies to it. luxd mounts each handler at /v1/bc/<chainID-or-alias>
+// reverse-proxies to it. luxd mounts each handler at /v1/chain/<chainID-or-alias>
 // + <endpoint-key> as an EXACT gorilla/mux route (node/server/http/router.go:
 // `r.router.Handle(base+endpoint, handler)` — exact path, no subtree). So we
 // return ONE handler per method, each keyed by its full sub-path:
@@ -38,7 +38,7 @@ import (
 // NEVER mutates the book synchronously: the chain is the matcher.
 
 // ingestNamespace is the path segment grouping the DEX methods under the chain
-// route. The full external path of a method m is /v1/bc/<chainID>/dex/<m>.
+// route. The full external path of a method m is /v1/chain/<chainID>/dex/<m>.
 const ingestNamespace = "dex"
 
 // maxIngestBody bounds a request body. The largest frozen frame is the 96-byte
@@ -50,7 +50,7 @@ const maxIngestBody = 4 << 10
 // full endpoint sub-path ("/dex/<method>"). It folds the SAME vm.dexMethods table
 // the ZAP socket transport uses — one method->handler table, two transports — so a
 // method added to dexMethods is reachable over HTTP automatically. luxd registers
-// each key as an exact route under /v1/bc/<chainID> (see file doc).
+// each key as an exact route under /v1/chain/<chainID> (see file doc).
 //
 // It ALSO folds the read surface (vm.readMethods, read.go): the dex_get_* query
 // endpoints that return committed state as JSON. Reads are mounted on the same

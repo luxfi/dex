@@ -1062,7 +1062,7 @@ func TestOracleSetVerifier(t *testing.T) {
 	}
 
 	// Create and attach verifier
-	verifier := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	verifier := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	oracle.SetVerifier(verifier)
 
 	// Verify it's attached
@@ -1116,7 +1116,7 @@ func TestOracleVerifiedPriceWithVerifier(t *testing.T) {
 	oracle.AddSource("x-chain", src)
 
 	// Add verifier
-	verifier := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	verifier := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	verifier.Start()
 	oracle.SetVerifier(verifier)
 
@@ -1159,7 +1159,7 @@ func TestOracleStopWithVerifier(t *testing.T) {
 	oracle := NewOracle()
 
 	// Add verifier
-	verifier := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	verifier := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	verifier.Start()
 	oracle.SetVerifier(verifier)
 
@@ -1228,7 +1228,7 @@ func TestVerifiedDataFields(t *testing.T) {
 }
 
 func TestQChainVerifierBasic(t *testing.T) {
-	v := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	v := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 
 	// Start verifier
 	if err := v.Start(); err != nil {
@@ -1258,7 +1258,7 @@ func TestQChainVerifierBasic(t *testing.T) {
 }
 
 func TestQChainVerifierFinality(t *testing.T) {
-	v := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	v := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	v.Start()
 	defer v.Close()
 
@@ -1284,7 +1284,7 @@ func TestQChainVerifierFinality(t *testing.T) {
 }
 
 func TestQChainVerifierCrossChain(t *testing.T) {
-	v := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	v := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	v.Start()
 	defer v.Close()
 
@@ -1304,7 +1304,7 @@ func TestQChainVerifierCrossChain(t *testing.T) {
 }
 
 func TestQChainVerifierSetQuorum(t *testing.T) {
-	v := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	v := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 
 	// Default quorum
 	v.SetQuorum(5)
@@ -1314,7 +1314,7 @@ func TestQChainVerifierSetQuorum(t *testing.T) {
 }
 
 func TestQChainVerifierFinalityLatency(t *testing.T) {
-	v := NewQChainVerifier("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	v := NewQChainVerifier("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 	v.Start()
 	defer v.Close()
 
@@ -1329,5 +1329,5 @@ func TestQChainVerifierFinalityLatency(t *testing.T) {
 
 func TestQChainBackwardsCompatibility(t *testing.T) {
 	// Test that QChainSource alias works
-	var _ *QChainSource = NewQChainSource("http://localhost:9650/v1/bc/Q", "ws://localhost:9650/v1/bc/Q/ws")
+	var _ *QChainSource = NewQChainSource("http://localhost:9650/v1/chain/Q", "ws://localhost:9650/v1/chain/Q/ws")
 }

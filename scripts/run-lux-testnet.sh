@@ -136,17 +136,17 @@ test_endpoint "2. Keystore API" \
 
 # Test X-Chain (AVM - Asset Virtual Machine)
 test_endpoint "3. X-Chain API" \
-    "http://127.0.0.1:9650/v1/bc/X" \
+    "http://127.0.0.1:9650/v1/chain/X" \
     '{"jsonrpc":"2.0","id":1,"method":"avm.getAssetDescription","params":{"assetID":"LUX"}}'
 
 # Test P-Chain (Platform Chain)
 test_endpoint "4. P-Chain API" \
-    "http://127.0.0.1:9650/v1/bc/P" \
+    "http://127.0.0.1:9650/v1/chain/P" \
     '{"jsonrpc":"2.0","id":1,"method":"platform.getHeight"}'
 
 # Test C-Chain (Contract Chain - EVM)
 test_endpoint "5. C-Chain API" \
-    "http://127.0.0.1:9650/v1/bc/C/rpc" \
+    "http://127.0.0.1:9650/v1/chain/C/rpc" \
     '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
 
 # Get blockchain info
@@ -172,7 +172,7 @@ curl -s -X POST --data '{
     "jsonrpc":"2.0",
     "id":1,
     "method":"avm.getHeight"
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/X 2>/dev/null | grep -o '"height":[0-9]*' || echo "Height: 0"
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/chain/X 2>/dev/null | grep -o '"height":[0-9]*' || echo "Height: 0"
 
 # Create test wallet
 echo ""
@@ -199,7 +199,7 @@ X_ADDR=$(curl -s -X POST --data '{
         "username":"dexuser",
         "password":"dexpass123"
     }
-}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/X 2>/dev/null | grep -o '"address":"[^"]*"' | cut -d'"' -f4)
+}' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/chain/X 2>/dev/null | grep -o '"address":"[^"]*"' | cut -d'"' -f4)
 
 if [ ! -z "$X_ADDR" ]; then
     echo -e "${GREEN}✅ X-Chain Address: $X_ADDR${NC}"
@@ -212,9 +212,9 @@ echo ""
 echo "RPC Endpoints:"
 echo "  Info API: http://localhost:9650/v1/info"
 echo "  Health: http://localhost:9650/v1/health"
-echo "  X-Chain: http://localhost:9650/v1/bc/X"
-echo "  P-Chain: http://localhost:9650/v1/bc/P"
-echo "  C-Chain: http://localhost:9650/v1/bc/C/rpc"
+echo "  X-Chain: http://localhost:9650/v1/chain/X"
+echo "  P-Chain: http://localhost:9650/v1/chain/P"
+echo "  C-Chain: http://localhost:9650/v1/chain/C/rpc"
 echo ""
 echo "Node PID: $NODE_PID"
 echo "Logs: tail -f $DATA_DIR/node.log"
@@ -231,7 +231,7 @@ while true; do
         "jsonrpc":"2.0",
         "id":1,
         "method":"avm.getHeight"
-    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/X 2>/dev/null | grep -o '"height":[0-9]*' | cut -d':' -f2)
+    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/chain/X 2>/dev/null | grep -o '"height":[0-9]*' | cut -d':' -f2)
     
     if [ ! -z "$HEIGHT" ]; then
         echo "X-Chain Height: $HEIGHT at $(date '+%H:%M:%S')"
@@ -242,7 +242,7 @@ while true; do
         "jsonrpc":"2.0",
         "id":1,
         "method":"platform.getHeight"
-    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/bc/P 2>/dev/null | grep -o '"height":[0-9]*' | cut -d':' -f2)
+    }' -H 'content-type:application/json;' http://127.0.0.1:9650/v1/chain/P 2>/dev/null | grep -o '"height":[0-9]*' | cut -d':' -f2)
     
     if [ ! -z "$P_HEIGHT" ]; then
         echo "P-Chain Height: $P_HEIGHT"
