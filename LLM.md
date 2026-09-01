@@ -2223,7 +2223,7 @@ a `TxImport`, so there is no retroactive effect.
 
 ### D-Chain HTTP surface — and how to read a 404
 
-`CreateHandlers` mounts `/v1/bc/D/dex/<method>` (`ingest.go`). The method names
+`CreateHandlers` mounts `/v1/chain/D/dex/<method>` (`ingest.go`). The method names
 were **`clob_*` up to dex v1.5.x** and `dex_*` after (commit `28970d8`). So on a
 fleet running an older plugin:
 
