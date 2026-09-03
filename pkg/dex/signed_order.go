@@ -94,7 +94,7 @@ func (o *SignedOrder) SigningHash() ([32]byte, error) {
 	if err != nil {
 		return [32]byte{}, err
 	}
-	if o.Size < 0 || o.Size > MaxSafePrice {
+	if math.IsNaN(o.Size) || math.IsInf(o.Size, 0) || !(o.Size >= 0 && o.Size <= MaxSafePrice) {
 		return [32]byte{}, errors.New("size out of range for SigningHash")
 	}
 	// The digest must cover the size the matcher ACTS on, not a rounded stand-in

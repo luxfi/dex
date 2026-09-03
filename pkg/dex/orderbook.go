@@ -23,11 +23,8 @@ const MaxSafePrice = float64(math.MaxInt64) / PriceMultiplier
 
 // safePriceToInt converts a float64 price to PriceInt with overflow protection
 func safePriceToInt(price float64) (PriceInt, error) {
-	if price < 0 {
-		return 0, fmt.Errorf("negative price: %f", price)
-	}
-	if price > MaxSafePrice {
-		return 0, fmt.Errorf("price overflow: %f exceeds max safe price %f", price, MaxSafePrice)
+	if math.IsNaN(price) || math.IsInf(price, 0) || !(price >= 0 && price <= MaxSafePrice) {
+		return 0, fmt.Errorf("invalid price: %f", price)
 	}
 	return PriceInt(price * PriceMultiplier), nil
 }
@@ -741,8 +738,10 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 	var oppositeTree *OrderTree
 	if order.Side == Buy {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.asks))
-	} else {
+	} else if order.Side == Sell {
 		oppositeTree = (*OrderTree)(atomic.LoadPointer(&ob.bids))
+	} else {
+		return nil
 	}
 
 	for order.RemainingSize > 0 {
@@ -756,18 +755,20 @@ func (ob *OrderBook) tryMatchImmediateLocked(order *Order) []Trade {
 		// tie where two distinct prices collapse to one float64. Legacy float-API
 		// orders (PriceUnits==0) keep the float comparison.
 		if order.Type == Limit {
-			if order.PriceUnits != 0 && bestOrder.PriceUnits != 0 {
-				if order.Side == Buy && order.PriceUnits < bestOrder.PriceUnits {
-					break
-				}
-				if order.Side == Sell && order.PriceUnits > bestOrder.PriceUnits {
+			if order.Side == Buy {
+				if order.PriceUnits != 0 && bestOrder.PriceUnits != 0 {
+					if order.PriceUnits < bestOrder.PriceUnits {
+						break
+					}
+				} else if order.Price < bestOrder.Price {
 					break
 				}
 			} else {
-				if order.Side == Buy && order.Price < bestOrder.Price {
-					break
-				}
-				if order.Side == Sell && order.Price > bestOrder.Price {
+				if order.PriceUnits != 0 && bestOrder.PriceUnits != 0 {
+					if order.PriceUnits > bestOrder.PriceUnits {
+						break
+					}
+				} else if order.Price > bestOrder.Price {
 					break
 				}
 			}
@@ -1074,6 +1075,14 @@ func (ob *OrderBook) MatchOrders() []Trade {
 // Helper methods
 func (ob *OrderBook) validateOrder(order *Order) error {
 	if order == nil {
+		return ErrInvalidOrder
+	}
+	if order.Side != Buy && order.Side != Sell {
+		return ErrInvalidOrder
+	}
+	if math.IsNaN(order.Price) || math.IsInf(order.Price, 0) ||
+		math.IsNaN(order.StopPrice) || math.IsInf(order.StopPrice, 0) ||
+		math.IsNaN(order.Size) || math.IsInf(order.Size, 0) {
 		return ErrInvalidOrder
 	}
 	// Market and Stop orders don't require a price
