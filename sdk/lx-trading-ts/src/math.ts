@@ -585,7 +585,7 @@ export function tickToSqrtPrice(tick: number): number {
  * Convert sqrt price to nearest tick.
  */
 export function sqrtPriceToTick(sqrtPrice: number, tickSpacing = 60): number {
-  const tick = Math.floor((2 * Math.log(sqrtPrice)) / Math.log(1.0001));
+  const tick = Math.round((2 * Math.log(sqrtPrice)) / Math.log(1.0001));
   return Math.floor(tick / tickSpacing) * tickSpacing;
 }
 
