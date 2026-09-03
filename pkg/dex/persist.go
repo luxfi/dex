@@ -102,10 +102,10 @@ func uint64ToUser(id uint64) string {
 
 // sideToDEX maps the book Side to the DEXOrder side byte.
 func sideToDEX(s Side) uint8 {
-	if s == Sell {
-		return DEXSideAsk
+	if s == Buy {
+		return DEXSideBid
 	}
-	return DEXSideBid
+	return DEXSideAsk
 }
 
 // dexToSide maps a DEXOrder side byte back to the book Side.
