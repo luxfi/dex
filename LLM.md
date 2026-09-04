@@ -2228,8 +2228,8 @@ were **`clob_*` up to dex v1.5.x** and `dex_*` after (commit `28970d8`). So on a
 fleet running an older plugin:
 
 ```
-/v1/bc/D/dex/dex_get_markets   -> 404   (new names, not deployed)
-/v1/bc/D/dex/clob_get_markets  -> 200   (old names, live)
+/v1/chain/d/dex/dex_get_markets   -> 404   (new names, not deployed)
+/v1/chain/d/dex/clob_get_markets  -> 200   (old names, live)
 ```
 
 **A 404 on `dex_*` means "old method names", not "no surface" and not "dead

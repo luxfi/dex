@@ -66,7 +66,7 @@ const (
 
 	// preLedgerImageHex is that block, byte for byte — the image lux-mainnet and
 	// lux-testnet are actually running, read from luxd on 2026-08-07 via
-	//   /v1/bc/D/dex/clob_get_markets -> {"height":0,"lastAccepted":"MuetnVSb…",
+	//   /v1/chain/d/dex/clob_get_markets -> {"height":0,"lastAccepted":"MuetnVSb…",
 	//                                     "root":"f8e013a4…"}
 	// on all 15 pods. It differs from genesisImageHex in the execution root alone.
 	preLedgerImageHex = "0000000000000000000000000000000000000000000000000000000000000000" +
