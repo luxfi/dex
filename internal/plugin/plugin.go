@@ -31,7 +31,14 @@ func Run() {
 		fmt.Println(versionStr)
 		os.Exit(0)
 	}
-	if err := rpc.Serve(context.Background(), log.Root(), &dchain.VM{}); err != nil {
+	raw, err := (&dchain.Factory{}).New(log.Root())
+	if err != nil {
+		fmt.Printf("dchain factory error: %s\n", err)
+		os.Exit(1)
+	}
+	vm := raw.(*dchain.VM)
+
+	if err := rpc.Serve(context.Background(), log.Root(), vm); err != nil {
 		fmt.Printf("dchain rpc.Serve error: %s\n", err)
 		os.Exit(1)
 	}
