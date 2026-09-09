@@ -264,6 +264,55 @@ order, _ := client.PlaceOrder(ctx, &Order{
 make up  # Starts complete stack with monitoring
 ```
 
+## The trading gateway (`cmd/gateway`, `pkg/gateway`)
+
+One image, two binaries. `dexd` is the D-Chain venue; `gateway` is the HTTP
+trading surface — quote, swap, approval, orders, pools, prices, tokens, stats,
+history, and the Uniswap-compatible `/trading/*` shapes. They share the venue
+types, which is why they ship together.
+
+**Every chain is read from its own pools.** Ours through the V4 precompiles with
+a V2 router beside them where one is deployed; every other chain through the V2
+Router02 and V3 QuoterV2 Uniswap published there, over JSON-RPC, with no API key
+and no upstream account. The hosted trade API answers ACCESS_DENIED without a
+contract, so `uniswap.NewProvider` is registered ONLY when `UNISWAP_API_KEY` is
+set — a provider that always refuses turns a pair with no pool into an error
+about somebody else's quota.
+
+Environment: `GATEWAY_ADDR` (:8080), `LUX_RPC`, `LUX_CHAIN_ID` (96369),
+`LUX_V2_ROUTER`, `LUX_V3_QUOTER`, `RPC_<chainid>` per chain, `GATEWAY_CACHE_TTL`
+(seconds), `UNISWAP_API_KEY` (optional). Chains with venues: 1, 10, 56, 137,
+8453, 42161, 96369.
+
+### Three things to know before deploying it
+
+**The image is amd64 and says so nowhere but the Dockerfile.** `GOARCH=amd64` is
+written out in the build, and what is published is a single OCI manifest, not an
+index — so a kubelet on an arm64 node pulls it, believes it, and the container
+exits with `exec format error`. Where a cluster is mixed, the workload states
+`nodeSelector: kubernetes.io/arch: amd64`. Where binfmt happens to be registered
+the failure is worse than a crash: the container runs, `uname -m` inside it says
+x86_64, and a matching engine executes under instruction emulation.
+
+**`runAsNonRoot` needs the uid, not the name.** The image declares `USER dexd`;
+a kubelet cannot check a string against runAsNonRoot and refuses the container
+with `image has non-numeric user (dexd)`. State `runAsUser: 1000`.
+
+**`/healthz` is not a readiness probe until it has a source.** It answers from
+the venues and the hosted provider registry together; before that it read the
+registry alone, so the ordinary configuration — no hosted provider, pools as the
+source — answered 503 forever and any probe on it held every replica out of its
+own Service. `/providers` is the narrower question (does the mux answer) and is
+what the lux-mainnet deployment probes.
+
+### What is deliberately not here
+
+There is no `/v1/admin/*`. It paused the DEX, paused a pool and froze one on the
+strength of `X-User-Role: admin` — a header the caller writes — and drove state
+nothing read: `PauseState` had no caller outside its own file, per replica, lost
+on restart. A switch wired to nothing is worse than no switch. The real gate is
+`checkPauseState` in the pool manager, on chain, where a market is.
+
 ## API Endpoints
 
 ### JSON-RPC Methods
