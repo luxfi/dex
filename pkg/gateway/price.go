@@ -195,10 +195,9 @@ func (m *marks) fill(h *held, mk mark, ttl time.Duration) {
 //
 // The dollar this chain prices in is worth a dollar by construction, so it
 // costs nothing to say so. Everything else is read against that dollar and
-// against the chain's own token, and the cheaper of the two answers wins: a
-// price is what somebody spending a hundred dollars actually receives, and the
-// route that hands over the most tokens is the one nearest the middle of the
-// market.
+// against the chain's own token, at both sizes, and the cheapest route wins at
+// each size: a price is what somebody actually receives, and the route handing
+// over the most tokens is the one nearest the middle of the market.
 func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 	num := s.chains.Numeraires(chain)
 	if strings.EqualFold(token.Address, num.Stable) {
@@ -284,9 +283,10 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 // steady reports whether two readings of one market, ten times apart in size,
 // agree closely enough to call the smaller one a price.
 //
-// A pool with nothing left in it still answers. Ten dollars into one buys a
-// rounding error and a hundred buys a tenth of the same rounding error, so the
-// two readings come back an order of magnitude apart and neither is a market.
+// A pool with nothing left in it still answers, and what it answers is bounded
+// by what it holds: ten times the money buys nowhere near ten times as much, so
+// the two implied prices come back an order of magnitude apart. A pool with
+// depth answers the same both times.
 func steady(small, large *big.Rat) bool {
 	drift := new(big.Rat).Sub(large, small)
 	drift.Quo(drift, small)
@@ -309,10 +309,14 @@ func (s *Server) readSizes(ctx context.Context, chain ChainID, num Token, numUSD
 	}
 	wg.Wait()
 
-	// The chain could not be read. One size failing while the other answers is
-	// not that, and neither is a pair no pool holds.
-	if failed[0] != nil && failed[1] != nil {
-		return nil, nil, failed[0]
+	// Either size failing is the chain failing, because the answer is the two
+	// of them compared and one alone is not comparable to anything. It is also
+	// not a pair no pool holds: absent, it would be remembered for a minute,
+	// where a chain that could not be read is asked again in ten seconds.
+	for _, err := range failed {
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	return got[0], got[1], nil
 }
