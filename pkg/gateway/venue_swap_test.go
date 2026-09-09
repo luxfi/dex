@@ -147,6 +147,12 @@ func TestTheFloorSitsBelowTheQuote(t *testing.T) {
 		{0, 995_000},   // unset falls to half a percent
 		{-3, 995_000},  // and so does nonsense
 		{100, 995_000}, // including a tolerance that would accept nothing back
+		// Finer than a basis point. In whole basis points this truncated to
+		// zero and the floor came back EQUAL to the quote, so a request for
+		// very tight protection was answered with none at all and the swap
+		// reverted on the first wei of movement.
+		{0.005, 999_950},
+		{0.01, 999_900},
 	} {
 		if got := leastAccepted(quoted, c.tolerance); got.Int64() != c.want {
 			t.Errorf("tolerance %v: floor = %s, want %d", c.tolerance, got, c.want)

@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -315,5 +316,60 @@ func TestWhatThisSurfaceIsNot(t *testing.T) {
 				t.Errorf("%s %s answered %d: %s", method, gone, w.Code, w.Body.String())
 			}
 		}
+	}
+}
+
+// The arms here read the quoter each protocol published, and those answer a
+// known INPUT only. Telling a caller their pair is unheld when what is unheld
+// is the direction sends them looking for liquidity that is sitting right
+// there.
+func TestExactOutputSaysItIsTheDirection(t *testing.T) {
+	// A chain whose quoter answers a price, and a V3 arm reading it — which is
+	// what every real deployment has. The V4 double elsewhere in this file
+	// prices both directions, so it cannot show this.
+	chain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID uint64 `json:"id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": req.ID,
+			"result": "0x" + fmt.Sprintf("%064x", 997_000),
+		})
+	}))
+	t.Cleanup(chain.Close)
+
+	s := NewServer(NewRouter(NewRegistry(), true), DefaultServerConfig(),
+		WithChainVenues(NewChainRouters(map[ChainID]ChainVenues{
+			ChainIDLux: {RPC: chain.URL, V3Quoter: testOther},
+		})))
+	asked := quoteRequest{
+		ChainID:   uint64(ChainIDLux),
+		TokenIn:   testWETH,
+		TokenOut:  testLUSD,
+		Amount:    "1000000000000000000",
+		IsExactIn: false,
+	}
+	for _, path := range []string{"/v1/trade/quote", "/v1/trade/quotes", "/v1/trade/swap"} {
+		body := map[string]any{
+			"chainId": asked.ChainID, "tokenIn": asked.TokenIn, "tokenOut": asked.TokenOut,
+			"amount": asked.Amount, "isExactIn": false, "recipient": testOther,
+		}
+		w := ask(s, http.MethodPost, path, body)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("%s: got %d, want 404: %s", path, w.Code, w.Body.String())
+		}
+		if bytes.Contains(w.Body.Bytes(), []byte("no venue here holds this pair")) {
+			t.Errorf("%s blamed the pair for a direction: %s", path, w.Body.String())
+		}
+		if !bytes.Contains(w.Body.Bytes(), []byte("isExactIn")) {
+			t.Errorf("%s did not say what to ask instead: %s", path, w.Body.String())
+		}
+	}
+
+	// The same pair, asked the way the quoter reads, is priced.
+	asked.IsExactIn = true
+	if w := ask(s, http.MethodPost, "/v1/trade/quote", asked); w.Code != http.StatusOK {
+		t.Fatalf("the pair is held after all: %d %s", w.Code, w.Body.String())
 	}
 }

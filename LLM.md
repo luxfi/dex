@@ -357,10 +357,27 @@ allowance:
 caller's own trade causes. `slippage` is a percentage; zero or nonsense means
 half a percent.
 
+It is computed in hundredths of a basis point — the unit a V3 fee tier is
+already stated in. In whole basis points a tolerance finer than 0.01%
+truncated to nothing, so `slippage: 0.005` produced a floor EQUAL to the quote:
+a request for very tight protection answered with none at all, and a
+transaction that reverts on the first wei of movement. Measured on 96369, 1
+WLUX into LUSD quoting 997001483075056712:
+
+    slippage 0.005  ->  996951633000902959   99.9950%
+    slippage 0.5    ->  992016475659681428   99.5000%
+
 **The tier travels with the quote.** A V3 quote asks all four tiers and keeps
 the best, so it is a reading of ONE pool. The winning tier rides on
 `route[0].fee` and the swap names the same one — without it the transaction
 executes against a different pool at a different price.
+
+**A direction is not a missing market.** `getAmountsOut` and
+`quoteExactInputSingle` price a known INPUT and have no other direction, so an
+exact-output request gets nothing back however deep the pool is. Answering that
+with "no venue here holds this pair" sends someone looking for liquidity that
+is sitting right there; it now says which of the two it was, and what to ask
+instead.
 
 ### The allowance is read, not assumed
 

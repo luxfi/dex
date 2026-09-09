@@ -311,7 +311,7 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		// Saying "no providers available" of our own chain sends a reader
 		// looking for a misconfiguration that is not there.
 		if errors.Is(err, ErrNoProvidersAvailable) && s.settles(asked.ChainID) {
-			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+			s.writeError(w, http.StatusNotFound, s.whyNothingHeld(asked))
 			return
 		}
 		s.writeError(w, http.StatusInternalServerError, err)
@@ -319,6 +319,23 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, quote)
+}
+
+// whyNothingHeld says what was asked as well as that nothing answered.
+//
+// The V2 and V3 arms read the quoter each protocol published, and those price a
+// known INPUT only — `getAmountsOut` and `quoteExactInputSingle` have no other
+// direction. So an exact-output request gets nothing back from them however
+// deep the pool is, and answering it with "no venue here holds this pair" sends
+// someone looking for liquidity that is sitting right there. The direction is
+// named as the likely cause, not asserted as the fact, because a deployment
+// carrying an arm that prices both ways would reach this line only when the
+// pair really is unheld.
+func (s *Server) whyNothingHeld(asked QuoteRequest) error {
+	if !asked.IsExactIn {
+		return fmt.Errorf("nothing here answered for a known output — the v2 and v3 arms read quoters that price a known input only; ask with isExactIn and the amount of %s you will spend", asked.TokenIn.Address)
+	}
+	return fmt.Errorf("no venue here holds this pair")
 }
 
 // settles reports whether this deployment reads a chain from its own pools.
@@ -418,7 +435,7 @@ func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
 	quotes, err := s.router.GetAllQuotes(ctx, asked)
 	if err != nil {
 		if errors.Is(err, ErrNoProvidersAvailable) && s.settles(asked.ChainID) {
-			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+			s.writeError(w, http.StatusNotFound, s.whyNothingHeld(asked))
 			return
 		}
 		s.writeError(w, http.StatusInternalServerError, err)
@@ -468,10 +485,14 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 	}
 	held := s.venueQuotes(ctx, asked)
 	if len(held) == 0 {
-		s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+		s.writeError(w, http.StatusNotFound, s.whyNothingHeld(asked))
 		return
 	}
 	best := held[0]
+	if len(best.Route) == 0 {
+		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("%s priced this pair without naming the pool", best.ProviderName))
+		return
+	}
 
 	venue := s.chains.Venue(asked.ChainID, best.ProviderName)
 	if venue == nil {
@@ -507,9 +528,15 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 //
 // A router given the quoted amount as its floor reverts on any movement at
 // all, including the movement the caller's own trade causes, so a tolerance is
-// not a nicety. Zero or nonsense means half a percent — the tolerance a wallet
-// offers by default — because a swap submitted with no floor is one anybody
-// can stand in front of.
+// not a nicety. Zero or nonsense means half a percent — what a wallet offers by
+// default — because a swap submitted with no floor is one anybody can stand in
+// front of.
+//
+// The arithmetic is in hundredths of a basis point, which is the unit a V3 fee
+// tier is already stated in. In whole basis points a tolerance finer than 0.01%
+// truncated to nothing, so 0.005 produced a floor EQUAL to the quote and the
+// swap reverted on the first wei of movement — a request for very tight
+// protection answered with none at all.
 func leastAccepted(quoted *big.Int, tolerancePercent float64) *big.Int {
 	if quoted == nil || quoted.Sign() <= 0 {
 		return big.NewInt(0)
@@ -517,10 +544,9 @@ func leastAccepted(quoted *big.Int, tolerancePercent float64) *big.Int {
 	if tolerancePercent <= 0 || tolerancePercent >= 100 {
 		tolerancePercent = 0.5
 	}
-	// In basis points, so the arithmetic stays in integers the whole way.
-	keep := big.NewInt(10_000 - int64(tolerancePercent*100))
+	keep := big.NewInt(1_000_000 - int64(tolerancePercent*10_000))
 	least := new(big.Int).Mul(quoted, keep)
-	return least.Div(least, big.NewInt(10_000))
+	return least.Div(least, big.NewInt(1_000_000))
 }
 
 func (s *Server) convertQuoteRequest(req quoteRequest) QuoteRequest {
