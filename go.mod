@@ -1,6 +1,6 @@
 module github.com/luxfi/dex
 
-go 1.26.4
+go 1.26.8
 
 require (
 	github.com/btcsuite/btcd v0.24.2

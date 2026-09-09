@@ -1,6 +1,6 @@
 module github.com/luxfi/dex/client/go
 
-go 1.26.3
+go 1.26.8
 
 // google.golang.org/grpc is only compiled when the `grpc` build tag is
 // set. Default builds (WebSocket only) pull zero gRPC code.
