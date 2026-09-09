@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/luxfi/dex/pkg/gateway"
+	"github.com/luxfi/dex/pkg/gateway/coingecko"
 	"github.com/luxfi/dex/pkg/gateway/uniswap"
 )
 
@@ -100,6 +101,14 @@ func main() {
 			log.Fatalf("uniswap provider: %v", err)
 		}
 		log.Printf("hosted upstream registered for %v", up.Chains)
+	}
+
+	// What tokens exist, and what they are worth. A chain's pools say what a
+	// pair trades at and nothing about what is listed on it, so without this a
+	// screen switched to Ethereum asks for nothing and draws an empty table.
+	// Open endpoints, no key; a key only raises the rate limit.
+	if err := gw.RegisterProvider(coingecko.New(coingecko.Config{APIKey: os.Getenv("COINGECKO_API_KEY")})); err != nil {
+		log.Fatalf("coingecko provider: %v", err)
 	}
 
 	ttl := 10 * time.Second
