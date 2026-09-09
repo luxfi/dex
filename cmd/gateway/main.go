@@ -48,48 +48,63 @@ func main() {
 		log.Fatalf("LUX_CHAIN_ID: %v", err)
 	}
 
-	// Our own chain, quoted from our own contracts. The native venue reads the
-	// DEX precompiles; a V2 router is added beside it when one is deployed,
-	// which is a fact about the chain rather than about this binary — an
-	// unset address means the venue is not offered, not that it is broken.
-	venues := []gateway.Venue{
-		gateway.NewNativeDEXVenue(gateway.NativeDEXConfig{RPCURL: rpc, UseDEX: true}),
-	}
+	// Every chain is read from its own pools. Ours through the V4 precompiles
+	// with V2 beside them when a router is deployed; every other chain through
+	// the V2 router and the V3 quoter Uniswap published there. No API key, no
+	// upstream account: the hosted API answers ACCESS_DENIED without a
+	// contract, and a pool answers anyone.
+	chains := gateway.DefaultChainVenues(rpc)
+	mine := chains[gateway.ChainID(chain)]
+	mine.RPC = rpc
+	mine.Native = true
 	if router := strings.TrimSpace(os.Getenv("LUX_V2_ROUTER")); router != "" {
-		venues = append(venues, gateway.NewUniswapV2Venue(gateway.UniswapV2Config{
-			RPCURL:        rpc,
-			RouterAddress: router,
-			Name:          "lux_v2",
-		}))
+		mine.V2Router = router
+	}
+	if quoter := strings.TrimSpace(os.Getenv("LUX_V3_QUOTER")); quoter != "" {
+		mine.V3Quoter = quoter
+	}
+	chains[gateway.ChainID(chain)] = mine
+
+	// A deployment overrides any chain's endpoint by name, because a public RPC
+	// is a courtesy and an interface with traffic wants its own.
+	for id := range chains {
+		if url := strings.TrimSpace(os.Getenv("RPC_" + strconv.FormatUint(uint64(id), 10))); url != "" {
+			c := chains[id]
+			c.RPC = url
+			chains[id] = c
+		}
 	}
 
 	gw := gateway.New(gateway.GatewayConfig{
 		DefaultChainID: gateway.ChainID(chain),
 		EnableFallback: true,
-		CacheEnabled:   true,
-		CacheTTLSeconds: func() int {
-			n, err := strconv.Atoi(env("GATEWAY_CACHE_TTL", "10"))
-			if err != nil {
-				return 10
-			}
-			return n
-		}(),
 	})
 
-	// Every other chain, quoted upstream. The provider already names the six
-	// Uniswap serves — Ethereum, Arbitrum, Optimism, Polygon, Base, BNB — and
-	// an API key is optional: without one the public endpoints answer, with one
-	// they answer under a quota that is ours.
-	up := uniswap.DefaultConfig()
-	up.APIKey = os.Getenv("UNISWAP_API_KEY")
-	up.Timeout = 30 * time.Second
-	if err := gw.RegisterProvider(uniswap.NewProvider(up)); err != nil {
-		log.Fatalf("uniswap provider: %v", err)
+	// The hosted provider is registered only when a key is given. Without one
+	// it refuses every request, and a provider that always refuses is worse
+	// than none: it turns a pair with no pool into an error about somebody
+	// else's quota.
+	if key := strings.TrimSpace(os.Getenv("UNISWAP_API_KEY")); key != "" {
+		up := uniswap.DefaultConfig()
+		up.APIKey = key
+		up.Timeout = 30 * time.Second
+		if err := gw.RegisterProvider(uniswap.NewProvider(up)); err != nil {
+			log.Fatalf("uniswap provider: %v", err)
+		}
+		log.Printf("hosted upstream registered for %v", up.Chains)
+	}
+
+	ttl := 10 * time.Second
+	if n, err := strconv.Atoi(env("GATEWAY_CACHE_TTL", "10")); err == nil && n >= 0 {
+		ttl = time.Duration(n) * time.Second
 	}
 
 	cfg := gateway.DefaultServerConfig()
 	cfg.Addr = addr
-	server := gateway.NewServer(gw.GetRouter(), cfg, gateway.WithVenues(gateway.NewVenueRouter(venues...)))
+	routers := gateway.NewChainRouters(chains)
+	server := gateway.NewServer(gw.GetRouter(), cfg,
+		gateway.WithChainVenues(routers),
+		gateway.WithQuoteCache(ttl))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -100,8 +115,8 @@ func main() {
 		_ = server.Shutdown(ctx)
 	}()
 
-	log.Printf("trading gateway on %s — chain %d at %s, %d native venue(s), upstream for %v",
-		addr, chain, rpc, len(venues), up.Chains)
+	log.Printf("trading gateway on %s — chain %d at %s, venues on %v, quotes cached %s",
+		addr, chain, rpc, routers.Chains(), ttl)
 	if err := server.Start(); err != nil {
 		log.Fatalf("gateway: %v", err)
 	}

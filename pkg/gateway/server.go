@@ -20,7 +20,9 @@ type Server struct {
 	httpServer *http.Server
 	mux        *http.ServeMux
 	orders     *orderManager
-	venues     *VenueRouter // optional venue-based quoting engine
+	venues     *VenueRouter  // optional venue-based quoting engine, one chain
+	chains     *ChainRouters // optional venue-based quoting engine, per chain
+	quotes     *quoteCache   // optional short-lived cache of venue quotes
 }
 
 // ServerConfig holds server configuration
@@ -62,6 +64,26 @@ func corsMiddleware(next http.Handler) http.Handler {
 type ServerOption func(*Server)
 
 // WithVenues attaches a VenueRouter for venue-based multi-source quoting.
+// WithChainVenues gives the server a venue router per chain — our own chain
+// read from its precompiles, every other chain read from its own pools. It is
+// the many-chain form of WithVenues, and where both are given this one is asked
+// first because it knows which chain was asked about.
+func WithChainVenues(cr *ChainRouters) ServerOption {
+	return func(s *Server) {
+		s.chains = cr
+	}
+}
+
+// WithQuoteCache keeps a venue quote for a moment. A pool moves when somebody
+// trades in it, so the window is short by nature; what it saves is the second
+// and third reader of the same pair in the same second, and every eth_call
+// saved is one a public endpoint is entitled to refuse.
+func WithQuoteCache(ttl time.Duration) ServerOption {
+	return func(s *Server) {
+		s.quotes = newQuoteCache(ttl)
+	}
+}
+
 func WithVenues(vr *VenueRouter) ServerOption {
 	return func(s *Server) {
 		s.venues = vr
@@ -277,7 +299,7 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		// deployment missing a provider — it is a pair no venue here holds.
 		// Saying "no providers available" of our own chain sends a reader
 		// looking for a misconfiguration that is not there.
-		if errors.Is(err, ErrNoProvidersAvailable) && s.venues != nil && len(s.venues.Venues()) > 0 {
+		if errors.Is(err, ErrNoProvidersAvailable) && (s.chains.For(asked.ChainID) != nil || (s.venues != nil && len(s.venues.Venues()) > 0)) {
 			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
 			return
 		}
@@ -292,11 +314,24 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 // none of them holds the pair — which is a question for the providers and not
 // an answer of its own.
 func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
-	if s.venues == nil || len(s.venues.Venues()) == 0 {
+	if kept := s.quotes.get(req); kept != nil {
+		return kept
+	}
+
+	venues := s.chains.For(req.ChainID)
+	if venues == nil {
+		venues = s.venues
+	}
+	if venues == nil || len(venues.Venues()) == 0 {
 		return nil
 	}
 
-	quotes, routing := s.venues.QueryAllVenues(ctx, VenueQuoteRequest{
+	// The router's own routing label describes its strategy, not who answered.
+	// A V3 pool on Ethereum came back marked V4_NATIVE, which names our own
+	// precompile on somebody else's chain — the one thing a route must never
+	// misreport, since it is what a reader checks to see where their order
+	// goes. The winning venue names itself.
+	quotes, _ := venues.QueryAllVenues(ctx, VenueQuoteRequest{
 		TokenIn:  req.TokenIn.Address,
 		TokenOut: req.TokenOut.Address,
 		Amount:   req.Amount.String(),
@@ -325,13 +360,15 @@ func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
 	won := quotes[best]
 	out, _ := new(big.Int).SetString(won.AmountOut, 10)
 	gas, _ := new(big.Int).SetString(won.GasEstimate, 10)
-	return &SwapQuote{
+	quote := &SwapQuote{
 		TokenIn:      TokenAmount{Token: req.TokenIn, Amount: req.Amount},
 		TokenOut:     TokenAmount{Token: req.TokenOut, Amount: out},
-		Route:        []PoolHop{{PoolType: routing, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
+		Route:        []PoolHop{{PoolType: won.Venue, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
 		GasEstimate:  gas,
 		ProviderName: won.Venue,
 	}
+	s.quotes.put(req, quote)
+	return quote
 }
 
 func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
