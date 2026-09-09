@@ -55,13 +55,9 @@ func (s *Server) handleVenues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Venues attached without a chain — a deployment handed one set for
-	// everything, which is what a single-chain run does. They read the chain
-	// this server calls its own.
+	// everything, which is what a single-chain run does.
 	if asked == 0 && len(out) == 0 && s.venues != nil {
-		out = append(out, ChainVenueInfo{
-			ChainID: s.orders.defaultChainID,
-			Venues:  s.venues.ListVenueInfo(),
-		})
+		out = append(out, ChainVenueInfo{ChainID: ChainIDLux, Venues: s.venues.ListVenueInfo()})
 	}
 
 	if asked != 0 && len(out) == 0 {

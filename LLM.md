@@ -275,6 +275,17 @@ that.** `pkg/gateway.Server.routes()` is the surface written once;
 other, in both directions, so a route added in code and not written down fails
 the build and so does a path promised in the document and not served.
 
+Eight paths, and every one of them answers:
+
+    GET  /v1/trade/venues            what this deployment can price, per chain
+    POST /v1/trade/quote             the best price across the venues that hold the pair
+    POST /v1/trade/quotes            every venue's price, best first
+    POST /v1/trade/swap              the transaction that takes that price
+    POST /v1/trade/approval/check    what the spender may already move
+    POST /v1/trade/approval/build    an unsigned ERC-20 approve
+    POST /v1/trade/permit2/check     whether a live Permit2 grant covers it
+    POST /v1/trade/permit2/build     a Permit2 grant, as a tx or as typed data
+
 That prefix replaced three names for one API: `/v1/*` here, `/trading/*` beside
 it in Uniswap's shapes, and a published openapi.yaml describing a third set that
 `pkg/trading` implemented and no binary ever mounted. `pkg/trading` was a second
@@ -290,8 +301,8 @@ set — a provider that always refuses turns a pair with no pool into an error
 about somebody else's quota.
 
 Environment: `GATEWAY_ADDR` (:8080), `LUX_RPC`, `LUX_CHAIN_ID` (96369),
-`LUX_V2_ROUTER`, `LUX_V3_QUOTER`, `RPC_<chainid>` per chain, `GATEWAY_CACHE_TTL`
-(seconds), `UNISWAP_API_KEY` (optional). Chains with venues: 1, 10, 56, 137,
+`LUX_V2_ROUTER`, `LUX_V3_QUOTER`, `LUX_V3_ROUTER`, `RPC_<chainid>` per chain,
+`GATEWAY_CACHE_TTL` (seconds), `UNISWAP_API_KEY` (optional). Chains with venues: 1, 10, 56, 137,
 8453, 42161, 96369.
 
 `GET /v1/trade/venues` is the question a screen asks before it asks anything
@@ -302,6 +313,54 @@ settle ourselves. Measured against 96369 with `LUX_V3_QUOTER` set:
     96369  native  [v4_native, uniswap_v3]
     1              [uniswap_v2, uniswap_v3]
     10, 56, 137, 8453, 42161 the same
+
+### The venue that quoted is the venue that builds
+
+`/v1/trade/swap` asked the hosted provider registry for a price — which this
+deployment has none of, so it answered 500 while `/v1/trade/quote` priced the
+same pair from the pools a line away — and then encoded whatever came back for
+the PoolManager precompile at `0x9010`, regardless of where the price came
+from. A router on Ethereum quoted and a precompile on our chain addressed, in
+one response. `0x9010` answers `0x` on 96369, measured with the venue's own
+quoter selector, so the calldata named a contract that is not there.
+
+`Venue` has a `Swap` method now (`venue_swap.go`). Each venue builds against
+the contract it read: `UniswapV3Venue` against the SwapRouter02 beside its
+quoter, `UniswapV2Venue` against the same Router02 that answered
+`getAmountsOut`. A venue that prices a market it cannot settle returns nil, and
+the surface answers 404 naming it rather than calldata for something else.
+
+**The selector was wrong, and it is the kind of wrong that spends money.**
+`calldata_lxrouter.go` sent `04e45aaf` under a signature it called
+`ExactInputSingle(address,address,uint256,uint256,uint160,bytes32)`. That
+signature hashes to `f48f227e`. `04e45aaf` is SwapRouter02's
+`exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))` —
+a SEVEN-field tuple. A router handed the six-field form reads `amountIn` where
+it expects the fee tier and `amountOutMinimum` where it expects the recipient.
+Those builders were reachable only from their own tests; what survives is the
+padding and decoding, in `abi.go`.
+
+Proof, end to end, against the live chain — the gateway's own calldata replayed
+through `eth_call` on 96369's real router from the account that holds the
+allowance:
+
+    POST /v1/trade/swap  1 WLUX -> LUSD, slippage 0.5
+      to     0xbbD8d9A1E6bf5627A2F6D2aF38664bbe1cEF63Bb   (SwapRouter02)
+      fee    3000            the tier the quote was read from
+      minOut 992016475589681300   99.5% of the quote
+    eth_call that calldata, from 0x9011E8…, latest
+      -> 997001483075056712
+    the gateway quoted        997001483075056712
+
+**The floor is not optional.** A router handed the quoted amount as its
+`amountOutMinimum` reverts on any movement at all, including the movement the
+caller's own trade causes. `slippage` is a percentage; zero or nonsense means
+half a percent.
+
+**The tier travels with the quote.** A V3 quote asks all four tiers and keeps
+the best, so it is a reading of ONE pool. The winning tier rides on
+`route[0].fee` and the swap names the same one — without it the transaction
+executes against a different pool at a different price.
 
 ### The allowance is read, not assumed
 
@@ -318,6 +377,13 @@ Permit2 answers `(amount, expiration, nonce)` and the expiration is half the
 answer — a grant that has run out is not a grant. The unsigned tx and the
 EIP-712 request ride along ONLY when one is needed; handed back beside "you
 already approved" they are transactions somebody sends.
+
+**Permit2 is at one address everywhere it exists, and it does not exist
+everywhere.** `0x000000000022D473030F116dDEE9F6B43aC78BA3` holds 9152 bytes on
+Ethereum and nothing on 96369. Both paths check before answering, so our own
+chain gets `permit2 is not deployed on chain 96369 — approve the spender
+directly` instead of calldata addressed to an empty account. A transaction that
+costs gas to do nothing is the failure worse than an error.
 
 ### Three things to know before deploying it
 
@@ -347,6 +413,22 @@ strength of `X-User-Role: admin` — a header the caller writes — and drove st
 nothing read: `PauseState` had no caller outside its own file, per replica, lost
 on restart. A switch wired to nothing is worse than no switch. The real gate is
 `checkPauseState` in the pool manager, on chain, where a market is.
+
+### What this surface is not, and where each of those lives instead
+
+Five paths answered 500 `no providers available` in the deployment that
+actually runs, and four more built transactions for contracts that are not
+there. A path in a published contract that cannot work is worse than a missing
+one: a client writes against it and finds out in production.
+
+| gone | why | where it lives |
+|---|---|---|
+| `/v1/tokens` `/v1/pools` `/v1/pool/` `/v1/positions` `/v1/stats` `/v1/price` `/v1/prices` | enumerating what exists on a chain is an INDEX read; this reads a pool by address, right now, and cannot walk every pool on Ethereum | `api-explore.lux.cloud` — measured returning 16 pools, $39.9M TVL, real symbols and decimals for 96369 |
+| `/v1/route` | the same read in a hat: needs a pool graph, and without one answered `{"routes":[]}` forever, which reads as "no path exists" rather than "I cannot answer" | same |
+| `/v1/order` `/v1/order/` | an in-memory map behind two replicas: an order placed on one pod was a 404 on the other about half the time, and every order died on restart | the D-Chain venue IS the order book — `dex_place`, `dex_get_orders`, `dex_get_book` over ZAP, deployed as `dex.yaml` |
+| `/v1/position` `/v1/position/{increase,decrease,claim}` | every builder addressed `0x9010`, which answers `0x`; liquidity on 96369 is managed through the position manager the venue deployment actually put there | not here |
+
+`TestWhatThisSurfaceIsNot` keeps them gone and records the reason beside each.
 
 **Nothing here invents a number.** `/v1/history/prices` and `/v1/history/tvl`
 returned a random walk seeded from hardcoded base prices — LUX at 2.47, WBTC at

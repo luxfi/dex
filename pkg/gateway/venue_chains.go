@@ -22,6 +22,9 @@ type ChainVenues struct {
 	V2Router string
 	// V3Quoter is a QuoterV2. Empty means no V3 arm.
 	V3Quoter string
+	// V3Router is the SwapRouter02 beside that quoter — what executes the
+	// price it gave. Empty means the V3 arm quotes and does not build.
+	V3Router string
 	// Native turns on the Lux precompile venue — the V4 arm, PoolManager at
 	// 0x9010 with the order book at 0x9020 beside it. Only our chains have it.
 	Native bool
@@ -36,6 +39,13 @@ const (
 	v3QuoterCommon   = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
 	v3QuoterBase     = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a"
 	v3QuoterBNB      = "0x78D78E420Da98ad378D7799bE8f4AF69033EB077"
+
+	// SwapRouter02 — the contract that executes what those quoters price. One
+	// address on Ethereum, Polygon, Arbitrum and Optimism; its own on Base and
+	// BNB, which were deployed later.
+	v3RouterCommon = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
+	v3RouterBase   = "0x2626664c2603336E57B271c5C0b26F421741e481"
+	v3RouterBNB    = "0xB971eF87ede563556b2ED4b1C0b0019111Dd85d2"
 )
 
 // DefaultChainVenues is what a deployment reads when it is told nothing else:
@@ -44,12 +54,12 @@ const (
 func DefaultChainVenues(luxRPC string) map[ChainID]ChainVenues {
 	return map[ChainID]ChainVenues{
 		96369:           {RPC: luxRPC, Native: true},
-		ChainIDEthereum: {RPC: "https://ethereum-rpc.publicnode.com", V2Router: v2RouterEthereum, V3Quoter: v3QuoterCommon},
-		ChainIDArbitrum: {RPC: "https://arbitrum-one-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon},
-		ChainIDOptimism: {RPC: "https://optimism-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon},
-		ChainIDPolygon:  {RPC: "https://polygon-bor-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon},
-		ChainIDBase:     {RPC: "https://base-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBase},
-		ChainIDBNB:      {RPC: "https://bsc-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBNB},
+		ChainIDEthereum: {RPC: "https://ethereum-rpc.publicnode.com", V2Router: v2RouterEthereum, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
+		ChainIDArbitrum: {RPC: "https://arbitrum-one-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
+		ChainIDOptimism: {RPC: "https://optimism-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
+		ChainIDPolygon:  {RPC: "https://polygon-bor-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
+		ChainIDBase:     {RPC: "https://base-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBase, V3Router: v3RouterBase},
+		ChainIDBNB:      {RPC: "https://bsc-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBNB, V3Router: v3RouterBNB},
 	}
 }
 
@@ -63,7 +73,12 @@ func (c ChainVenues) Venues() []Venue {
 		out = append(out, NewUniswapV2Venue(UniswapV2Config{RPCURL: c.RPC, RouterAddress: c.V2Router, Name: "uniswap_v2"}))
 	}
 	if c.V3Quoter != "" {
-		out = append(out, NewUniswapV3Venue(UniswapV3Config{RPCURL: c.RPC, QuoterAddress: c.V3Quoter, Name: "uniswap_v3"}))
+		out = append(out, NewUniswapV3Venue(UniswapV3Config{
+			RPCURL:        c.RPC,
+			QuoterAddress: c.V3Quoter,
+			RouterAddress: c.V3Router,
+			Name:          "uniswap_v3",
+		}))
 	}
 	return out
 }
@@ -96,6 +111,20 @@ func (c *ChainRouters) RPC(chain ChainID) string {
 		return ""
 	}
 	return c.rpc[chain]
+}
+
+// Venue returns one chain's arm by the name it calls itself, or nil.
+func (c *ChainRouters) Venue(chain ChainID, name string) Venue {
+	r := c.For(chain)
+	if r == nil {
+		return nil
+	}
+	for _, v := range r.Venues() {
+		if v.Name() == name {
+			return v
+		}
+	}
+	return nil
 }
 
 // For returns the venues that read one chain, or nil.

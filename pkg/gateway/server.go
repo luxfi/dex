@@ -20,7 +20,6 @@ type Server struct {
 	router     *Router
 	httpServer *http.Server
 	mux        *http.ServeMux
-	orders     *orderManager
 	venues     *VenueRouter  // optional venue-based quoting engine, one chain
 	chains     *ChainRouters // optional venue-based quoting engine, per chain
 	quotes     *quoteCache   // optional short-lived cache of venue quotes
@@ -98,7 +97,6 @@ func NewServer(router *Router, cfg ServerConfig, opts ...ServerOption) *Server {
 	s := &Server{
 		router: router,
 		mux:    mux,
-		orders: newOrderManager(ChainIDLux),
 		httpServer: &http.Server{
 			Addr:           cfg.Addr,
 			Handler:        corsMiddleware(mux),
@@ -156,36 +154,16 @@ func (s *Server) routes() map[string]http.HandlerFunc {
 		// What this deployment quotes, and from where.
 		"/venues": s.handleVenues,
 
-		// Quotes and swaps
+		// A price, and the transaction that takes it.
 		"/quote":  s.handleQuote,
 		"/quotes": s.handleQuotes,
 		"/swap":   s.handleSwap,
-		"/route":  s.handleRoute,
 
-		// Orders — limit and dutch auction
-		"/order":  s.handleOrder,
-		"/order/": s.handleOrderByID,
-
-		// Allowances
+		// What a spender may already move.
 		"/approval/check": s.handleApprovalCheck,
 		"/approval/build": s.handleApprovalBuild,
 		"/permit2/check":  s.handlePermit2Check,
 		"/permit2/build":  s.handlePermit2Build,
-
-		// Pools and positions
-		"/pools":             s.handlePools,
-		"/pool/":             s.handlePool,
-		"/positions":         s.handlePositions,
-		"/position":          s.handlePosition,
-		"/position/increase": s.handlePositionIncrease,
-		"/position/decrease": s.handlePositionDecrease,
-		"/position/claim":    s.handlePositionClaim,
-
-		// Reference
-		"/tokens": s.handleTokens,
-		"/price":  s.handlePrice,
-		"/prices": s.handlePrices,
-		"/stats":  s.handleStats,
 	}
 }
 
@@ -381,10 +359,14 @@ func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote 
 			continue
 		}
 		gas, _ := new(big.Int).SetString(a.GasEstimate, 10)
+		// The tier rides on the hop it belongs to. A V3 quote is a reading of
+		// ONE pool, and a swap that does not name the same tier executes
+		// against a different one at a different price.
+		fee, _ := strconv.Atoi(a.Fee)
 		held = append(held, SwapQuote{
 			TokenIn:      TokenAmount{Token: req.TokenIn, Amount: req.Amount},
 			TokenOut:     TokenAmount{Token: req.TokenOut, Amount: out},
-			Route:        []PoolHop{{PoolType: a.Venue, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
+			Route:        []PoolHop{{PoolType: a.Venue, TokenIn: req.TokenIn, TokenOut: req.TokenOut, Fee: fee}},
 			GasEstimate:  gas,
 			ProviderName: a.Venue,
 		})
@@ -461,31 +443,84 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("tokenIn and tokenOut are required"))
 		return
 	}
-	if req.Amount == "" {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("amount is required"))
-		return
-	}
 	if req.Recipient == "" {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("recipient is required"))
 		return
 	}
-
-	ctx := s.requestContext(r)
-	quote, err := s.router.GetBestQuote(ctx, QuoteRequest{
-		TokenIn:   Token{Address: req.TokenIn, ChainID: ChainID(req.ChainID)},
-		TokenOut:  Token{Address: req.TokenOut, ChainID: ChainID(req.ChainID)},
-		Amount:    parseBigIntStr(req.Amount),
-		IsExactIn: req.IsExactIn,
-		ChainID:   ChainID(req.ChainID),
-		Slippage:  req.Slippage,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("quote failed: %w", err))
+	amount, ok := new(big.Int).SetString(req.Amount, 10)
+	if !ok || amount.Sign() <= 0 {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("amount %q is not a whole number of the token's smallest unit", req.Amount))
 		return
 	}
 
-	resp := buildSwapFromQuote(req, quote)
-	s.writeJSON(w, http.StatusOK, resp)
+	// The price and the transaction come from ONE venue. Asking the provider
+	// registry for the price and then encoding it for a fixed precompile —
+	// which is what this did — quotes a router on one chain and addresses a
+	// contract on another, in one answer.
+	ctx := s.requestContext(r)
+	asked := QuoteRequest{
+		TokenIn:   Token{Address: req.TokenIn, ChainID: ChainID(req.ChainID)},
+		TokenOut:  Token{Address: req.TokenOut, ChainID: ChainID(req.ChainID)},
+		Amount:    amount,
+		IsExactIn: req.IsExactIn,
+		ChainID:   ChainID(req.ChainID),
+		Slippage:  req.Slippage,
+	}
+	held := s.venueQuotes(ctx, asked)
+	if len(held) == 0 {
+		s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+		return
+	}
+	best := held[0]
+
+	venue := s.chains.Venue(asked.ChainID, best.ProviderName)
+	if venue == nil {
+		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("venue %q priced this and is not registered", best.ProviderName))
+		return
+	}
+
+	tx, err := venue.Swap(SwapOrder{
+		TokenIn:   req.TokenIn,
+		TokenOut:  req.TokenOut,
+		AmountIn:  amount,
+		MinOut:    leastAccepted(best.TokenOut.Amount, req.Slippage),
+		Recipient: req.Recipient,
+		Deadline:  req.Deadline,
+		Fee:       uint32(best.Route[0].Fee),
+	})
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if tx == nil {
+		// A venue that prices a market it does not settle. Naming it is the
+		// difference between "we cannot" and "there is no price".
+		s.writeError(w, http.StatusNotFound, fmt.Errorf("%s priced this pair and cannot build the transaction for it", best.ProviderName))
+		return
+	}
+	tx.ChainID = req.ChainID
+
+	s.writeJSON(w, http.StatusOK, swapResponse{Swap: *tx, Quote: best})
+}
+
+// leastAccepted is the amountOutMinimum for a quote taken at a tolerance.
+//
+// A router given the quoted amount as its floor reverts on any movement at
+// all, including the movement the caller's own trade causes, so a tolerance is
+// not a nicety. Zero or nonsense means half a percent — the tolerance a wallet
+// offers by default — because a swap submitted with no floor is one anybody
+// can stand in front of.
+func leastAccepted(quoted *big.Int, tolerancePercent float64) *big.Int {
+	if quoted == nil || quoted.Sign() <= 0 {
+		return big.NewInt(0)
+	}
+	if tolerancePercent <= 0 || tolerancePercent >= 100 {
+		tolerancePercent = 0.5
+	}
+	// In basis points, so the arithmetic stays in integers the whole way.
+	keep := big.NewInt(10_000 - int64(tolerancePercent*100))
+	least := new(big.Int).Mul(quoted, keep)
+	return least.Div(least, big.NewInt(10_000))
 }
 
 func (s *Server) convertQuoteRequest(req quoteRequest) QuoteRequest {
@@ -509,276 +544,11 @@ func (s *Server) convertQuoteRequest(req quoteRequest) QuoteRequest {
 
 // Pool handlers
 
-func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	ctx := s.requestContext(r)
-
-	var req PoolsRequest
-	if r.Method == http.MethodPost {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
-			return
-		}
-	} else {
-		// Parse from query params
-		chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-
-		req = PoolsRequest{
-			ChainID:  ChainID(chainID),
-			Token0:   r.URL.Query().Get("token0"),
-			Token1:   r.URL.Query().Get("token1"),
-			Protocol: r.URL.Query().Get("protocol"),
-			Limit:    limit,
-			Offset:   offset,
-		}
-	}
-
-	pools, err := s.router.GetPools(ctx, req)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, pools)
-}
-
-func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	// Extract pool address from path: /v1/pool/{chainId}/{address}
-	path := tail(r, "/pool/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 2 {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid pool path"))
-		return
-	}
-
-	chainID, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid chain ID"))
-		return
-	}
-
-	ctx := s.requestContext(r)
-	pool, err := s.router.GetPool(ctx, ChainID(chainID), parts[1])
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, pool)
-}
-
-func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	ctx := s.requestContext(r)
-
-	var req PositionsRequest
-	if r.Method == http.MethodPost {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
-			return
-		}
-	} else {
-		chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
-		req = PositionsRequest{
-			ChainID: ChainID(chainID),
-			Owner:   r.URL.Query().Get("owner"),
-			PoolID:  r.URL.Query().Get("poolId"),
-		}
-	}
-
-	positions, err := s.router.GetPositions(ctx, req)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, positions)
-}
-
 // Price handlers
-
-func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
-	address := r.URL.Query().Get("address")
-
-	if address == "" {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("address is required"))
-		return
-	}
-
-	ctx := s.requestContext(r)
-	price, err := s.router.GetTokenPrice(ctx, Token{
-		Address: address,
-		ChainID: ChainID(chainID),
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, price)
-}
-
-func (s *Server) handlePrices(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	var tokens []Token
-	if err := json.NewDecoder(r.Body).Decode(&tokens); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
-		return
-	}
-
-	ctx := s.requestContext(r)
-	prices, err := s.router.GetTokenPrices(ctx, tokens)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, prices)
-}
 
 // Token handlers
 
-func (s *Server) handleTokens(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
-	if chainID == 0 {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("chainId is required"))
-		return
-	}
-
-	ctx := s.requestContext(r)
-	tokens, err := s.router.GetTokenList(ctx, ChainID(chainID))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, tokens)
-}
-
 // Stats and history handlers
-
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	chainID, _ := strconv.ParseUint(r.URL.Query().Get("chainId"), 10, 64)
-	ctx := s.requestContext(r)
-
-	// Get pools to calculate aggregate stats
-	pools, err := s.router.GetPools(ctx, PoolsRequest{ChainID: ChainID(chainID)})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	var totalTVL float64
-	var totalVol float64
-	for _, pool := range pools {
-		if pool.TVL != nil {
-			tvlFloat := new(big.Float).SetInt(pool.TVL)
-			tvlFloat.Quo(tvlFloat, big.NewFloat(1e18))
-			f, _ := tvlFloat.Float64()
-			totalTVL += f
-		}
-		if pool.Volume24h != nil {
-			volFloat := new(big.Float).SetInt(pool.Volume24h)
-			volFloat.Quo(volFloat, big.NewFloat(1e18))
-			f, _ := volFloat.Float64()
-			totalVol += f
-		}
-	}
-
-	// Estimate daily volume from pool count if no on-chain volume data
-	if totalVol == 0 {
-		totalVol = totalTVL * 0.05 // ~5% daily turnover estimate
-	}
-
-	stats := PoolStats{
-		TotalTVL:       totalTVL,
-		TotalVolume24h: totalVol,
-		PoolCount:      len(pools),
-		TxCount24h:     len(pools) * 150, // ~150 tx per pool per day estimate
-	}
-
-	s.writeJSON(w, http.StatusOK, stats)
-}
-
-func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
-	ctx := s.requestContext(r)
-
-	switch r.Method {
-	case http.MethodPost:
-		var lead ConversionLead
-		if err := json.NewDecoder(r.Body).Decode(&lead); err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
-			return
-		}
-
-		created, err := s.router.CreateLead(ctx, lead)
-		if err != nil {
-			s.writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-
-		s.writeJSON(w, http.StatusCreated, created)
-
-	default:
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-	}
-}
-
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
-		return
-	}
-
-	var event ConversionEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
-		return
-	}
-
-	ctx := s.requestContext(r)
-	if err := s.router.TrackEvent(ctx, event); err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	s.writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
-}
 
 // Helper to parse big.Int from string
 func parseBigIntStr(s string) *big.Int {

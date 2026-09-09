@@ -162,34 +162,6 @@ func (v *NativeDEXVenue) queryDEX(ctx context.Context, req VenueQuoteRequest, am
 	}, nil
 }
 
-// NativeSwapHop describes a single step in a native swap route.
-type NativeSwapHop struct {
-	TokenIn  string
-	TokenOut string
-	PoolID   string
-}
-
-// BuildNativeSwapCalldata builds calldata for the V4 SwapRouter (0x9012).
-// This delegates to the existing V4 calldata builders.
-func BuildNativeSwapCalldata(route []NativeSwapHop, amountIn, amountOut *big.Int) (string, string, error) {
-	if len(route) == 1 {
-		hop := route[0]
-		calldata, err := BuildExactInputSingleCalldata(
-			hop.TokenIn, hop.TokenOut, amountIn, amountOut,
-			big.NewInt(0), hop.PoolID,
-		)
-		return NativeSwapRouter, calldata, err
-	}
-
-	path := make([]string, 0, len(route)+1)
-	path = append(path, route[0].TokenIn)
-	for _, hop := range route {
-		path = append(path, hop.TokenOut)
-	}
-	calldata, err := BuildExactInputCalldata(path, amountIn, amountOut, big.NewInt(0))
-	return NativeSwapRouter, calldata, err
-}
-
 // init-time validation.
 func init() {
 	if len(selectorNativeQuote) != 4 {

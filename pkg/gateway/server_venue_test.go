@@ -230,10 +230,8 @@ func TestVenuesNameTheChainsAndTheirArms(t *testing.T) {
 func TestTheSurfaceHasOneName(t *testing.T) {
 	s := newPoolOnlyServer()
 	for _, gone := range []string{
-		"/v1/quote", "/v1/quotes", "/v1/swap", "/v1/route", "/v1/venues",
-		"/v1/pools", "/v1/positions", "/v1/price", "/v1/prices", "/v1/tokens",
-		"/v1/stats", "/v1/order", "/v1/position", "/v1/approval/check",
-		"/v1/permit2/check",
+		"/v1/quote", "/v1/quotes", "/v1/swap", "/v1/venues",
+		"/v1/approval/check", "/v1/permit2/check",
 		"/trading/quote", "/trading/swap", "/trading/check_approval",
 		"/trading/order", "/trading/orders", "/trading/swaps", "/trading/send",
 		"/trading/swappable_tokens", "/trading/lp/create",
@@ -267,6 +265,55 @@ func TestNothingHereInventsANumber(t *testing.T) {
 		w := ask(s, http.MethodGet, gone, nil)
 		if w.Code != http.StatusNotFound {
 			t.Errorf("GET %s answered %d: %s", gone, w.Code, w.Body.String())
+		}
+	}
+}
+
+// What this surface is NOT, and each for its own reason.
+//
+// Every path here answered 500 "no providers available" in the deployment that
+// actually runs, or built a transaction for a contract that is not there. A
+// path in a published contract that cannot work is worse than a missing one: a
+// client writes against it and finds out in production.
+//
+//	tokens, pools, pool/, positions, stats, price, prices, route
+//	  Enumerating what exists on a chain is an INDEX read. The gateway reads a
+//	  pool by address, right now; it cannot walk every pool on Ethereum. The
+//	  indexer already answers all of it — api-explore.lux.cloud measured
+//	  returning 16 pools, $39.9M of TVL, and real symbols and decimals for
+//	  96369 — and a second, broken copy here is worse than none. `route` is the
+//	  same read wearing a different hat: it needs the pool graph, and without
+//	  one it answered {"routes":[]} forever, which a caller reads as "no path
+//	  exists" rather than "I cannot answer".
+//
+//	order, order/
+//	  The store was an in-memory map behind two replicas, so an order placed on
+//	  one pod was a 404 on the other about half the time, and every order was
+//	  lost on restart. The D-Chain venue IS the order book — dex_place,
+//	  dex_get_orders, dex_get_book over ZAP — and it is deployed beside this.
+//
+//	position, position/increase, position/decrease, position/claim
+//	  Every builder addressed the PoolManager precompile at 0x9010, which
+//	  answers 0x on 96369 — measured, with the venue's own quoter selector.
+//	  Liquidity on that chain is managed through the position manager the venue
+//	  deployment actually put there. Calldata for an absent contract is worse
+//	  than a 500: it returns 200 and costs gas to find out.
+func TestWhatThisSurfaceIsNot(t *testing.T) {
+	s := newPoolOnlyServer()
+	for _, gone := range []string{
+		"/v1/trade/tokens", "/v1/trade/pools", "/v1/trade/pool/96369/0x1",
+		"/v1/trade/positions", "/v1/trade/stats", "/v1/trade/price",
+		"/v1/trade/prices", "/v1/trade/route",
+		"/v1/trade/order", "/v1/trade/order/abc",
+		"/v1/trade/position", "/v1/trade/position/increase",
+		"/v1/trade/position/decrease", "/v1/trade/position/claim",
+		"/v1/trade/leads", "/v1/trade/events",
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			w := ask(s, method, gone, map[string]any{})
+			if w.Code != http.StatusNotFound {
+				t.Errorf("%s %s answered %d: %s", method, gone, w.Code, w.Body.String())
+			}
 		}
 	}
 }

@@ -65,6 +65,12 @@ func main() {
 	if quoter := strings.TrimSpace(os.Getenv("LUX_V3_QUOTER")); quoter != "" {
 		mine.V3Quoter = quoter
 	}
+	// The SwapRouter02 beside that quoter. Without it the chain quotes and
+	// cannot build, which /v1/trade/swap says in those words rather than
+	// emitting calldata for some other contract.
+	if router := strings.TrimSpace(os.Getenv("LUX_V3_ROUTER")); router != "" {
+		mine.V3Router = router
+	}
 	chains[gateway.ChainID(chain)] = mine
 
 	// A deployment overrides any chain's endpoint by name, because a public RPC

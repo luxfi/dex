@@ -30,17 +30,16 @@ servers:
     description: A local gateway
 
 tags:
+  - name: venues
   - name: quote
   - name: swap
   - name: allowance
-  - name: liquidity
-  - name: reference
 
 paths:
   /v1/trade/venues:
     get:
       operationId: venues
-      tags: [reference]
+      tags: [venues]
       summary: The chains this deployment can price, and what it reads them from
       description: |
         Ask this first. A venue is a contract on a chain, so the answer is
@@ -146,32 +145,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Envelope' }
 
-  /v1/trade/route:
-    post:
-      operationId: route
-      tags: [quote]
-      summary: Multi-hop paths through the pools, ranked
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RouteRequest' }
-      responses:
-        '200':
-          description: Candidate routes, best output first.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
   /v1/trade/swap:
     post:
       operationId: swap
       tags: [swap]
       summary: An unsigned transaction for the best route
       description: |
-        Quotes the pair, then returns calldata for a wallet to sign. Nothing
-        here holds a key or sends anything.
+        Quotes the pair, then asks the venue that gave that price to build the
+        transaction — the same contract, so the price and the call cannot come
+        from two different places. Nothing here holds a key or sends anything.
+
+        `amountOutMinimum` is derived from the quote and `slippage`: a router
+        handed the quoted amount as its floor reverts on any movement at all,
+        including the movement the caller's own trade causes. Zero or nonsense
+        means half a percent.
+
+        A venue that prices a market it cannot settle answers 404 naming
+        itself, rather than calldata for some other contract.
       requestBody:
         required: true
         content:
@@ -306,302 +296,6 @@ paths:
               schema: { $ref: '#/components/schemas/Envelope' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
-  /v1/trade/order:
-    post:
-      operationId: placeOrder
-      tags: [swap]
-      summary: Place a limit or dutch-auction order
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OrderRequest' }
-      responses:
-        '201':
-          description: The order as recorded.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-    get:
-      operationId: listOrders
-      tags: [swap]
-      summary: Orders for an address
-      parameters:
-        - name: address
-          in: query
-          required: true
-          schema: { type: string }
-        - name: status
-          in: query
-          schema: { type: string, enum: [open, filled, cancelled, expired] }
-      responses:
-        '200':
-          description: The orders held for that address.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/order/{orderId}:
-    get:
-      operationId: order
-      tags: [swap]
-      summary: One order
-      parameters:
-        - name: orderId
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: The order.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      operationId: cancelOrder
-      tags: [swap]
-      summary: Cancel one order
-      parameters:
-        - name: orderId
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: The order, cancelled.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /v1/trade/pools:
-    get:
-      operationId: pools
-      tags: [liquidity]
-      summary: Pools on a chain
-      parameters:
-        - name: chainId
-          in: query
-          required: true
-          schema: { type: integer, format: int64 }
-        - name: token0
-          in: query
-          schema: { type: string }
-        - name: token1
-          in: query
-          schema: { type: string }
-        - name: protocol
-          in: query
-          schema: { type: string }
-        - name: limit
-          in: query
-          schema: { type: integer }
-        - name: offset
-          in: query
-          schema: { type: integer }
-      responses:
-        '200':
-          description: The pools that answered.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-
-  /v1/trade/pool/{chainId}/{address}:
-    get:
-      operationId: pool
-      tags: [liquidity]
-      summary: One pool
-      parameters:
-        - name: chainId
-          in: path
-          required: true
-          schema: { type: integer, format: int64 }
-        - name: address
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: The pool.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/positions:
-    get:
-      operationId: positions
-      tags: [liquidity]
-      summary: Liquidity positions held by an address
-      parameters:
-        - name: chainId
-          in: query
-          required: true
-          schema: { type: integer, format: int64 }
-        - name: owner
-          in: query
-          required: true
-          schema: { type: string }
-        - name: poolId
-          in: query
-          schema: { type: string }
-      responses:
-        '200':
-          description: The positions held.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-
-  /v1/trade/position:
-    post:
-      operationId: openPosition
-      tags: [liquidity]
-      summary: Unsigned calldata to open a position
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object }
-      responses:
-        '200':
-          description: An unsigned transaction.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/position/increase:
-    post:
-      operationId: increasePosition
-      tags: [liquidity]
-      summary: Unsigned calldata to add liquidity to a position
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object }
-      responses:
-        '200':
-          description: An unsigned transaction.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/position/decrease:
-    post:
-      operationId: decreasePosition
-      tags: [liquidity]
-      summary: Unsigned calldata to remove liquidity from a position
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object }
-      responses:
-        '200':
-          description: An unsigned transaction.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/position/claim:
-    post:
-      operationId: claimFees
-      tags: [liquidity]
-      summary: Unsigned calldata to collect fees owed to a position
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object }
-      responses:
-        '200':
-          description: An unsigned transaction.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/tokens:
-    get:
-      operationId: tokens
-      tags: [reference]
-      summary: The token list for a chain
-      parameters:
-        - name: chainId
-          in: query
-          required: true
-          schema: { type: integer, format: int64 }
-      responses:
-        '200':
-          description: The tokens.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/price:
-    get:
-      operationId: price
-      tags: [reference]
-      summary: One token's price
-      parameters:
-        - name: chainId
-          in: query
-          required: true
-          schema: { type: integer, format: int64 }
-        - name: address
-          in: query
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: The price.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/prices:
-    post:
-      operationId: prices
-      tags: [reference]
-      summary: Prices for several tokens at once
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items: { $ref: '#/components/schemas/Token' }
-      responses:
-        '200':
-          description: A price per token asked for.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /v1/trade/stats:
-    get:
-      operationId: stats
-      tags: [reference]
-      summary: Aggregate TVL and volume, summed from the pools that answered
-      parameters:
-        - name: chainId
-          in: query
-          schema: { type: integer, format: int64 }
-      responses:
-        '200':
-          description: The aggregates.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Envelope' }
 
 components:
   responses:
@@ -610,12 +304,6 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Envelope' }
-    NotFound:
-      description: No such thing here.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Envelope' }
-
   schemas:
     Envelope:
       type: object
@@ -678,6 +366,25 @@ components:
           description: Whether this venue can produce a transaction, as opposed to a price alone.
         type: { type: string, enum: [on_chain, off_chain] }
 
+    Hop:
+      type: object
+      properties:
+        poolAddress: { type: string }
+        poolType:
+          type: string
+          description: The venue that holds this hop, by the name it calls itself.
+          example: uniswap_v3
+        tokenIn: { $ref: '#/components/schemas/Token' }
+        tokenOut: { $ref: '#/components/schemas/Token' }
+        fee:
+          type: integer
+          description: |
+            The pool's fee tier, in hundredths of a basis point. A V3 quote is a
+            reading of ONE pool — the tiers are asked in turn and the best kept
+            — so a swap that does not name this same tier executes against a
+            different pool at a different price.
+          example: 3000
+
     QuoteRequest:
       type: object
       required: [tokenIn, tokenOut, chainId, amount]
@@ -721,28 +428,6 @@ components:
         providerName:
           type: string
           description: The venue that answered. It names itself; nothing renames it.
-
-    Hop:
-      type: object
-      properties:
-        poolAddress: { type: string }
-        poolType: { type: string, example: uniswap_v3 }
-        tokenIn: { $ref: '#/components/schemas/Token' }
-        tokenOut: { $ref: '#/components/schemas/Token' }
-        fee:
-          type: integer
-          description: The pool's fee tier, in hundredths of a basis point, for V3 and V4.
-
-    RouteRequest:
-      type: object
-      required: [tokenIn, tokenOut, chainId, amount]
-      properties:
-        tokenIn: { type: string }
-        tokenOut: { type: string }
-        chainId: { type: integer, format: int64 }
-        amount: { type: string }
-        isExactIn: { type: boolean }
-        maxHops: { type: integer }
 
     SwapRequest:
       type: object
@@ -821,14 +506,3 @@ components:
           type: object
           description: EIP-712 typed data to sign. Present only when a grant is needed.
 
-    OrderRequest:
-      type: object
-      required: [tokenIn, tokenOut, amount, maker]
-      properties:
-        tokenIn: { type: string }
-        tokenOut: { type: string }
-        chainId: { type: integer, format: int64 }
-        amount: { type: string }
-        limitPrice: { type: string }
-        maker: { type: string }
-        deadline: { type: integer, format: int64 }

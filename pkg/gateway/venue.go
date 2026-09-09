@@ -24,6 +24,11 @@ type Venue interface {
 	// IsExecutable returns true if this venue can produce on-chain transactions,
 	// false if it only provides quote-only off-chain prices.
 	IsExecutable() bool
+
+	// Swap builds the transaction that takes a quote this venue gave. A venue
+	// returns nil when it cannot build one — a price it does not settle — and
+	// that is an answer, not an error.
+	Swap(order SwapOrder) (*UnsignedTxResponse, error)
 }
 
 // VenueQuoteRequest is the input for a single venue quote.

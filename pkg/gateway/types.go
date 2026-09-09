@@ -215,6 +215,16 @@ type PoolStats struct {
 	TxCount24h     int     `json:"txCount24h"`
 }
 
+// UnsignedTxResponse is calldata for a wallet to sign. Nothing here holds a
+// key, so every path that ends in a transaction ends in one of these.
+type UnsignedTxResponse struct {
+	To       string `json:"to"`
+	Data     string `json:"data"`
+	Value    string `json:"value"`
+	GasLimit uint64 `json:"gasLimit"`
+	ChainID  uint64 `json:"chainId"`
+}
+
 // Error types
 type ProviderError struct {
 	Provider string

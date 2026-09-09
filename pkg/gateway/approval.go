@@ -55,6 +55,19 @@ var MaxUint48 = func() *big.Int {
 	return v
 }()
 
+// EIP712Domain is the EIP-712 domain separator a Permit2 signature is bound to.
+type EIP712Domain struct {
+	Name              string `json:"name"`
+	ChainID           string `json:"chainId"`
+	VerifyingContract string `json:"verifyingContract"`
+}
+
+// EIP712Field describes a single field in an EIP-712 struct.
+type EIP712Field struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // --- Request/Response types ---
 
 // ApprovalRequest is the JSON body for approval check/build endpoints.
@@ -100,6 +113,29 @@ type EIP712SignRequest struct {
 }
 
 // --- Validation ---
+
+// isValidHexAddress checks for a 0x-prefixed 40-character hex string.
+func isValidHexAddress(addr string) bool {
+	if len(addr) != 42 || (addr[:2] != "0x" && addr[:2] != "0X") {
+		return false
+	}
+	for _, c := range addr[2:] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// addrBytes is the 20 bytes of an address every caller here has already
+// validated. One decoder, the same one the venues encode with.
+func addrBytes(addr string) []byte {
+	a, err := lxrDecodeAddress(addr)
+	if err != nil {
+		return make([]byte, 20)
+	}
+	return a[:]
+}
 
 func (r *ApprovalRequest) Validate() error {
 	if r.TokenAddress == "" {

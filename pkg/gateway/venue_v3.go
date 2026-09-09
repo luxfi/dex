@@ -29,6 +29,7 @@ var v3FeeTiers = []uint32{100, 500, 3000, 10000}
 type UniswapV3Venue struct {
 	evm       *EVMClient
 	quoter    string
+	router    string
 	venueName string
 	tiers     []uint32
 }
@@ -39,6 +40,9 @@ type UniswapV3Config struct {
 	RPCURL string
 	// QuoterAddress is the QuoterV2 contract (0x-prefixed).
 	QuoterAddress string
+	// RouterAddress is the SwapRouter02 that executes what the quoter priced.
+	// Empty means this venue quotes and does not build.
+	RouterAddress string
 	// Name identifies this venue (e.g. "uniswap_v3", "pancake_v3").
 	Name string
 	// FeeTiers overrides the tiers asked. Empty means the four V3 publishes.
@@ -58,6 +62,7 @@ func NewUniswapV3Venue(cfg UniswapV3Config) *UniswapV3Venue {
 	return &UniswapV3Venue{
 		evm:       NewEVMClient(cfg.RPCURL),
 		quoter:    cfg.QuoterAddress,
+		router:    cfg.RouterAddress,
 		venueName: name,
 		tiers:     tiers,
 	}

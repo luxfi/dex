@@ -358,16 +358,10 @@ func TestPermit2RequestValidation(t *testing.T) {
 // HTTP Handler Tests
 // ==========================================================================
 
+// Every approval path reads a chain now, so the fixture is one that answers.
 func newTestApprovalServer(t *testing.T) *Server {
 	t.Helper()
-	registry := NewRegistry()
-	provider := NewMockProvider("test", 10, []ChainID{ChainIDLux})
-	if err := registry.RegisterProvider(provider); err != nil {
-		t.Fatal(err)
-	}
-	router := NewRouter(registry, true)
-	cfg := DefaultServerConfig()
-	return NewServer(router, cfg)
+	return newChainReadingServer(t, words("0"))
 }
 
 func TestHandleApprovalBuild(t *testing.T) {
@@ -669,11 +663,14 @@ func newChainReadingServer(t *testing.T, answer string) *Server {
 			Method string `json:"method"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		if req.Method != "eth_call" {
-			t.Errorf("chain asked %q, want eth_call", req.Method)
+		out := answer
+		if req.Method == "eth_getCode" {
+			// Permit2 is at one address everywhere it exists, and it does not
+			// exist everywhere. This chain has it.
+			out = "0x60806040"
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"jsonrpc": "2.0", "id": req.ID, "result": answer,
+			"jsonrpc": "2.0", "id": req.ID, "result": out,
 		})
 	}))
 	t.Cleanup(chain.Close)
@@ -698,4 +695,53 @@ func words(values ...string) string {
 		out += fmt.Sprintf("%064x", n)
 	}
 	return out
+}
+
+// Permit2 is at one address everywhere it exists — and it does not exist
+// everywhere. Measured: 0x000000000022D473030F116dDEE9F6B43aC78BA3 holds 9152
+// bytes on Ethereum and nothing at all on 96369.
+//
+// Without this check, build answered 200 with calldata addressed to an empty
+// account. That is the failure worse than an error: a wallet signs it, a user
+// pays gas, and nothing happens.
+func TestPermit2SaysSoWhereItIsNotDeployed(t *testing.T) {
+	bare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     uint64 `json:"id"`
+			Method string `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": "0x"})
+	}))
+	t.Cleanup(bare.Close)
+
+	s := NewServer(NewRouter(NewRegistry(), true), DefaultServerConfig(),
+		WithChainVenues(NewChainRouters(map[ChainID]ChainVenues{
+			ChainIDLux: {RPC: bare.URL, Native: true},
+		})))
+
+	body := map[string]any{
+		"tokenAddress": testLUSD,
+		"owner":        "0x1111111111111111111111111111111111111111",
+		"spender":      "0x2222222222222222222222222222222222222222",
+		"amount":       "1",
+		"deadline":     1893456000,
+		"chainId":      uint64(ChainIDLux),
+	}
+	for _, path := range []string{"/v1/trade/permit2/check", "/v1/trade/permit2/build"} {
+		w := ask(s, http.MethodPost, path, body)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s answered %d, want 404: %s", path, w.Code, w.Body.String())
+		}
+		if !bytes.Contains(w.Body.Bytes(), []byte("not deployed")) {
+			t.Errorf("%s did not say why: %s", path, w.Body.String())
+		}
+	}
+
+	// An unknown mode is a bad request whatever the chain says, and it is
+	// answered before any round trip.
+	w := ask(s, http.MethodPost, "/v1/trade/permit2/build?mode=nonsense", body)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("mode=nonsense answered %d, want 400: %s", w.Code, w.Body.String())
+	}
 }

@@ -58,6 +58,28 @@ func (s *Server) handleApprovalCheck(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
+// permit2On reports whether Permit2 is deployed on a chain.
+//
+// It is at one address everywhere it exists, and it does not exist everywhere:
+// measured, 0x000000000022D473030F116dDEE9F6B43aC78BA3 holds 9152 bytes on
+// Ethereum and nothing at all on 96369. Without this, build answered 200 with
+// calldata addressed to an empty account — a transaction that costs gas to do
+// nothing, which is the one failure worse than an error.
+func (s *Server) permit2On(ctx context.Context, chain ChainID) error {
+	rpc := s.chains.RPC(chain)
+	if rpc == "" {
+		return fmt.Errorf("no endpoint here reads chain %d", chain)
+	}
+	code, err := NewEVMClient(rpc).Code(ctx, Permit2Address)
+	if err != nil {
+		return err
+	}
+	if len(code) == 0 {
+		return fmt.Errorf("permit2 is not deployed on chain %d — approve the spender directly", chain)
+	}
+	return nil
+}
+
 // read asks a chain a question and returns the answer word by word.
 //
 // Both checks below reported allowance 0 and needsApproval on every request,
@@ -135,6 +157,11 @@ func (s *Server) handlePermit2Check(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.permit2On(s.requestContext(r), ChainID(req.ChainID)); err != nil {
+		s.writeError(w, http.StatusNotFound, err)
+		return
+	}
+
 	// allowance(owner, token, spender) -> (uint160 amount, uint48 expiration,
 	// uint48 nonce). The expiration is half the answer: a permit that has run
 	// out is not an allowance, and reading only the amount reports a wallet as
@@ -189,6 +216,15 @@ func (s *Server) handlePermit2Build(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = "tx"
 	}
+	if mode != "tx" && mode != "sig" {
+		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid mode %q: must be \"tx\" or \"sig\"", mode))
+		return
+	}
+
+	if err := s.permit2On(s.requestContext(r), ChainID(req.ChainID)); err != nil {
+		s.writeError(w, http.StatusNotFound, err)
+		return
+	}
 
 	switch mode {
 	case "tx":
@@ -206,8 +242,5 @@ func (s *Server) handlePermit2Build(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, sigReq)
-
-	default:
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid mode %q: must be \"tx\" or \"sig\"", mode))
 	}
 }
