@@ -40,23 +40,6 @@ func lxrDecodeAddress(s string) ([20]byte, error) {
 	return addr, nil
 }
 
-// lxrDecodeBytes32 parses a 0x-prefixed hex string into a 32-byte array.
-func lxrDecodeBytes32(s string) ([32]byte, error) {
-	var out [32]byte
-	s = strings.TrimPrefix(s, "0x")
-	if len(s) > 64 {
-		return out, fmt.Errorf("bytes32 too long: %d hex chars", len(s))
-	}
-	// Left-pad with zeros if shorter than 64 hex chars.
-	s = strings.Repeat("0", 64-len(s)) + s
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return out, fmt.Errorf("invalid hex: %w", err)
-	}
-	copy(out[:], b)
-	return out, nil
-}
-
 // lxrPadAddress left-pads a 20-byte address to 32 bytes (EVM ABI word).
 func lxrPadAddress(addr [20]byte) []byte {
 	var word [32]byte
@@ -76,13 +59,6 @@ func lxrPadUint256(n *big.Int) []byte {
 		copy(word[32-len(b):], b)
 	}
 	return word[:]
-}
-
-// lxrPadBytes pads arbitrary bytes to the next 32-byte boundary.
-func lxrPadBytes(b []byte) []byte {
-	padded := make([]byte, ((len(b)+31)/32)*32)
-	copy(padded, b)
-	return padded
 }
 
 // lxrMustDecodeHex decodes a hex string, panicking on error (init-time only).

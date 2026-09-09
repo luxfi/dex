@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,14 +144,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 //
 // One namespace, one owner, one document.
 const tradePrefix = "/v1/trade"
-
-// tail is what a subtree route was asked about — the pool id, the order id.
-// It reads the same constant the route was mounted from, because a route
-// registered from the prefix and parsed from a copy of it is one rename away
-// from every id arriving with a path stuck to the front of it.
-func tail(r *http.Request, route string) string {
-	return strings.TrimPrefix(r.URL.Path, tradePrefix+route)
-}
 
 // routes is the surface, once. api/openapi.yaml describes exactly this, and a
 // test holds the two to each other — a route added here and not written down
