@@ -44,7 +44,8 @@ RUN --mount=type=secret,id=gh_token,required=false \
         git config --global url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf "https://github.com/"; \
     fi && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/dexd ./cmd/dexd
+    go build -trimpath -ldflags="-s -w" -o /out/dexd ./cmd/dexd && \
+    go build -trimpath -ldflags="-s -w" -o /out/gateway ./cmd/gateway
 
 FROM debian:12-slim AS execution
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -52,6 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && groupadd -g 1000 dexd && useradd -u 1000 -g dexd -m -s /usr/sbin/nologin dexd \
     && mkdir -p /data && chown -R dexd:dexd /data
 COPY --from=builder /out/dexd /usr/local/bin/dexd
+# The trading surface: quote, swap, approval, orders, pools, prices, tokens.
+# One image, two entrypoints — they share the venues and the types, and shipping
+# them apart is two versions of one contract waiting to disagree.
+COPY --from=builder /out/gateway /usr/local/bin/gateway
 USER dexd
 EXPOSE 9099
 # Default: standalone venue. Override CMD with `plugin` / `version` for the
