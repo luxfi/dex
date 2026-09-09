@@ -174,9 +174,14 @@ func (c *Catalog) List(chain ChainID, query string, limit int) []Token {
 // rank orders one token against what was typed, lower being nearer. It returns
 // -1 for a token the query does not touch at all.
 //
-// An address is matched whole and never by fragment: a partial address is a
-// typo, and offering a token that happens to share a prefix with a mistyped
-// address is how somebody sends funds to the wrong contract.
+// The rule is one sentence: the symbol beats the name, and within each, an
+// exact match beats a start beats a mention. People type tickers at a market
+// screen, so "eth" has to reach WETH before it reaches Ethena and Ethereum
+// Name Service, both of whose NAMES start with it.
+//
+// An address is matched whole and never by fragment. A partial address is a
+// typo, and offering the token that happens to share a prefix with a mistyped
+// one is how funds reach the wrong contract.
 func rank(t Token, q string) int {
 	symbol, name := strings.ToLower(t.Symbol), strings.ToLower(t.Name)
 	switch {
@@ -186,11 +191,11 @@ func rank(t Token, q string) int {
 		return 1
 	case strings.HasPrefix(symbol, q):
 		return 2
-	case strings.HasPrefix(name, q):
-		return 3
-	case strings.Contains(name, q):
-		return 4
 	case strings.Contains(symbol, q):
+		return 3
+	case strings.HasPrefix(name, q):
+		return 4
+	case strings.Contains(name, q):
 		return 5
 	}
 	return -1

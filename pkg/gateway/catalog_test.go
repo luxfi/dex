@@ -161,6 +161,39 @@ func TestSearchAnswersWithWhatWasTyped(t *testing.T) {
 	}
 }
 
+// The symbol beats the name. People type tickers at a market screen, so "eth"
+// has to reach WETH before it reaches Ethena and Ethereum Name Service, whose
+// NAMES start with it and whose symbols say nothing about ether.
+func TestASymbolBeatsAName(t *testing.T) {
+	c := NewCatalog([]ChainID{ChainIDEthereum})
+
+	got := c.List(ChainIDEthereum, "eth", 6)
+	names := symbols(got)
+	var firstName, firstSymbol = -1, -1
+	for i, tok := range got {
+		byName := !strings.Contains(strings.ToLower(tok.Symbol), "eth")
+		if byName && firstName < 0 {
+			firstName = i
+		}
+		if !byName && firstSymbol < 0 {
+			firstSymbol = i
+		}
+	}
+	if firstSymbol < 0 {
+		t.Fatalf("eth found no token whose symbol says so: %v", names)
+	}
+	if firstName >= 0 && firstName < firstSymbol {
+		t.Errorf("eth put %v before a symbol match: %v", got[firstName].Symbol, names)
+	}
+
+	// An exact symbol is first however many names mention it.
+	for _, typed := range []string{"uni", "dai", "shib"} {
+		if got := c.List(ChainIDEthereum, typed, 5); len(got) == 0 || !strings.EqualFold(got[0].Symbol, typed) {
+			t.Errorf("%q found %v", typed, symbols(got))
+		}
+	}
+}
+
 func TestListingIsCapped(t *testing.T) {
 	c := NewCatalog([]ChainID{ChainIDEthereum})
 	if n := len(c.List(ChainIDEthereum, "", 3)); n != 3 {

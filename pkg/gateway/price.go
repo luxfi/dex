@@ -146,12 +146,10 @@ func (m *marks) take(key string) (*held, bool) {
 	return h, true
 }
 
-// fill publishes a reading to whoever is waiting for it.
-func (m *marks) fill(h *held, mk mark) {
-	ttl := markTTL
-	if mk.unreachable {
-		ttl = markRetry
-	}
+// fill publishes a reading to whoever is waiting for it, to stand for ttl. A
+// ttl of zero publishes the reading and keeps nothing: the next caller reads
+// the chain again.
+func (m *marks) fill(h *held, mk mark, ttl time.Duration) {
 	m.mu.Lock()
 	h.mark, h.until = mk, time.Now().Add(ttl)
 	m.mu.Unlock()
@@ -185,8 +183,10 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 		}
 	}
 
-	mk := mark{at: time.Now()}
-	defer func() { s.marks.fill(h, mk) }()
+	// Whatever happens below, including a panic, whoever is waiting on this
+	// entry is handed the same answer this call returns.
+	mk, kept := mark{at: time.Now()}, markTTL
+	defer func() { s.marks.fill(h, mk, kept) }()
 
 	read, unreachable := 0, 0
 	best := func(num Token, numUSD *big.Rat) {
@@ -217,7 +217,19 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 		}
 	}
 
-	mk.unreachable = read > 0 && unreachable == read
+	switch {
+	case ctx.Err() != nil:
+		// The caller went away, or the request ran out of time, while this was
+		// still reading. Nothing here is an answer about the token: not the
+		// absence, and not a partial reading that happened to land first.
+		// Kept, it would hand the next caller a dash it did not earn.
+		mk, kept = mark{at: time.Now(), unreachable: true}, 0
+	case read > 0 && unreachable == read:
+		// Every numéraire failed to reach the chain. The pools have not
+		// changed — our access to them has — so this is remembered for
+		// seconds rather than for a minute.
+		mk.unreachable, kept = true, markRetry
+	}
 	return mk
 }
 

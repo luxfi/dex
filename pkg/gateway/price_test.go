@@ -370,3 +370,26 @@ func TestOurOwnChainDoesNotHideItsOutage(t *testing.T) {
 		t.Errorf("a quote on a dead chain answered %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// A reading abandoned because the caller went away is not an answer about the
+// token. Kept, it would hand the next caller a dash it did not earn for as long
+// as an unreadable chain is remembered.
+func TestAnAbandonedReadingIsNotKept(t *testing.T) {
+	counter := &countingVenue{inner: NewV4Venue("")}
+	s := newMarketServer(counter)
+	tok, _ := s.catalog.Token(ChainIDLux, luxToken("WLUX"))
+
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := s.markOf(gone, ChainIDLux, tok); got.usd != nil {
+		t.Fatalf("a cancelled reading answered %v", got.usd)
+	}
+
+	// And the next caller reads the chain rather than being handed that.
+	if got := s.markOf(context.Background(), ChainIDLux, tok); got.usd == nil {
+		t.Fatal("the reading after a cancelled one had no price")
+	}
+	if n := counter.asked.Load(); n == 0 {
+		t.Error("the second reading was served from the abandoned one")
+	}
+}
