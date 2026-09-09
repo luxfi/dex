@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// How many tokens a listing draws at once, and the most it will draw.
 const (
-	tokensPerPage = 200
-	tokensAtMost  = 1000
+	// The most tokens one listing will draw. The largest chain here lists 403
+	// and every chain together lists 935, so this is not a page size — it is a
+	// ceiling on a request, and the default is everything. A limit that
+	// silently cut Ethereum off at two hundred would be a screen missing two
+	// hundred markets with nothing to say it.
+	tokensAtMost = 1000
 	// A price is a fan-out of eth_calls against a public endpoint we hold no
 	// account with, so the number of them one request can start is stated
 	// rather than left to the caller. Fifty rows is a page of a market screen;
@@ -54,8 +58,12 @@ func (s *Server) handleTokens(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if chain != 0 && s.arms(chain) == nil {
+		s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here reads chain %d", chain))
+		return
+	}
 
-	limit := tokensPerPage
+	limit := tokensAtMost
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
@@ -149,11 +157,8 @@ func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
 }
 
 // askedChain reads ?chainId=, zero meaning every chain.
-func askedChain(q map[string][]string) (ChainID, error) {
-	v := ""
-	if got := q["chainId"]; len(got) > 0 {
-		v = got[0]
-	}
+func askedChain(q url.Values) (ChainID, error) {
+	v := q.Get("chainId")
 	if v == "" {
 		return 0, nil
 	}
@@ -165,7 +170,7 @@ func askedChain(q map[string][]string) (ChainID, error) {
 }
 
 // askedTokens reads ?token=, repeated or comma-separated, in the order given.
-func askedTokens(q map[string][]string) ([]string, error) {
+func askedTokens(q url.Values) ([]string, error) {
 	var out []string
 	for _, group := range q["token"] {
 		for _, one := range strings.Split(group, ",") {

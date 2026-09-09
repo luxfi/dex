@@ -286,14 +286,20 @@ func TestTokensAnswersTheListItCarries(t *testing.T) {
 		t.Errorf("a token row carries a URL: %s", w.Body.String())
 	}
 
-	// A chain this deployment cannot quote lists nothing, so a screen cannot
-	// draw a market it has no way to price.
-	w = ask(s, http.MethodGet, "/v1/trade/tokens?chainId=1", nil)
+	// A chain this deployment cannot quote answers the same way /v1/trade/venues
+	// does about it, rather than with an empty list a screen would draw as a
+	// market with nothing in it.
+	if w := ask(s, http.MethodGet, "/v1/trade/tokens?chainId=1", nil); w.Code != http.StatusNotFound {
+		t.Errorf("a chain with no venues listed tokens: %d %s", w.Code, w.Body.String())
+	}
+
+	// And with no chain named, every chain this deployment does read.
+	w = ask(s, http.MethodGet, "/v1/trade/tokens", nil)
 	if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
 		t.Fatal(err)
 	}
-	if len(rows.Data) != 0 {
-		t.Errorf("Ethereum is not quoted here and listed %d tokens", len(rows.Data))
+	if len(rows.Data) != 14 {
+		t.Errorf("every chain here lists %d tokens, want 14", len(rows.Data))
 	}
 
 	if w := ask(s, http.MethodGet, "/v1/trade/tokens?chainId=96369&limit=nope", nil); w.Code != http.StatusBadRequest {

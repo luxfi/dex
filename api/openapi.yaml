@@ -114,7 +114,10 @@ paths:
         - name: limit
           in: query
           required: false
-          schema: { type: integer, default: 200, maximum: 1000 }
+          schema: { type: integer, maximum: 1000 }
+          description: |
+            A ceiling, not a page size. The largest chain here lists 403 and
+            every chain together lists 935, so the default is everything.
       responses:
         '200':
           description: The tokens, in listing order.
@@ -130,6 +133,11 @@ paths:
                         items: { $ref: '#/components/schemas/Token' }
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          description: No venue here reads that chain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
 
   /v1/trade/price:
     get:
