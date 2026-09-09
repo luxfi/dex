@@ -368,26 +368,44 @@ characters in a symbol that something is going to render.
 
 `GET /v1/trade/price?chainId=&token=` prices one token or fifty, answered in the
 order asked. There is no oracle behind it and no vendor — it is a reading of the
-same pools `/v1/trade/quote` reads:
+same pools `/v1/trade/quote` reads, and it is the same number:
 
-    spend a fixed $100 of a numéraire → see what comes back → put the fee back
+    spend some dollars of a numéraire → see what comes back → put the fee back
 
-$100 rather than one whole token, because one whole token is a fifty-cent trade
-in one market and a hundred-thousand-dollar trade in the next, and the second
-one moves the pool it is measuring — priced that way SHIB came out 40% high.
-The fee correction matters as much: a pool hands back the mid price LESS its
-tier, so an uncorrected reading is high by exactly that tier — $1.0031 for a
+Dollars rather than one whole token, because one whole token is a fifty-cent
+trade in one market and a hundred-thousand-dollar trade in the next, and the
+second one moves the pool it is measuring — priced that way SHIB came out 40%
+high. The fee correction matters as much: a pool hands back the mid price LESS
+its tier, so an uncorrected reading is high by exactly that tier — $1.0031 for a
 $1.00 token on a 0.3% pool, and $3018.51 for a $3000 one two hops deep.
 
 Two numéraires per chain (`Numeraires` in `venue_chains.go`): the dollar
 stablecoin, worth one by construction, and the wrapped native token, whose own
 mark is read against the dollar. Most V3 liquidity is against the native token,
 not the dollar, so a gateway that knew only the dollar could price the majors
-and nothing behind them. Both readings are taken and the cheaper wins — a price
-is what somebody spending $100 actually receives, and the route handing over the
-most tokens is nearest the middle of the market.
+and nothing behind them. Every route is read and the cheapest wins — a price is
+what somebody actually receives, and the route handing over the most tokens is
+nearest the middle of the market.
 
-Measured against an independent source, same minute, seven chains:
+**Twice, ten times apart.** A pool with almost nothing left in it still answers,
+and the implied price of a rounding error comes out in the millions. So the
+pools are asked at $10 and at $100 and the two best readings are compared; more
+than 2% between them and nothing is returned. Measured over the fifty tokens
+Ethereum lists first:
+
+    one reading      50 asked, 44 priced, half of them >1% off, AUCTION at
+                     $889,434,176 for a token worth $3.44
+    both readings    50 asked, 27 priced, 25 of 27 within 2%
+
+The two that remain apart — ASM +621%, AGLD +122% — are real pools here that
+sit off the wider market. That number is not an error: `/v1/trade/quote` for the
+same size implies $0.036806 for ASM where `/v1/trade/price` says $0.036834, so
+the screen and the swap panel agree, and agreeing with each other is what
+matters. Gating each numéraire separately was tried and is wrong: it refuses the
+cheapest route for being thin and then quotes a dearer one that was not, which
+is a price nobody would have paid. The gate is on the best reading at each size.
+
+Cross-chain, same minute, against an independent source:
 
     1      WETH   2487.03   -0.09%     8453  cbETH   2831.86   -0.17%
     1      WBTC  78414.92   -0.01%     42161 ARB        0.154  -0.16%
@@ -396,12 +414,13 @@ Measured against an independent source, same minute, seven chains:
     1      PEPE      3.6e-6 -0.32%     56    WBNB     742.72   +0.46%
     1      SHIB      5.37e-6 +0.07%
 
-Every one inside half a percent. The residual is the gap between one venue's
-pools and a global average, which is a real difference and not an error.
+**A token no pool holds — or holds too thinly to price — comes back WITHOUT
+`priceUSD`, never with a zero.** A screen can draw a dash; it cannot un-draw a
+wrong number. `venue` and `via` go missing with it, because a number nobody can
+trace is a number nobody can check.
 
-**A token no pool holds comes back WITHOUT `priceUSD`, never with a zero.** A
-screen can draw a dash; it cannot un-draw a wrong number. `venue` and `via` go
-missing with it, because a number nobody can trace is a number nobody can check.
+Cost: 50 cold tokens on Ethereum in 10.1s, the same 50 warm in 36ms. The two
+sizes are asked concurrently, so the second one costs calls and not latency.
 
 A reading stands for a minute (`markTTL`) and `asOf` says when it was taken; a
 chain that could not be read is remembered for ten seconds, not a minute,

@@ -11,27 +11,47 @@ import (
 
 // What a token is worth here.
 //
-// There is no oracle behind this and no vendor: the number is a reading of the
-// same pools /v1/trade/quote reads. Spend a fixed hundred dollars of a
-// numéraire, see how much of the token comes back, and put the pool's fee back
-// into the answer — a pool charges its tier on the way through, so what you
-// receive is the mid price less that tier, and the correction is the difference
-// between $1.0031 and $1.0000 for WLUX.
+// There is no oracle behind this and no vendor. The number is a reading of the
+// same pools /v1/trade/quote reads, and it is the same number: spend some
+// dollars of a numéraire, see how much of the token comes back, and put the
+// pool's fee back into the answer. The fee matters — a pool charges its tier on
+// the way through, so what you receive is the mid price less that tier, and the
+// correction is the difference between $1.0031 and $1.0000 for WLUX, and
+// between $3018.51 and $3000.44 for LETH two hops deep.
 //
-// Measured against an independent source on Ethereum, fourteen tokens from WETH
-// to SHIB, this lands within half a percent of each: WETH -0.09%, WBTC -0.01%,
-// LINK +0.08%, AAVE +0.00%, PEPE -0.32%, SHIB +0.07%. The residual is the gap
-// between one venue's pools and a global average, which is a real difference
-// and not an error.
+// Because it is the same number, the row on a market screen and the amount in
+// the swap panel agree. Measured on Ethereum: /v1/trade/price says ASM is
+// $0.036834 and /v1/trade/quote for the same size implies $0.036806. A screen
+// that says one thing and a panel that pays another is worse than either.
 
-// markNotional is the size of the reading, in dollars.
+// markSmall and markLarge are the two sizes a reading is taken at, in dollars.
 //
-// Not one whole token. One whole token is a fifty-cent trade in one market and
+// Not one whole token: one whole token is a fifty-cent trade in one market and
 // a hundred-thousand-dollar trade in the next, and the second one moves the
-// pool it is measuring — priced that way, SHIB came out forty percent high.
-// A hundred dollars leaves any pool worth listing where it was, and still reads
-// a token worth a millionth of a cent to five figures.
-const markNotional = 100
+// pool it is measuring — priced that way SHIB came out forty percent high.
+//
+// And not one size either. A pool with almost nothing left in it still answers,
+// and the implied price of a rounding error comes out in the millions. Over the
+// fifty tokens Ethereum lists first, a single reading put half of them more
+// than one percent off an independent source and read AUCTION — a token worth
+// $3.44 — at $889,434,176.
+//
+// So the pools are asked twice, ten times apart, and a price that does not
+// survive the difference is not a price. What comes back is the smaller
+// reading, which is the least moved by having been asked.
+const (
+	markSmall = 10
+	markLarge = 100
+)
+
+// markDrift is how far apart those two readings may land before this stops
+// calling the smaller one a price. Two percent for ten times the size.
+//
+// Chosen by measuring, over the fifty tokens Ethereum lists first: every
+// reading that survives it agrees with an independent source, and every one
+// that does not is a pool with nothing left in it. Loosen it to a quarter and
+// six more tokens come back, four of them wrong.
+var markDrift = big.NewRat(1, 50)
 
 // markTTL is how long a reading stands.
 //
@@ -188,23 +208,33 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 	mk, kept := mark{at: time.Now()}, markTTL
 	defer func() { s.marks.fill(h, mk, kept) }()
 
+	// The best price at each of the two sizes, over every numéraire and every
+	// arm. Cheapest wins at each size and the two are compared once, at the
+	// end: gating each numéraire on its own would refuse the cheapest route
+	// for being thin and then quote a dearer one that was not, which is a
+	// price nobody would have paid.
+	var small, large *mark
+	keep := func(into **mark, from []mark) {
+		for i := range from {
+			if *into == nil || from[i].usd.Cmp((*into).usd) < 0 {
+				*into = &from[i]
+			}
+		}
+	}
 	read, unreachable := 0, 0
-	best := func(num Token, numUSD *big.Rat) {
+	against := func(num Token, numUSD *big.Rat) {
 		read++
-		got, err := s.readAgainst(ctx, chain, num, numUSD, token)
+		cheap, dear, err := s.readSizes(ctx, chain, num, numUSD, token)
 		if err != nil {
 			unreachable++
 			return
 		}
-		for _, cand := range got {
-			if mk.usd == nil || cand.usd.Cmp(mk.usd) < 0 {
-				mk.usd, mk.venue, mk.via = cand.usd, cand.venue, num.Symbol
-			}
-		}
+		keep(&small, cheap)
+		keep(&large, dear)
 	}
 
 	if stable, ok := s.catalog.Token(chain, num.Stable); ok {
-		best(stable, big.NewRat(1, 1))
+		against(stable, big.NewRat(1, 1))
 	}
 	// The chain's own token is where most of its pools are, and its own mark
 	// is read against the dollar first. A token with no dollar pool — which on
@@ -213,8 +243,12 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 		!strings.EqualFold(hub.Address, token.Address) &&
 		!strings.EqualFold(hub.Address, num.Stable) {
 		if hm := s.markOf(ctx, chain, hub); hm.usd != nil {
-			best(hub, hm.usd)
+			against(hub, hm.usd)
 		}
+	}
+
+	if small != nil && large != nil && steady(small.usd, large.usd) {
+		mk.usd, mk.venue, mk.via = small.usd, small.venue, small.via
 	}
 
 	switch {
@@ -233,18 +267,54 @@ func (s *Server) markOf(ctx context.Context, chain ChainID, token Token) mark {
 	return mk
 }
 
-// readAgainst asks every arm on the chain what a hundred dollars of one
-// numéraire buys of a token, and turns each answer into a price.
+// steady reports whether two readings of one market, ten times apart in size,
+// agree closely enough to call the smaller one a price.
+//
+// A pool with nothing left in it still answers. Ten dollars into one buys a
+// rounding error and a hundred buys a tenth of the same rounding error, so the
+// two readings come back an order of magnitude apart and neither is a market.
+func steady(small, large *big.Rat) bool {
+	drift := new(big.Rat).Sub(large, small)
+	drift.Quo(drift, small)
+	return drift.Abs(drift).Cmp(markDrift) <= 0
+}
+
+// readSizes asks the same pools both sizes at once, because they are one
+// question about one market and asking them in turn would double how long a
+// cold page waits.
+func (s *Server) readSizes(ctx context.Context, chain ChainID, num Token, numUSD *big.Rat, token Token) (cheap, dear []mark, fatal error) {
+	var failed [2]error
+	got := [2][]mark{}
+	var wg sync.WaitGroup
+	for i, dollars := range [2]int64{markSmall, markLarge} {
+		wg.Add(1)
+		go func(i int, dollars int64) {
+			defer wg.Done()
+			got[i], failed[i] = s.readAgainst(ctx, chain, num, numUSD, token, dollars)
+		}(i, dollars)
+	}
+	wg.Wait()
+
+	// The chain could not be read. One size failing while the other answers is
+	// not that, and neither is a pair no pool holds.
+	if failed[0] != nil && failed[1] != nil {
+		return nil, nil, failed[0]
+	}
+	return got[0], got[1], nil
+}
+
+// readAgainst asks every arm on the chain what some dollars of one numéraire
+// buy of a token, and turns each answer into a price.
 //
 // The error means the CHAIN could not be read: every arm on it failed. That is
 // a fact about an endpoint and not about a pool, and reporting the two as one
 // thing sends a reader looking for liquidity that is sitting right there.
-func (s *Server) readAgainst(ctx context.Context, chain ChainID, num Token, numUSD *big.Rat, token Token) ([]mark, error) {
+func (s *Server) readAgainst(ctx context.Context, chain ChainID, num Token, numUSD *big.Rat, token Token, dollars int64) ([]mark, error) {
 	venues := s.arms(chain)
 	if venues == nil || numUSD.Sign() <= 0 {
 		return nil, nil
 	}
-	probe := probeAmount(numUSD, num.Decimals)
+	probe := probeAmount(numUSD, num.Decimals, dollars)
 	if probe.Sign() <= 0 {
 		return nil, nil
 	}
@@ -272,14 +342,18 @@ func (s *Server) readAgainst(ctx context.Context, chain ChainID, num Token, numU
 			// the fee is wrong by whatever the guess was.
 			fee = 0
 		}
-		out = append(out, mark{usd: unitPrice(probe, num.Decimals, numUSD, got, token.Decimals, fee), venue: q.Venue})
+		out = append(out, mark{
+			usd:   unitPrice(probe, num.Decimals, numUSD, got, token.Decimals, fee),
+			venue: q.Venue,
+			via:   num.Symbol,
+		})
 	}
 	return out, nil
 }
 
-// probeAmount is a hundred dollars of a token, in its smallest units.
-func probeAmount(numUSD *big.Rat, decimals int) *big.Int {
-	n := new(big.Rat).SetInt(new(big.Int).Mul(big.NewInt(markNotional), pow10(decimals)))
+// probeAmount is some dollars of a token, in its smallest units.
+func probeAmount(numUSD *big.Rat, decimals int, dollars int64) *big.Int {
+	n := new(big.Rat).SetInt(new(big.Int).Mul(big.NewInt(dollars), pow10(decimals)))
 	n.Quo(n, numUSD)
 	return new(big.Int).Quo(n.Num(), n.Denom())
 }

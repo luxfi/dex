@@ -146,28 +146,36 @@ paths:
       summary: What one token, or fifty, are worth in dollars
       description: |
         There is no oracle behind this and no vendor. The number is a reading of
-        the same pools /v1/trade/quote reads: spend a fixed hundred dollars of
-        the chain's dollar token, see how much comes back, and put the pool's
-        fee back into the answer — a pool charges its tier on the way through,
-        so what you receive is the mid price less that tier.
+        the same pools /v1/trade/quote reads, and it is the same number: spend
+        some dollars of the chain's dollar token, see how much comes back, and
+        put the pool's fee back into the answer — a pool charges its tier on the
+        way through, so what you receive is the mid price less that tier. The
+        row on a market screen and the amount in the swap panel therefore agree.
 
-        A hundred dollars rather than one whole token, because one whole token
-        is a fifty-cent trade in one market and a hundred-thousand-dollar trade
-        in the next, and the second one moves the pool it is measuring.
+        Dollars rather than one whole token, because one whole token is a
+        fifty-cent trade in one market and a hundred-thousand-dollar trade in
+        the next, and the second one moves the pool it is measuring.
 
         A token with no dollar pool — on Ethereum, most of them — is read
         against the chain's wrapped native token instead, whose own price is
-        read against the dollar. Both readings are taken and the cheaper wins:
-        a price is what somebody spending a hundred dollars actually receives,
-        and the route handing over the most tokens is nearest the middle of the
-        market.
+        read against the dollar. Every route is read and the cheapest wins: a
+        price is what somebody actually receives, and the route handing over the
+        most tokens is nearest the middle of the market.
 
-        Measured against an independent source on Ethereum, fourteen tokens
-        from WETH to SHIB, every one lands within half a percent.
+        **The pools are asked twice, at ten dollars and at a hundred, and a
+        price that does not survive ten times the size is not returned at all.**
+        A pool with almost nothing left in it still answers, and the implied
+        price of a rounding error comes out in the millions. Over the fifty
+        tokens Ethereum lists first, a single reading put half of them more than
+        one percent off an independent source and read one token worth $3.44 at
+        $889,434,176; with both readings, every price returned agrees with that
+        source except where a real pool here is genuinely off the wider market,
+        which is this venue's price and what a swap here would pay.
 
         A reading stands for a minute, and `asOf` says when it was taken. A
-        token no pool here holds comes back WITHOUT `priceUSD` rather than with
-        a zero: a screen can draw a dash, and it cannot un-draw a wrong number.
+        token no pool here holds — or holds too thinly to price — comes back
+        WITHOUT `priceUSD` rather than with a zero: a screen can draw a dash,
+        and it cannot un-draw a wrong number.
       parameters:
         - name: chainId
           in: query

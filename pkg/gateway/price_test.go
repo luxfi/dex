@@ -30,6 +30,12 @@ func newMarketServer(extra ...Venue) *Server {
 	pools.AddPool(usdLux.Hub, luxToken("LETH"),
 		"0x0000000000000000000000000000000000000000000000000000000000000002",
 		30, new(big.Int).Mul(big.NewInt(3_000_000), unit), new(big.Int).Mul(big.NewInt(1_000), unit))
+	// And a pool with a thousand dollars in it, which is not a market: a
+	// hundred dollars moves it nine percent, so the two readings disagree and
+	// neither of them is worth drawing.
+	pools.AddPool(usdLux.Stable, luxToken("LSOL"),
+		"0x0000000000000000000000000000000000000000000000000000000000000003",
+		30, new(big.Int).Mul(big.NewInt(1_000), unit), new(big.Int).Mul(big.NewInt(1_000), unit))
 
 	return NewServer(
 		NewRouter(NewRegistry(), true),
@@ -120,6 +126,45 @@ func TestATokenInNoPoolHasNoPrice(t *testing.T) {
 	}
 }
 
+// A pool with almost nothing left in it still answers, and the implied price of
+// a rounding error comes out in the millions. So the pools are asked twice, ten
+// times apart, and a reading that does not survive the difference is not a
+// price. Measured on Ethereum before this: half the first fifty tokens were
+// more than one percent off an independent source, and AUCTION — worth $3.44 —
+// read $889,434,176.
+func TestAPoolTooThinToPriceIsNotAPrice(t *testing.T) {
+	got := markOfSymbol(t, newMarketServer(), "LSOL")
+	if got.usd != nil {
+		f, _ := got.usd.Float64()
+		t.Fatalf("a thousand-dollar pool priced LSOL at %.8f", f)
+	}
+	// And it is a thin pool, not an unreadable chain: nothing here is down.
+	if got.unreachable {
+		t.Error("a thin pool was reported as a chain that could not be read")
+	}
+}
+
+// The two readings that gate it, on their own.
+func TestSteadyIsTwoReadingsAgreeing(t *testing.T) {
+	for _, c := range []struct {
+		why          string
+		small, large *big.Rat
+		want         bool
+	}{
+		{"identical", big.NewRat(100, 1), big.NewRat(100, 1), true},
+		{"one percent apart", big.NewRat(100, 1), big.NewRat(101, 1), true},
+		{"exactly two percent", big.NewRat(100, 1), big.NewRat(102, 1), true},
+		{"three percent apart", big.NewRat(100, 1), big.NewRat(103, 1), false},
+		{"the larger one cheaper by one percent", big.NewRat(100, 1), big.NewRat(99, 1), true},
+		{"the larger one cheaper by ten", big.NewRat(100, 1), big.NewRat(90, 1), false},
+		{"an order of magnitude", big.NewRat(1, 1), big.NewRat(10, 1), false},
+	} {
+		if got := steady(c.small, c.large); got != c.want {
+			t.Errorf("%s: steady(%v, %v) = %v", c.why, c.small, c.large, got)
+		}
+	}
+}
+
 // countingVenue is an arm that says how often it was asked.
 type countingVenue struct {
 	inner Venue
@@ -153,13 +198,14 @@ func TestOneColdPriceIsReadOnce(t *testing.T) {
 	}
 	wg.Wait()
 
-	// One reading of WLUX against the dollar. Thirty-two readers, one fan-out.
-	if n := counter.asked.Load(); n != 1 {
-		t.Errorf("32 readers asked the chain %d times, want 1", n)
+	// WLUX against the dollar, at the two sizes a reading is taken at. Thirty
+	// -two readers, two questions.
+	if n := counter.asked.Load(); n != 2 {
+		t.Errorf("32 readers asked the chain %d times, want 2", n)
 	}
 	// And the next reader gets the kept answer without asking again.
 	s.markOf(context.Background(), ChainIDLux, tok)
-	if n := counter.asked.Load(); n != 1 {
+	if n := counter.asked.Load(); n != 2 {
 		t.Errorf("a kept price was read again: %d", n)
 	}
 }
@@ -314,11 +360,15 @@ func TestTheArithmeticOfAReading(t *testing.T) {
 
 	// A hundred dollars of a six-decimal dollar is 100000000 of its units;
 	// of a token worth $2500, it is 0.04 of one.
-	if got := probeAmount(big.NewRat(1, 1), 6); got.Cmp(big.NewInt(100_000_000)) != 0 {
+	if got := probeAmount(big.NewRat(1, 1), 6, 100); got.Cmp(big.NewInt(100_000_000)) != 0 {
 		t.Errorf("a hundred dollars of USDC is %s units", got)
 	}
-	if got := probeAmount(big.NewRat(2500, 1), 18); got.Cmp(new(big.Int).Div(e18, big.NewInt(25))) != 0 {
+	if got := probeAmount(big.NewRat(2500, 1), 18, 100); got.Cmp(new(big.Int).Div(e18, big.NewInt(25))) != 0 {
 		t.Errorf("a hundred dollars of a $2500 token is %s units", got)
+	}
+	// And ten dollars of it is a tenth of that.
+	if got := probeAmount(big.NewRat(2500, 1), 18, 10); got.Cmp(new(big.Int).Div(e18, big.NewInt(250))) != 0 {
+		t.Errorf("ten dollars of a $2500 token is %s units", got)
 	}
 
 	// A hundred USDC bought 0.04 of an 18-decimal token through a 0.3% pool.
