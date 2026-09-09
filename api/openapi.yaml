@@ -31,6 +31,7 @@ servers:
 
 tags:
   - name: venues
+  - name: tokens
   - name: quote
   - name: swap
   - name: allowance
@@ -69,6 +70,138 @@ paths:
                         items: { $ref: '#/components/schemas/ChainVenues' }
         '404':
           description: No venue here reads that chain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+
+  /v1/trade/tokens:
+    get:
+      operationId: tokens
+      tags: [tokens]
+      summary: The tokens this deployment can trade
+      description: |
+        The list travels with the binary — nine hundred and thirty-five tokens
+        over the seven chains this gateway prices — so this answers with no
+        upstream, no key and no round trip. Every chain but ours has no indexer
+        behind it, and an interface reading one drew nothing at all on Ethereum.
+
+        Each entry is that token's identity as its own contract states it:
+        address, symbol, name and the decimals an amount is read with. There is
+        no logo. Every public token list gives logos as URLs on hosts belonging
+        to somebody else, fetched by every viewer's browser on every market
+        screen; marks come from cdn.lux.cloud, and a token with no mark there
+        draws its own letters.
+
+        Rows come back in the order they are listed: the chain's own token,
+        then the dollar it is priced in, then the rest by symbol. There is no
+        volume on any chain but ours, so there is nothing to rank by.
+      parameters:
+        - name: chainId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+          description: One chain. Omitted, every chain this deployment reads.
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            Narrow to what was typed, nearest first: a whole address, then an
+            exact symbol, then a symbol or name starting with it, then either
+            containing it. An address matches whole and never by fragment — a
+            partial address is a typo, and offering a token that shares a prefix
+            with a mistyped one is how funds reach the wrong contract.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 200, maximum: 1000 }
+      responses:
+        '200':
+          description: The tokens, in listing order.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Token' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/trade/price:
+    get:
+      operationId: price
+      tags: [tokens]
+      summary: What one token, or fifty, are worth in dollars
+      description: |
+        There is no oracle behind this and no vendor. The number is a reading of
+        the same pools /v1/trade/quote reads: spend a fixed hundred dollars of
+        the chain's dollar token, see how much comes back, and put the pool's
+        fee back into the answer — a pool charges its tier on the way through,
+        so what you receive is the mid price less that tier.
+
+        A hundred dollars rather than one whole token, because one whole token
+        is a fifty-cent trade in one market and a hundred-thousand-dollar trade
+        in the next, and the second one moves the pool it is measuring.
+
+        A token with no dollar pool — on Ethereum, most of them — is read
+        against the chain's wrapped native token instead, whose own price is
+        read against the dollar. Both readings are taken and the cheaper wins:
+        a price is what somebody spending a hundred dollars actually receives,
+        and the route handing over the most tokens is nearest the middle of the
+        market.
+
+        Measured against an independent source on Ethereum, fourteen tokens
+        from WETH to SHIB, every one lands within half a percent.
+
+        A reading stands for a minute, and `asOf` says when it was taken. A
+        token no pool here holds comes back WITHOUT `priceUSD` rather than with
+        a zero: a screen can draw a dash, and it cannot un-draw a wrong number.
+      parameters:
+        - name: chainId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: token
+          in: query
+          required: true
+          explode: true
+          schema:
+            type: array
+            items: { type: string }
+          description: |
+            Repeated or comma-separated, up to fifty, and answered in the order
+            asked. Fifty because each one is a fan-out of eth_calls against a
+            public endpoint; a screen wanting more asks again, and by then most
+            of them are already read.
+      responses:
+        '200':
+          description: One entry per token asked, in that order.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Price' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: No venue here reads that chain, or it lists no such token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+        '502':
+          description: |
+            The chain could not be read at all — every token asked for failed to
+            reach it. That is a fact about an endpoint and not about the pools,
+            and a page of dashes would say the wrong one.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Envelope' }
@@ -326,6 +459,36 @@ components:
         decimals: { type: integer }
         symbol: { type: string }
         name: { type: string }
+
+    Price:
+      type: object
+      required: [chainId, address, symbol, name, decimals, asOf]
+      properties:
+        chainId: { type: integer, format: int64 }
+        address: { type: string }
+        symbol: { type: string }
+        name: { type: string }
+        decimals: { type: integer }
+        priceUSD:
+          type: number
+          format: double
+          description: |
+            ABSENT, not zero, when no pool this gateway reads holds the token
+            against either numéraire.
+        venue:
+          type: string
+          description: |
+            The arm that answered. Absent with the price, and absent for the
+            chain's own dollar, which nothing had to read.
+        via:
+          type: string
+          description: |
+            The numéraire the reading was taken against — the chain's dollar,
+            or its wrapped native token. Absent with the price.
+        asOf:
+          type: string
+          format: date-time
+          description: When the pools were read. A reading stands for a minute.
 
     Amount:
       type: object

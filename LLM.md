@@ -275,9 +275,11 @@ that.** `pkg/gateway.Server.routes()` is the surface written once;
 other, in both directions, so a route added in code and not written down fails
 the build and so does a path promised in the document and not served.
 
-Eight paths, and every one of them answers:
+Ten paths, and every one of them answers:
 
     GET  /v1/trade/venues            what this deployment can price, per chain
+    GET  /v1/trade/tokens            what it can trade there, and their decimals
+    GET  /v1/trade/price             what those tokens are worth, in dollars
     POST /v1/trade/quote             the best price across the venues that hold the pair
     POST /v1/trade/quotes            every venue's price, best first
     POST /v1/trade/swap              the transaction that takes that price
@@ -344,6 +346,81 @@ chain:
     10        WETH  -> USDC   2509863629              uniswap_v3  tier  500
     137       WPOL  -> USDC   99582                   uniswap_v3  tier  500
     56        WBNB  -> USDT   755677742862096479703   uniswap_v3  tier  100
+
+### What a chain lists, and what it is worth
+
+A screen cannot draw a market until it knows a token's name, symbol and
+decimals, and every chain but ours has no indexer behind it. So the list travels
+in the binary: `pkg/gateway/tokens.json`, 935 tokens over the seven chains this
+gateway prices, embedded and served with no upstream, no key and no round trip.
+Identity only — address, chainId, symbol, name, decimals.
+
+**It carries no logo, and the struct has nowhere to put one.** Public token
+lists give logos as URLs on `assets.coingecko.com`, `coin-images.coingecko.com`,
+`raw.githubusercontent.com` and `s2.coinmarketcap.com`: three companies fetched
+by every viewer's browser on every market screen. Marks come from
+`cdn.lux.cloud`, and a token with no mark there draws its own letters.
+`TestTheEmbeddedListIsWellFormed` refuses any key that is not one of the five.
+
+The file is the boundary, so it is checked at build time rather than per
+request: valid addresses, decimals in range, no duplicates, no control
+characters in a symbol that something is going to render.
+
+`GET /v1/trade/price?chainId=&token=` prices one token or fifty, answered in the
+order asked. There is no oracle behind it and no vendor — it is a reading of the
+same pools `/v1/trade/quote` reads:
+
+    spend a fixed $100 of a numéraire → see what comes back → put the fee back
+
+$100 rather than one whole token, because one whole token is a fifty-cent trade
+in one market and a hundred-thousand-dollar trade in the next, and the second
+one moves the pool it is measuring — priced that way SHIB came out 40% high.
+The fee correction matters as much: a pool hands back the mid price LESS its
+tier, so an uncorrected reading is high by exactly that tier — $1.0031 for a
+$1.00 token on a 0.3% pool, and $3018.51 for a $3000 one two hops deep.
+
+Two numéraires per chain (`Numeraires` in `venue_chains.go`): the dollar
+stablecoin, worth one by construction, and the wrapped native token, whose own
+mark is read against the dollar. Most V3 liquidity is against the native token,
+not the dollar, so a gateway that knew only the dollar could price the majors
+and nothing behind them. Both readings are taken and the cheaper wins — a price
+is what somebody spending $100 actually receives, and the route handing over the
+most tokens is nearest the middle of the market.
+
+Measured against an independent source, same minute, seven chains:
+
+    1      WETH   2487.03   -0.09%     8453  cbETH   2831.86   -0.17%
+    1      WBTC  78414.92   -0.01%     42161 ARB        0.154  -0.16%
+    1      UNI       6.608  -0.22%     10    OP         0.103  -0.23%
+    1      AAVE    128.59   +0.05%     137   WMATIC     0.0965 -0.04%
+    1      PEPE      3.6e-6 -0.32%     56    WBNB     742.72   +0.46%
+    1      SHIB      5.37e-6 +0.07%
+
+Every one inside half a percent. The residual is the gap between one venue's
+pools and a global average, which is a real difference and not an error.
+
+**A token no pool holds comes back WITHOUT `priceUSD`, never with a zero.** A
+screen can draw a dash; it cannot un-draw a wrong number. `venue` and `via` go
+missing with it, because a number nobody can trace is a number nobody can check.
+
+A reading stands for a minute (`markTTL`) and `asOf` says when it was taken; a
+chain that could not be read is remembered for ten seconds, not a minute,
+because the pools have not changed — our access to them has. Fifty tokens per
+request and eight readings in flight, so one HTTP request cannot turn into five
+hundred eth_calls against an endpoint we hold no account with. Thirty-two
+readers arriving for the same cold price produce ONE fan-out, not thirty-two.
+
+**One unit for a fee, everywhere.** Hundredths of a basis point — how V3 states
+a tier, how `SwapOrder.Fee` is read, and how a price puts back what a pool took.
+The V2 arm answered `30` where the V3 arm answered `3000` for the same three
+tenths of a percent; `feeFromBPS` converts once, in `venue.go`, and nothing else
+means anything else by that number.
+
+**The native arm no longer hides a chain it cannot reach.** Every other arm
+separates a reverting contract from an endpoint that never answered, and the
+router reports a chain it could not read only when EVERY arm on it failed — so
+one arm answering "no liquidity" to an unreachable endpoint was enough on its
+own to turn an unreadable chain into a pair nobody holds.
 
 ### The venue that quoted is the venue that builds
 

@@ -22,6 +22,8 @@ type Server struct {
 	venues     *VenueRouter  // optional venue-based quoting engine, one chain
 	chains     *ChainRouters // optional venue-based quoting engine, per chain
 	quotes     *quoteCache   // optional short-lived cache of venue quotes
+	catalog    *Catalog      // the tokens the chains above can trade
+	marks      *marks        // what each of them is worth, briefly kept
 }
 
 // ServerConfig holds server configuration
@@ -120,6 +122,14 @@ func NewServer(router *Router, cfg ServerConfig, opts ...ServerOption) *Server {
 		opt(s)
 	}
 
+	// The catalog lists exactly the chains this server can quote, so
+	// /v1/trade/venues and /v1/trade/tokens answer about one set rather than
+	// two. It is derived rather than passed because there is no deployment
+	// that wants them to differ, and an option that can only be set wrongly is
+	// a way to set it wrongly.
+	s.catalog = NewCatalog(s.chains.Chains())
+	s.marks = newMarks()
+
 	s.registerRoutes()
 	return s
 }
@@ -155,6 +165,10 @@ func (s *Server) routes() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
 		// What this deployment quotes, and from where.
 		"/venues": s.handleVenues,
+
+		// What can be traded here, and what it is worth.
+		"/tokens": s.handleTokens,
+		"/price":  s.handlePrice,
 
 		// A price, and the transaction that takes it.
 		"/quote":  s.handleQuote,

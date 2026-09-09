@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
 )
 
 // VenueNameNative is what the Lux precompile venue calls itself on the wire.
@@ -11,6 +12,20 @@ import (
 // market we only read, and two spellings of it is one bug away from a V3 pool
 // on somebody else's chain reporting as ours.
 const VenueNameNative = "v4_native"
+
+// feeScale is the unit a fee is written in on this surface: hundredths of a
+// basis point, so 3000 is three tenths of one percent. It is how Uniswap V3
+// states a tier, how SwapOrder.Fee is read, and how a price puts back what a
+// pool took on the way through.
+//
+// An arm whose own arithmetic is in basis points converts here and nowhere
+// else. It used to convert nowhere at all: the V2 arm answered 30 and the V3
+// arm answered 3000 for the same three tenths of a percent, so one number meant
+// two things depending on which pool happened to win.
+const feeScale = 1_000_000
+
+// feeFromBPS writes a basis-point fee in the unit above.
+func feeFromBPS(bps int) string { return strconv.Itoa(bps * feeScale / 10_000) }
 
 // Venue represents a liquidity source — on-chain pool or off-chain exchange.
 type Venue interface {
@@ -149,7 +164,7 @@ func (v *V4Venue) Quote(_ context.Context, req VenueQuoteRequest) (*VenueQuote, 
 	return &VenueQuote{
 		Venue:       v.Name(),
 		AmountOut:   amountOut.String(),
-		Fee:         fmt.Sprintf("%d", pool.Fee),
+		Fee:         feeFromBPS(pool.Fee),
 		GasEstimate: gasEstimate,
 		Executable:  true,
 	}, nil
@@ -272,7 +287,7 @@ func (b *BrokerVenue) Quote(_ context.Context, req VenueQuoteRequest) (*VenueQuo
 	return &VenueQuote{
 		Venue:       b.Name(),
 		AmountOut:   amountOut.String(),
-		Fee:         fmt.Sprintf("%d", b.feeBPS),
+		Fee:         feeFromBPS(b.feeBPS),
 		GasEstimate: "0",
 		Executable:  false,
 	}, nil

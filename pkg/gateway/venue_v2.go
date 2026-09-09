@@ -101,7 +101,7 @@ func (v *UniswapV2Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 	return &VenueQuote{
 		Venue:       v.venueName,
 		AmountOut:   amountOut.String(),
-		Fee:         "30", // standard V2 fee: 0.30%
+		Fee:         feeFromBPS(30), // every V2 pair charges 0.30%
 		GasEstimate: "120000",
 		Executable:  true,
 	}, nil

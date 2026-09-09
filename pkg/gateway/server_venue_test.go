@@ -278,7 +278,7 @@ func TestNothingHereInventsANumber(t *testing.T) {
 // path in a published contract that cannot work is worse than a missing one: a
 // client writes against it and finds out in production.
 //
-//	tokens, pools, pool/, positions, stats, price, prices, route
+//	pools, pool/, positions, stats, route
 //	  Enumerating what exists on a chain is an INDEX read. The gateway reads a
 //	  pool by address, right now; it cannot walk every pool on Ethereum. The
 //	  indexer already answers all of it — api-explore.lux.cloud measured
@@ -287,6 +287,17 @@ func TestNothingHereInventsANumber(t *testing.T) {
 //	  same read wearing a different hat: it needs the pool graph, and without
 //	  one it answered {"routes":[]} forever, which a caller reads as "no path
 //	  exists" rather than "I cannot answer".
+//
+//	prices
+//	  A second name for /v1/trade/price, which takes one token or fifty. Two
+//	  spellings of one question is two things to keep true.
+//
+// `tokens` and `price` came back, and neither is an index read. The token list
+// travels IN the binary — nine hundred and thirty-five of them over seven
+// chains — so listing it asks nobody anything. A price is a quote: spend a
+// hundred dollars of the chain's dollar, see what comes back, put the pool's
+// fee back in. Both are questions a quoting surface can answer about itself,
+// which is why they answer here and the five above do not.
 //
 //	order, order/
 //	  The store was an in-memory map behind two replicas, so an order placed on
@@ -303,8 +314,8 @@ func TestNothingHereInventsANumber(t *testing.T) {
 func TestWhatThisSurfaceIsNot(t *testing.T) {
 	s := newPoolOnlyServer()
 	for _, gone := range []string{
-		"/v1/trade/tokens", "/v1/trade/pools", "/v1/trade/pool/96369/0x1",
-		"/v1/trade/positions", "/v1/trade/stats", "/v1/trade/price",
+		"/v1/trade/pools", "/v1/trade/pool/96369/0x1",
+		"/v1/trade/positions", "/v1/trade/stats",
 		"/v1/trade/prices", "/v1/trade/route",
 		"/v1/trade/order", "/v1/trade/order/abc",
 		"/v1/trade/position", "/v1/trade/position/increase",

@@ -28,6 +28,25 @@ type ChainVenues struct {
 	// Native turns on the Lux precompile venue — the V4 arm, PoolManager at
 	// 0x9010 with the order book at 0x9020 beside it. Only our chains have it.
 	Native bool
+	// Numeraires are what this chain's prices are read against.
+	Numeraires
+}
+
+// Numeraires are the two tokens a chain's prices are stated against.
+//
+// A pool gives a ratio, never a price. To turn one into dollars something has
+// to be worth a dollar by declaration, and something has to be paired with
+// nearly everything else — on Ethereum most of the liquidity is against WETH,
+// not against USDC, so a gateway that only knew the dollar could price the
+// majors and nothing behind them.
+type Numeraires struct {
+	// Stable is the chain's US dollar token, worth exactly one here by
+	// construction. Every other reading is denominated in it.
+	Stable string
+	// Hub is the wrapped native token, which is what most of the chain's pools
+	// are paired with. Its own mark is read against Stable, and everything
+	// with no dollar pool is read against it.
+	Hub string
 }
 
 // The addresses Uniswap publishes for its own deployments. V2's Router02 is at
@@ -48,18 +67,36 @@ const (
 	v3RouterBNB    = "0xB971eF87ede563556b2ED4b1C0b0019111Dd85d2"
 )
 
+// The dollar and the wrapped native token on each chain — the two things
+// every price here is read against. All of them are in the catalog, which is
+// where their decimals come from; a numéraire the catalog does not carry is a
+// chain with no prices, and the two are one edit apart on purpose.
+var (
+	usdEthereum = Numeraires{Stable: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Hub: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"}
+	usdArbitrum = Numeraires{Stable: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", Hub: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"}
+	usdOptimism = Numeraires{Stable: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", Hub: "0x4200000000000000000000000000000000000006"}
+	usdPolygon  = Numeraires{Stable: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", Hub: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"}
+	usdBase     = Numeraires{Stable: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", Hub: "0x4200000000000000000000000000000000000006"}
+	usdBNB      = Numeraires{Stable: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", Hub: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"}
+
+	// LUSD and WLUX, from luxfi/standard deployments/venue/96369.json. Both
+	// read back from the chain itself: 18 decimals, "Lux Dollar" and
+	// "Wrapped LUX".
+	usdLux = Numeraires{Stable: "0xF032B713ddD6542dd6631Ac3d52F4982750EDf78", Hub: "0x66dbed9572eb9be45ef05526c65beddf8d60a672"}
+)
+
 // DefaultChainVenues is what a deployment reads when it is told nothing else:
 // our own chain, and the chains Uniswap deployed to. The RPCs are public and
 // are meant to be overridden per deployment — a busy interface wants its own.
 func DefaultChainVenues(luxRPC string) map[ChainID]ChainVenues {
 	return map[ChainID]ChainVenues{
-		96369:           {RPC: luxRPC, Native: true},
-		ChainIDEthereum: {RPC: "https://ethereum-rpc.publicnode.com", V2Router: v2RouterEthereum, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
-		ChainIDArbitrum: {RPC: "https://arbitrum-one-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
-		ChainIDOptimism: {RPC: "https://optimism-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
-		ChainIDPolygon:  {RPC: "https://polygon-bor-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon},
-		ChainIDBase:     {RPC: "https://base-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBase, V3Router: v3RouterBase},
-		ChainIDBNB:      {RPC: "https://bsc-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBNB, V3Router: v3RouterBNB},
+		96369:           {RPC: luxRPC, Native: true, Numeraires: usdLux},
+		ChainIDEthereum: {RPC: "https://ethereum-rpc.publicnode.com", V2Router: v2RouterEthereum, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon, Numeraires: usdEthereum},
+		ChainIDArbitrum: {RPC: "https://arbitrum-one-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon, Numeraires: usdArbitrum},
+		ChainIDOptimism: {RPC: "https://optimism-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon, Numeraires: usdOptimism},
+		ChainIDPolygon:  {RPC: "https://polygon-bor-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterCommon, V3Router: v3RouterCommon, Numeraires: usdPolygon},
+		ChainIDBase:     {RPC: "https://base-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBase, V3Router: v3RouterBase, Numeraires: usdBase},
+		ChainIDBNB:      {RPC: "https://bsc-rpc.publicnode.com", V2Router: v2RouterCommon, V3Quoter: v3QuoterBNB, V3Router: v3RouterBNB, Numeraires: usdBNB},
 	}
 }
 
@@ -89,19 +126,31 @@ func (c ChainVenues) Venues() []Venue {
 type ChainRouters struct {
 	byChain map[ChainID]*VenueRouter
 	rpc     map[ChainID]string
+	usd     map[ChainID]Numeraires
 }
 
 // NewChainRouters builds one venue router per chain.
 func NewChainRouters(chains map[ChainID]ChainVenues) *ChainRouters {
 	byChain := make(map[ChainID]*VenueRouter, len(chains))
 	rpc := make(map[ChainID]string, len(chains))
+	usd := make(map[ChainID]Numeraires, len(chains))
 	for id, c := range chains {
 		if v := c.Venues(); len(v) > 0 {
 			byChain[id] = NewVenueRouter(v...)
 			rpc[id] = c.RPC
+			usd[id] = c.Numeraires
 		}
 	}
-	return &ChainRouters{byChain: byChain, rpc: rpc}
+	return &ChainRouters{byChain: byChain, rpc: rpc, usd: usd}
+}
+
+// Numeraires is what one chain's prices are read against, empty for a chain
+// this deployment does not read.
+func (c *ChainRouters) Numeraires(chain ChainID) Numeraires {
+	if c == nil {
+		return Numeraires{}
+	}
+	return c.usd[chain]
 }
 
 // RPC is the endpoint this deployment reads one chain from, or "" for a chain

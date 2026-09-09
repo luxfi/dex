@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 )
@@ -84,8 +85,19 @@ func (v *NativeDEXVenue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 	calldata = append(calldata, lxrPadUint256(big.NewInt(int64(v.feeBPS)))...)
 
 	result, err := v.evm.CallContract(ctx, NativePoolManager, calldata)
+	if errors.Is(err, ErrUnreachable) {
+		// Not an answer at all, and this arm is the one that has to say so.
+		// The router reports a chain it could not read only when EVERY arm on
+		// that chain failed, so a single arm answering "no liquidity" to an
+		// endpoint that never replied is enough on its own to turn a chain
+		// nobody could reach into a pair nobody holds — and a reader then goes
+		// looking for liquidity instead of at their endpoint. Every other arm
+		// here already draws the distinction; this one now does too.
+		return nil, err
+	}
 	if err != nil {
-		// Pool may not exist for this pair — not an error, just no liquidity.
+		// The precompile reverted, or nothing is deployed at that address.
+		// Either way this pair has no pool here.
 		return nil, nil
 	}
 
@@ -101,7 +113,7 @@ func (v *NativeDEXVenue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 	quote := &VenueQuote{
 		Venue:       v.name,
 		AmountOut:   amountOut.String(),
-		Fee:         fmt.Sprintf("%d", v.feeBPS),
+		Fee:         feeFromBPS(int(v.feeBPS)),
 		GasEstimate: "150000",
 		Executable:  true,
 	}
