@@ -24,6 +24,9 @@ type Server struct {
 	quotes     *quoteCache   // optional short-lived cache of venue quotes
 	catalog    *Catalog      // the tokens the chains above can trade
 	marks      *marks        // what each of them is worth, briefly kept
+	// reading bounds how many questions are in flight against each chain, for
+	// the whole process rather than for one request.
+	reading map[ChainID]chan struct{}
 }
 
 // ServerConfig holds server configuration
@@ -129,6 +132,10 @@ func NewServer(router *Router, cfg ServerConfig, opts ...ServerOption) *Server {
 	// a way to set it wrongly.
 	s.catalog = NewCatalog(s.chains.Chains())
 	s.marks = newMarks()
+	s.reading = map[ChainID]chan struct{}{}
+	for _, id := range s.chains.Chains() {
+		s.reading[id] = make(chan struct{}, readingsInFlight)
+	}
 
 	s.registerRoutes()
 	return s

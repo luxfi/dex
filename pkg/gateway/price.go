@@ -24,6 +24,20 @@ import (
 // $0.036834 and /v1/trade/quote for the same size implies $0.036806. A screen
 // that says one thing and a panel that pays another is worse than either.
 
+// readingsInFlight is how many questions this process will have in flight
+// against ONE chain at a time.
+//
+// A price is a fan-out, and the edge limits REQUESTS: thirty a second from one
+// address, each of which may name fifty tokens, each read at two sizes against
+// two numéraires across every arm. One permitted request becomes up to a
+// thousand eth_calls, and they land on public endpoints we hold no account
+// with. Getting our egress refused there takes quoting down for everybody, so
+// the bound is on what leaves this process rather than on what arrives at it.
+//
+// Sixteen is what a single request already used, so one screen is no slower;
+// what changes is that a second screen shares them instead of doubling them.
+const readingsInFlight = 16
+
 // markSmall and markLarge are the two sizes a reading is taken at, in dollars.
 //
 // Not one whole token: one whole token is a fifty-cent trade in one market and
@@ -317,6 +331,19 @@ func (s *Server) readAgainst(ctx context.Context, chain ChainID, num Token, numU
 	probe := probeAmount(numUSD, num.Decimals, dollars)
 	if probe.Sign() <= 0 {
 		return nil, nil
+	}
+
+	// Wait for room to ask. Taken here and not around a whole reading, because
+	// a reading against the hub waits for the hub's own reading, and a slot
+	// held across that wait is a deadlock the first time every slot is held by
+	// something waiting on the hub.
+	if room := s.reading[chain]; room != nil {
+		select {
+		case room <- struct{}{}:
+			defer func() { <-room }()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	held, err := venues.QueryAllVenues(ctx, VenueQuoteRequest{

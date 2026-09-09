@@ -419,8 +419,19 @@ Cross-chain, same minute, against an independent source:
 wrong number. `venue` and `via` go missing with it, because a number nobody can
 trace is a number nobody can check.
 
-Cost: 50 cold tokens on Ethereum in 10.1s, the same 50 warm in 36ms. The two
-sizes are asked concurrently, so the second one costs calls and not latency.
+**The bound is on what leaves, not on what arrives.** The edge limits requests —
+thirty a second from one address — and each may name fifty tokens read at two
+sizes against two numéraires across every arm, so one permitted request becomes
+up to a thousand eth_calls landing on public endpoints we hold no account with.
+`readingsInFlight` is sixteen questions in flight against ONE chain for the
+whole process, not per request, so a second screen shares them instead of
+doubling them.
+
+Cost, measured: 50 cold Ethereum tokens in 8.6s, the same 50 warm in 36ms, and
+160 tokens across four chains at once in 9.3s — and the same counts on a repeat
+run, where before the bound a four-chain burst returned a different set of
+prices each time. The two sizes are asked concurrently, so the second one costs
+calls and not latency.
 
 A reading stands for a minute (`markTTL`) and `asOf` says when it was taken; a
 chain that could not be read is remembered for ten seconds, not a minute,

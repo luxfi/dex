@@ -192,7 +192,8 @@ paths:
             Repeated or comma-separated, up to fifty, and answered in the order
             asked. Fifty because each one is a fan-out of eth_calls against a
             public endpoint; a screen wanting more asks again, and by then most
-            of them are already read.
+            of them are already read. Fifty cold tokens take about nine seconds
+            and the same fifty again take milliseconds.
       responses:
         '200':
           description: One entry per token asked, in that order.

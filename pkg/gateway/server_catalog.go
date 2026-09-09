@@ -24,9 +24,6 @@ const (
 	// a screen wanting two hundred asks four times, and by the second one most
 	// of them are already read.
 	pricesAtOnce = 50
-	// And this many at a time, so a cold page is a steady stream of calls
-	// rather than five hundred at once.
-	pricesInFlight = 8
 	// The whole fan-out is bounded well inside the server's own write timeout,
 	// so a chain that has gone slow answers rather than holding the connection
 	// until it is cut. A token that ran out of time counts as a chain that
@@ -123,17 +120,16 @@ func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
 	unreachable := 0
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	inFlight := make(chan struct{}, pricesInFlight)
 
+	// Every token at once. What they wait on is the chain's own budget of
+	// questions in flight, which is one number for the whole process — a bound
+	// per request would still multiply by the number of requests.
 	ctx, done := context.WithTimeout(s.requestContext(r), pricesWithin)
 	defer done()
 	for i, t := range tokens {
 		wg.Add(1)
 		go func(i int, t Token) {
 			defer wg.Done()
-			inFlight <- struct{}{}
-			defer func() { <-inFlight }()
-
 			mk := s.markOf(ctx, chain, t)
 			mu.Lock()
 			out[i] = mk.price(chain, t)
