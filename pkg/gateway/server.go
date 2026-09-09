@@ -305,12 +305,17 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	// that also lists the chain is a second opinion about a market we settle
 	// ourselves. A venue with no liquidity returns nothing rather than an
 	// error, so falling through to the providers is the honest next question.
-	if quote := s.venueQuote(ctx, asked); quote != nil {
+	quote, err := s.venueQuote(ctx, asked)
+	if err != nil {
+		s.writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if quote != nil {
 		s.writeJSON(w, http.StatusOK, quote)
 		return
 	}
 
-	quote, err := s.router.GetBestQuote(ctx, asked)
+	quote, err = s.router.GetBestQuote(ctx, asked)
 	if err != nil {
 		// A chain we settle ourselves, with no provider behind it, is not a
 		// deployment missing a provider — it is a pair no venue here holds.
@@ -381,10 +386,16 @@ func (s *Server) settles(chain ChainID) bool {
 // venueQuotes asks the venues this deployment settles on and returns what each
 // one holds, best first. Empty when none of them holds the pair — which is a
 // question for the providers and not an answer of its own.
-func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote {
+//
+// The error means the CHAIN could not be read: every arm on it failed. That is
+// a fact about the endpoint and not about the pool, and the two were reported
+// as the same thing — one of the deepest pools in existence came back as a pair
+// nobody holds when its RPC was down, which sends a reader looking for
+// liquidity instead of at their endpoint.
+func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuote, error) {
 	venues := s.arms(req.ChainID)
 	if venues == nil || len(venues.Venues()) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// The router's own routing label describes its strategy, not who answered.
@@ -392,12 +403,15 @@ func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote 
 	// precompile on somebody else's chain — the one thing a route must never
 	// misreport, since it is what a reader checks to see where their order
 	// goes. Each venue names itself.
-	answers, _ := venues.QueryAllVenues(ctx, VenueQuoteRequest{
+	answers, err := venues.QueryAllVenues(ctx, VenueQuoteRequest{
 		TokenIn:  req.TokenIn.Address,
 		TokenOut: req.TokenOut.Address,
 		Amount:   req.Amount.String(),
 		Type:     map[bool]string{true: "EXACT_INPUT", false: "EXACT_OUTPUT"}[req.IsExactIn],
 	})
+	if err != nil {
+		return nil, fmt.Errorf("chain %d could not be read: %w", req.ChainID, err)
+	}
 
 	held := make([]SwapQuote, 0, len(answers))
 	for _, a := range answers {
@@ -421,21 +435,21 @@ func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote 
 	sort.SliceStable(held, func(i, j int) bool {
 		return held[i].TokenOut.Amount.Cmp(held[j].TokenOut.Amount) > 0
 	})
-	return held
+	return held, nil
 }
 
 // venueQuote is the best of those, kept for the moment a pool holds still.
-func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
+func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) (*SwapQuote, error) {
 	if kept := s.quotes.get(req); kept != nil {
-		return kept
+		return kept, nil
 	}
-	held := s.venueQuotes(ctx, req)
-	if len(held) == 0 {
-		return nil
+	held, err := s.venueQuotes(ctx, req)
+	if err != nil || len(held) == 0 {
+		return nil, err
 	}
 	best := held[0]
 	s.quotes.put(req, &best)
-	return &best
+	return &best, nil
 }
 
 func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
@@ -461,7 +475,12 @@ func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
 	// /v1/quote's question, asked without the last step. Reading it from the
 	// provider registry alone made a chain we settle ourselves report "no
 	// providers available" while /v1/quote priced the same pair from its pools.
-	if held := s.venueQuotes(ctx, asked); len(held) > 0 {
+	held, err := s.venueQuotes(ctx, asked)
+	if err != nil {
+		s.writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if len(held) > 0 {
 		s.writeJSON(w, http.StatusOK, held)
 		return
 	}
@@ -513,7 +532,11 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 	// caller could have asked directly.
 	ctx := s.requestContext(r)
 	asked := s.convertQuoteRequest(req.quoteRequest)
-	held := s.venueQuotes(ctx, asked)
+	held, err := s.venueQuotes(ctx, asked)
+	if err != nil {
+		s.writeError(w, http.StatusBadGateway, err)
+		return
+	}
 	if len(held) == 0 {
 		s.writeError(w, http.StatusNotFound, s.whyNothingHeld(asked))
 		return

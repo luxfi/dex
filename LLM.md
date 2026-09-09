@@ -423,6 +423,26 @@ was measured. A deadline computed from wall clock is generous here rather than
 tight, which is the safe direction — but a test that expects `now - 60` to be
 expired will not see it expire.
 
+**A dead endpoint is not an empty pool.** Both used to come out as an empty
+list, so WETH/USDC on Ethereum — one of the deepest pools in existence — was
+reported as a pair nobody holds whenever its RPC was down, which sends a reader
+looking for liquidity instead of at their endpoint. `EVMClient` marks the
+answers it never received with `ErrUnreachable` (a connection failure, a 5xx, a
+429, a body that is not JSON-RPC) and the venues pass that through, while a
+contract answering by REVERTING stays what it always was: this pool does not
+exist. Three of the four V3 tiers revert on most pairs; that is the ordinary
+case and must not read as an outage.
+
+`QueryAllVenues` returns the reason only when EVERY arm it asked failed — one
+arm down while another answers is a quote. Measured, with chain 1's endpoint
+pointed at a closed port:
+
+    chain 1      502  chain 1 could not be read: endpoint unreachable: dial tcp …
+    chain 96369  200  997001483075056712
+    a pair with no pool on 96369
+                 404  no venue here holds this pair
+    /providers   200  one dark chain does not take a pod out of rotation
+
 **A direction is not a missing market.** `getAmountsOut` and
 `quoteExactInputSingle` price a known INPUT and have no other direction, so an
 exact-output request gets nothing back however deep the pool is. Answering that

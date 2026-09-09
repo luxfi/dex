@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,15 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// ErrUnreachable means the endpoint was never reached: no answer came back at
+// all, as opposed to a contract answering by reverting.
+//
+// Every venue here treats a reverting call as "this pool does not exist", which
+// is right — three of the four V3 fee tiers revert on most pairs. Without this
+// distinction a dead endpoint reverts every tier at once and reads as a pair
+// nobody holds, so WETH/USDC on Ethereum came back empty when its RPC was down.
+var ErrUnreachable = errors.New("endpoint unreachable")
 
 // EVMClient sends eth_call JSON-RPC requests to an EVM endpoint.
 // Used by all on-chain venues (V2, V3, V4/Native) for quoting.
@@ -54,13 +64,17 @@ func (c *EVMClient) ask(ctx context.Context, method string, params []any) (strin
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("rpc call: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read rpc response: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		// The endpoint refused to answer rather than the contract answering.
+		return "", fmt.Errorf("%w: %s", ErrUnreachable, resp.Status)
 	}
 
 	var rpcResp struct {
@@ -71,7 +85,7 @@ func (c *EVMClient) ask(ctx context.Context, method string, params []any) (strin
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
-		return "", fmt.Errorf("decode rpc response: %w", err)
+		return "", fmt.Errorf("%w: %s answered %d with something that is not JSON-RPC", ErrUnreachable, c.rpcURL, resp.StatusCode)
 	}
 	if rpcResp.Error != nil {
 		return "", fmt.Errorf("rpc error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)

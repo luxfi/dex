@@ -190,19 +190,18 @@ func TestVenueRouterQueryAllVenues(t *testing.T) {
 	unit := e18()
 
 	amount := new(big.Int).Mul(big.NewInt(1000), unit)
-	quotes, routing := vr.QueryAllVenues(ctx, VenueQuoteRequest{
+	quotes, err := vr.QueryAllVenues(ctx, VenueQuoteRequest{
 		TokenIn:  testLUSD,
 		TokenOut: testWBTC,
 		Amount:   amount.String(),
 		Type:     VenueQuoteTypeExactInput,
 	})
 
+	if err != nil {
+		t.Fatalf("three venues answered and it reported an outage: %v", err)
+	}
 	if len(quotes) != 3 {
 		t.Fatalf("expected 3 venue quotes, got %d", len(quotes))
-	}
-
-	if routing != VenueRoutingV4Native {
-		t.Errorf("expected routing %s, got %s", VenueRoutingV4Native, routing)
 	}
 
 	// Verify sorted by amountOut descending.

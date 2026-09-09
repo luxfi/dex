@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 )
@@ -80,8 +81,11 @@ func (v *UniswapV2Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 	calldata = append(calldata, lxrPadAddress(outAddr)...)
 
 	result, err := v.evm.CallContract(ctx, v.routerAddress, calldata)
+	if errors.Is(err, ErrUnreachable) {
+		return nil, err
+	}
 	if err != nil {
-		return nil, nil // no pool for this pair
+		return nil, nil // the router reverted: no pool for this pair
 	}
 
 	// Response: offset(32) + length(32) + amounts[0](32) + amounts[1](32)

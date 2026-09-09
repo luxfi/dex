@@ -447,3 +447,68 @@ func TestThePreflightPermitsOnlyWhatIsRead(t *testing.T) {
 		t.Errorf("methods = %q, but nothing here answers either", m)
 	}
 }
+
+// A chain that cannot be read is not a pair nobody holds.
+//
+// Both answers used to come out as an empty list, so WETH/USDC on Ethereum —
+// one of the deepest pools in existence — was reported as "no venue here holds
+// this pair" whenever its endpoint was down. That sends a reader looking for
+// liquidity instead of at their endpoint.
+func TestAnUnreachableChainIsNotAnEmptyPool(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", http.StatusBadGateway)
+	}))
+	dead.Close() // nothing is listening on that address at all
+
+	s := NewServer(NewRouter(NewRegistry(), true), DefaultServerConfig(),
+		WithChainVenues(NewChainRouters(map[ChainID]ChainVenues{
+			ChainIDLux: {RPC: dead.URL, V3Quoter: testOther, V3Router: testOther},
+		})))
+
+	body := map[string]any{
+		"chainId": uint64(ChainIDLux), "tokenIn": testWETH, "tokenOut": testLUSD,
+		"amount": "1000000000000000000", "isExactIn": true, "recipient": testOther,
+	}
+	for _, path := range []string{"/v1/trade/quote", "/v1/trade/quotes", "/v1/trade/swap"} {
+		w := ask(s, http.MethodPost, path, body)
+		if w.Code != http.StatusBadGateway {
+			t.Errorf("%s answered %d, want 502: %s", path, w.Code, w.Body.String())
+		}
+		if bytes.Contains(w.Body.Bytes(), []byte("holds this pair")) {
+			t.Errorf("%s blamed the pool for a dead endpoint: %s", path, w.Body.String())
+		}
+		if !bytes.Contains(w.Body.Bytes(), []byte("could not be read")) {
+			t.Errorf("%s did not say the chain was unreadable: %s", path, w.Body.String())
+		}
+	}
+}
+
+// One arm down while another answers is a quote, not an outage.
+func TestOneDeadArmIsNotAnOutage(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID uint64 `json:"id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": req.ID, "result": "0x" + fmt.Sprintf("%064x", 997_000),
+		})
+	}))
+	t.Cleanup(live.Close)
+
+	// The V2 arm reads a router that answers nothing; the V3 arm reads a quoter
+	// that does. Same chain, same endpoint.
+	vr := NewVenueRouter(
+		NewUniswapV2Venue(UniswapV2Config{RPCURL: "http://chain.invalid", RouterAddress: testOther}),
+		NewUniswapV3Venue(UniswapV3Config{RPCURL: live.URL, QuoterAddress: testOther}),
+	)
+	quotes, err := vr.QueryAllVenues(t.Context(), VenueQuoteRequest{
+		TokenIn: testWETH, TokenOut: testLUSD, Amount: "1000000000000000000", Type: VenueQuoteTypeExactInput,
+	})
+	if err != nil {
+		t.Fatalf("one arm answered and it reported an outage: %v", err)
+	}
+	if len(quotes) != 1 {
+		t.Fatalf("got %d quotes, want the one arm that answered", len(quotes))
+	}
+}

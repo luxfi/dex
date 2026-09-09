@@ -8,14 +8,6 @@ import (
 	"sync"
 )
 
-// Routing strategies returned in venue-based quoting.
-const (
-	VenueRoutingV4Native = "V4_NATIVE"
-	VenueRoutingBroker   = "BROKER"
-	VenueRoutingMultiHop = "MULTI_HOP"
-	VenueRoutingSplit    = "SPLIT"
-)
-
 // VenueRouter fans out quote requests to multiple venues in parallel
 // and returns the best result.
 type VenueRouter struct {
@@ -32,10 +24,21 @@ func (vr *VenueRouter) Venues() []Venue {
 	return vr.venues
 }
 
-// QueryAllVenues fans out to all venues in parallel, collects quotes,
-// and returns them sorted by best output (descending) along with a routing label.
-func (vr *VenueRouter) QueryAllVenues(ctx context.Context, req VenueQuoteRequest) ([]VenueQuote, string) {
+// QueryAllVenues asks every venue at once and returns what they hold, best
+// first, and whether the chain could be read at all.
+//
+// A venue distinguishes the two answers already: no liquidity is (nil, nil),
+// and a chain it could not reach is (nil, err). Both were discarded here and
+// came out as an empty list, so a dead endpoint and an empty pool were the same
+// answer — and the surface reported one of the deepest pools in existence as a
+// pair nobody holds, which sends a reader looking for liquidity instead of at
+// their endpoint.
+//
+// The error is returned only when EVERY venue asked failed. One arm down while
+// another answers is a quote, not an outage.
+func (vr *VenueRouter) QueryAllVenues(ctx context.Context, req VenueQuoteRequest) ([]VenueQuote, error) {
 	type result struct {
+		asked bool
 		quote *VenueQuote
 		err   error
 	}
@@ -51,21 +54,26 @@ func (vr *VenueRouter) QueryAllVenues(ctx context.Context, req VenueQuoteRequest
 				return
 			}
 			q, err := venue.Quote(ctx, req)
-			results[idx] = result{quote: q, err: err}
+			results[idx] = result{asked: true, quote: q, err: err}
 		}(i, v)
 	}
 	wg.Wait()
 
 	var quotes []VenueQuote
-	hasOnChain := false
+	var asked, failed int
+	var why error
 
 	for _, res := range results {
-		if res.err != nil || res.quote == nil {
-			continue
+		if !res.asked {
+			continue // a preferred venue was named and this is not it
 		}
-		quotes = append(quotes, *res.quote)
-		if res.quote.Executable {
-			hasOnChain = true
+		asked++
+		switch {
+		case res.err != nil:
+			failed++
+			why = res.err
+		case res.quote != nil:
+			quotes = append(quotes, *res.quote)
 		}
 	}
 
@@ -82,12 +90,12 @@ func (vr *VenueRouter) QueryAllVenues(ctx context.Context, req VenueQuoteRequest
 		return ai.Cmp(aj) > 0
 	})
 
-	routing := VenueRoutingBroker
-	if hasOnChain && len(quotes) > 0 {
-		routing = VenueRoutingV4Native
+	// Every arm that was asked failed, and none of them held anything: the
+	// chain could not be read. One arm down while another answers is a quote.
+	if failed > 0 && failed == asked {
+		return nil, why
 	}
-
-	return quotes, routing
+	return quotes, nil
 }
 
 // ListVenueInfo returns info about all registered venues.

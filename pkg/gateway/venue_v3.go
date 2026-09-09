@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 )
@@ -92,6 +93,7 @@ func (v *UniswapV3Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 
 	best := new(big.Int)
 	var bestFee uint32
+	var unreachable error
 	for _, fee := range v.tiers {
 		// (tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96) — a static
 		// tuple, so five words inline. The price limit is zero: no bound.
@@ -104,6 +106,12 @@ func (v *UniswapV3Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 		calldata = append(calldata, lxrPadUint256(big.NewInt(0))...)
 
 		result, err := v.evm.CallContract(ctx, v.quoter, calldata)
+		if errors.Is(err, ErrUnreachable) {
+			// Not an answer at all. Every tier will say the same, so the loop
+			// still finishes and the reason is kept for the end.
+			unreachable = err
+			continue
+		}
 		if err != nil || len(result) < 32 {
 			// A tier with no pool reverts. That is the ordinary answer to
 			// three of the four tiers on most pairs, not a failure to report.
@@ -118,7 +126,8 @@ func (v *UniswapV3Venue) Quote(ctx context.Context, req VenueQuoteRequest) (*Ven
 	}
 
 	if best.Sign() <= 0 {
-		return nil, nil
+		// No tier held anything. If nothing was ever reached, that is why.
+		return nil, unreachable
 	}
 
 	return &VenueQuote{
