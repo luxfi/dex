@@ -22,7 +22,7 @@ func NewRouter(registry *Registry, enableFallback bool) *Router {
 
 // GetBestQuote gets the best quote from all providers
 func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote, error) {
-	providers := r.registry.GetQuoteProviders()
+	providers := r.registry.GetQuoteProvidersFor(req.ChainID)
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}
@@ -83,7 +83,7 @@ func (r *Router) GetBestQuote(ctx context.Context, req QuoteRequest) (*SwapQuote
 
 // GetAllQuotes gets quotes from all providers
 func (r *Router) GetAllQuotes(ctx context.Context, req QuoteRequest) ([]SwapQuote, error) {
-	providers := r.registry.GetQuoteProviders()
+	providers := r.registry.GetQuoteProvidersFor(req.ChainID)
 	if len(providers) == 0 {
 		return nil, ErrNoProvidersAvailable
 	}

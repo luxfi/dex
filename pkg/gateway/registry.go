@@ -114,6 +114,43 @@ func (r *Registry) GetQuoteProviders() []QuoteProvider {
 	return providers
 }
 
+// GetQuoteProvidersFor returns the quote providers that serve one chain.
+//
+// Asking every provider about every chain is how a request for a Lux market
+// reached Uniswap and came back ACCESS_DENIED: a provider that does not list
+// the chain cannot answer for it, and its refusal is not a fact about the
+// market. A provider naming no chains at all is taken to serve any — that is
+// the shape a single-chain deployment has.
+func (r *Registry) GetQuoteProvidersFor(chain ChainID) []QuoteProvider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	providers := make([]QuoteProvider, 0)
+	for _, name := range r.order {
+		provider, exists := r.providers[name]
+		if !exists {
+			continue
+		}
+		qp, ok := provider.(QuoteProvider)
+		if !ok {
+			continue
+		}
+		chains := provider.Info().SupportedChains
+		if len(chains) == 0 {
+			providers = append(providers, qp)
+			continue
+		}
+		for _, c := range chains {
+			if c == chain {
+				providers = append(providers, qp)
+				break
+			}
+		}
+	}
+
+	return providers
+}
+
 // GetLiquidityProviders returns all liquidity providers
 func (r *Registry) GetLiquidityProviders() []LiquidityProvider {
 	r.mu.RLock()

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -253,13 +254,84 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := s.requestContext(r)
-	quote, err := s.router.GetBestQuote(ctx, s.convertQuoteRequest(req))
+	asked := s.convertQuoteRequest(req)
+
+	// Our own markets are quoted from our own contracts, and everything else is
+	// quoted upstream. The venues were attached to this server and never read,
+	// so every chain went to a provider — which is how a Lux market came back
+	// with an upstream access error, a sentence about somebody else's API
+	// dressed as a fact about our liquidity.
+	//
+	// The venues answer first because they are the venue: an upstream provider
+	// that also lists the chain is a second opinion about a market we settle
+	// ourselves. A venue with no liquidity returns nothing rather than an
+	// error, so falling through to the providers is the honest next question.
+	if quote := s.venueQuote(ctx, asked); quote != nil {
+		s.writeJSON(w, http.StatusOK, quote)
+		return
+	}
+
+	quote, err := s.router.GetBestQuote(ctx, asked)
 	if err != nil {
+		// A chain we settle ourselves, with no provider behind it, is not a
+		// deployment missing a provider — it is a pair no venue here holds.
+		// Saying "no providers available" of our own chain sends a reader
+		// looking for a misconfiguration that is not there.
+		if errors.Is(err, ErrNoProvidersAvailable) && s.venues != nil && len(s.venues.Venues()) > 0 {
+			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+			return
+		}
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	s.writeJSON(w, http.StatusOK, quote)
+}
+
+// venueQuote asks the venues this deployment settles on, and returns nil when
+// none of them holds the pair — which is a question for the providers and not
+// an answer of its own.
+func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
+	if s.venues == nil || len(s.venues.Venues()) == 0 {
+		return nil
+	}
+
+	quotes, routing := s.venues.QueryAllVenues(ctx, VenueQuoteRequest{
+		TokenIn:  req.TokenIn.Address,
+		TokenOut: req.TokenOut.Address,
+		Amount:   req.Amount.String(),
+		Type:     map[bool]string{true: "EXACT_INPUT", false: "EXACT_OUTPUT"}[req.IsExactIn],
+	})
+
+	best := -1
+	for i, q := range quotes {
+		if !q.Executable || q.AmountOut == "" || q.AmountOut == "0" {
+			continue
+		}
+		if best < 0 {
+			best = i
+			continue
+		}
+		a, aok := new(big.Int).SetString(q.AmountOut, 10)
+		b, bok := new(big.Int).SetString(quotes[best].AmountOut, 10)
+		if aok && bok && a.Cmp(b) > 0 {
+			best = i
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+
+	won := quotes[best]
+	out, _ := new(big.Int).SetString(won.AmountOut, 10)
+	gas, _ := new(big.Int).SetString(won.GasEstimate, 10)
+	return &SwapQuote{
+		TokenIn:      TokenAmount{Token: req.TokenIn, Amount: req.Amount},
+		TokenOut:     TokenAmount{Token: req.TokenOut, Amount: out},
+		Route:        []PoolHop{{PoolType: routing, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
+		GasEstimate:  gas,
+		ProviderName: won.Venue,
+	}
 }
 
 func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
