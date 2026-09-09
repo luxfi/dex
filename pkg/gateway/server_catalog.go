@@ -141,10 +141,17 @@ func (s *Server) handlePrice(w http.ResponseWriter, r *http.Request) {
 	}
 	wg.Wait()
 
-	// Every one of them failed to reach the chain. That is a fact about an
-	// endpoint, not about the pools, and answering it with a page of dashes
-	// sends a reader looking for liquidity instead of at their RPC.
+	// Not one of them could be read. Answering that with a page of dashes sends
+	// a reader looking for liquidity instead of at the thing that is wrong —
+	// and which thing that is matters, because the two send them to different
+	// places. Running out of time is this deployment being busy; anything else
+	// is the chain's endpoint.
 	if unreachable == len(tokens) && len(tokens) > 0 {
+		if ctx.Err() != nil {
+			s.writeError(w, http.StatusGatewayTimeout,
+				fmt.Errorf("reading chain %d took longer than %s — ask for fewer tokens, or ask again in a moment", chain, pricesWithin))
+			return
+		}
 		s.writeError(w, http.StatusBadGateway, fmt.Errorf("chain %d could not be read", chain))
 		return
 	}

@@ -222,6 +222,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Envelope' }
+        '504':
+          description: |
+            Nothing could be read in time. This deployment is busy rather than
+            the chain being unreachable, which is a different place to look: ask
+            for fewer tokens, or ask again in a moment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
 
   /v1/trade/quote:
     post:

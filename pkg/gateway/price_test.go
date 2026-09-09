@@ -241,6 +241,40 @@ func TestAnUnreadableChainSaysSo(t *testing.T) {
 	}
 }
 
+// Running out of time is this deployment being busy, and an endpoint that never
+// answered is the chain. They send a reader to different places, so they are
+// not the same answer.
+func TestBusyIsNotAnOutage(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer slow.Close()
+
+	s := NewServer(
+		NewRouter(NewRegistry(), true),
+		DefaultServerConfig(),
+		WithChainVenues(&ChainRouters{
+			byChain: map[ChainID]*VenueRouter{ChainIDLux: NewVenueRouter(
+				NewUniswapV3Venue(UniswapV3Config{RPCURL: slow.URL, QuoterAddress: testOther}))},
+			usd: map[ChainID]Numeraires{ChainIDLux: usdLux},
+		}),
+	)
+
+	// The request gives up before the chain does.
+	r := httptest.NewRequest(http.MethodGet, "/v1/trade/price?chainId=96369&token="+luxToken("LETH"), nil)
+	ctx, stop := context.WithCancel(r.Context())
+	stop()
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, r.WithContext(ctx))
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("a request that ran out of time answered %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "could not be read") {
+		t.Errorf("being busy was reported as the chain being down: %s", w.Body.String())
+	}
+}
+
 // /v1/trade/price, as a screen asks it: several tokens at once, answered in
 // the order asked, with the ones nothing holds coming back without a price.
 func TestPriceAnswersInTheOrderAsked(t *testing.T) {
