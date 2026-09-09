@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -172,9 +173,6 @@ func (s *Server) registerRoutes() {
 
 	// Multihop routing routes
 	s.registerMultihopRoutes()
-
-	// Admin pause/freeze routes
-	RegisterAdminRoutes(s.mux)
 }
 
 // Response helpers
@@ -223,7 +221,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := s.requestContext(r)
 	checks := s.router.HealthCheck(ctx)
 
-	healthy := false
+	// The venues count, and they count first. A deployment with no hosted
+	// provider is the ordinary one — the hosted trade API answers ACCESS_DENIED
+	// without a contract, so the pools are read directly — and asking only the
+	// provider registry answers 503 about a gateway that is quoting seven
+	// chains. Anything probing this to decide whether the process can serve
+	// then holds every replica out of its own Service, permanently, while every
+	// quote it would have served works.
+	chains := s.chains.Chains()
+	healthy := len(chains) > 0
 	for _, check := range checks {
 		if check.Healthy {
 			healthy = true
@@ -238,6 +244,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, status, map[string]interface{}{
 		"status":    map[bool]string{true: "healthy", false: "unhealthy"}[healthy],
+		"chains":    chains,
 		"providers": checks,
 	})
 }
@@ -299,7 +306,7 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		// deployment missing a provider — it is a pair no venue here holds.
 		// Saying "no providers available" of our own chain sends a reader
 		// looking for a misconfiguration that is not there.
-		if errors.Is(err, ErrNoProvidersAvailable) && (s.chains.For(asked.ChainID) != nil || (s.venues != nil && len(s.venues.Venues()) > 0)) {
+		if errors.Is(err, ErrNoProvidersAvailable) && s.settles(asked.ChainID) {
 			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
 			return
 		}
@@ -310,14 +317,17 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, quote)
 }
 
-// venueQuote asks the venues this deployment settles on, and returns nil when
-// none of them holds the pair — which is a question for the providers and not
-// an answer of its own.
-func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
-	if kept := s.quotes.get(req); kept != nil {
-		return kept
-	}
+// settles reports whether this deployment reads a chain from its own pools.
+// Where it does, "no providers available" is never the true answer — it names
+// an upstream registry the caller did not ask about.
+func (s *Server) settles(chain ChainID) bool {
+	return s.chains.For(chain) != nil || (s.venues != nil && len(s.venues.Venues()) > 0)
+}
 
+// venueQuotes asks the venues this deployment settles on and returns what each
+// one holds, best first. Empty when none of them holds the pair — which is a
+// question for the providers and not an answer of its own.
+func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote {
 	venues := s.chains.For(req.ChainID)
 	if venues == nil {
 		venues = s.venues
@@ -330,45 +340,47 @@ func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
 	// A V3 pool on Ethereum came back marked V4_NATIVE, which names our own
 	// precompile on somebody else's chain — the one thing a route must never
 	// misreport, since it is what a reader checks to see where their order
-	// goes. The winning venue names itself.
-	quotes, _ := venues.QueryAllVenues(ctx, VenueQuoteRequest{
+	// goes. Each venue names itself.
+	answers, _ := venues.QueryAllVenues(ctx, VenueQuoteRequest{
 		TokenIn:  req.TokenIn.Address,
 		TokenOut: req.TokenOut.Address,
 		Amount:   req.Amount.String(),
 		Type:     map[bool]string{true: "EXACT_INPUT", false: "EXACT_OUTPUT"}[req.IsExactIn],
 	})
 
-	best := -1
-	for i, q := range quotes {
-		if !q.Executable || q.AmountOut == "" || q.AmountOut == "0" {
+	held := make([]SwapQuote, 0, len(answers))
+	for _, a := range answers {
+		out, ok := new(big.Int).SetString(a.AmountOut, 10)
+		if !a.Executable || !ok || out.Sign() <= 0 {
 			continue
 		}
-		if best < 0 {
-			best = i
-			continue
-		}
-		a, aok := new(big.Int).SetString(q.AmountOut, 10)
-		b, bok := new(big.Int).SetString(quotes[best].AmountOut, 10)
-		if aok && bok && a.Cmp(b) > 0 {
-			best = i
-		}
+		gas, _ := new(big.Int).SetString(a.GasEstimate, 10)
+		held = append(held, SwapQuote{
+			TokenIn:      TokenAmount{Token: req.TokenIn, Amount: req.Amount},
+			TokenOut:     TokenAmount{Token: req.TokenOut, Amount: out},
+			Route:        []PoolHop{{PoolType: a.Venue, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
+			GasEstimate:  gas,
+			ProviderName: a.Venue,
+		})
 	}
-	if best < 0 {
+	sort.SliceStable(held, func(i, j int) bool {
+		return held[i].TokenOut.Amount.Cmp(held[j].TokenOut.Amount) > 0
+	})
+	return held
+}
+
+// venueQuote is the best of those, kept for the moment a pool holds still.
+func (s *Server) venueQuote(ctx context.Context, req QuoteRequest) *SwapQuote {
+	if kept := s.quotes.get(req); kept != nil {
+		return kept
+	}
+	held := s.venueQuotes(ctx, req)
+	if len(held) == 0 {
 		return nil
 	}
-
-	won := quotes[best]
-	out, _ := new(big.Int).SetString(won.AmountOut, 10)
-	gas, _ := new(big.Int).SetString(won.GasEstimate, 10)
-	quote := &SwapQuote{
-		TokenIn:      TokenAmount{Token: req.TokenIn, Amount: req.Amount},
-		TokenOut:     TokenAmount{Token: req.TokenOut, Amount: out},
-		Route:        []PoolHop{{PoolType: won.Venue, TokenIn: req.TokenIn, TokenOut: req.TokenOut}},
-		GasEstimate:  gas,
-		ProviderName: won.Venue,
-	}
-	s.quotes.put(req, quote)
-	return quote
+	best := held[0]
+	s.quotes.put(req, &best)
+	return &best
 }
 
 func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
@@ -384,8 +396,23 @@ func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := s.requestContext(r)
-	quotes, err := s.router.GetAllQuotes(ctx, s.convertQuoteRequest(req))
+	asked := s.convertQuoteRequest(req)
+
+	// Every answer rather than the best one, and from the same source: this is
+	// /v1/quote's question, asked without the last step. Reading it from the
+	// provider registry alone made a chain we settle ourselves report "no
+	// providers available" while /v1/quote priced the same pair from its pools.
+	if held := s.venueQuotes(ctx, asked); len(held) > 0 {
+		s.writeJSON(w, http.StatusOK, held)
+		return
+	}
+
+	quotes, err := s.router.GetAllQuotes(ctx, asked)
 	if err != nil {
+		if errors.Is(err, ErrNoProvidersAvailable) && s.settles(asked.ChainID) {
+			s.writeError(w, http.StatusNotFound, fmt.Errorf("no venue here holds this pair"))
+			return
+		}
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
 	}
