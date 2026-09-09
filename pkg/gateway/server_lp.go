@@ -7,13 +7,6 @@ import (
 	"strconv"
 )
 
-func (s *Server) registerLPRoutes() {
-	s.mux.HandleFunc("/v1/position/increase", s.handlePositionIncrease)
-	s.mux.HandleFunc("/v1/position/decrease", s.handlePositionDecrease)
-	s.mux.HandleFunc("/v1/position/claim", s.handlePositionClaim)
-	s.mux.HandleFunc("/v1/position", s.handlePosition)
-}
-
 func (s *Server) handlePosition(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:

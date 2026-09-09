@@ -6,12 +6,7 @@ import (
 	"net/http"
 )
 
-// registerMultihopRoutes registers multihop routing HTTP routes.
-func (s *Server) registerMultihopRoutes() {
-	s.mux.HandleFunc("/v1/route", s.handleRoute)
-}
-
-// handleRoute handles POST /v1/route.
+// handleRoute handles POST /v1/trade/route.
 // Finds optimal route(s) for a swap through multiple pools.
 func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

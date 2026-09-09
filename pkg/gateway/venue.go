@@ -6,6 +6,12 @@ import (
 	"math/big"
 )
 
+// VenueNameNative is what the Lux precompile venue calls itself on the wire.
+// Named once: it is what a caller reads to tell a market we settle from a
+// market we only read, and two spellings of it is one bug away from a V3 pool
+// on somebody else's chain reporting as ours.
+const VenueNameNative = "v4_native"
+
 // Venue represents a liquidity source — on-chain pool or off-chain exchange.
 type Venue interface {
 	// Name returns the unique identifier for this venue (e.g. "v4_native", "alpaca").
@@ -100,7 +106,7 @@ func (v *V4Venue) AddPool(tokenIn, tokenOut string, poolID string, feeBPS int, r
 	}
 }
 
-func (v *V4Venue) Name() string { return "v4_native" }
+func (v *V4Venue) Name() string { return VenueNameNative }
 
 func (v *V4Venue) IsExecutable() bool { return true }
 

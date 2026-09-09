@@ -267,9 +267,19 @@ make up  # Starts complete stack with monitoring
 ## The trading gateway (`cmd/gateway`, `pkg/gateway`)
 
 One image, two binaries. `dexd` is the D-Chain venue; `gateway` is the HTTP
-trading surface — quote, swap, approval, orders, pools, prices, tokens, stats,
-history, and the Uniswap-compatible `/trading/*` shapes. They share the venue
-types, which is why they ship together.
+trading surface. They share the venue types, which is why they ship together.
+
+**Everything answers under `/v1/trade`, and `api/openapi.yaml` describes exactly
+that.** `pkg/gateway.Server.routes()` is the surface written once;
+`TestTheDocumentIsTheSurface` reads the document and holds the two to each
+other, in both directions, so a route added in code and not written down fails
+the build and so does a path promised in the document and not served.
+
+That prefix replaced three names for one API: `/v1/*` here, `/trading/*` beside
+it in Uniswap's shapes, and a published openapi.yaml describing a third set that
+`pkg/trading` implemented and no binary ever mounted. `pkg/trading` was a second
+copy of the venue interface, the constant-product math and the eth_call client;
+it is gone, along with the `/trading/*` handlers and their types.
 
 **Every chain is read from its own pools.** Ours through the V4 precompiles with
 a V2 router beside them where one is deployed; every other chain through the V2
@@ -283,6 +293,31 @@ Environment: `GATEWAY_ADDR` (:8080), `LUX_RPC`, `LUX_CHAIN_ID` (96369),
 `LUX_V2_ROUTER`, `LUX_V3_QUOTER`, `RPC_<chainid>` per chain, `GATEWAY_CACHE_TTL`
 (seconds), `UNISWAP_API_KEY` (optional). Chains with venues: 1, 10, 56, 137,
 8453, 42161, 96369.
+
+`GET /v1/trade/venues` is the question a screen asks before it asks anything
+else — which chains this deployment can price, and from what. It is grouped by
+chain because a venue is a contract on a chain, and `native` marks the ones we
+settle ourselves. Measured against 96369 with `LUX_V3_QUOTER` set:
+
+    96369  native  [v4_native, uniswap_v3]
+    1              [uniswap_v2, uniswap_v3]
+    10, 56, 137, 8453, 42161 the same
+
+### The allowance is read, not assumed
+
+`/v1/trade/approval/check` and `/v1/trade/permit2/check` return what the chain
+says, over the same endpoint the pool is quoted from — `Server.read` in
+`server_approval.go`. Both used to answer `allowance: "0", needsApproval: true`
+on every request, under a comment claiming the gateway had no way to read a
+chain; it has one per chain, one field away. The cost of that guess was not a
+wrong number on a screen: a wallet told it needs an approval for a token it has
+already approved sends an approve transaction, and the user pays gas for a state
+change that changes nothing, before every swap, forever.
+
+Permit2 answers `(amount, expiration, nonce)` and the expiration is half the
+answer — a grant that has run out is not a grant. The unsigned tx and the
+EIP-712 request ride along ONLY when one is needed; handed back beside "you
+already approved" they are transactions somebody sends.
 
 ### Three things to know before deploying it
 
@@ -312,6 +347,15 @@ strength of `X-User-Role: admin` — a header the caller writes — and drove st
 nothing read: `PauseState` had no caller outside its own file, per replica, lost
 on restart. A switch wired to nothing is worse than no switch. The real gate is
 `checkPauseState` in the pool manager, on chain, where a market is.
+
+**Nothing here invents a number.** `/v1/history/prices` and `/v1/history/tvl`
+returned a random walk seeded from hardcoded base prices — LUX at 2.47, WBTC at
+96420, 12.5M of TVL on 96369 — and both were routed to the public internet. A
+screen drawing that chart shows a market that does not exist, and on the wire it
+is indistinguishable from one that does. Price history belongs to the indexer,
+which reads the chain: `api-explore.lux.cloud`. `/v1/tokens/search` answered 501
+on a TODO, which is a route lying about the surface in the other direction. All
+three are gone, and `TestNothingHereInventsANumber` keeps them gone.
 
 ## API Endpoints
 
@@ -1943,8 +1987,9 @@ A new provider-based API gateway has been added to `pkg/gateway/` that aggregate
 │                                                             │
 │  HTTP Server (pkg/gateway/server.go)                       │
 │  ┌───────────────────────────────────────────────────────┐ │
-│  │  /v1/quote    /v1/pools    /v1/price    /v1/leads   │ │
-│  │  /v1/quotes   /v1/positions /v1/prices   /v1/events  │ │
+│  │  /v1/trade/venues   /v1/trade/quote   /v1/trade/swap  │ │
+│  │  /v1/trade/pools    /v1/trade/price   /v1/trade/order │ │
+│  │  /v1/trade/approval/check  /v1/trade/permit2/check    │ │
 │  └───────────────────────────────────────────────────────┘ │
 │                           ↓                                 │
 │  Router (pkg/gateway/router.go)                            │
@@ -2034,7 +2079,7 @@ Stubs ready for implementation:
 go run cmd/gateway/main.go -addr :8080
 
 # Get best quote from all providers
-curl -X POST http://localhost:8080/v1/quote \
+curl -X POST http://localhost:8080/v1/trade/quote \
   -H "Content-Type: application/json" \
   -d '{
     "tokenIn": "0x...",
@@ -2045,7 +2090,7 @@ curl -X POST http://localhost:8080/v1/quote \
   }'
 
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:8080/healthz
 
 # List providers
 curl http://localhost:8080/providers
@@ -2075,133 +2120,28 @@ go test -v ./pkg/gateway/...
    - Split routes across providers
    - MEV-protected execution
 
-## Trading API Package (`pkg/trading/`)
+## `pkg/trading` is gone — the surface it described lives in `pkg/gateway`
 
-### Overview
+There were two implementations of one trading API in this repo, and neither one
+was mounted by the binary that shipped.
 
-Unified swap routing across on-chain V4 pools and off-chain broker venues. This package implements a Uniswap-style Trading API that aggregates liquidity from multiple sources — native DEX precompiles, V2/V3 AMM routers, and the Lux Broker REST API — returning the best-price quote to the caller. All endpoints are `net/http` handlers mounted on a standard `http.ServeMux` (Go 1.22+ method routing).
+`pkg/trading` carried its own `Venue` interface, its own `V4Venue`,
+`NativeDEXVenue`, `UniswapV2Venue`, `UniswapV3Venue` and broker venues, its own
+constant-product math and its own `eth_call` client — all of it a copy of what
+`pkg/gateway` already had. Its `RegisterRoutes` was called by its own tests and
+by nothing else: `grep -rn 'luxfi/dex/pkg/trading' --include='*.go' .` outside
+that directory returned empty. `api/openapi.yaml` documented it anyway, so the
+one published contract in the repo described the one package no binary served.
 
-The package is consumed directly by non-custodial trading front-ends and venue operators for their exchange trading API.
+The surface it described — quote, swap, order, approval, venues — is what
+`pkg/gateway` serves under `/v1/trade`, and `api/openapi.yaml` now describes
+that. The old package is at `~/work/_archive/dex-duplicate-surfaces/`, with the
+`/trading/*` compat handlers and their Uniswap-shaped types.
 
-### Constructor
-
-```go
-api := trading.New(trading.Config{
-    ChainIDs:       []int{96369},
-    DefaultChainID: 96369,
-    VenueRouters:   map[string]string{
-        "uniswap_v2": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-        "uniswap_v3": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
-    },
-}, v4Venue, brokerVenue)
-
-api.RegisterRoutes(mux)
-```
-
-**Config fields:**
-- `ChainIDs` — accepted chain IDs; requests for other chains are rejected with 400.
-- `DefaultChainID` — used when building swap transactions if the request omits chain.
-- `VenueRouters` — maps venue type names to on-chain router addresses. V4 native routes always target `LXRouterAddress` (`0x0000000000000000000000000000000000009012`).
-
-### Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/v1/trade/quote` | Best-price quote across all registered venues. Queries venues in parallel, returns the highest `amountOut`. |
-| `POST` | `/v1/trade/swap` | Builds an unsigned EVM transaction from a previously obtained quote. Returns `{to, from, data, value, chainId, gasLimit}`. |
-| `POST` | `/v1/trade/order` | Submits an order for off-chain routing (market or limit, buy or sell). Returns `orderId` + status. |
-| `GET` | `/v1/trade/swaps/{txHash}` | On-chain swap status lookup by transaction hash. |
-| `GET` | `/v1/trade/orders/{orderId}` | Order status (pending, filled, partially filled, cancelled). |
-| `POST` | `/v1/trade/check-approval` | Checks ERC-20 token approval for Permit2/router spend. Returns `{approved, allowance, needsApproval}`. |
-| `GET` | `/v1/trade/venues` | Lists all registered venues with name, status, type, and executability. |
-
-### Venue Interface
-
-```go
-type Venue interface {
-    Name() string
-    Quote(ctx context.Context, req QuoteRequest) (*VenueQuote, error)
-    IsExecutable() bool
-}
-```
-
-A `Venue` is any liquidity source. `IsExecutable() == true` means the venue can produce on-chain calldata (swap tx). `IsExecutable() == false` means it provides quote-only off-chain prices (broker).
-
-**Implementations:**
-
-| Venue | File | Type | Description |
-|-------|------|------|-------------|
-| `V4Venue` | `venue.go` | Mock | Constant-product AMM with configurable pools. For testing. |
-| `BrokerVenue` | `venue.go` | Mock | Mock off-chain broker with configurable price/spread. For testing. |
-| `NativeDEXVenue` | `venue_native.go` | Production | Queries Lux V4 precompiles via `eth_call`. Calls PoolManager (0x9010) for AMM quotes, optionally CLOB (0x9020). |
-| `UniswapV2Venue` | `venue_v2.go` | Production | Calls `getAmountsOut` on any V2-compatible Router02 (Uniswap V2, SushiSwap, PancakeSwap V2, TraderJoe). |
-| `UniswapV3Venue` | `venue_v3.go` | Production | Calls `quoteExactInputSingle` on any V3-compatible Quoter (Uniswap V3, PancakeSwap V3). Configurable fee tier (100/500/3000/10000). |
-| `BrokerHTTPVenue` | `venue_broker.go` | Production | Queries Lux Broker REST API (`/v1/market/{provider}/{symbol}/snapshot`). Federates across 16 providers (Alpaca, IBKR, Binance, Kraken, etc). Not executable — quote only. |
-| `BrokerSORVenue` | `venue_broker.go` | Production | Uses broker Smart Order Router (`/v1/route/{symbol}`) for best-execution across all 16 providers. Not executable — quote only. |
-
-### Chain IDs
-
-| Network | Chain ID |
-|---------|----------|
-| Devnet | 96369 |
-| Testnet | 96368 |
-| Mainnet | 96369 |
-
-### Calldata Encoding (`calldata.go`)
-
-ABI encoding for the LXRouter precompile at `0x0000000000000000000000000000000000009012`. Pure Go, zero external dependencies.
-
-**Function selectors:**
-
-| Function | Selector | Parameters |
-|----------|----------|------------|
-| `ExactInputSingle` | `04e45aaf` | tokenIn, tokenOut, amountIn, amountOutMin, sqrtPriceLimitX96, poolId |
-| `ExactInput` | `b858183f` | path (packed addresses), amountIn, amountOutMin, sqrtPriceLimitX96 |
-| `ExactOutputSingle` | `5023b4df` | tokenIn, tokenOut, amountOut, amountInMax, sqrtPriceLimitX96, poolId |
-| `ExactOutput` | `09b81346` | path (packed addresses), amountOut, amountInMax, sqrtPriceLimitX96 |
-
-**Decoding helpers:** `DecodeCalldata` (split selector + params), `DecodeUint256`, `DecodeAddress` — used by tests and downstream consumers to verify built calldata.
-
-### Usage by a venue operator
-
-A non-custodial venue operator imports the trading package and wires it with venue instances:
-
-```go
-import "github.com/luxfi/dex/pkg/trading"
-
-v4 := trading.NewNativeDEXVenue(trading.NativeDEXConfig{
-    RPCURL: "https://rpc.next.lux.network",
-    UseCLOB: true,
-})
-
-broker := trading.NewBrokerHTTPVenue(trading.BrokerHTTPConfig{
-    BrokerURL: "http://broker:8090",
-    Provider:  "alpaca",
-    APIKey:    os.Getenv("ALPACA_API_KEY"),
-})
-
-api := trading.New(trading.Config{
-    ChainIDs:       []int{96369},
-    DefaultChainID: 96369,
-}, v4, broker)
-
-api.RegisterRoutes(mux)
-```
-
-### Routing Constants
-
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `RoutingV4Native` | `V4_NATIVE` | Best quote from native DEX precompile |
-| `RoutingBroker` | `BROKER` | Best quote from off-chain broker |
-| `RoutingMultiHop` | `MULTI_HOP` | Multi-hop path through multiple pools |
-| `RoutingSplit` | `SPLIT` | Split across multiple venues |
-
-### Test Coverage
-
-43 tests in `trading_test.go` + 29 tests in `crosschain_test.go` (72 total) covering all endpoints, calldata encoding/decoding, constant-product math, config validation, venue selection, and cross-chain routing.
-
----
+**Read this before adding a venue.** One `Venue` interface, in
+`pkg/gateway/venue.go`. One place that says which contracts a chain is read
+from, `DefaultChainVenues` in `venue_chains.go`. One route table,
+`Server.routes()`. A second copy of any of them is how this happened.
 
 ## The C↔D seam: how a cross-chain swap becomes a trade
 

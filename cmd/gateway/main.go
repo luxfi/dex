@@ -1,17 +1,19 @@
 // The trading surface, served.
 //
 // `pkg/gateway` has carried the whole thing for a while — the quote, swap,
-// approval and order paths, a router over venues, and a Uniswap provider that
-// speaks the shapes at trade-api.gateway.uniswap.org — and nothing started it.
+// approval and order paths, and a router over venues — and nothing started it.
 // `dexd run -http` mounts the D-Chain venue's own handlers under /v1/dex, which
 // is a different surface for a different reader. So an interface asking for a
 // quote reached nothing, on any chain.
 //
 // One binary, and one rule about what it answers: a market on a Lux chain is
-// quoted from our own contracts, and a market anywhere else is quoted upstream.
-// The response is the same shape either way, because a client should not have
-// to know which arm served it — that is the whole reason a gateway exists
-// rather than two clients in the interface.
+// quoted from our own contracts, and a market anywhere else is quoted from the
+// pools that chain already holds. The response is the same shape either way,
+// because a client should not have to know which arm served it — that is the
+// whole reason a gateway exists rather than two clients in the interface.
+//
+// It answers at one prefix, /v1/trade, and api/openapi.yaml describes exactly
+// that. A test holds the two together.
 //
 // Everything it needs comes from the environment, because the addresses differ
 // per chain and per deployment and a binary that carries them is a binary that

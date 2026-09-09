@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 )
 
 // ==========================================================================
@@ -377,7 +381,7 @@ func TestHandleApprovalBuild(t *testing.T) {
 		"chainId": 96369
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/approval/build", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/approval/build", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -399,7 +403,7 @@ func TestHandleApprovalBuild(t *testing.T) {
 func TestHandleApprovalBuild_InvalidMethod(t *testing.T) {
 	s := newTestApprovalServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/approval/build", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/approval/build", nil)
 	w := httptest.NewRecorder()
 	s.handleApprovalBuild(w, req)
 
@@ -413,7 +417,7 @@ func TestHandleApprovalBuild_InvalidBody(t *testing.T) {
 
 	// Missing required fields
 	body := `{"tokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/approval/build", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/approval/build", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -424,42 +428,76 @@ func TestHandleApprovalBuild_InvalidBody(t *testing.T) {
 	}
 }
 
-func TestHandleApprovalCheck(t *testing.T) {
-	s := newTestApprovalServer(t)
+// The check answered allowance 0 and needsApproval on every request, without
+// ever asking a chain. A wallet believing it sends an approve for a token it
+// already approved, and the user pays gas for a state change that changes
+// nothing, before every swap. So the test is what the chain says.
+func TestApprovalCheckReadsTheAllowance(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		holds   string // what allowance() returns
+		wants   string // what the caller asked to move
+		granted bool
+	}{
+		{"already approved for more than it needs", "5000000", "1000000", true},
+		{"approved for exactly it", "1000000", "1000000", true},
+		{"approved for less", "999999", "1000000", false},
+		{"never approved", "0", "1000000", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newChainReadingServer(t, words(c.holds))
 
-	body := `{
-		"tokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-		"owner": "0x1111111111111111111111111111111111111111",
-		"spender": "0x2222222222222222222222222222222222222222",
-		"amount": "1000000",
-		"chainId": 96369
-	}`
+			w := ask(s, http.MethodPost, "/v1/trade/approval/check", map[string]any{
+				"tokenAddress": testLUSD,
+				"owner":        "0x1111111111111111111111111111111111111111",
+				"spender":      "0x2222222222222222222222222222222222222222",
+				"amount":       c.wants,
+				"chainId":      uint64(ChainIDLux),
+			})
+			if w.Code != http.StatusOK {
+				t.Fatalf("got %d: %s", w.Code, w.Body.String())
+			}
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/approval/check", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	s.handleApprovalCheck(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			var got struct {
+				Data ApprovalResponse `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("body: %v", err)
+			}
+			if got.Data.Allowance != c.holds {
+				t.Errorf("allowance = %s, chain says %s", got.Data.Allowance, c.holds)
+			}
+			if got.Data.Approved != c.granted {
+				t.Errorf("approved = %v, want %v on %s held against %s asked",
+					got.Data.Approved, c.granted, c.holds, c.wants)
+			}
+			if got.Data.NeedsApproval == c.granted {
+				t.Errorf("needsApproval = %v beside approved = %v", got.Data.NeedsApproval, got.Data.Approved)
+			}
+			// The tx rides along only when it is needed. Handed back beside
+			// "you already approved" it is a tx somebody sends.
+			if c.granted && got.Data.ApproveTx != nil {
+				t.Error("an approve transaction returned to a wallet that has already approved")
+			}
+			if !c.granted && got.Data.ApproveTx == nil {
+				t.Error("no approve transaction returned to a wallet that needs one")
+			}
+		})
 	}
+}
 
-	var resp apiResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	// Should always indicate needs approval (no RPC access)
-	data, ok := resp.Data.(map[string]interface{})
-	if !ok {
-		t.Fatal("data is not a map")
-	}
-	if needsApproval, _ := data["needsApproval"].(bool); !needsApproval {
-		t.Fatal("expected needsApproval=true")
-	}
-	if data["approveTx"] == nil {
-		t.Fatal("expected approveTx in response")
+// A chain this deployment does not read is said so, rather than answered with
+// a number nobody looked up.
+func TestApprovalCheckWillNotGuessAtAChainItDoesNotRead(t *testing.T) {
+	w := ask(newChainReadingServer(t, words("0")), http.MethodPost, "/v1/trade/approval/check", map[string]any{
+		"tokenAddress": testLUSD,
+		"owner":        "0x1111111111111111111111111111111111111111",
+		"spender":      "0x2222222222222222222222222222222222222222",
+		"amount":       "1",
+		"chainId":      uint64(ChainIDEthereum),
+	})
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("got %d, want 502: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -475,7 +513,7 @@ func TestHandlePermit2Build_TxMode(t *testing.T) {
 		"chainId": 96369
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/permit2/build?mode=tx", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/permit2/build?mode=tx", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -515,7 +553,7 @@ func TestHandlePermit2Build_SigMode(t *testing.T) {
 		"chainId": 96369
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/permit2/build?mode=sig", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/permit2/build?mode=sig", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -555,7 +593,7 @@ func TestHandlePermit2Build_InvalidMode(t *testing.T) {
 		"chainId": 96369
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/permit2/build?mode=invalid", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/permit2/build?mode=invalid", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -566,38 +604,98 @@ func TestHandlePermit2Build_InvalidMode(t *testing.T) {
 	}
 }
 
-func TestHandlePermit2Check(t *testing.T) {
-	s := newTestApprovalServer(t)
+// Permit2's allowance is (amount, expiration, nonce), and the expiration is
+// half the answer: a grant that has run out is not a grant. Reading only the
+// amount reports a wallet as ready to swap on a permit that expired.
+func TestPermit2CheckReadsAmountAndExpiry(t *testing.T) {
+	future := strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
+	past := strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10)
 
-	body := `{
-		"tokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-		"owner": "0x1111111111111111111111111111111111111111",
-		"spender": "0x2222222222222222222222222222222222222222",
-		"amount": "1000000",
-		"deadline": 1893456000,
-		"chainId": 96369
-	}`
+	for _, c := range []struct {
+		name    string
+		holds   string
+		expires string
+		granted bool
+	}{
+		{"enough and live", "5000000", future, true},
+		{"enough but expired", "5000000", past, false},
+		{"live but not enough", "1", future, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newChainReadingServer(t, words(c.holds, c.expires, "0"))
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/permit2/check", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+			w := ask(s, http.MethodPost, "/v1/trade/permit2/check", map[string]any{
+				"tokenAddress": testLUSD,
+				"owner":        "0x1111111111111111111111111111111111111111",
+				"spender":      "0x2222222222222222222222222222222222222222",
+				"amount":       "1000000",
+				"deadline":     1893456000,
+				"chainId":      uint64(ChainIDLux),
+			})
+			if w.Code != http.StatusOK {
+				t.Fatalf("got %d: %s", w.Code, w.Body.String())
+			}
 
-	s.handlePermit2Check(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			var got struct {
+				Data Permit2Response `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("body: %v", err)
+			}
+			if got.Data.Permit2Allowance != c.holds {
+				t.Errorf("allowance = %s, chain says %s", got.Data.Permit2Allowance, c.holds)
+			}
+			if got.Data.Permit2Approved != c.granted {
+				t.Errorf("approved = %v, want %v", got.Data.Permit2Approved, c.granted)
+			}
+			if c.granted && got.Data.SignatureRequest != nil {
+				t.Error("a signature request returned to a wallet whose permit is live")
+			}
+			if !c.granted && got.Data.SignatureRequest == nil {
+				t.Error("no signature request returned to a wallet that needs one")
+			}
+		})
 	}
+}
 
-	var resp apiResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+// A chain that answers. `words` is what its eth_call returns, one 32-byte word
+// per value, which is how every read in this file comes back.
+func newChainReadingServer(t *testing.T, answer string) *Server {
+	t.Helper()
 
-	data, ok := resp.Data.(map[string]interface{})
-	if !ok {
-		t.Fatal("data is not a map")
+	chain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     uint64 `json:"id"`
+			Method string `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Method != "eth_call" {
+			t.Errorf("chain asked %q, want eth_call", req.Method)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": req.ID, "result": answer,
+		})
+	}))
+	t.Cleanup(chain.Close)
+
+	return NewServer(
+		NewRouter(NewRegistry(), true),
+		DefaultServerConfig(),
+		WithChainVenues(NewChainRouters(map[ChainID]ChainVenues{
+			ChainIDLux: {RPC: chain.URL, Native: true},
+		})),
+	)
+}
+
+// words is an eth_call result: each value right-aligned in its own 32 bytes.
+func words(values ...string) string {
+	out := "0x"
+	for _, v := range values {
+		n, ok := new(big.Int).SetString(v, 10)
+		if !ok {
+			panic("not a number: " + v)
+		}
+		out += fmt.Sprintf("%064x", n)
 	}
-	if data["signatureRequest"] == nil {
-		t.Fatal("expected signatureRequest in response")
-	}
+	return out
 }

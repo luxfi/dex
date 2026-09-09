@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	"context"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,20 +68,34 @@ func (c ChainVenues) Venues() []Venue {
 	return out
 }
 
-// Venues is the router for one chain, or nil where the deployment reads none.
+// ChainRouters is the venues per chain, and the endpoint each was read from.
+// The endpoint is kept because quoting is not the only thing that asks a chain
+// a question — an allowance is read from the same place the pool is.
 type ChainRouters struct {
 	byChain map[ChainID]*VenueRouter
+	rpc     map[ChainID]string
 }
 
 // NewChainRouters builds one venue router per chain.
 func NewChainRouters(chains map[ChainID]ChainVenues) *ChainRouters {
 	byChain := make(map[ChainID]*VenueRouter, len(chains))
+	rpc := make(map[ChainID]string, len(chains))
 	for id, c := range chains {
 		if v := c.Venues(); len(v) > 0 {
 			byChain[id] = NewVenueRouter(v...)
+			rpc[id] = c.RPC
 		}
 	}
-	return &ChainRouters{byChain: byChain}
+	return &ChainRouters{byChain: byChain, rpc: rpc}
+}
+
+// RPC is the endpoint this deployment reads one chain from, or "" for a chain
+// it does not read.
+func (c *ChainRouters) RPC(chain ChainID) string {
+	if c == nil {
+		return ""
+	}
+	return c.rpc[chain]
 }
 
 // For returns the venues that read one chain, or nil.
@@ -92,7 +106,9 @@ func (c *ChainRouters) For(chain ChainID) *VenueRouter {
 	return c.byChain[chain]
 }
 
-// Chains returns every chain with venues, for the health and venue listings.
+// Chains returns every chain with venues, in order, for the health and venue
+// listings. Ordered because a listing that permutes itself between two reads
+// of the same deployment reads as a deployment that changed.
 func (c *ChainRouters) Chains() []ChainID {
 	if c == nil {
 		return nil
@@ -101,6 +117,7 @@ func (c *ChainRouters) Chains() []ChainID {
 	for id := range c.byChain {
 		out = append(out, id)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
 
@@ -172,5 +189,3 @@ func (c *quoteCache) put(req QuoteRequest, quote *SwapQuote) {
 	}
 	c.kept[quoteKey(req)] = cached{quote: quote, until: now.Add(c.ttl)}
 }
-
-var _ = context.Background

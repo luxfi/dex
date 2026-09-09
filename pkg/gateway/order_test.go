@@ -600,7 +600,7 @@ func TestCreateLimitOrderHandler(t *testing.T) {
 	}
 
 	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -662,7 +662,7 @@ func TestCreateDutchOrderHandler(t *testing.T) {
 	}
 
 	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -712,7 +712,7 @@ func TestCreateOrderValidationError(t *testing.T) {
 	s := newTestServer(t)
 
 	// Invalid JSON
-	req := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader([]byte("{")))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader([]byte("{")))
 	rr := httptest.NewRecorder()
 	s.handleOrder(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -721,7 +721,7 @@ func TestCreateOrderValidationError(t *testing.T) {
 
 	// Missing required fields
 	b, _ := json.Marshal(CreateOrderRequest{Type: OrderKindLimit})
-	req = httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	req = httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	rr = httptest.NewRecorder()
 	s.handleOrder(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -745,7 +745,7 @@ func TestListOrdersHandler(t *testing.T) {
 			Deadline:   time.Now().Add(1 * time.Hour).Unix(),
 		}
 		b, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+		req := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 		rr := httptest.NewRecorder()
 		s.handleOrder(rr, req)
 		if rr.Code != http.StatusCreated {
@@ -754,7 +754,7 @@ func TestListOrdersHandler(t *testing.T) {
 	}
 
 	// List orders
-	req := httptest.NewRequest(http.MethodGet, "/v1/order?address="+addr, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/order?address="+addr, nil)
 	rr := httptest.NewRecorder()
 	s.handleOrder(rr, req)
 
@@ -774,7 +774,7 @@ func TestListOrdersHandler(t *testing.T) {
 	}
 
 	// List with status filter
-	req = httptest.NewRequest(http.MethodGet, "/v1/order?address="+addr+"&status=filled", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/trade/order?address="+addr+"&status=filled", nil)
 	rr = httptest.NewRecorder()
 	s.handleOrder(rr, req)
 	json.Unmarshal(rr.Body.Bytes(), &resp)
@@ -789,7 +789,7 @@ func TestListOrdersHandler(t *testing.T) {
 func TestListOrdersMissingAddress(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/order", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/order", nil)
 	rr := httptest.NewRecorder()
 	s.handleOrder(rr, req)
 
@@ -801,7 +801,7 @@ func TestListOrdersMissingAddress(t *testing.T) {
 func TestListOrdersInvalidStatusFilter(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/order?address=0x0000000000000000000000000000000000000003&status=bogus", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/order?address=0x0000000000000000000000000000000000000003&status=bogus", nil)
 	rr := httptest.NewRecorder()
 	s.handleOrder(rr, req)
 
@@ -824,7 +824,7 @@ func TestGetOrderHandler(t *testing.T) {
 		Deadline:   time.Now().Add(1 * time.Hour).Unix(),
 	}
 	b, _ := json.Marshal(body)
-	createReq := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	createRR := httptest.NewRecorder()
 	s.handleOrder(createRR, createReq)
 
@@ -835,7 +835,7 @@ func TestGetOrderHandler(t *testing.T) {
 	json.Unmarshal(dataBytes, &orderResp)
 
 	// Get the order
-	req := httptest.NewRequest(http.MethodGet, "/v1/order/"+orderResp.OrderID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/order/"+orderResp.OrderID, nil)
 	rr := httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -844,7 +844,7 @@ func TestGetOrderHandler(t *testing.T) {
 	}
 
 	// Get nonexistent
-	req = httptest.NewRequest(http.MethodGet, "/v1/order/nonexistent", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/trade/order/nonexistent", nil)
 	rr = httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -867,7 +867,7 @@ func TestCancelOrderHandler(t *testing.T) {
 		Deadline:   time.Now().Add(1 * time.Hour).Unix(),
 	}
 	b, _ := json.Marshal(body)
-	createReq := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	createRR := httptest.NewRecorder()
 	s.handleOrder(createRR, createReq)
 
@@ -878,7 +878,7 @@ func TestCancelOrderHandler(t *testing.T) {
 	json.Unmarshal(dataBytes, &orderResp)
 
 	// Cancel the order
-	req := httptest.NewRequest(http.MethodDelete, "/v1/order/"+orderResp.OrderID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/trade/order/"+orderResp.OrderID, nil)
 	rr := httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -900,7 +900,7 @@ func TestCancelOrderHandler(t *testing.T) {
 	}
 
 	// Cancel again should fail
-	req = httptest.NewRequest(http.MethodDelete, "/v1/order/"+orderResp.OrderID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/v1/trade/order/"+orderResp.OrderID, nil)
 	rr = httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -927,7 +927,7 @@ func TestCancelDutchOrderHandler(t *testing.T) {
 		Deadline:       now.Add(1 * time.Hour).Unix(),
 	}
 	b, _ := json.Marshal(body)
-	createReq := httptest.NewRequest(http.MethodPost, "/v1/order", bytes.NewReader(b))
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/trade/order", bytes.NewReader(b))
 	createRR := httptest.NewRecorder()
 	s.handleOrder(createRR, createReq)
 
@@ -938,7 +938,7 @@ func TestCancelDutchOrderHandler(t *testing.T) {
 	json.Unmarshal(dataBytes, &orderResp)
 
 	// Cancel the dutch order — should NOT return an unsigned tx
-	req := httptest.NewRequest(http.MethodDelete, "/v1/order/"+orderResp.OrderID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/trade/order/"+orderResp.OrderID, nil)
 	rr := httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -960,7 +960,7 @@ func TestCancelDutchOrderHandler(t *testing.T) {
 func TestCancelNonexistentOrder(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/v1/order/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/trade/order/nonexistent", nil)
 	rr := httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 
@@ -973,7 +973,7 @@ func TestMethodNotAllowed(t *testing.T) {
 	s := newTestServer(t)
 
 	// PUT on /v1/order
-	req := httptest.NewRequest(http.MethodPut, "/v1/order", nil)
+	req := httptest.NewRequest(http.MethodPut, "/v1/trade/order", nil)
 	rr := httptest.NewRecorder()
 	s.handleOrder(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -981,7 +981,7 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 
 	// POST on /v1/order/{id}
-	req = httptest.NewRequest(http.MethodPost, "/v1/order/someid", nil)
+	req = httptest.NewRequest(http.MethodPost, "/v1/trade/order/someid", nil)
 	rr = httptest.NewRecorder()
 	s.handleOrderByID(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed {

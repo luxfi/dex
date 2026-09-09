@@ -36,12 +36,6 @@ func newOrderManager(defaultChainID ChainID) *orderManager {
 	}
 }
 
-// registerOrderRoutes registers order lifecycle routes on the mux.
-func (s *Server) registerOrderRoutes() {
-	s.mux.HandleFunc("/v1/order", s.handleOrder)
-	s.mux.HandleFunc("/v1/order/", s.handleOrderByID)
-}
-
 // handleOrder dispatches POST (create) and GET (list) on /v1/order.
 func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -58,7 +52,7 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 
 // handleOrderByID dispatches GET and DELETE on /v1/order/{orderId}.
 func (s *Server) handleOrderByID(w http.ResponseWriter, r *http.Request) {
-	orderID := strings.TrimPrefix(r.URL.Path, "/v1/order/")
+	orderID := tail(r, "/order/")
 	if orderID == "" {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("order ID is required"))
 		return

@@ -481,7 +481,7 @@ func TestHandleRoute(t *testing.T) {
 		"chainId": 96369
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/route", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -503,7 +503,7 @@ func TestHandleRoute(t *testing.T) {
 func TestHandleRoute_InvalidMethod(t *testing.T) {
 	s := newTestMultihopServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/route", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/trade/route", nil)
 	w := httptest.NewRecorder()
 	s.handleRoute(w, req)
 
@@ -516,7 +516,7 @@ func TestHandleRoute_InvalidBody(t *testing.T) {
 	s := newTestMultihopServer(t)
 
 	body := `{"tokenIn": ""}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/trade/route", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 

@@ -50,7 +50,7 @@ func NewNativeDEXVenue(cfg NativeDEXConfig) *NativeDEXVenue {
 	}
 	return &NativeDEXVenue{
 		evm:    NewEVMClient(cfg.RPCURL),
-		name:   "v4_native",
+		name:   VenueNameNative,
 		feeBPS: feeBPS,
 		useDEX: cfg.UseDEX,
 	}
