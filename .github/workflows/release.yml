@@ -1,3 +1,11 @@
+# Where this runs, and why it is here rather than in .hanzo/workflows.
+#
+# The image never got built because this file lived somewhere GitHub does not
+# read. luxfi's runners are self-hosted and registered against GitHub — the
+# `lux-build-linux-amd64` pool, which is what every other luxfi image is built
+# on — so a workflow under .hanzo/ waits for a forge that does not carry this
+# repository. Same lane as luxfi/node: self-hosted, never a GitHub-hosted
+# builder.
 name: Release
 
 # Builds ghcr.io/luxfi/dex — the CPU dexd venue, CGO_ENABLED=0 pure-Go matcher,
@@ -37,7 +45,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [linux-amd64]
+    runs-on: [lux-build-linux-amd64]
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
