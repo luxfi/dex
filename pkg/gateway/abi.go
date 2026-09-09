@@ -49,12 +49,19 @@ func lxrPadAddress(addr [20]byte) []byte {
 
 // lxrPadUint256 encodes a big.Int as a 32-byte big-endian word.
 // Nil is treated as zero.
+// lxrPadUint256 right-aligns a number in a 32-byte word.
+//
+// A value too large to fit is written as its LOW 32 bytes, which is what the
+// EVM itself does to a uint256, rather than its high ones — the previous
+// `b[:32]` kept the leading bytes, so a number one bit too wide came out as a
+// completely unrelated quantity in a field that spends money. Nothing should
+// reach here that wide: `wholeUnits` refuses it where an amount enters.
 func lxrPadUint256(n *big.Int) []byte {
 	var word [32]byte
 	if n != nil && n.Sign() > 0 {
 		b := n.Bytes()
 		if len(b) > 32 {
-			b = b[:32] // truncate (should not happen for valid uint256)
+			b = b[len(b)-32:]
 		}
 		copy(word[32-len(b):], b)
 	}

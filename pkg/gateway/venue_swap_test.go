@@ -248,3 +248,35 @@ func unwrap(t *testing.T, data string) []byte {
 	n := new(big.Int).SetBytes(raw[4+32*4 : 4+32*5]).Int64()
 	return raw[4+32*5 : 4+32*5+int(n)]
 }
+
+// An amount is a whole number of a token's smallest unit that fits in one EVM
+// word. Anything else is refused where it enters, because the encoder cannot
+// refuse: it wrote a too-wide number as its HIGH 32 bytes, so a caller asking
+// to swap one number got calldata for a completely unrelated one.
+func TestAnAmountIsAWholeNumberThatFitsInAWord(t *testing.T) {
+	tooWide := new(big.Int).Lsh(big.NewInt(1), 256).String()
+	for _, c := range []struct{ amount, why string }{
+		{"", "empty"},
+		{"0", "zero"},
+		{"-1", "negative"},
+		{"1.5", "not whole"},
+		{"1e18", "not decimal digits"},
+		{"twelve", "not a number"},
+		{tooWide, "one bit wider than a word"},
+	} {
+		if _, err := wholeUnits(c.amount); err == nil {
+			t.Errorf("%s (%q) was accepted", c.why, c.amount)
+		}
+	}
+	widest := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	if got, err := wholeUnits(widest.String()); err != nil || got.Cmp(widest) != 0 {
+		t.Errorf("the widest word was refused: %v %v", got, err)
+	}
+
+	// And the encoder keeps the LOW bytes, which is what the EVM does, rather
+	// than the leading ones.
+	over := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(7))
+	if got := new(big.Int).SetBytes(lxrPadUint256(over)); got.Int64() != 7 {
+		t.Errorf("a value one word over encoded as %s, want its low bytes (7)", got)
+	}
+}

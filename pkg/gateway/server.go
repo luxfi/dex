@@ -287,6 +287,10 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
+	if _, err := wholeUnits(req.Amount); err != nil {
+		s.writeError(w, http.StatusBadRequest, err)
+		return
+	}
 
 	ctx := s.requestContext(r)
 	asked := s.convertQuoteRequest(req)
@@ -445,6 +449,10 @@ func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
+	if _, err := wholeUnits(req.Amount); err != nil {
+		s.writeError(w, http.StatusBadRequest, err)
+		return
+	}
 
 	ctx := s.requestContext(r)
 	asked := s.convertQuoteRequest(req)
@@ -490,9 +498,8 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, fmt.Errorf("recipient is required"))
 		return
 	}
-	amount, ok := new(big.Int).SetString(req.Amount, 10)
-	if !ok || amount.Sign() <= 0 {
-		s.writeError(w, http.StatusBadRequest, fmt.Errorf("amount %q is not a whole number of the token's smallest unit", req.Amount))
+	if _, err := wholeUnits(req.Amount); err != nil {
+		s.writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -526,7 +533,7 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 	tx, err := venue.Swap(SwapOrder{
 		TokenIn:   req.TokenIn,
 		TokenOut:  req.TokenOut,
-		AmountIn:  amount,
+		AmountIn:  asked.Amount,
 		MinOut:    leastAccepted(best.TokenOut.Amount, req.Slippage),
 		Recipient: req.Recipient,
 		Deadline:  req.Deadline,
@@ -545,6 +552,29 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 	tx.ChainID = req.ChainID
 
 	s.writeJSON(w, http.StatusOK, swapResponse{Swap: *tx, Quote: best})
+}
+
+// maxUint256 is the widest number an EVM word holds.
+var maxUint256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+// wholeUnits reads an amount: a whole number of a token's smallest unit, as a
+// decimal string, that fits in one EVM word.
+//
+// One parser for every path that takes an amount, because the alternative is
+// what was here — the quote accepting anything and the swap checking only the
+// sign, so a number wider than a word reached the encoder and was written as
+// its HIGH 32 bytes. The caller asked to swap one number and got calldata for
+// another. Refused at the edge instead, where the sentence can say what is
+// wrong with it.
+func wholeUnits(amount string) (*big.Int, error) {
+	n, ok := new(big.Int).SetString(amount, 10)
+	if !ok || n.Sign() <= 0 {
+		return nil, fmt.Errorf("amount %q is not a whole number of the token's smallest unit", amount)
+	}
+	if n.Cmp(maxUint256) > 0 {
+		return nil, fmt.Errorf("amount %q does not fit in a uint256", amount)
+	}
+	return n, nil
 }
 
 // leastAccepted is the amountOutMinimum for a quote taken at a tolerance.
