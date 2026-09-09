@@ -314,6 +314,37 @@ settle ourselves. Measured against 96369 with `LUX_V3_QUOTER` set:
     1              [uniswap_v2, uniswap_v3]
     10, 56, 137, 8453, 42161 the same
 
+⚠ **The `v4_native` arm on 96369 is configured and silent.** `0x9010` answers
+`0x` there — measured with the venue's own quoter selector — so the arm quotes
+nothing and every 96369 price today comes from `uniswap_v3`, reading the
+QuoterV2 the venue deployment put on that chain. `native: true` says the arm is
+attached, not that it answered; a quote is what tells you. It starts answering
+the day the precompile does, with no configuration change.
+
+What 96369 actually carries, from luxfi/standard `deployments/venue/96369.json`:
+
+    V3Factory   0x6E5884084814F4785e21f6f9C11D3C299Ef5d7f1
+    Quoter (V2) 0x6EA2F79f743C809D1152657Ef5d5907f47a34cfc   LUX_V3_QUOTER
+    Router (02) 0xbbD8d9A1E6bf5627A2F6D2aF38664bbe1cEF63Bb   LUX_V3_ROUTER
+    Positions   0xd5350c2f13772f126F942b152BaeFee943df4e5a
+    WLUX        0x66dbed9572eb9be45ef05526c65beddf8d60a672
+
+Its `Router` key is the V3 SwapRouter, NOT a V2 Router02 — `factory()` answers
+the V3 factory and `WETH()` reverts — so it belongs to `LUX_V3_ROUTER` and
+never to `LUX_V2_ROUTER`. The 12 V2 pairs on that chain hold reserves and
+become quotable when a Router02 is deployed, not before.
+
+Prices measured through this surface, one whole unit in, on every configured
+chain:
+
+    96369     WLUX  -> LUSD   997001483075056712      uniswap_v3  tier 3000
+    1         WETH  -> USDC   2517103282              uniswap_v3  tier  100
+    8453      WETH  -> USDC   2519069935              uniswap_v3  tier  500
+    42161     WETH  -> USDC   2519534429              uniswap_v3  tier  500
+    10        WETH  -> USDC   2509863629              uniswap_v3  tier  500
+    137       WPOL  -> USDC   99582                   uniswap_v3  tier  500
+    56        WBNB  -> USDT   755677742862096479703   uniswap_v3  tier  100
+
 ### The venue that quoted is the venue that builds
 
 `/v1/trade/swap` asked the hosted provider registry for a price — which this
