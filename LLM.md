@@ -372,6 +372,26 @@ the best, so it is a reading of ONE pool. The winning tier rides on
 `route[0].fee` and the swap names the same one — without it the transaction
 executes against a different pool at a different price.
 
+**The deadline is honoured on every arm.** SwapRouter02 dropped the field from
+`exactInputSingle`'s tuple and takes it through `multicall(uint256,bytes[])`
+instead, which is how Uniswap's own interface sends one; the V2 router takes it
+directly. Without the wrap a deadline was accepted and silently dropped on
+every V3 route while V2 honoured it — one field meaning two things depending on
+which pool won the quote. `amountOutMinimum` bounds the price, the deadline
+bounds the time, and a signed swap that lands an hour late still passes its
+floor at a price nobody would choose now.
+
+Both directions measured against 96369's live router:
+
+    deadline ahead of block.timestamp -> 997001483075056712, the quoted amount
+    deadline behind it                -> execution reverted: Transaction too old
+
+⚠ **96369's clock is not wall clock.** It seals a block when there is a
+transaction, so `block.timestamp` was 4709 seconds behind wall clock while this
+was measured. A deadline computed from wall clock is generous here rather than
+tight, which is the safe direction — but a test that expects `now - 60` to be
+expired will not see it expire.
+
 **A direction is not a missing market.** `getAmountsOut` and
 `quoteExactInputSingle` price a known INPUT and have no other direction, so an
 exact-output request gets nothing back however deep the pool is. Answering that

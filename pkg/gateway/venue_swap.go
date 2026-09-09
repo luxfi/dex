@@ -51,6 +51,19 @@ func (o SwapOrder) deadline() *big.Int {
 // expects the recipient.
 var selectorV3ExactInputSingle = lxrMustDecodeHex("04e45aaf")
 
+// SwapRouter02.multicall(uint256 deadline, bytes[] data).
+//
+// The 02 router dropped the deadline from exactInputSingle's tuple and takes it
+// here instead, which is how Uniswap's own interface sends one. Without this
+// wrap a deadline handed to /v1/trade/swap was accepted and silently dropped on
+// every V3 route while the V2 route honoured it — one field meaning two things
+// depending on which pool happened to win the quote.
+//
+// amountOutMinimum bounds the PRICE; the deadline bounds the TIME. A signed
+// swap that sits in a mempool and lands an hour later still passes its floor,
+// at a price nobody would choose now.
+var selectorV3Multicall = lxrMustDecodeHex("5ae401dc")
+
 // Swap builds a SwapRouter02 call for a quote this venue gave.
 func (v *UniswapV3Venue) Swap(o SwapOrder) (*UnsignedTxResponse, error) {
 	if v.router == "" {
@@ -86,10 +99,32 @@ func (v *UniswapV3Venue) Swap(o SwapOrder) (*UnsignedTxResponse, error) {
 
 	return &UnsignedTxResponse{
 		To:       v.router,
-		Data:     "0x" + hex.EncodeToString(data),
+		Data:     "0x" + hex.EncodeToString(withDeadline(data, o.deadline())),
 		Value:    "0",
 		GasLimit: 220_000,
 	}, nil
+}
+
+// withDeadline wraps one call in SwapRouter02's multicall(deadline, bytes[]).
+//
+// Head: selector, deadline, offset to the array. Then the array: its length,
+// one offset per element, and each element as a length-prefixed blob padded to
+// a word — the offsets are counted from the start of the array, not the start
+// of the calldata, which is the detail that makes a hand-written dynamic
+// encoding revert.
+func withDeadline(call []byte, deadline *big.Int) []byte {
+	pad := (32 - len(call)%32) % 32
+
+	out := make([]byte, 0, 4+32*4+len(call)+pad)
+	out = append(out, selectorV3Multicall...)
+	out = append(out, lxrPadUint256(deadline)...)
+	out = append(out, lxrPadUint256(big.NewInt(64))...) // the array starts after two head words
+
+	out = append(out, lxrPadUint256(big.NewInt(1))...)  // one call
+	out = append(out, lxrPadUint256(big.NewInt(32))...) // which starts one word into the array body
+	out = append(out, lxrPadUint256(big.NewInt(int64(len(call))))...)
+	out = append(out, call...)
+	return append(out, make([]byte, pad)...)
 }
 
 // Swap builds a Router02 call for a quote this venue gave.

@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The calldata a wallet signs is the one thing here that spends money, so its
@@ -38,15 +39,12 @@ func TestV3SwapEncodesSwapRouter02(t *testing.T) {
 		t.Errorf("to = %s, want the router this venue was given", tx.To)
 	}
 
-	raw, err := hex.DecodeString(strings.TrimPrefix(tx.Data, "0x"))
-	if err != nil {
-		t.Fatalf("calldata: %v", err)
-	}
+	raw := unwrap(t, tx.Data)
 	if got, want := hex.EncodeToString(raw[:4]), "04e45aaf"; got != want {
 		t.Errorf("selector = %s, want %s", got, want)
 	}
 	if len(raw) != 4+32*7 {
-		t.Fatalf("calldata is %d bytes, want %d — a seven-field tuple encodes inline", len(raw), 4+32*7)
+		t.Fatalf("the call is %d bytes, want %d — a seven-field tuple encodes inline", len(raw), 4+32*7)
 	}
 
 	word := func(i int) []byte { return raw[4+32*i : 4+32*(i+1)] }
@@ -164,4 +162,89 @@ func TestTheFloorSitsBelowTheQuote(t *testing.T) {
 	if leastAccepted(quoted, 0.5).Cmp(quoted) >= 0 {
 		t.Error("the floor is not below the quote")
 	}
+}
+
+// SwapRouter02 dropped the deadline from exactInputSingle's tuple and takes it
+// through multicall(uint256,bytes[]) instead, which is how Uniswap's own
+// interface sends one. Without the wrap a deadline handed to /v1/trade/swap was
+// accepted and silently dropped on every V3 route while the V2 route honoured
+// it — one field meaning two things depending on which pool won the quote.
+//
+// amountOutMinimum bounds the price; the deadline bounds the time. A signed
+// swap that sits in a mempool and lands an hour later still passes its floor,
+// at a price nobody would choose now.
+func TestV3SwapCarriesTheDeadlineThroughMulticall(t *testing.T) {
+	v := NewUniswapV3Venue(UniswapV3Config{
+		RPCURL: "http://chain.invalid", QuoterAddress: testOther, RouterAddress: testOther,
+	})
+	tx, err := v.Swap(SwapOrder{
+		TokenIn: testWETH, TokenOut: testLUSD,
+		AmountIn: big.NewInt(1_000_000), MinOut: big.NewInt(995_000),
+		Recipient: testOther, Fee: 3000, Deadline: 1893456000,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	raw, _ := hex.DecodeString(strings.TrimPrefix(tx.Data, "0x"))
+
+	if got := hex.EncodeToString(raw[:4]); got != "5ae401dc" {
+		t.Fatalf("selector = %s, want 5ae401dc — multicall(uint256,bytes[])", got)
+	}
+	word := func(i int) *big.Int { return new(big.Int).SetBytes(raw[4+32*i : 4+32*(i+1)]) }
+	if word(0).Int64() != 1893456000 {
+		t.Errorf("deadline = %s, want the one asked for", word(0))
+	}
+	if word(1).Int64() != 64 {
+		t.Errorf("array offset = %s, want 64 — two head words", word(1))
+	}
+	if word(2).Int64() != 1 {
+		t.Errorf("array length = %s, want 1", word(2))
+	}
+	// Offsets inside a dynamic array count from the start of the ARRAY, not the
+	// start of the calldata. Counting from the wrong place is what makes a
+	// hand-written encoding revert.
+	if word(3).Int64() != 32 {
+		t.Errorf("element offset = %s, want 32", word(3))
+	}
+
+	inner := word(4).Int64()
+	if inner != 4+32*7 {
+		t.Fatalf("inner length = %d, want %d", inner, 4+32*7)
+	}
+	body := raw[4+32*5:]
+	if got := hex.EncodeToString(body[:4]); got != "04e45aaf" {
+		t.Errorf("wrapped call = %s, want exactInputSingle", got)
+	}
+	// The blob is padded to a whole word, and the padding is not part of it.
+	if len(body)%32 != 0 {
+		t.Errorf("calldata is %d bytes past the head — dynamic data pads to a word", len(body)%32)
+	}
+	if int64(len(body)) < inner {
+		t.Errorf("the wrapped call is %d bytes but the length says %d", len(body), inner)
+	}
+
+	// A deadline nobody asked for is twenty minutes out, not zero — zero is a
+	// deadline in 1970 and every swap would revert as too old.
+	tx, _ = v.Swap(SwapOrder{
+		TokenIn: testWETH, TokenOut: testLUSD,
+		AmountIn: big.NewInt(1), MinOut: big.NewInt(1), Recipient: testOther, Fee: 3000,
+	})
+	raw, _ = hex.DecodeString(strings.TrimPrefix(tx.Data, "0x"))
+	if d := new(big.Int).SetBytes(raw[4 : 4+32]).Int64(); d < time.Now().Unix() {
+		t.Errorf("unset deadline = %d, which is already past", d)
+	}
+}
+
+// unwrap returns the one call inside SwapRouter02's multicall(deadline, calls).
+func unwrap(t *testing.T, data string) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(strings.TrimPrefix(data, "0x"))
+	if err != nil {
+		t.Fatalf("calldata: %v", err)
+	}
+	if got := hex.EncodeToString(raw[:4]); got != "5ae401dc" {
+		t.Fatalf("selector = %s, want the multicall the deadline rides in", got)
+	}
+	n := new(big.Int).SetBytes(raw[4+32*4 : 4+32*5]).Int64()
+	return raw[4+32*5 : 4+32*5+int(n)]
 }

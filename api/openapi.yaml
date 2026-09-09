@@ -445,7 +445,17 @@ components:
         deadline:
           type: integer
           format: int64
-          description: Unix seconds after which the transaction must not execute.
+          description: |
+            Unix seconds after which the transaction must not execute. Twenty
+            minutes out when unset. `amountOutMinimum` bounds the price; this
+            bounds the time — a signed swap that sits in a mempool and lands an
+            hour later still passes its floor, at a price nobody would choose
+            now.
+
+            Honoured on every arm. SwapRouter02 dropped the field from
+            `exactInputSingle` and takes it through `multicall(uint256,bytes[])`
+            instead, which is what a V3 route is wrapped in; the V2 router takes
+            it directly.
 
     UnsignedTx:
       type: object
