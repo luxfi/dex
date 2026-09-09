@@ -44,11 +44,22 @@ func DefaultServerConfig() ServerConfig {
 }
 
 // corsMiddleware wraps an http.Handler with permissive CORS headers.
+// Every path here is an unauthenticated read of public pools. No cookie, no
+// bearer, no credential of any kind rides these requests, which is why the
+// origin is `*`: there is nothing one origin could be trusted with that another
+// could not, and naming one would break the docs site, a wallet and any partner
+// reading a price, each silently.
+//
+// The header list is the headers this surface reads. It used to also permit
+// Authorization, X-API-Key, X-Universal-Router-Version and X-Permit2-Disabled —
+// the last two from the Uniswap-shaped /trading/* compat routes, which are
+// gone, and the first two from an authentication this has never had. A
+// permitted header nobody sends is an invitation to send it.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-API-Key, X-Universal-Router-Version, X-Permit2-Disabled")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == http.MethodOptions {

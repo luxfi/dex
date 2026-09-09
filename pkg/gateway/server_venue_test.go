@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -410,5 +411,39 @@ func TestOneVenueSetCanSwapAsWellAsQuote(t *testing.T) {
 	}
 	if bytes.Contains(w.Body.Bytes(), []byte("not registered")) {
 		t.Errorf("the venue that priced it was not found: %s", w.Body.String())
+	}
+}
+
+// The preflight permits what this surface reads and nothing else. It used to
+// also permit Authorization and X-API-Key, which nothing here has ever read,
+// and X-Universal-Router-Version and X-Permit2-Disabled, which belonged to the
+// Uniswap-shaped compat routes that are gone. A permitted header nobody sends
+// is an invitation to send it.
+func TestThePreflightPermitsOnlyWhatIsRead(t *testing.T) {
+	s := newPoolOnlyServer()
+	r := httptest.NewRequest(http.MethodOptions, "/v1/trade/quote", nil)
+	r.Header.Set("Origin", "https://lux.exchange")
+	r.Header.Set("Access-Control-Request-Method", "POST")
+	w := httptest.NewRecorder()
+	corsMiddleware(s.mux).ServeHTTP(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("preflight answered %d, want 204", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("origin = %q — an unauthenticated read of public pools answers any origin", got)
+	}
+	allowed := w.Header().Get("Access-Control-Allow-Headers")
+	if allowed != "Content-Type, X-Request-ID" {
+		t.Errorf("allowed headers = %q, want the two this surface reads", allowed)
+	}
+	for _, dead := range []string{"Authorization", "X-API-Key", "X-Universal-Router-Version", "X-Permit2-Disabled"} {
+		if strings.Contains(allowed, dead) {
+			t.Errorf("%s is still permitted and nothing reads it", dead)
+		}
+	}
+	// PUT and DELETE went with the order and position paths.
+	if m := w.Header().Get("Access-Control-Allow-Methods"); strings.Contains(m, "DELETE") || strings.Contains(m, "PUT") {
+		t.Errorf("methods = %q, but nothing here answers either", m)
 	}
 }
