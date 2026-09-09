@@ -373,3 +373,42 @@ func TestExactOutputSaysItIsTheDirection(t *testing.T) {
 		t.Fatalf("the pair is held after all: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A deployment handed one venue set for everything — which is what a
+// single-chain run does — must be able to swap on it, not only quote. The swap
+// used to look at the per-chain set alone, so it priced the pair and then
+// reported the venue that had just priced it as unregistered.
+func TestOneVenueSetCanSwapAsWellAsQuote(t *testing.T) {
+	chain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID uint64 `json:"id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": req.ID, "result": "0x" + fmt.Sprintf("%064x", 997_000),
+		})
+	}))
+	t.Cleanup(chain.Close)
+
+	s := NewServer(NewRouter(NewRegistry(), true), DefaultServerConfig(),
+		WithVenues(NewVenueRouter(NewUniswapV3Venue(UniswapV3Config{
+			RPCURL:        chain.URL,
+			QuoterAddress: testOther,
+			RouterAddress: "0xbbD8d9A1E6bf5627A2F6D2aF38664bbe1cEF63Bb",
+		}))))
+
+	body := map[string]any{
+		"chainId": uint64(ChainIDLux), "tokenIn": testWETH, "tokenOut": testLUSD,
+		"amount": "1000000000000000000", "isExactIn": true, "recipient": testOther,
+	}
+	if w := ask(s, http.MethodPost, "/v1/trade/quote", body); w.Code != http.StatusOK {
+		t.Fatalf("quote: %d %s", w.Code, w.Body.String())
+	}
+	w := ask(s, http.MethodPost, "/v1/trade/swap", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("swap: %d %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("not registered")) {
+		t.Errorf("the venue that priced it was not found: %s", w.Body.String())
+	}
+}

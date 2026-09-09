@@ -113,20 +113,6 @@ func (c *ChainRouters) RPC(chain ChainID) string {
 	return c.rpc[chain]
 }
 
-// Venue returns one chain's arm by the name it calls itself, or nil.
-func (c *ChainRouters) Venue(chain ChainID, name string) Venue {
-	r := c.For(chain)
-	if r == nil {
-		return nil
-	}
-	for _, v := range r.Venues() {
-		if v.Name() == name {
-			return v
-		}
-	}
-	return nil
-}
-
 // For returns the venues that read one chain, or nil.
 func (c *ChainRouters) For(chain ChainID) *VenueRouter {
 	if c == nil {

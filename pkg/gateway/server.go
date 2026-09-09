@@ -338,6 +338,33 @@ func (s *Server) whyNothingHeld(asked QuoteRequest) error {
 	return fmt.Errorf("no venue here holds this pair")
 }
 
+// arms is the venues that read one chain: the per-chain set where there is
+// one, and otherwise the single set a one-chain deployment was handed.
+//
+// Every path that needs a venue asks this. The swap used to look only at the
+// per-chain set, so a deployment configured the other way could price a pair
+// and then report the venue that had just priced it as unregistered.
+func (s *Server) arms(chain ChainID) *VenueRouter {
+	if v := s.chains.For(chain); v != nil {
+		return v
+	}
+	return s.venues
+}
+
+// arm is one of them, by the name it calls itself.
+func (s *Server) arm(chain ChainID, name string) Venue {
+	venues := s.arms(chain)
+	if venues == nil {
+		return nil
+	}
+	for _, v := range venues.Venues() {
+		if v.Name() == name {
+			return v
+		}
+	}
+	return nil
+}
+
 // settles reports whether this deployment reads a chain from its own pools.
 // Where it does, "no providers available" is never the true answer — it names
 // an upstream registry the caller did not ask about.
@@ -349,10 +376,7 @@ func (s *Server) settles(chain ChainID) bool {
 // one holds, best first. Empty when none of them holds the pair — which is a
 // question for the providers and not an answer of its own.
 func (s *Server) venueQuotes(ctx context.Context, req QuoteRequest) []SwapQuote {
-	venues := s.chains.For(req.ChainID)
-	if venues == nil {
-		venues = s.venues
-	}
+	venues := s.arms(req.ChainID)
 	if venues == nil || len(venues.Venues()) == 0 {
 		return nil
 	}
@@ -474,15 +498,12 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 	// registry for the price and then encoding it for a fixed precompile —
 	// which is what this did — quotes a router on one chain and addresses a
 	// contract on another, in one answer.
+	//
+	// The same conversion /v1/trade/quote uses, on the same fields, so a swap
+	// can never be priced by a question shaped differently from the one a
+	// caller could have asked directly.
 	ctx := s.requestContext(r)
-	asked := QuoteRequest{
-		TokenIn:   Token{Address: req.TokenIn, ChainID: ChainID(req.ChainID)},
-		TokenOut:  Token{Address: req.TokenOut, ChainID: ChainID(req.ChainID)},
-		Amount:    amount,
-		IsExactIn: req.IsExactIn,
-		ChainID:   ChainID(req.ChainID),
-		Slippage:  req.Slippage,
-	}
+	asked := s.convertQuoteRequest(req.quoteRequest)
 	held := s.venueQuotes(ctx, asked)
 	if len(held) == 0 {
 		s.writeError(w, http.StatusNotFound, s.whyNothingHeld(asked))
@@ -494,7 +515,7 @@ func (s *Server) handleSwap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	venue := s.chains.Venue(asked.ChainID, best.ProviderName)
+	venue := s.arm(asked.ChainID, best.ProviderName)
 	if venue == nil {
 		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("venue %q priced this and is not registered", best.ProviderName))
 		return
